@@ -10,7 +10,7 @@
 [X] Стадия 4: Room, DataStore, сидирование упражнений
 [X] Стадия 5: Тесты слоя данных
 [X] Стадия 6: Библиотека упражнений (UI)
-[ ] Стадия 7: Тесты библиотеки
+[X] Стадия 7: Тесты библиотеки
 [ ] Стадия 8: Программы (список + редактор)
 [ ] Стадия 9: Тесты программ
 [ ] Стадия 10: Домен активной тренировки
@@ -39,3 +39,4 @@
 *   Стадия 5: тестовая инфраструктура — JVM тестов = JDK 21 (Robolectric 4.16, sdk=36 в robolectric.properties), abstract RoomDaoTest (lifecycle in-memory БД + tableCount) — ОБЯЗАТЕЛЬНЫЙ шаблон для тестовых стадий 7/9/11/14/18/20/22; @Config(application=Application) для обхода Hilt.
 *   Стадия 6 (шаблон UI): nullable exercises в UiState (null=loading, без вспышки пустого состояния), вычисляемый isEmpty, collectAsStateWithLifecycle (lifecycle-runtime-compose добавлен, общий version ref `lifecycle`), rememberSaveable для состояния диалогов — ЭТО ШАБЛОН для экранов стадий 8/12/15/16/21.
 *   На Стадию 10: мигрировать ViewModel'и стадий 6/8 с прямых DAO на репозитории. Отложено: per-row лямбды, TextFieldState.
+*   Стадия 7 (шаблон VM-тестов): MainDispatcherRule с testDispatcher — в runTest передавать mainDispatcherRule.testDispatcher.scheduler (один виртуальный клок!); фейки DAO — приватные в файле теста (1:1 с DAO, не выносить); live-коллектор для WhileSubscribed.
