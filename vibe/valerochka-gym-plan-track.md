@@ -5,7 +5,7 @@
 ## Стадии выполнения
 
 [X] Стадия 1: Перевод проекта на Kotlin/Compose (Gradle-каркас)
-[ ] Стадия 2: Дизайн-система (тема «C»)
+[X] Стадия 2: Дизайн-система (тема «C»)
 [ ] Стадия 3: Навигация и каркас экранов
 [ ] Стадия 4: Room, DataStore, сидирование упражнений
 [ ] Стадия 5: Тесты слоя данных
@@ -33,3 +33,5 @@
 *   2026-07-31: Robolectric 4.16 + SDK 36 требует JDK 21 для запуска тестов (android-jar скомпилирован Java 21), при jvmToolchain(17) у приложения. На Стадии 5 настроить JVM 21 для тестового таска (или запуск Gradle на JDK 21).
 *   Версии после Стадии 1: okhttp 5.4.0, androidx.test core-ktx 1.7.0, lifecycle-viewmodel-compose 2.9.4.
 
+*   Стадия 2: material-icons-core допустим, но НЕ добавлять material-icons-extended — иконки вкладок и далее делать локальными vector drawable (Material Symbols); когда PlayArrow останется единственным потребителем, material-icons-core убрать.
+*   Стадия 2: secondaryContainer намеренно teal-derived (пилюля NavigationBar), а не peach.
