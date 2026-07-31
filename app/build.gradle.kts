@@ -34,10 +34,27 @@ android {
     buildFeatures {
         compose = true
     }
+
+    testOptions {
+        unitTests {
+            isIncludeAndroidResources = true
+        }
+    }
 }
 
 kotlin {
     jvmToolchain(17)
+}
+
+// Robolectric 4.16 loads Java-21-compiled android-all jars for recent SDK levels, so the unit-test
+// JVM must be Java 21 even though the app itself is compiled with the JDK 17 toolchain.
+val javaToolchains = extensions.getByType<JavaToolchainService>()
+tasks.withType<Test>().configureEach {
+    javaLauncher.set(
+        javaToolchains.launcherFor {
+            languageVersion.set(JavaLanguageVersion.of(21))
+        },
+    )
 }
 
 room {
