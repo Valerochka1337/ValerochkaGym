@@ -10,8 +10,10 @@ import javax.inject.Provider
 import javax.inject.Singleton
 
 /**
- * Seeds the built-in exercises the first time the database is created. The database is injected
- * lazily via [Provider] to avoid a dependency cycle (the callback is a dependency of the database).
+ * Seeds the built-in exercises. [onCreate] fills a freshly created database; [onOpen] re-checks on
+ * every open and seeds if the table is empty, which heals a process death that interrupts the
+ * initial seed (otherwise the library would stay empty forever). The database is injected lazily
+ * via [Provider] to avoid a dependency cycle (the callback is a dependency of the database).
  */
 @Singleton
 class GymDatabaseCallback @Inject constructor(
@@ -23,6 +25,16 @@ class GymDatabaseCallback @Inject constructor(
         super.onCreate(db)
         scope.launch {
             database.get().exerciseDao().insertAll(seedExercises)
+        }
+    }
+
+    override fun onOpen(db: SupportSQLiteDatabase) {
+        super.onOpen(db)
+        scope.launch {
+            val dao = database.get().exerciseDao()
+            if (dao.count() == 0) {
+                dao.insertAll(seedExercises)
+            }
         }
     }
 }

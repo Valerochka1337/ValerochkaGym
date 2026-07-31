@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 1,
-    "identityHash": "277a6c72c9702a4974b7d1869cb2ee78",
+    "identityHash": "e7072296ed614621be4bf9b34dfa9538",
     "entities": [
       {
         "tableName": "exercises",
@@ -110,7 +110,7 @@
             "affinity": "INTEGER"
           },
           {
-            "fieldPath": "plannedSetsJson",
+            "fieldPath": "plannedSets",
             "columnName": "plannedSetsJson",
             "affinity": "TEXT",
             "notNull": true
@@ -292,6 +292,15 @@
             ],
             "orders": [],
             "createSql": "CREATE INDEX IF NOT EXISTS `index_workouts_routineId` ON `${TABLE_NAME}` (`routineId`)"
+          },
+          {
+            "name": "index_workouts_finishedAt",
+            "unique": false,
+            "columnNames": [
+              "finishedAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_workouts_finishedAt` ON `${TABLE_NAME}` (`finishedAt`)"
           }
         ],
         "foreignKeys": [
@@ -476,7 +485,7 @@
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '277a6c72c9702a4974b7d1869cb2ee78')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'e7072296ed614621be4bf9b34dfa9538')"
     ]
   }
 }

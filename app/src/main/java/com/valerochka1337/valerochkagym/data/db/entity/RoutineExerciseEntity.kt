@@ -1,9 +1,11 @@
 package com.valerochka1337.valerochkagym.data.db.entity
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
+import com.valerochka1337.valerochkagym.data.db.PlannedSet
 
 @Entity(
     tableName = "routine_exercises",
@@ -28,5 +30,5 @@ data class RoutineExerciseEntity(
     val exerciseId: Long,
     val position: Int,
     val restSeconds: Int? = null,
-    val plannedSetsJson: String,
+    @ColumnInfo(name = "plannedSetsJson") val plannedSets: List<PlannedSet> = emptyList(),
 )

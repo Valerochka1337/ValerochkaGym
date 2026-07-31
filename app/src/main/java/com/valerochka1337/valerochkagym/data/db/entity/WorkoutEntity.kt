@@ -15,7 +15,7 @@ import androidx.room.PrimaryKey
             onDelete = ForeignKey.SET_NULL,
         ),
     ],
-    indices = [Index("routineId")],
+    indices = [Index("routineId"), Index("finishedAt")],
 )
 data class WorkoutEntity(
     @PrimaryKey val id: String,

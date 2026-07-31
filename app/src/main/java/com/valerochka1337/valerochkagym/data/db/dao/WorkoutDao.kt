@@ -51,9 +51,10 @@ interface WorkoutDao {
     suspend fun getWorkoutFull(id: String): WorkoutFull?
 
     /**
-     * Completed sets of [exerciseId] taken from the most recent finished workout that contains it.
-     * The subquery selects the workout_exercises row of that exercise belonging to the finished
-     * workout with the latest finishedAt; sets are then filtered to completed and ordered by setIndex.
+     * Completed sets of [exerciseId] taken from the most recent finished workout that contains it
+     * with at least one completed set. The EXISTS clause skips finished workouts where the exercise
+     * was added but never completed, so the fallback is the latest workout with real data. Sets are
+     * then filtered to completed and ordered by setIndex.
      */
     @Query(
         """
@@ -62,6 +63,10 @@ interface WorkoutDao {
             SELECT we.id FROM workout_exercises we
             JOIN workouts w ON w.id = we.workoutId
             WHERE we.exerciseId = :exerciseId AND w.finishedAt IS NOT NULL
+              AND EXISTS (
+                  SELECT 1 FROM workout_sets s
+                  WHERE s.workoutExerciseId = we.id AND s.isCompleted = 1
+              )
             ORDER BY w.finishedAt DESC
             LIMIT 1
         )
