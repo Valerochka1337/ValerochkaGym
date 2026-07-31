@@ -6,9 +6,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -17,6 +21,8 @@ import androidx.navigation.navArgument
 import com.valerochka1337.valerochkagym.ui.components.GlowBackground
 import com.valerochka1337.valerochkagym.ui.history.HistoryScreen
 import com.valerochka1337.valerochkagym.ui.library.ExerciseLibraryScreen
+import com.valerochka1337.valerochkagym.ui.routine.RoutineEditorScreen
+import com.valerochka1337.valerochkagym.ui.routine.RoutineEditorViewModel
 import com.valerochka1337.valerochkagym.ui.settings.SettingsScreen
 import com.valerochka1337.valerochkagym.ui.workouts.WorkoutsScreen
 
@@ -33,6 +39,9 @@ object GymRoutes {
 
     const val ROUTINE_ID_ARG = "routineId"
     const val WORKOUT_ID_ARG = "workoutId"
+
+    /** Ключ savedStateHandle, через который библиотека-пикер возвращает выбранное упражнение. */
+    const val SELECTED_EXERCISE_ID = "selected_exercise_id"
 
     const val ROUTINE_EDITOR = "routine_editor?$ROUTINE_ID_ARG={$ROUTINE_ID_ARG}"
     const val WORKOUT_SUMMARY = "workout_summary/{$WORKOUT_ID_ARG}"
@@ -61,14 +70,25 @@ fun GymNavGraph(
         startDestination = GYM_START_DESTINATION,
         modifier = modifier,
     ) {
-        composable(GymRoutes.WORKOUTS) { WorkoutsScreen() }
+        composable(GymRoutes.WORKOUTS) {
+            WorkoutsScreen(
+                onCreateRoutine = { navController.navigate(GymRoutes.routineEditor(null)) },
+                onEditRoutine = { id -> navController.navigate(GymRoutes.routineEditor(id.toString())) },
+                onStartWorkout = { navController.navigate(GymRoutes.ACTIVE_WORKOUT) },
+            )
+        }
         composable(GymRoutes.HISTORY) { HistoryScreen() }
         composable(GymRoutes.SETTINGS) { SettingsScreen() }
 
         composable(GymRoutes.LIBRARY) {
             ExerciseLibraryScreen(
                 onBack = { navController.popBackStack() },
-                onExerciseSelected = null,
+                // Открыта из редактора программы: возвращаем выбранное упражнение назад.
+                onExerciseSelected = { exercise ->
+                    navController.previousBackStackEntry?.savedStateHandle
+                        ?.set(GymRoutes.SELECTED_EXERCISE_ID, exercise.id)
+                    navController.popBackStack()
+                },
             )
         }
         composable(GymRoutes.ACTIVE_WORKOUT) { PlaceholderScreen("Активная тренировка") }
@@ -82,7 +102,22 @@ fun GymNavGraph(
                     defaultValue = null
                 },
             ),
-        ) { PlaceholderScreen("Редактор программы") }
+        ) { backStackEntry ->
+            val viewModel = hiltViewModel<RoutineEditorViewModel>(backStackEntry)
+            val selectedExerciseId by backStackEntry.savedStateHandle
+                .getStateFlow<Long?>(GymRoutes.SELECTED_EXERCISE_ID, null)
+                .collectAsStateWithLifecycle()
+            LaunchedEffect(selectedExerciseId) {
+                val id = selectedExerciseId ?: return@LaunchedEffect
+                viewModel.addExerciseById(id)
+                backStackEntry.savedStateHandle[GymRoutes.SELECTED_EXERCISE_ID] = null
+            }
+            RoutineEditorScreen(
+                onBack = { navController.popBackStack() },
+                onAddExercise = { navController.navigate(GymRoutes.LIBRARY) },
+                viewModel = viewModel,
+            )
+        }
 
         composable(
             route = GymRoutes.WORKOUT_SUMMARY,

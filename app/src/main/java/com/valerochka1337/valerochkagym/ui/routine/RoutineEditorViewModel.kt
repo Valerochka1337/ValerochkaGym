@@ -1,0 +1,201 @@
+package com.valerochka1337.valerochkagym.ui.routine
+
+import androidx.lifecycle.SavedStateHandle
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.valerochka1337.valerochkagym.data.db.PlannedSet
+import com.valerochka1337.valerochkagym.data.db.dao.ExerciseDao
+import com.valerochka1337.valerochkagym.data.db.dao.RoutineDao
+import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
+import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
+import com.valerochka1337.valerochkagym.data.db.entity.RoutineEntity
+import com.valerochka1337.valerochkagym.data.db.entity.RoutineExerciseEntity
+import com.valerochka1337.valerochkagym.ui.navigation.GymRoutes
+import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.receiveAsFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import javax.inject.Inject
+
+/** Количество пустых подходов по умолчанию у только что добавленного силового упражнения. */
+private const val DEFAULT_STRENGTH_SETS = 3
+
+/** Одно упражнение в редакторе программы. */
+data class EditorExercise(
+    val exerciseId: Long,
+    val exerciseName: String,
+    val exerciseType: ExerciseType,
+    val restSeconds: Int?,
+    val plannedSets: List<PlannedSet>,
+)
+
+/**
+ * Состояние редактора программы. [isNew] отличает создание от редактирования (для заголовка);
+ * [isValid] — можно ли сохранять (непустое имя и хотя бы одно упражнение).
+ */
+data class RoutineEditorUiState(
+    val isNew: Boolean = true,
+    val name: String = "",
+    val exercises: List<EditorExercise> = emptyList(),
+) {
+    val isValid: Boolean get() = name.trim().isNotEmpty() && exercises.isNotEmpty()
+}
+
+/**
+ * Бэкенд редактора программы. Загружает существующую программу по routineId из
+ * [SavedStateHandle] (null — новая). Все правки идут в память; при [save] пишет
+ * routine + упражнения (позиции по индексу) и шлёт событие [saved] для popBackStack.
+ */
+@HiltViewModel
+class RoutineEditorViewModel @Inject constructor(
+    savedStateHandle: SavedStateHandle,
+    private val routineDao: RoutineDao,
+    private val exerciseDao: ExerciseDao,
+) : ViewModel() {
+
+    private val routineId: Long? =
+        savedStateHandle.get<String>(GymRoutes.ROUTINE_ID_ARG)?.toLongOrNull()
+
+    private val _uiState = MutableStateFlow(RoutineEditorUiState(isNew = routineId == null))
+    val uiState: StateFlow<RoutineEditorUiState> = _uiState.asStateFlow()
+
+    private val _saved = Channel<Unit>(Channel.BUFFERED)
+    val saved = _saved.receiveAsFlow()
+
+    init {
+        if (routineId != null) {
+            viewModelScope.launch { load(routineId) }
+        }
+    }
+
+    private suspend fun load(id: Long) {
+        val full = routineDao.getRoutineWithExercises(id) ?: return
+        _uiState.value = RoutineEditorUiState(
+            isNew = false,
+            name = full.routine.name,
+            exercises = full.exercises
+                .sortedBy { it.routineExercise.position }
+                .map { item ->
+                    EditorExercise(
+                        exerciseId = item.exercise.id,
+                        exerciseName = item.exercise.name,
+                        exerciseType = item.exercise.type,
+                        restSeconds = item.routineExercise.restSeconds,
+                        plannedSets = item.routineExercise.plannedSets,
+                    )
+                },
+        )
+    }
+
+    fun setName(value: String) {
+        _uiState.update { it.copy(name = value) }
+    }
+
+    /** Добавляет упражнение по id (после выбора в библиотеке). */
+    fun addExerciseById(exerciseId: Long) {
+        viewModelScope.launch {
+            val exercise = exerciseDao.getById(exerciseId) ?: return@launch
+            addExercise(exercise)
+        }
+    }
+
+    fun addExercise(exercise: ExerciseEntity) {
+        val setCount = if (exercise.type == ExerciseType.STRENGTH) DEFAULT_STRENGTH_SETS else 1
+        val editorExercise = EditorExercise(
+            exerciseId = exercise.id,
+            exerciseName = exercise.name,
+            exerciseType = exercise.type,
+            restSeconds = null,
+            plannedSets = List(setCount) { PlannedSet() },
+        )
+        _uiState.update { it.copy(exercises = it.exercises + editorExercise) }
+    }
+
+    fun removeExercise(index: Int) {
+        _uiState.update { state ->
+            if (index !in state.exercises.indices) return@update state
+            state.copy(exercises = state.exercises.toMutableList().apply { removeAt(index) })
+        }
+    }
+
+    fun moveUp(index: Int) = swap(index, index - 1)
+
+    fun moveDown(index: Int) = swap(index, index + 1)
+
+    private fun swap(from: Int, to: Int) {
+        _uiState.update { state ->
+            if (from !in state.exercises.indices || to !in state.exercises.indices) return@update state
+            state.copy(
+                exercises = state.exercises.toMutableList().apply {
+                    val tmp = this[from]
+                    this[from] = this[to]
+                    this[to] = tmp
+                },
+            )
+        }
+    }
+
+    fun setRest(exIndex: Int, restSeconds: Int?) {
+        updateExercise(exIndex) { it.copy(restSeconds = restSeconds) }
+    }
+
+    /** Добавляет подход как копию последнего (или пустой, если подходов ещё нет). */
+    fun addPlannedSet(exIndex: Int) {
+        updateExercise(exIndex) { exercise ->
+            val newSet = exercise.plannedSets.lastOrNull() ?: PlannedSet()
+            exercise.copy(plannedSets = exercise.plannedSets + newSet)
+        }
+    }
+
+    fun removePlannedSet(exIndex: Int, setIndex: Int) {
+        updateExercise(exIndex) { exercise ->
+            if (setIndex !in exercise.plannedSets.indices) return@updateExercise exercise
+            exercise.copy(
+                plannedSets = exercise.plannedSets.toMutableList().apply { removeAt(setIndex) },
+            )
+        }
+    }
+
+    fun updatePlannedSet(exIndex: Int, setIndex: Int, plannedSet: PlannedSet) {
+        updateExercise(exIndex) { exercise ->
+            if (setIndex !in exercise.plannedSets.indices) return@updateExercise exercise
+            exercise.copy(
+                plannedSets = exercise.plannedSets.toMutableList().apply { this[setIndex] = plannedSet },
+            )
+        }
+    }
+
+    private inline fun updateExercise(index: Int, transform: (EditorExercise) -> EditorExercise) {
+        _uiState.update { state ->
+            if (index !in state.exercises.indices) return@update state
+            state.copy(
+                exercises = state.exercises.toMutableList().apply { this[index] = transform(this[index]) },
+            )
+        }
+    }
+
+    fun save() {
+        val state = _uiState.value
+        if (!state.isValid) return
+        viewModelScope.launch {
+            val id = routineDao.upsertRoutine(
+                RoutineEntity(id = routineId ?: 0, name = state.name.trim()),
+            )
+            val entities = state.exercises.mapIndexed { index, exercise ->
+                RoutineExerciseEntity(
+                    routineId = id,
+                    exerciseId = exercise.exerciseId,
+                    position = index,
+                    restSeconds = exercise.restSeconds,
+                    plannedSets = exercise.plannedSets,
+                )
+            }
+            routineDao.replaceRoutineExercises(id, entities)
+            _saved.send(Unit)
+        }
+    }
+}

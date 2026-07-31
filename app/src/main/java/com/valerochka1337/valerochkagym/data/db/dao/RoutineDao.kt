@@ -25,6 +25,15 @@ interface RoutineDao {
     )
     fun observeRoutinesWithCount(): Flow<List<RoutineWithCount>>
 
+    /**
+     * Полное дерево всех программ (программа + её упражнения c plannedSets/restSeconds).
+     * Используется списком программ для оценки длительности в памяти — считать её в SQL
+     * нельзя, т.к. plannedSets хранятся как JSON.
+     */
+    @Transaction
+    @Query("SELECT * FROM routines ORDER BY name COLLATE NOCASE ASC")
+    fun observeRoutinesFull(): Flow<List<RoutineWithExercises>>
+
     @Transaction
     @Query("SELECT * FROM routines WHERE id = :id")
     suspend fun getRoutineWithExercises(id: Long): RoutineWithExercises?
