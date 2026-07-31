@@ -10,23 +10,18 @@ import javax.inject.Provider
 import javax.inject.Singleton
 
 /**
- * Seeds the built-in exercises. [onCreate] fills a freshly created database; [onOpen] re-checks on
- * every open and seeds if the table is empty, which heals a process death that interrupts the
- * initial seed (otherwise the library would stay empty forever). The database is injected lazily
- * via [Provider] to avoid a dependency cycle (the callback is a dependency of the database).
+ * Seeds the built-in exercises. Seeding lives entirely in [onOpen], which fires on every open
+ * including the very first: an empty table (count == 0) is filled, which both seeds a freshly
+ * created database and heals a process death that interrupted a previous seed. Keeping a single
+ * seeding path avoids the onCreate/onOpen race that could otherwise double-seed the catalogue. The
+ * database is injected lazily via [Provider] to avoid a dependency cycle (the callback is a
+ * dependency of the database).
  */
 @Singleton
 class GymDatabaseCallback @Inject constructor(
     private val database: Provider<GymDatabase>,
     @param:ApplicationScope private val scope: CoroutineScope,
 ) : RoomDatabase.Callback() {
-
-    override fun onCreate(db: SupportSQLiteDatabase) {
-        super.onCreate(db)
-        scope.launch {
-            database.get().exerciseDao().insertAll(seedExercises)
-        }
-    }
 
     override fun onOpen(db: SupportSQLiteDatabase) {
         super.onOpen(db)

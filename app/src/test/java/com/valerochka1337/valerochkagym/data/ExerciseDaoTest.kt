@@ -9,8 +9,8 @@ import com.valerochka1337.valerochkagym.data.db.dao.ExerciseDao
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleGroup
 import com.valerochka1337.valerochkagym.data.db.seedExercises
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -20,13 +20,12 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
-import java.util.concurrent.Executors
 import javax.inject.Provider
 
 /**
- * Exercises the real [GymDatabaseCallback] wiring. Seeding runs on a coroutine scope; the database
- * operations are pinned to a single-threaded executor so onCreate finishes its insert before the
- * onOpen guard reads the count, keeping the seed count deterministic in the test.
+ * Exercises the real [GymDatabaseCallback] wiring. Seeding runs asynchronously on a coroutine scope
+ * through the single onOpen path, so each test triggers the open and then waits for the catalogue to
+ * settle.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(application = android.app.Application::class)
@@ -42,9 +41,9 @@ class ExerciseDaoTest {
     }
 
     @Test
-    fun `onCreate seeds the whole built-in catalogue`() {
+    fun `first open seeds the whole built-in catalogue`() {
         val db = buildSeedingDatabase(fileName = null)
-        db.openHelper.writableDatabase // triggers onCreate
+        db.openHelper.writableDatabase // triggers onOpen on the freshly created database
 
         awaitExerciseCount(db.exerciseDao(), seedExercises.size)
 
@@ -69,8 +68,7 @@ class ExerciseDaoTest {
         assertEquals(0, runBlocking { plain.exerciseDao().count() })
         plain.close()
 
-        // Reopen with the real callback: the file already exists so onCreate does not fire, and
-        // onOpen must re-seed because the table is empty.
+        // Reopen with the real callback: onOpen must re-seed because the table is empty.
         val db = buildSeedingDatabase(fileName = dbFile.absolutePath)
         db.openHelper.writableDatabase
 
@@ -87,7 +85,7 @@ class ExerciseDaoTest {
         dbFile.delete()
 
         val first = buildSeedingDatabase(fileName = dbFile.absolutePath)
-        first.openHelper.writableDatabase // onCreate seeds
+        first.openHelper.writableDatabase // onOpen seeds the fresh database
         awaitExerciseCount(first.exerciseDao(), seedExercises.size)
         first.close()
         openDatabases.remove(first)
@@ -103,10 +101,7 @@ class ExerciseDaoTest {
 
     private fun buildSeedingDatabase(fileName: String?): GymDatabase {
         val context = ApplicationProvider.getApplicationContext<Context>()
-        val dbExecutor = Executors.newSingleThreadExecutor()
-        val scope = CoroutineScope(
-            SupervisorJob() + Executors.newSingleThreadExecutor().asCoroutineDispatcher(),
-        )
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         scopes += scope
 
         lateinit var holder: GymDatabase
@@ -118,8 +113,6 @@ class ExerciseDaoTest {
         }
         val db = builder
             .allowMainThreadQueries()
-            .setQueryExecutor(dbExecutor)
-            .setTransactionExecutor(dbExecutor)
             .addCallback(callback)
             .build()
         holder = db
