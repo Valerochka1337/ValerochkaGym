@@ -17,14 +17,17 @@ import javax.inject.Inject
 
 /**
  * Screen state for the exercise library. [exercises] is already filtered by
- * [query] and [selectedGroup]; [isEmpty] tells the UI to show an empty state.
+ * [query] and [selectedGroup]; a null value means the list hasn't loaded yet
+ * (distinct from a loaded-but-empty result), so the UI can suppress the empty
+ * state until the first emission. [isEmpty] is true only for a loaded empty list.
  */
 data class ExerciseLibraryUiState(
     val query: String = "",
     val selectedGroup: MuscleGroup? = null,
-    val exercises: List<ExerciseEntity> = emptyList(),
-    val isEmpty: Boolean = true,
-)
+    val exercises: List<ExerciseEntity>? = null,
+) {
+    val isEmpty: Boolean get() = exercises?.isEmpty() == true
+}
 
 /**
  * Backs the exercise library screen. Search and muscle-group filtering happen
@@ -49,7 +52,6 @@ class ExerciseLibraryViewModel @Inject constructor(
                 query = currentQuery,
                 selectedGroup = group,
                 exercises = filtered,
-                isEmpty = filtered.isEmpty(),
             )
         }.stateIn(
             scope = viewModelScope,

@@ -34,10 +34,9 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -45,6 +44,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleGroup
@@ -66,8 +66,8 @@ fun ExerciseLibraryScreen(
     onExerciseSelected: ((ExerciseEntity) -> Unit)? = null,
     viewModel: ExerciseLibraryViewModel = hiltViewModel(),
 ) {
-    val state by viewModel.uiState.collectAsState()
-    var showCreateDialog by remember { mutableStateOf(false) }
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
+    var showCreateDialog by rememberSaveable { mutableStateOf(false) }
 
     GlowBackground(modifier = modifier) {
         Box(modifier = Modifier.fillMaxSize()) {
@@ -92,10 +92,12 @@ fun ExerciseLibraryScreen(
 
                 Spacer(Modifier.height(12.dp))
 
-                if (state.isEmpty) {
-                    EmptyState(modifier = Modifier.fillMaxSize())
-                } else {
-                    LazyColumn(
+                val exercises = state.exercises
+                when {
+                    // Not loaded yet: show nothing (Room emits quickly).
+                    exercises == null -> Unit
+                    exercises.isEmpty() -> EmptyState(modifier = Modifier.fillMaxSize())
+                    else -> LazyColumn(
                         modifier = Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(
                             start = 24.dp,
@@ -105,7 +107,7 @@ fun ExerciseLibraryScreen(
                         ),
                         verticalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
-                        items(state.exercises, key = { it.id }) { exercise ->
+                        items(exercises, key = { it.id }) { exercise ->
                             ExerciseRow(
                                 exercise = exercise,
                                 onClick = onExerciseSelected?.let { callback ->
@@ -284,9 +286,12 @@ private fun CreateExerciseDialog(
     onDismiss: () -> Unit,
     onCreate: (name: String, group: MuscleGroup, type: ExerciseType) -> Unit,
 ) {
-    var name by remember { mutableStateOf("") }
-    var group by remember { mutableStateOf(MuscleGroup.CHEST) }
-    var type by remember { mutableStateOf(ExerciseType.STRENGTH) }
+    // Enums aren't Parcelable, so persist their .name across recreation and map back.
+    var name by rememberSaveable { mutableStateOf("") }
+    var groupName by rememberSaveable { mutableStateOf(MuscleGroup.CHEST.name) }
+    var typeName by rememberSaveable { mutableStateOf(ExerciseType.STRENGTH.name) }
+    val group = MuscleGroup.valueOf(groupName)
+    val type = ExerciseType.valueOf(typeName)
     val canCreate = name.trim().isNotEmpty()
 
     AlertDialog(
@@ -312,7 +317,7 @@ private fun CreateExerciseDialog(
                     items(MuscleGroup.entries, key = { it.name }) { entry ->
                         FilterChip(
                             selected = entry == group,
-                            onClick = { group = entry },
+                            onClick = { groupName = entry.name },
                             label = { Text(entry.displayName()) },
                         )
                     }
@@ -328,7 +333,7 @@ private fun CreateExerciseDialog(
                     ExerciseType.entries.forEach { entry ->
                         FilterChip(
                             selected = entry == type,
-                            onClick = { type = entry },
+                            onClick = { typeName = entry.name },
                             label = { Text(entry.displayName()) },
                         )
                     }
