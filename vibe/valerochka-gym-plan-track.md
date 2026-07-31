@@ -7,7 +7,7 @@
 [X] Стадия 1: Перевод проекта на Kotlin/Compose (Gradle-каркас)
 [X] Стадия 2: Дизайн-система (тема «C»)
 [X] Стадия 3: Навигация и каркас экранов
-[ ] Стадия 4: Room, DataStore, сидирование упражнений
+[X] Стадия 4: Room, DataStore, сидирование упражнений
 [ ] Стадия 5: Тесты слоя данных
 [ ] Стадия 6: Библиотека упражнений (UI)
 [ ] Стадия 7: Тесты библиотеки
@@ -35,3 +35,4 @@
 
 *   Стадия 2: material-icons-core допустим, но НЕ добавлять material-icons-extended — иконки вкладок и далее делать локальными vector drawable (Material Symbols); когда PlayArrow останется единственным потребителем, material-icons-core убрать.
 *   Стадия 2: secondaryContainer намеренно teal-derived (пилюля NavigationBar), а не peach.
+*   Стадия 4 (решения): ExerciseDao.search удалён — поиск в Стадии 6 делать в памяти (Kotlin contains(ignoreCase=true), кириллица); сидирование идемпотентно (onOpen + count()==0); lastCompletedSetsForExercise — семантика с EXISTS-фолбэком на последнюю тренировку с выполненными подходами (пиновать тестами Стадии 5); plannedSets — типизированное поле List<PlannedSet> (колонка plannedSetsJson).
