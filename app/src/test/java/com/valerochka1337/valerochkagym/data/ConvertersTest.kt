@@ -1,9 +1,5 @@
 package com.valerochka1337.valerochkagym.data
 
-import android.content.Context
-import androidx.room.Room
-import androidx.test.core.app.ApplicationProvider
-import com.valerochka1337.valerochkagym.data.db.GymDatabase
 import com.valerochka1337.valerochkagym.data.db.PlannedSet
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseDao
 import com.valerochka1337.valerochkagym.data.db.dao.RoutineDao
@@ -13,35 +9,19 @@ import com.valerochka1337.valerochkagym.data.db.entity.MuscleGroup
 import com.valerochka1337.valerochkagym.data.db.entity.RoutineEntity
 import com.valerochka1337.valerochkagym.data.db.entity.RoutineExerciseEntity
 import kotlinx.coroutines.test.runTest
-import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Before
 import org.junit.Test
-import org.junit.runner.RunWith
-import org.robolectric.RobolectricTestRunner
-import org.robolectric.annotation.Config
 
-@RunWith(RobolectricTestRunner::class)
-@Config(application = android.app.Application::class)
-class ConvertersTest {
+class ConvertersTest : RoomDaoTest() {
 
-    private lateinit var db: GymDatabase
     private lateinit var routineDao: RoutineDao
     private lateinit var exerciseDao: ExerciseDao
 
     @Before
-    fun setUp() {
-        val context = ApplicationProvider.getApplicationContext<Context>()
-        db = Room.inMemoryDatabaseBuilder(context, GymDatabase::class.java)
-            .allowMainThreadQueries()
-            .build()
+    fun grabDaos() {
         routineDao = db.routineDao()
         exerciseDao = db.exerciseDao()
-    }
-
-    @After
-    fun tearDown() {
-        db.close()
     }
 
     @Test

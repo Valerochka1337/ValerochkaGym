@@ -49,6 +49,7 @@ class ExerciseDaoTest {
 
         val all = runBlocking { db.exerciseDao().getAll().first() }
         assertEquals(seedExercises.size, all.size)
+        // Seed-composition contract: every muscle group must be represented in the built-in catalogue.
         assertEquals(MuscleGroup.entries.toSet(), all.map { it.muscleGroup }.toSet())
     }
 
@@ -58,23 +59,24 @@ class ExerciseDaoTest {
         val dbFile = context.getDatabasePath("exercise-dao-reseed-test.db")
         dbFile.parentFile?.mkdirs()
         dbFile.delete()
+        try {
+            // Create the schema with an empty exercises table (no seeding callback), simulating a
+            // process death that interrupted the initial seed.
+            val plain = Room.databaseBuilder(context, GymDatabase::class.java, dbFile.absolutePath)
+                .allowMainThreadQueries()
+                .build()
+            plain.openHelper.writableDatabase
+            assertEquals(0, runBlocking { plain.exerciseDao().count() })
+            plain.close()
 
-        // Create the schema with an empty exercises table (no seeding callback), simulating a
-        // process death that interrupted the initial seed.
-        val plain = Room.databaseBuilder(context, GymDatabase::class.java, dbFile.absolutePath)
-            .allowMainThreadQueries()
-            .build()
-        plain.openHelper.writableDatabase
-        assertEquals(0, runBlocking { plain.exerciseDao().count() })
-        plain.close()
+            // Reopen with the real callback: onOpen must re-seed because the table is empty.
+            val db = buildSeedingDatabase(fileName = dbFile.absolutePath)
+            db.openHelper.writableDatabase
 
-        // Reopen with the real callback: onOpen must re-seed because the table is empty.
-        val db = buildSeedingDatabase(fileName = dbFile.absolutePath)
-        db.openHelper.writableDatabase
-
-        awaitExerciseCount(db.exerciseDao(), seedExercises.size)
-
-        dbFile.delete()
+            awaitExerciseCount(db.exerciseDao(), seedExercises.size)
+        } finally {
+            dbFile.delete()
+        }
     }
 
     @Test
@@ -83,20 +85,21 @@ class ExerciseDaoTest {
         val dbFile = context.getDatabasePath("exercise-dao-keep-test.db")
         dbFile.parentFile?.mkdirs()
         dbFile.delete()
+        try {
+            val first = buildSeedingDatabase(fileName = dbFile.absolutePath)
+            first.openHelper.writableDatabase // onOpen seeds the fresh database
+            awaitExerciseCount(first.exerciseDao(), seedExercises.size)
+            first.close()
+            openDatabases.remove(first)
 
-        val first = buildSeedingDatabase(fileName = dbFile.absolutePath)
-        first.openHelper.writableDatabase // onOpen seeds the fresh database
-        awaitExerciseCount(first.exerciseDao(), seedExercises.size)
-        first.close()
-        openDatabases.remove(first)
-
-        // Reopen: onOpen sees a non-empty table and must not add duplicates.
-        val second = buildSeedingDatabase(fileName = dbFile.absolutePath)
-        second.openHelper.writableDatabase
-        awaitExerciseCount(second.exerciseDao(), seedExercises.size)
-        assertEquals(seedExercises.size, runBlocking { second.exerciseDao().count() })
-
-        dbFile.delete()
+            // Reopen: onOpen sees a non-empty table and must not add duplicates.
+            val second = buildSeedingDatabase(fileName = dbFile.absolutePath)
+            second.openHelper.writableDatabase
+            awaitExerciseCount(second.exerciseDao(), seedExercises.size)
+            assertEquals(seedExercises.size, runBlocking { second.exerciseDao().count() })
+        } finally {
+            dbFile.delete()
+        }
     }
 
     private fun buildSeedingDatabase(fileName: String?): GymDatabase {
@@ -120,6 +123,8 @@ class ExerciseDaoTest {
         return db
     }
 
+    // Seeding is a fire-and-forget scope.launch inside onOpen with no awaitable Job or Flow, so
+    // there is nothing for runTest/turbine to join on — polling the count is the way to wait for it.
     private fun awaitExerciseCount(dao: ExerciseDao, expected: Int, timeoutMs: Long = 10_000) {
         val deadline = System.currentTimeMillis() + timeoutMs
         var last = -1

@@ -1,10 +1,5 @@
 package com.valerochka1337.valerochkagym.data
 
-import android.content.Context
-import androidx.room.Room
-import androidx.sqlite.db.SimpleSQLiteQuery
-import androidx.test.core.app.ApplicationProvider
-import com.valerochka1337.valerochkagym.data.db.GymDatabase
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseDao
 import com.valerochka1337.valerochkagym.data.db.dao.WorkoutDao
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
@@ -15,37 +10,21 @@ import com.valerochka1337.valerochkagym.data.db.entity.WorkoutExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.WorkoutSetEntity
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
-import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
-import org.junit.runner.RunWith
-import org.robolectric.RobolectricTestRunner
-import org.robolectric.annotation.Config
 
-@RunWith(RobolectricTestRunner::class)
-@Config(application = android.app.Application::class)
-class WorkoutDaoTest {
+class WorkoutDaoTest : RoomDaoTest() {
 
-    private lateinit var db: GymDatabase
     private lateinit var workoutDao: WorkoutDao
     private lateinit var exerciseDao: ExerciseDao
 
     @Before
-    fun setUp() {
-        val context = ApplicationProvider.getApplicationContext<Context>()
-        db = Room.inMemoryDatabaseBuilder(context, GymDatabase::class.java)
-            .allowMainThreadQueries()
-            .build()
+    fun grabDaos() {
         workoutDao = db.workoutDao()
         exerciseDao = db.exerciseDao()
-    }
-
-    @After
-    fun tearDown() {
-        db.close()
     }
 
     // region lastCompletedSetsForExercise
@@ -275,10 +254,4 @@ class WorkoutDaoTest {
                 isCompleted = isCompleted,
             ),
         )
-
-    private fun tableCount(table: String): Int =
-        db.query(SimpleSQLiteQuery("SELECT COUNT(*) FROM $table")).use { cursor ->
-            cursor.moveToFirst()
-            cursor.getInt(0)
-        }
 }
