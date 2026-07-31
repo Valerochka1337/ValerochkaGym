@@ -33,11 +33,12 @@ object GymRoutes {
     const val ROUTINE_ID_ARG = "routineId"
     const val WORKOUT_ID_ARG = "workoutId"
 
-    const val ROUTINE_EDITOR = "routine_editor/{$ROUTINE_ID_ARG}"
+    const val ROUTINE_EDITOR = "routine_editor?$ROUTINE_ID_ARG={$ROUTINE_ID_ARG}"
     const val WORKOUT_SUMMARY = "workout_summary/{$WORKOUT_ID_ARG}"
     const val WORKOUT_DETAIL = "workout_detail/{$WORKOUT_ID_ARG}"
 
-    fun routineEditor(routineId: String) = "routine_editor/$routineId"
+    fun routineEditor(routineId: String? = null) =
+        if (routineId != null) "routine_editor?$ROUTINE_ID_ARG=$routineId" else "routine_editor"
     fun workoutSummary(workoutId: String) = "workout_summary/$workoutId"
     fun workoutDetail(workoutId: String) = "workout_detail/$workoutId"
 }
@@ -68,7 +69,13 @@ fun GymNavGraph(
 
         composable(
             route = GymRoutes.ROUTINE_EDITOR,
-            arguments = listOf(navArgument(GymRoutes.ROUTINE_ID_ARG) { type = NavType.StringType }),
+            arguments = listOf(
+                navArgument(GymRoutes.ROUTINE_ID_ARG) {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+            ),
         ) { PlaceholderScreen("Редактор программы") }
 
         composable(
