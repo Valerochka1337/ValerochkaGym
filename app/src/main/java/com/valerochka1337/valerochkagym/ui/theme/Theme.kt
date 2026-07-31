@@ -1,0 +1,31 @@
+package com.valerochka1337.valerochkagym.ui.theme
+
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.MaterialExpressiveTheme
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.runtime.Composable
+
+private val GymColorScheme = darkColorScheme(
+    primary = Teal,
+    onPrimary = OnAccent,
+    secondary = Peach,
+    onSecondary = OnAccent,
+    background = GymBlack,
+    onBackground = TextPrimary,
+    surface = GymSurface,
+    onSurface = TextPrimary,
+    surfaceVariant = GymSurfaceTop,
+    onSurfaceVariant = TextSecondary,
+    outline = TextTertiary,
+)
+
+/** App theme. Dark only, built on Material 3 Expressive. */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+fun GymTheme(content: @Composable () -> Unit) {
+    MaterialExpressiveTheme(
+        colorScheme = GymColorScheme,
+        typography = GymTypography,
+        content = content,
+    )
+}
