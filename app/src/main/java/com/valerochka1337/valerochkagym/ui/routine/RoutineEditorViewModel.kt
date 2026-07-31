@@ -40,6 +40,7 @@ data class EditorExercise(
 data class RoutineEditorUiState(
     val isNew: Boolean = true,
     val name: String = "",
+    val note: String = "",
     val exercises: List<EditorExercise> = emptyList(),
 ) {
     val isValid: Boolean get() = name.trim().isNotEmpty() && exercises.isNotEmpty()
@@ -77,6 +78,7 @@ class RoutineEditorViewModel @Inject constructor(
         _uiState.value = RoutineEditorUiState(
             isNew = false,
             name = full.routine.name,
+            note = full.routine.note,
             exercises = full.exercises
                 .sortedBy { it.routineExercise.position }
                 .map { item ->
@@ -183,7 +185,7 @@ class RoutineEditorViewModel @Inject constructor(
         if (!state.isValid) return
         viewModelScope.launch {
             val id = routineDao.upsertRoutine(
-                RoutineEntity(id = routineId ?: 0, name = state.name.trim()),
+                RoutineEntity(id = routineId ?: 0, name = state.name.trim(), note = state.note),
             )
             val entities = state.exercises.mapIndexed { index, exercise ->
                 RoutineExerciseEntity(

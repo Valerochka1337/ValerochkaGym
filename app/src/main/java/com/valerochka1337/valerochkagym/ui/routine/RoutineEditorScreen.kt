@@ -1,7 +1,6 @@
 package com.valerochka1337.valerochkagym.ui.routine
 
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -43,7 +42,6 @@ import com.valerochka1337.valerochkagym.ui.common.displayName
 import com.valerochka1337.valerochkagym.ui.components.GlowBackground
 import com.valerochka1337.valerochkagym.ui.components.GymCard
 import com.valerochka1337.valerochkagym.ui.components.NumberField
-import com.valerochka1337.valerochkagym.ui.components.PillButton
 
 /**
  * Полноэкранный редактор программы: имя, список упражнений с подходами и отдыхом.
