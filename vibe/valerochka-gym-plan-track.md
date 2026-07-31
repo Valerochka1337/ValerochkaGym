@@ -9,7 +9,7 @@
 [X] Стадия 3: Навигация и каркас экранов
 [X] Стадия 4: Room, DataStore, сидирование упражнений
 [X] Стадия 5: Тесты слоя данных
-[ ] Стадия 6: Библиотека упражнений (UI)
+[X] Стадия 6: Библиотека упражнений (UI)
 [ ] Стадия 7: Тесты библиотеки
 [ ] Стадия 8: Программы (список + редактор)
 [ ] Стадия 9: Тесты программ
@@ -37,3 +37,5 @@
 *   Стадия 2: secondaryContainer намеренно teal-derived (пилюля NavigationBar), а не peach.
 *   Стадия 4 (решения): ExerciseDao.search удалён — поиск в Стадии 6 делать в памяти (Kotlin contains(ignoreCase=true), кириллица); сидирование идемпотентно (onOpen + count()==0); lastCompletedSetsForExercise — семантика с EXISTS-фолбэком на последнюю тренировку с выполненными подходами (пиновать тестами Стадии 5); plannedSets — типизированное поле List<PlannedSet> (колонка plannedSetsJson).
 *   Стадия 5: тестовая инфраструктура — JVM тестов = JDK 21 (Robolectric 4.16, sdk=36 в robolectric.properties), abstract RoomDaoTest (lifecycle in-memory БД + tableCount) — ОБЯЗАТЕЛЬНЫЙ шаблон для тестовых стадий 7/9/11/14/18/20/22; @Config(application=Application) для обхода Hilt.
+*   Стадия 6 (шаблон UI): nullable exercises в UiState (null=loading, без вспышки пустого состояния), вычисляемый isEmpty, collectAsStateWithLifecycle (lifecycle-runtime-compose добавлен, общий version ref `lifecycle`), rememberSaveable для состояния диалогов — ЭТО ШАБЛОН для экранов стадий 8/12/15/16/21.
+*   На Стадию 10: мигрировать ViewModel'и стадий 6/8 с прямых DAO на репозитории. Отложено: per-row лямбды, TextFieldState.
