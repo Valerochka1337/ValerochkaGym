@@ -19,7 +19,6 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -266,8 +265,10 @@ class RoutineEditorViewModelTest {
             assertEquals(0L, routineDao.lastUpsertedRoutine?.id)
             assertEquals("План", routineDao.lastUpsertedRoutine?.name)
             assertEquals("", routineDao.lastUpsertedRoutine?.note)
-            val newId = routineDao.lastReplacedRoutineId
-            assertEquals(newId, routineDao.lastReplacedExercises.map { it.routineId }.distinct().single())
+            // The DAO hands back a fresh id (1) for the zero-id insert; the exercises must be written
+            // against that returned id, not against `routineId ?: 0`, which would slip through as 0.
+            assertEquals(1L, routineDao.lastReplacedRoutineId)
+            assertEquals(listOf(1L), routineDao.lastReplacedExercises.map { it.routineId }.distinct())
             assertEquals(listOf(1L, 2L), routineDao.lastReplacedExercises.map { it.exerciseId })
             assertEquals(listOf(0, 1), routineDao.lastReplacedExercises.map { it.position })
         }
