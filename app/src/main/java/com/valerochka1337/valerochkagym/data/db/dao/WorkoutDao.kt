@@ -36,6 +36,18 @@ interface WorkoutDao {
     @Update
     suspend fun updateSet(set: WorkoutSetEntity)
 
+    @Query("UPDATE workout_sets SET isCompleted = :completed WHERE id = :setId")
+    suspend fun setSetCompleted(setId: Long, completed: Boolean)
+
+    @Query("SELECT * FROM workout_sets WHERE workoutExerciseId = :workoutExerciseId ORDER BY setIndex ASC")
+    suspend fun getSetsForWorkoutExercise(workoutExerciseId: Long): List<WorkoutSetEntity>
+
+    @Query("SELECT * FROM workout_exercises WHERE workoutId = :workoutId ORDER BY position ASC")
+    suspend fun getWorkoutExercises(workoutId: String): List<WorkoutExerciseEntity>
+
+    @Query("UPDATE workouts SET finishedAt = :finishedAt WHERE id = :id")
+    suspend fun setFinishedAt(id: String, finishedAt: Long)
+
     @Transaction
     @Query("SELECT * FROM workouts WHERE finishedAt IS NULL ORDER BY startedAt DESC LIMIT 1")
     fun observeActiveWorkout(): Flow<WorkoutFull?>
