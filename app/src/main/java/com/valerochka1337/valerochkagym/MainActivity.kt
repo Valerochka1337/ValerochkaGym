@@ -6,8 +6,11 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -56,8 +59,10 @@ private fun DesignSystemPreview() {
             )
         }
         PillButton(
-            text = "▶ Начать тренировку",
+            text = "Начать тренировку",
             onClick = {},
+            modifier = Modifier.fillMaxWidth(),
+            leadingIcon = Icons.Rounded.PlayArrow,
         )
     }
 }

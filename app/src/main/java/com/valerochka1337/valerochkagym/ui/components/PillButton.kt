@@ -2,30 +2,39 @@ package com.valerochka1337.valerochkagym.ui.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.valerochka1337.valerochkagym.ui.theme.OnAccent
 import com.valerochka1337.valerochkagym.ui.theme.Teal
 import com.valerochka1337.valerochkagym.ui.theme.TealLight
 
+private val PillGradient = Brush.horizontalGradient(listOf(Teal, TealLight))
+
 /**
  * Fully-rounded pill button with a horizontal teal gradient and dark label.
- * Spans the full width by default.
+ * Add [Modifier.fillMaxWidth] via [modifier] to make it span the full width.
  */
 @Composable
 fun PillButton(
@@ -33,19 +42,34 @@ fun PillButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
+    leadingIcon: ImageVector? = null,
 ) {
-    Box(
+    val interactionSource = remember { MutableInteractionSource() }
+    Row(
         modifier = modifier
-            .fillMaxWidth()
             .heightIn(min = 56.dp)
             .clip(CircleShape)
             .alpha(if (enabled) 1f else 0.5f)
-            .background(brush = Brush.horizontalGradient(listOf(Teal, TealLight)))
-            .clickable(enabled = enabled, onClick = onClick)
+            .background(brush = PillGradient)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = ripple(),
+                enabled = enabled,
+                role = Role.Button,
+                onClick = onClick,
+            )
             .padding(horizontal = 24.dp, vertical = 16.dp),
-        contentAlignment = Alignment.Center,
+        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         CompositionLocalProvider(LocalContentColor provides OnAccent) {
+            if (leadingIcon != null) {
+                Icon(
+                    imageVector = leadingIcon,
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
             Text(
                 text = text,
                 style = MaterialTheme.typography.titleMedium,

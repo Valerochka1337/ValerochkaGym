@@ -16,3 +16,16 @@ val TextTertiary = Color(0xFF6B807C)
 
 /** Dark ink used on top of the bright teal/peach accents. */
 val OnAccent = Color(0xFF04241F)
+
+// Teal-derived containers (selected states, filled chips, NavigationBar pill).
+val TealContainer = Color(0xFF15453D)
+
+// Peach-derived container (tertiary accents).
+val PeachContainer = Color(0xFF4A3226)
+
+// Elevation ramp for M3 surfaceContainer* roles, from GymBlack up to GymSurfaceTop.
+val SurfaceContainerLowest = Color(0xFF0C100F)
+val SurfaceContainerLow = Color(0xFF12211E)
+val SurfaceContainer = Color(0xFF15271F)
+val SurfaceContainerHigh = Color(0xFF173029)
+val SurfaceContainerHighest = Color(0xFF1D3B33)

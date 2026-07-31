@@ -1,4 +1,7 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
-    <!-- Base application theme (Compose-driven; real theming added in a later stage). -->
-    <style name="Theme.ValerochkaGym" parent="android:Theme.Material.Light.NoActionBar" />
+    <!-- Dark-only base theme (Compose drives real theming). windowBackground matches
+         GymBlack so there is no white flash before the first Compose frame. -->
+    <style name="Theme.ValerochkaGym" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">#101413</item>
+    </style>
 </resources>
