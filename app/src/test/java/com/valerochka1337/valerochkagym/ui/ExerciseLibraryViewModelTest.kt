@@ -37,7 +37,7 @@ class ExerciseLibraryViewModelTest {
     // region query filtering
 
     @Test
-    fun `query filters by Cyrillic name ignoring case`() = runTest {
+    fun `query filters by Cyrillic name ignoring case`() = runTest(mainDispatcherRule.testDispatcher.scheduler) {
         val dao = FakeExerciseDao(catalogue())
         val viewModel = ExerciseLibraryViewModel(dao)
         collectUiState(viewModel)
@@ -49,7 +49,7 @@ class ExerciseLibraryViewModelTest {
     }
 
     @Test
-    fun `query is trimmed before matching`() = runTest {
+    fun `query is trimmed before matching`() = runTest(mainDispatcherRule.testDispatcher.scheduler) {
         val dao = FakeExerciseDao(catalogue())
         val viewModel = ExerciseLibraryViewModel(dao)
         collectUiState(viewModel)
@@ -62,7 +62,7 @@ class ExerciseLibraryViewModelTest {
     }
 
     @Test
-    fun `empty query returns the whole catalogue`() = runTest {
+    fun `empty query returns the whole catalogue`() = runTest(mainDispatcherRule.testDispatcher.scheduler) {
         val dao = FakeExerciseDao(catalogue())
         val viewModel = ExerciseLibraryViewModel(dao)
         collectUiState(viewModel)
@@ -72,12 +72,26 @@ class ExerciseLibraryViewModelTest {
         assertEquals(catalogue().size, viewModel.uiState.value.exercises?.size)
     }
 
+    @Test
+    fun `clearQuery restores the full catalogue`() = runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val dao = FakeExerciseDao(catalogue())
+        val viewModel = ExerciseLibraryViewModel(dao)
+        collectUiState(viewModel)
+
+        viewModel.onQueryChange("жим")
+        viewModel.clearQuery()
+
+        val state = viewModel.uiState.value
+        assertEquals("", state.query)
+        assertEquals(catalogue().size, state.exercises?.size)
+    }
+
     // endregion
 
     // region group filtering
 
     @Test
-    fun `selecting a group narrows the list to that group`() = runTest {
+    fun `selecting a group narrows the list to that group`() = runTest(mainDispatcherRule.testDispatcher.scheduler) {
         val dao = FakeExerciseDao(catalogue())
         val viewModel = ExerciseLibraryViewModel(dao)
         collectUiState(viewModel)
@@ -92,7 +106,7 @@ class ExerciseLibraryViewModelTest {
     }
 
     @Test
-    fun `re-tapping the active group clears the filter`() = runTest {
+    fun `re-tapping the active group clears the filter`() = runTest(mainDispatcherRule.testDispatcher.scheduler) {
         val dao = FakeExerciseDao(catalogue())
         val viewModel = ExerciseLibraryViewModel(dao)
         collectUiState(viewModel)
@@ -110,7 +124,7 @@ class ExerciseLibraryViewModelTest {
     // region combined filtering
 
     @Test
-    fun `query and group filter together`() = runTest {
+    fun `query and group filter together`() = runTest(mainDispatcherRule.testDispatcher.scheduler) {
         val dao = FakeExerciseDao(catalogue())
         val viewModel = ExerciseLibraryViewModel(dao)
         collectUiState(viewModel)
@@ -127,7 +141,7 @@ class ExerciseLibraryViewModelTest {
     // region loading and empty states
 
     @Test
-    fun `initial state is loading with no subscribers`() = runTest {
+    fun `initial state is loading with no subscribers`() = runTest(mainDispatcherRule.testDispatcher.scheduler) {
         val dao = FakeExerciseDao(catalogue())
         val viewModel = ExerciseLibraryViewModel(dao)
 
@@ -137,7 +151,7 @@ class ExerciseLibraryViewModelTest {
     }
 
     @Test
-    fun `first emission carries data and is not empty`() = runTest {
+    fun `first emission carries data and is not empty`() = runTest(mainDispatcherRule.testDispatcher.scheduler) {
         val dao = FakeExerciseDao(catalogue())
         val viewModel = ExerciseLibraryViewModel(dao)
         collectUiState(viewModel)
@@ -148,7 +162,7 @@ class ExerciseLibraryViewModelTest {
     }
 
     @Test
-    fun `a list filtered to nothing reports empty`() = runTest {
+    fun `a list filtered to nothing reports empty`() = runTest(mainDispatcherRule.testDispatcher.scheduler) {
         val dao = FakeExerciseDao(catalogue())
         val viewModel = ExerciseLibraryViewModel(dao)
         collectUiState(viewModel)
@@ -165,7 +179,7 @@ class ExerciseLibraryViewModelTest {
     // region createCustomExercise
 
     @Test
-    fun `createCustomExercise inserts a trimmed custom exercise`() = runTest {
+    fun `createCustomExercise inserts a trimmed custom exercise`() = runTest(mainDispatcherRule.testDispatcher.scheduler) {
         val dao = FakeExerciseDao()
         val viewModel = ExerciseLibraryViewModel(dao)
 
@@ -180,7 +194,7 @@ class ExerciseLibraryViewModelTest {
     }
 
     @Test
-    fun `createCustomExercise ignores a blank name`() = runTest {
+    fun `createCustomExercise ignores a blank name`() = runTest(mainDispatcherRule.testDispatcher.scheduler) {
         val dao = FakeExerciseDao()
         val viewModel = ExerciseLibraryViewModel(dao)
 
