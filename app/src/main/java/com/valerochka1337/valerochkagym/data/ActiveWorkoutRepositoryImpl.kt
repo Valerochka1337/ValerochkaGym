@@ -1,5 +1,7 @@
 package com.valerochka1337.valerochkagym.data
 
+import androidx.room.withTransaction
+import com.valerochka1337.valerochkagym.data.db.GymDatabase
 import com.valerochka1337.valerochkagym.data.db.PlannedSet
 import com.valerochka1337.valerochkagym.data.db.dao.RoutineDao
 import com.valerochka1337.valerochkagym.data.db.dao.WorkoutDao
@@ -18,14 +20,16 @@ import javax.inject.Inject
 private const val EMPTY_WORKOUT_NAME = "Тренировка"
 
 class ActiveWorkoutRepositoryImpl @Inject constructor(
+    private val database: GymDatabase,
     private val workoutDao: WorkoutDao,
     private val routineDao: RoutineDao,
 ) : ActiveWorkoutRepository {
 
-    override suspend fun startFromRoutine(routineId: Long): String {
-        workoutDao.getActiveWorkoutId()?.let { return it }
+    override suspend fun startFromRoutine(routineId: Long): String = database.withTransaction {
+        workoutDao.getActiveWorkoutId()?.let { return@withTransaction it }
 
-        val routine = routineDao.getRoutineWithExercises(routineId) ?: return startEmpty()
+        val routine = routineDao.getRoutineWithExercises(routineId)
+            ?: return@withTransaction startEmpty()
         val workoutId = newId()
         workoutDao.insertWorkout(
             WorkoutEntity(
@@ -57,11 +61,11 @@ class ActiveWorkoutRepositoryImpl @Inject constructor(
                 }
                 if (sets.isNotEmpty()) workoutDao.insertSets(sets)
             }
-        return workoutId
+        workoutId
     }
 
-    override suspend fun startEmpty(): String {
-        workoutDao.getActiveWorkoutId()?.let { return it }
+    override suspend fun startEmpty(): String = database.withTransaction {
+        workoutDao.getActiveWorkoutId()?.let { return@withTransaction it }
 
         val workoutId = newId()
         workoutDao.insertWorkout(
@@ -73,7 +77,7 @@ class ActiveWorkoutRepositoryImpl @Inject constructor(
                 finishedAt = null,
             ),
         )
-        return workoutId
+        workoutId
     }
 
     override fun observeActive(): Flow<WorkoutFull?> =
@@ -129,8 +133,10 @@ class ActiveWorkoutRepositoryImpl @Inject constructor(
     override suspend fun deleteExercise(workoutExerciseId: Long) =
         workoutDao.deleteWorkoutExercise(workoutExerciseId)
 
-    override suspend fun finish(workoutId: String) {
-        val full = workoutDao.getWorkoutFull(workoutId) ?: return
+    override suspend fun finish(workoutId: String) = database.withTransaction {
+        val full = workoutDao.getWorkoutFull(workoutId) ?: return@withTransaction
+        // Идемпотентность: повторный тап «Завершить» не должен перезаписывать метку времени.
+        if (full.workout.finishedAt != null) return@withTransaction
         for (exercise in full.exercises) {
             val remaining = exercise.sets.filter { set ->
                 val empty = !set.isCompleted && set.isBlank()
@@ -165,7 +171,7 @@ private fun PlannedSet.toSet(workoutExerciseId: Long, setIndex: Int): WorkoutSet
     )
 
 /** Доменная сортировка дерева тренировки: упражнения по position, подходы по setIndex. */
-fun sortedWorkoutFull(full: WorkoutFull): WorkoutFull =
+internal fun sortedWorkoutFull(full: WorkoutFull): WorkoutFull =
     full.copy(
         exercises = full.exercises
             .sortedBy { it.workoutExercise.position }

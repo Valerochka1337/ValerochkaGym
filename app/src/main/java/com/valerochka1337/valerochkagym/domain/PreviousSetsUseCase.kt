@@ -20,7 +20,7 @@ class PreviousSetsUseCase @Inject constructor(
 
     /**
      * Краткая сводка подходов по типу упражнения:
-     * STRENGTH — «30×10, 30×9»; TIMED — «60 сек, 45 сек»; CARDIO — «10 км/ч · 5%, 12 мин».
+     * STRENGTH — «30×10, 30×9»; TIMED — «60 сек, 45 сек»; CARDIO — «10 км/ч · 5% · 12 мин».
      * Пустые подходы пропускаются; при отсутствии данных возвращается пустая строка.
      */
     fun formatSummary(sets: List<WorkoutSetEntity>, type: ExerciseType): String =
