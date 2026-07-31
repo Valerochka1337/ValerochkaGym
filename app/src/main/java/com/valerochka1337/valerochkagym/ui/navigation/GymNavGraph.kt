@@ -16,6 +16,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 import com.valerochka1337.valerochkagym.ui.components.GlowBackground
 import com.valerochka1337.valerochkagym.ui.history.HistoryScreen
+import com.valerochka1337.valerochkagym.ui.library.ExerciseLibraryScreen
 import com.valerochka1337.valerochkagym.ui.settings.SettingsScreen
 import com.valerochka1337.valerochkagym.ui.workouts.WorkoutsScreen
 
@@ -64,7 +65,12 @@ fun GymNavGraph(
         composable(GymRoutes.HISTORY) { HistoryScreen() }
         composable(GymRoutes.SETTINGS) { SettingsScreen() }
 
-        composable(GymRoutes.LIBRARY) { PlaceholderScreen("Библиотека упражнений") }
+        composable(GymRoutes.LIBRARY) {
+            ExerciseLibraryScreen(
+                onBack = { navController.popBackStack() },
+                onExerciseSelected = null,
+            )
+        }
         composable(GymRoutes.ACTIVE_WORKOUT) { PlaceholderScreen("Активная тренировка") }
 
         composable(
