@@ -8,7 +8,7 @@
 [X] Стадия 2: Дизайн-система (тема «C»)
 [X] Стадия 3: Навигация и каркас экранов
 [X] Стадия 4: Room, DataStore, сидирование упражнений
-[ ] Стадия 5: Тесты слоя данных
+[X] Стадия 5: Тесты слоя данных
 [ ] Стадия 6: Библиотека упражнений (UI)
 [ ] Стадия 7: Тесты библиотеки
 [ ] Стадия 8: Программы (список + редактор)
@@ -36,3 +36,4 @@
 *   Стадия 2: material-icons-core допустим, но НЕ добавлять material-icons-extended — иконки вкладок и далее делать локальными vector drawable (Material Symbols); когда PlayArrow останется единственным потребителем, material-icons-core убрать.
 *   Стадия 2: secondaryContainer намеренно teal-derived (пилюля NavigationBar), а не peach.
 *   Стадия 4 (решения): ExerciseDao.search удалён — поиск в Стадии 6 делать в памяти (Kotlin contains(ignoreCase=true), кириллица); сидирование идемпотентно (onOpen + count()==0); lastCompletedSetsForExercise — семантика с EXISTS-фолбэком на последнюю тренировку с выполненными подходами (пиновать тестами Стадии 5); plannedSets — типизированное поле List<PlannedSet> (колонка plannedSetsJson).
+*   Стадия 5: тестовая инфраструктура — JVM тестов = JDK 21 (Robolectric 4.16, sdk=36 в robolectric.properties), abstract RoomDaoTest (lifecycle in-memory БД + tableCount) — ОБЯЗАТЕЛЬНЫЙ шаблон для тестовых стадий 7/9/11/14/18/20/22; @Config(application=Application) для обхода Hilt.
