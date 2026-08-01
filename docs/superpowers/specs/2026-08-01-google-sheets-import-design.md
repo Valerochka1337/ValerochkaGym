@@ -22,16 +22,36 @@
   и фонового авто-синка нет.
 - **Направление** — только импорт (Sheets → БД). Двусторонняя синхронизация вне рамок.
 
+## Честное время подхода (`completedAt`)
+
+Сейчас у `WorkoutSetEntity` нет собственного времени, поэтому экспорт пишет всем
+строкам одинаковый `start_time` — время старта тренировки. Это нечестно: разные
+упражнения и подходы выполнялись в разное время.
+
+Решение — сохранять момент отметки подхода:
+
+- В `WorkoutSetEntity` добавить `completedAt: Long?` (epoch millis, `null` пока
+  подход не отмечен). Заполняется при отметке выполненным, обнуляется при снятии.
+- Экспорт (`WorkoutRowMapper`) берёт `date` и `start_time` строки из
+  `set.completedAt` (а не из `workout.startedAt`), с фоллбэком на `workout.startedAt`
+  для «легаси»-подходов, отмеченных до появления поля (`completedAt == null`).
+- Так каждая строка листа честно отражает время своего подхода.
+
+Схема БД: `version 1 → 2`, миграция
+`ALTER TABLE workout_sets ADD COLUMN completedAt INTEGER` (nullable, без дефолта).
+
 ## Известные компромиссы (потери экспорта)
 
 Экспорт пишет не все поля, поэтому при импорте они восстанавливаются приближённо:
 
 | Поле                     | При импорте                                             |
 |--------------------------|--------------------------------------------------------|
-| `finishedAt`             | = `startedAt` (в таблице нет; нужно ненулевым, иначе тренировка не попадёт в историю — `observeFinishedWorkouts` фильтрует `finishedAt IS NOT NULL`) |
+| `finishedAt`             | = максимум `completedAt` подходов тренировки (честный финиш); фоллбэк на `startedAt`, если времён нет. Нужно ненулевым — `observeFinishedWorkouts` фильтрует `finishedAt IS NOT NULL` |
+| `startedAt`              | = минимум `completedAt` подходов (приближённо: реальный старт был чуть раньше первого подхода); фоллбэк на время первой строки |
+| `set.completedAt`        | = время строки (`date` + `start_time`), теперь честное per-подход |
 | `note`                   | пустая строка                                          |
 | `routineId`              | `null`                                                 |
-| секунды времени старта   | теряются (в таблице только `HH:mm`)                    |
+| секунды времени          | теряются (в таблице только `HH:mm`)                    |
 | `uploadStatus`           | `UPLOADED` — импортированное уже есть в таблице, повторно выгружать не нужно |
 | `volume`                 | игнорируется (производное поле)                         |
 
@@ -57,14 +77,16 @@
 - Первую строку, равную `WorkoutRowMapper.HEADER_ROW`, пропускаем. Пустые строки и
   строки без `workout_id` (колонка A) пропускаем.
 - Группировка по `workout_id` (порядок появления сохраняем).
-- Внутри тренировки: `startedAt` — из `date` (`yyyy-MM-dd`) + `start_time` (`HH:mm`)
+- Время строки: `completedAt` — из `date` (`yyyy-MM-dd`) + `start_time` (`HH:mm`)
   в системной таймзоне → epoch millis. `workout_name` — из колонки D.
+- `startedAt` тренировки = минимум `completedAt` её строк; `finishedAt` = максимум.
+  Если ни одна строка не распарсилась во время — фоллбэк на время первой строки.
 - Упражнения группируются по имени (колонка E) в порядке первого появления →
   `position` (0,1,2…). Группа и тип берутся из RU-названий (колонки F, G) через
   обратный маппинг.
-- Подходы: `setIndex = set_index − 1`, числовые поля парсятся из строк
-  (`weight_kg`, `reps`, `duration_sec`, `speed_kmh`, `incline_pct`); пустая ячейка →
-  `null`. `isCompleted = true` (экспорт пишет только выполненные).
+- Подходы: `setIndex = set_index − 1`, `completedAt` — время строки; числовые поля
+  парсятся из строк (`weight_kg`, `reps`, `duration_sec`, `speed_kmh`, `incline_pct`);
+  пустая ячейка → `null`. `isCompleted = true` (экспорт пишет только выполненные).
 - Некорректные числовые ячейки → `null` (не роняем импорт).
 
 ### Обратный маппинг enum (`EnumDisplay.kt`)
@@ -79,13 +101,14 @@
 Для каждой `ParsedWorkout`:
 
 - Если `workout_id` уже есть локально (`WorkoutDao.getExistingWorkoutIds`) — пропуск.
-- Иначе создаём `WorkoutEntity(id=workout_id, name, startedAt, finishedAt=startedAt,
-  uploadStatus=UPLOADED)`.
+- Иначе создаём `WorkoutEntity(id=workout_id, name, startedAt, finishedAt,
+  uploadStatus=UPLOADED)`, где `startedAt`/`finishedAt` — min/max времён подходов.
 - Для каждого упражнения: матч по имени (case-insensitive) через
   `ExerciseDao.findByName`; если нет — `ExerciseDao.insert(ExerciseEntity(name,
   muscleGroup, type, isCustom=true))`. Матчинг именно по имени (по решению — без учёта
   группы/типа).
-- Вставляем `WorkoutExerciseEntity` (с `position`) и его `WorkoutSetEntity`.
+- Вставляем `WorkoutExerciseEntity` (с `position`) и его `WorkoutSetEntity`
+  (с `completedAt`).
 
 Вся вставка одной тренировки — под `@Transaction`.
 
@@ -101,6 +124,20 @@
 Все сообщения — коротким снэкбаром. Импорт best-effort: одна разовая попытка.
 
 ## Файлы к созданию/изменению
+
+**Честное время подхода:**
+
+- `data/db/entity/WorkoutSetEntity.kt` — добавить поле `completedAt: Long?`.
+- `data/db/dao/WorkoutDao.kt` — изменить `setSetCompleted` на
+  `UPDATE workout_sets SET isCompleted=:completed, completedAt=:completedAt WHERE id=:setId`.
+- `data/ActiveWorkoutRepositoryImpl.kt` — `toggleSetCompleted` передаёт `now()` при
+  отметке и `null` при снятии.
+- `data/db/GymDatabase.kt` — `version = 2`, объявить `MIGRATION_1_2`.
+- `di/DataModule.kt` — `.addMigrations(MIGRATION_1_2)` в билдере.
+- `domain/WorkoutRowMapper.kt` — `date`/`start_time` из `set.completedAt`
+  (фоллбэк на `workout.startedAt`).
+
+**Импорт:**
 
 - `data/google/WorkoutImportRepository.kt` — **новый**. Интерфейс + Impl: чтение листа,
   вызов парсера, транзакционная вставка, классификация ошибок; возвращает
@@ -122,10 +159,14 @@
 
 По образцу существующих (`WorkoutRowMapperTest`, `SheetsRepositoryTest`, `*DaoTest`):
 
+- `WorkoutRowMapperTest` — обновить: `start_time`/`date` берутся из `set.completedAt`
+  (разные подходы → разное время), фоллбэк на `workout.startedAt` при `completedAt == null`.
 - `WorkoutRowParserTest` — round-trip с `WorkoutRowMapper.rows` (экспорт→импорт даёт
   эквивалентное дерево), пропуск шапки/пустых строк, парсинг числовых полей и `null`,
   фоллбэк неизвестных RU-меток, группировка по `workout_id` и по упражнению с
-  корректным `position`.
+  корректным `position`, вычисление `startedAt`/`finishedAt` как min/max времён.
+- Миграция `MIGRATION_1_2` — тест по образцу (если в проекте есть
+  `MigrationTestHelper`; иначе — проверка, что схема v2 открывается).
 - `WorkoutImportRepositoryTest` — дедуп по существующему `workout_id`, матч упражнения
   по имени vs создание нового, простановка `finishedAt=startedAt` и
   `uploadStatus=UPLOADED`, классификация ошибок.
@@ -137,6 +178,10 @@
 1. При сохранении корректной ссылки история из листа `Workouts` появляется в разделе
    истории приложения; повторное сохранение той же ссылки не создаёт дублей.
 2. Импортированные тренировки имеют статус `UPLOADED` и не выгружаются экспортом обратно.
+   `finishedAt` восстановлен как время последнего подхода, а не равен старту.
+6. В экспорте `start_time` отражает реальное время каждого подхода (`completedAt`),
+   а не одинаковое для всех строк тренировки. Миграция БД `1 → 2` проходит без потери
+   данных, старые подходы (без `completedAt`) экспортируются с фоллбэком на старт.
 3. Упражнения из таблицы матчатся по имени с локальным справочником; отсутствующие
    создаются как `isCustom=true`.
 4. Ошибки (нет доступа/сети/таблицы, пустой лист) показываются понятным снэкбаром,
