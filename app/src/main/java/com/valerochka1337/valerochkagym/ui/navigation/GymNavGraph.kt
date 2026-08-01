@@ -1,5 +1,9 @@
 package com.valerochka1337.valerochkagym.ui.navigation
 
+import androidx.compose.animation.AnimatedContentTransitionScope.SlideDirection
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -52,6 +56,9 @@ object GymRoutes {
 /** The tab root that the app opens on and that back navigation returns to. */
 const val GYM_START_DESTINATION = GymRoutes.WORKOUTS
 
+/** Длительность переходов навигации, мс. */
+private const val NAV_DURATION_MS = 300
+
 /**
  * Hosts every destination. [modifier] carries the padding from the enclosing
  * [MainScaffold] so tab content sits above the navigation bar.
@@ -65,6 +72,23 @@ fun GymNavGraph(
         navController = navController,
         startDestination = GYM_START_DESTINATION,
         modifier = modifier,
+        // Базовый переход для обычных экранов: сдвиг по горизонтали + затухание.
+        enterTransition = {
+            fadeIn(tween(NAV_DURATION_MS)) +
+                slideIntoContainer(SlideDirection.Start, tween(NAV_DURATION_MS))
+        },
+        exitTransition = {
+            fadeOut(tween(NAV_DURATION_MS)) +
+                slideOutOfContainer(SlideDirection.Start, tween(NAV_DURATION_MS))
+        },
+        popEnterTransition = {
+            fadeIn(tween(NAV_DURATION_MS)) +
+                slideIntoContainer(SlideDirection.End, tween(NAV_DURATION_MS))
+        },
+        popExitTransition = {
+            fadeOut(tween(NAV_DURATION_MS)) +
+                slideOutOfContainer(SlideDirection.End, tween(NAV_DURATION_MS))
+        },
     ) {
         composable(GymRoutes.WORKOUTS) {
             WorkoutsScreen(
@@ -91,7 +115,18 @@ fun GymNavGraph(
                 },
             )
         }
-        composable(GymRoutes.ACTIVE_WORKOUT) { backStackEntry ->
+        composable(
+            GymRoutes.ACTIVE_WORKOUT,
+            // Полноэкранный маршрут — выезжает снизу и уезжает вниз.
+            enterTransition = {
+                fadeIn(tween(NAV_DURATION_MS)) +
+                    slideIntoContainer(SlideDirection.Up, tween(NAV_DURATION_MS))
+            },
+            popExitTransition = {
+                fadeOut(tween(NAV_DURATION_MS)) +
+                    slideOutOfContainer(SlideDirection.Down, tween(NAV_DURATION_MS))
+            },
+        ) { backStackEntry ->
             val viewModel = hiltViewModel<ActiveWorkoutViewModel>(backStackEntry)
             val selectedExerciseId by backStackEntry.savedStateHandle
                 .getStateFlow<Long?>(GymRoutes.SELECTED_EXERCISE_ID, null)
@@ -143,6 +178,15 @@ fun GymNavGraph(
         composable(
             route = GymRoutes.WORKOUT_SUMMARY,
             arguments = listOf(navArgument(GymRoutes.WORKOUT_ID_ARG) { type = NavType.StringType }),
+            // Итоги — тоже полноэкранные: выезжают снизу, уезжают вниз.
+            enterTransition = {
+                fadeIn(tween(NAV_DURATION_MS)) +
+                    slideIntoContainer(SlideDirection.Up, tween(NAV_DURATION_MS))
+            },
+            popExitTransition = {
+                fadeOut(tween(NAV_DURATION_MS)) +
+                    slideOutOfContainer(SlideDirection.Down, tween(NAV_DURATION_MS))
+            },
         ) {
             WorkoutSummaryScreen(
                 onDone = { navController.popBackStack(GymRoutes.WORKOUTS, inclusive = false) },

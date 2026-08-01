@@ -59,7 +59,7 @@ class CalendarRepositoryImpl @Inject constructor(
         val bearer = when (val token = accessToken()) {
             is Token.Ok -> token.bearer
             Token.Consent -> return ScheduleResult.NeedsConsent
-            Token.Transient -> return ScheduleResult.Failure(NO_CONNECTION)
+            Token.Transient -> return ScheduleResult.Failure(GoogleErrorMessages.NO_CONNECTION)
         }
 
         val routineName = routineDao.getRoutineName(routineId)
@@ -90,7 +90,7 @@ class CalendarRepositoryImpl @Inject constructor(
         } catch (e: HttpException) {
             ScheduleResult.Failure(insertFailureMessage(e.code()))
         } catch (e: IOException) {
-            ScheduleResult.Failure(NO_NETWORK)
+            ScheduleResult.Failure(GoogleErrorMessages.NO_NETWORK)
         }
     }
 
@@ -101,7 +101,7 @@ class CalendarRepositoryImpl @Inject constructor(
         val bearer = when (val token = accessToken()) {
             is Token.Ok -> token.bearer
             Token.Consent -> return ScheduleResult.NeedsConsent
-            Token.Transient -> return ScheduleResult.Failure(NO_CONNECTION)
+            Token.Transient -> return ScheduleResult.Failure(GoogleErrorMessages.NO_CONNECTION)
         }
 
         return try {
@@ -121,7 +121,7 @@ class CalendarRepositoryImpl @Inject constructor(
                 ScheduleResult.Failure(deleteFailureMessage(e.code()))
             }
         } catch (e: IOException) {
-            ScheduleResult.Failure(NO_NETWORK)
+            ScheduleResult.Failure(GoogleErrorMessages.NO_NETWORK)
         }
     }
 
@@ -154,8 +154,6 @@ class CalendarRepositoryImpl @Inject constructor(
         const val HTTP_NOT_FOUND = 404
         const val HTTP_GONE = 410
 
-        const val NO_CONNECTION = "Нет соединения с Google — попробуйте ещё раз"
-        const val NO_NETWORK = "Нет сети"
         const val NO_CALENDAR_ACCESS = "Нет доступа к календарю"
     }
 }

@@ -156,27 +156,45 @@ class WorkoutsViewModel @Inject constructor(
     }
 
     /** Старт тренировки по программе. Событие [startEvents] шлётся только при успешном создании. */
-    fun startFromRoutine(routineId: Long) = start { activeWorkoutRepository.startFromRoutine(routineId) }
+    fun startFromRoutine(routineId: Long) = launchStart {
+        activeWorkoutRepository.startFromRoutine(routineId)
+        _startEvents.send(Unit)
+    }
 
     /** Старт пустой тренировки. */
-    fun startEmpty() = start { activeWorkoutRepository.startEmpty() }
+    fun startEmpty() = launchStart {
+        activeWorkoutRepository.startEmpty()
+        _startEvents.send(Unit)
+    }
 
-    private inline fun start(crossinline create: suspend () -> String) {
+    /**
+     * Единый single-flight старта: пока [block] выполняется, повторные запросы (двойной тап,
+     * тап по наступившей карточке во время старта) игнорируются. Общий для [startFromRoutine],
+     * [startEmpty] и [startScheduled].
+     */
+    private inline fun launchStart(crossinline block: suspend () -> Unit) {
         if (startInFlight) return
         startInFlight = true
         viewModelScope.launch {
             try {
-                create()
-                _startEvents.send(Unit)
+                block()
             } finally {
                 startInFlight = false
             }
         }
     }
 
-    /** Планирует тренировку в календарь; результат уходит текстом в [scheduleEvents]. */
+    /**
+     * Планирует тренировку в календарь; результат уходит текстом в [scheduleEvents]. Если собранный
+     * момент уже в прошлом (например, пользователь выбрал сегодняшнюю дату и время раньше текущего),
+     * планирование не выполняется — сразу сообщение об ошибке.
+     */
     fun schedule(routineId: Long, dateTimeMillis: Long) {
         viewModelScope.launch {
+            if (dateTimeMillis < System.currentTimeMillis()) {
+                _scheduleEvents.send(PAST_TIME_MESSAGE)
+                return@launch
+            }
             val message = when (val result = calendarRepository.schedule(routineId, dateTimeMillis)) {
                 ScheduleResult.Success -> "Запланировано"
                 ScheduleResult.NeedsConsent -> NEEDS_CONSENT_MESSAGE
@@ -202,18 +220,10 @@ class WorkoutsViewModel @Inject constructor(
      * (тот же single-flight, что и [startFromRoutine]) и затем удаляет запись+событие календаря.
      * Ошибка отмены не мешает старту — запись останется, её можно отменить вручную.
      */
-    fun startScheduled(item: UpcomingUi) {
-        if (startInFlight) return
-        startInFlight = true
-        viewModelScope.launch {
-            try {
-                activeWorkoutRepository.startFromRoutine(item.routineId)
-                _startEvents.send(Unit)
-                calendarRepository.cancel(item.id)
-            } finally {
-                startInFlight = false
-            }
-        }
+    fun startScheduled(item: UpcomingUi) = launchStart {
+        activeWorkoutRepository.startFromRoutine(item.routineId)
+        _startEvents.send(Unit)
+        calendarRepository.cancel(item.id)
     }
 
     fun duplicate(id: Long) {
@@ -243,6 +253,7 @@ class WorkoutsViewModel @Inject constructor(
 
     private companion object {
         const val NEEDS_CONSENT_MESSAGE = "Настройте доступ к Google в настройках"
+        const val PAST_TIME_MESSAGE = "Время уже прошло — выберите будущий момент"
     }
 }
 

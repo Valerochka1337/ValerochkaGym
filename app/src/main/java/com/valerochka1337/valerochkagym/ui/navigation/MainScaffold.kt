@@ -1,6 +1,13 @@
 package com.valerochka1337.valerochkagym.ui.navigation
 
 import androidx.annotation.DrawableRes
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
@@ -67,12 +74,20 @@ fun MainScaffold(viewModel: MainScaffoldViewModel = hiltViewModel()) {
     Scaffold(
         bottomBar = {
             Column {
-                if (showResumeBanner) {
+                AnimatedVisibility(
+                    visible = showResumeBanner,
+                    enter = expandVertically() + fadeIn(),
+                    exit = shrinkVertically() + fadeOut(),
+                ) {
                     ResumeWorkoutBanner(
                         onClick = { navController.navigate(GymRoutes.ACTIVE_WORKOUT) },
                     )
                 }
-                if (showBottomBar) {
+                AnimatedVisibility(
+                    visible = showBottomBar,
+                    enter = slideInVertically { it } + fadeIn(),
+                    exit = slideOutVertically { it } + fadeOut(),
+                ) {
                     NavigationBar {
                         tabs.forEach { tab ->
                             val selected =

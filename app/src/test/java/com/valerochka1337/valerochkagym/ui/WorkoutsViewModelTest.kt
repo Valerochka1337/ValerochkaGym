@@ -24,8 +24,10 @@ import com.valerochka1337.valerochkagym.data.google.CalendarRepository
 import com.valerochka1337.valerochkagym.data.google.ScheduleResult
 import com.valerochka1337.valerochkagym.data.settings.SettingsRepository
 import com.valerochka1337.valerochkagym.domain.ActiveWorkoutRepository
+import com.valerochka1337.valerochkagym.ui.workouts.UpcomingUi
 import com.valerochka1337.valerochkagym.ui.workouts.WorkoutsViewModel
 import com.valerochka1337.valerochkagym.util.MainDispatcherRule
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -33,6 +35,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -167,6 +170,81 @@ class WorkoutsViewModelTest {
 
     // endregion
 
+    // region scheduling
+
+    @Test
+    fun `schedule with a past time reports an error and does not touch the calendar`() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val calendar = FakeCalendarRepository()
+            val viewModel = WorkoutsViewModel(
+                FakeRoutineDao(),
+                FakeScheduledWorkoutDao(),
+                calendar,
+                settingsRepository(),
+                FakeActiveWorkoutRepository(),
+            )
+            val messages = mutableListOf<String>()
+            backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+                viewModel.scheduleEvents.collect { messages += it }
+            }
+
+            viewModel.schedule(routineId = 1, dateTimeMillis = 0L)
+            advanceUntilIdle()
+
+            assertEquals(listOf("Время уже прошло — выберите будущий момент"), messages)
+            assertEquals(0, calendar.scheduleCalls)
+        }
+
+    @Test
+    fun `schedule with a future time forwards to the calendar and reports success`() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val calendar = FakeCalendarRepository()
+            val viewModel = WorkoutsViewModel(
+                FakeRoutineDao(),
+                FakeScheduledWorkoutDao(),
+                calendar,
+                settingsRepository(),
+                FakeActiveWorkoutRepository(),
+            )
+            val messages = mutableListOf<String>()
+            backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+                viewModel.scheduleEvents.collect { messages += it }
+            }
+
+            viewModel.schedule(routineId = 1, dateTimeMillis = System.currentTimeMillis() + 3_600_000)
+            advanceUntilIdle()
+
+            assertEquals(listOf("Запланировано"), messages)
+            assertEquals(1, calendar.scheduleCalls)
+        }
+
+    @Test
+    fun `startScheduled ignores a second tap while the first start is still in flight`() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val gate = CompletableDeferred<Unit>()
+            val active = FakeActiveWorkoutRepository(startGate = gate)
+            val viewModel = WorkoutsViewModel(
+                FakeRoutineDao(),
+                FakeScheduledWorkoutDao(),
+                FakeCalendarRepository(),
+                settingsRepository(),
+                active,
+            )
+            backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+                viewModel.startEvents.collect { }
+            }
+            val item = UpcomingUi(id = 5, routineId = 1, routineName = "X", whenLabel = "", isDue = true)
+
+            viewModel.startScheduled(item) // suspends inside startFromRoutine on the gate
+            viewModel.startScheduled(item) // ignored: a start is already in flight
+            gate.complete(Unit)
+            advanceUntilIdle()
+
+            assertEquals(1, active.startFromRoutineCalls)
+        }
+
+    // endregion
+
     private fun TestScope.collectUiState(viewModel: WorkoutsViewModel) {
         backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
             viewModel.uiState.collect { }
@@ -281,15 +359,35 @@ class WorkoutsViewModelTest {
         override suspend fun getById(id: Long): ScheduledWorkoutEntity? = null
     }
 
-    /** No-op [CalendarRepository]: these tests don't exercise scheduling, only routine management. */
+    /** In-memory [CalendarRepository]: records how many times [schedule] was invoked. */
     private class FakeCalendarRepository : CalendarRepository {
-        override suspend fun schedule(routineId: Long, dateTimeMillis: Long): ScheduleResult = ScheduleResult.Success
+        var scheduleCalls = 0
+            private set
+
+        override suspend fun schedule(routineId: Long, dateTimeMillis: Long): ScheduleResult {
+            scheduleCalls++
+            return ScheduleResult.Success
+        }
+
         override suspend fun cancel(scheduledId: Long): ScheduleResult = ScheduleResult.Success
     }
 
-    /** No-op [ActiveWorkoutRepository]: these tests don't exercise workout start, only routine management. */
-    private class FakeActiveWorkoutRepository : ActiveWorkoutRepository {
-        override suspend fun startFromRoutine(routineId: Long): String = "workout"
+    /**
+     * In-memory [ActiveWorkoutRepository]: counts [startFromRoutine] calls and, if [startGate] is
+     * set, suspends inside it until the gate completes — lets a test hold a start "in flight".
+     */
+    private class FakeActiveWorkoutRepository(
+        private val startGate: CompletableDeferred<Unit>? = null,
+    ) : ActiveWorkoutRepository {
+        var startFromRoutineCalls = 0
+            private set
+
+        override suspend fun startFromRoutine(routineId: Long): String {
+            startFromRoutineCalls++
+            startGate?.await()
+            return "workout"
+        }
+
         override suspend fun startEmpty(): String = "workout"
         override fun observeActive(): Flow<WorkoutFull?> = flowOf(null)
         override suspend fun getSet(setId: Long): WorkoutSetEntity? = null

@@ -53,9 +53,7 @@ class SheetsRepositoryImpl @Inject constructor(
         val token = when (val result = googleAuth.getAccessToken()) {
             is TokenResult.Success -> result.token
             TokenResult.NeedsConsent -> return permanent(workoutId, "Настройте доступ к Google в настройках")
-            is TokenResult.Failed -> return UploadResult.TransientFailure(
-                result.error?.message ?: "Не удалось получить токен Google",
-            )
+            is TokenResult.Failed -> return UploadResult.TransientFailure(GoogleErrorMessages.NO_CONNECTION)
         }
 
         val workout = workoutDao.getWorkoutFull(workoutId)
@@ -87,7 +85,7 @@ class SheetsRepositoryImpl @Inject constructor(
         } catch (e: HttpException) {
             classifyHttp(workoutId, e.code())
         } catch (e: IOException) {
-            UploadResult.TransientFailure(e.message ?: "Сетевая ошибка")
+            UploadResult.TransientFailure(GoogleErrorMessages.NO_NETWORK)
         }
     }
 

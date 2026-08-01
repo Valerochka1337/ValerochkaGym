@@ -4,6 +4,13 @@ import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
 import android.view.WindowManager
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -31,6 +38,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -50,6 +58,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -294,9 +303,10 @@ private fun ActiveWorkoutContent(
 }
 
 /**
- * Пилюля таймера отдыха внизу экрана. Видна только пока идёт отдых ([restTimer] != null).
- * Слева «−15с», по центру «⏱ M:SS» (тап = пропустить), справа «+15с». Собирает [restTimer]
- * внутри себя, чтобы посекундный тик не рекомпозил остальной экран.
+ * Пилюля таймера отдыха внизу экрана. Видна только пока идёт отдых ([restTimer] != null);
+ * появление/исчезновение анимируется выездом снизу с затуханием. Слева «−15с», по центру
+ * «⏱ M:SS» (тап = пропустить), справа «+15с». Собирает [restTimer] внутри себя, чтобы
+ * посекундный тик не рекомпозил остальной экран.
  */
 @Composable
 private fun RestTimerPill(
@@ -305,34 +315,44 @@ private fun RestTimerPill(
     onSkipRest: () -> Unit,
 ) {
     val rest by restTimer.collectAsStateWithLifecycle()
-    val state = rest ?: return
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(bottom = 12.dp)
-            .clip(CircleShape)
-            .background(brush = Brush.horizontalGradient(listOf(Teal, TealLight)))
-            .height(56.dp),
-        verticalAlignment = Alignment.CenterVertically,
+    AnimatedVisibility(
+        visible = rest != null,
+        enter = slideInVertically { it } + fadeIn(),
+        exit = slideOutVertically { it } + fadeOut(),
     ) {
-        RestPillSide(symbol = "−15с", contentDescription = "убавить отдых") { onAddRestSeconds(-REST_TIMER_STEP) }
+        // Пока идёт exit-анимация, `rest` уже null — держим последнее ненулевое значение,
+        // чтобы контент пилюли не исчезал мгновенно.
+        var lastState by remember { mutableStateOf(rest) }
+        rest?.let { lastState = it }
+        val state = lastState ?: return@AnimatedVisibility
         Row(
             modifier = Modifier
-                .weight(1f)
-                .fillMaxHeight()
-                .clickable(role = Role.Button, onClick = onSkipRest)
-                .semantics { contentDescription = "Пропустить отдых" },
-            horizontalArrangement = Arrangement.Center,
+                .fillMaxWidth()
+                .padding(bottom = 12.dp)
+                .clip(CircleShape)
+                .background(brush = Brush.horizontalGradient(listOf(Teal, TealLight)))
+                .height(56.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                text = "⏱ ${formatRest(state.remainingSec)}",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
-                color = OnAccent,
-            )
+            RestPillSide(symbol = "−15с", contentDescription = "убавить отдых") { onAddRestSeconds(-REST_TIMER_STEP) }
+            Row(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .clickable(role = Role.Button, onClick = onSkipRest)
+                    .semantics { contentDescription = "Пропустить отдых" },
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "⏱ ${formatRest(state.remainingSec)}",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = OnAccent,
+                )
+            }
+            RestPillSide(symbol = "+15с", contentDescription = "прибавить отдых") { onAddRestSeconds(REST_TIMER_STEP) }
         }
-        RestPillSide(symbol = "+15с", contentDescription = "прибавить отдых") { onAddRestSeconds(REST_TIMER_STEP) }
     }
 }
 
@@ -400,6 +420,7 @@ private fun ActiveWorkoutHeader(
     }
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun ExerciseSection(
     exercise: WorkoutExerciseWithSets,
@@ -410,7 +431,12 @@ private fun ExerciseSection(
     val type = exercise.exercise.type
     val currentSet = exercise.sets.firstOrNull { !it.isCompleted }
 
-    Column(modifier = Modifier.fillMaxWidth()) {
+    // Когда текущий подход схлопывается в пилюлю, высота секции меняется плавно (expressive-спек).
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .animateContentSize(MaterialTheme.motionScheme.defaultSpatialSpec()),
+    ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(
@@ -639,12 +665,19 @@ private fun StepButton(
     }
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun CompletedSetPill(
     set: WorkoutSetEntity,
     type: ExerciseType,
     onClick: () -> Unit,
 ) {
+    // Короткий scale-панч на галочке при появлении пилюли (подход только что отмечен выполненным).
+    val motionScheme = MaterialTheme.motionScheme
+    val checkScale = remember { Animatable(0.6f) }
+    LaunchedEffect(Unit) {
+        checkScale.animateTo(1f, motionScheme.defaultSpatialSpec())
+    }
     SetPill(
         number = set.setIndex + 1,
         values = formatSetValues(set, type),
@@ -655,7 +688,12 @@ private fun CompletedSetPill(
             Icon(
                 Icons.Default.Check,
                 contentDescription = "Выполнено, нажмите чтобы отменить",
-                modifier = Modifier.size(18.dp),
+                modifier = Modifier
+                    .size(18.dp)
+                    .graphicsLayer {
+                        scaleX = checkScale.value
+                        scaleY = checkScale.value
+                    },
             )
         },
     )
