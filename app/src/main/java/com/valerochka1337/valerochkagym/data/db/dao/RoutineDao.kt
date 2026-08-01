@@ -38,6 +38,10 @@ interface RoutineDao {
     @Query("SELECT * FROM routines WHERE id = :id")
     suspend fun getRoutineWithExercises(id: Long): RoutineWithExercises?
 
+    /** Только название программы — для заголовка события календаря (Стадия 21). */
+    @Query("SELECT name FROM routines WHERE id = :id")
+    suspend fun getRoutineName(id: Long): String?
+
     @Upsert
     suspend fun upsertRoutine(routine: RoutineEntity): Long
 

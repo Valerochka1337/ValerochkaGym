@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.mutablePreferencesOf
 import com.valerochka1337.valerochkagym.data.db.PlannedSet
 import com.valerochka1337.valerochkagym.data.db.dao.RoutineDao
+import com.valerochka1337.valerochkagym.data.db.dao.ScheduledWorkoutDao
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleGroup
@@ -16,7 +17,11 @@ import com.valerochka1337.valerochkagym.data.db.relation.RoutineExerciseWithExer
 import com.valerochka1337.valerochkagym.data.db.relation.RoutineWithCount
 import com.valerochka1337.valerochkagym.data.db.relation.RoutineWithExercises
 import com.valerochka1337.valerochkagym.data.db.entity.WorkoutSetEntity
+import com.valerochka1337.valerochkagym.data.db.entity.ScheduledWorkoutEntity
+import com.valerochka1337.valerochkagym.data.db.relation.ScheduledWithRoutine
 import com.valerochka1337.valerochkagym.data.db.relation.WorkoutFull
+import com.valerochka1337.valerochkagym.data.google.CalendarRepository
+import com.valerochka1337.valerochkagym.data.google.ScheduleResult
 import com.valerochka1337.valerochkagym.data.settings.SettingsRepository
 import com.valerochka1337.valerochkagym.domain.ActiveWorkoutRepository
 import com.valerochka1337.valerochkagym.ui.workouts.WorkoutsViewModel
@@ -65,6 +70,8 @@ class WorkoutsViewModelTest {
             )
             val viewModel = WorkoutsViewModel(
                 FakeRoutineDao(listOf(routine)),
+                FakeScheduledWorkoutDao(),
+                FakeCalendarRepository(),
                 settingsRepository(defaultRestSeconds = 90),
                 FakeActiveWorkoutRepository(),
             )
@@ -85,6 +92,8 @@ class WorkoutsViewModelTest {
         runTest(mainDispatcherRule.testDispatcher.scheduler) {
             val viewModel = WorkoutsViewModel(
                 FakeRoutineDao(listOf(routineWithExercises(id = 1, name = "День ног"))),
+                FakeScheduledWorkoutDao(),
+                FakeCalendarRepository(),
                 settingsRepository(),
                 FakeActiveWorkoutRepository(),
             )
@@ -101,7 +110,7 @@ class WorkoutsViewModelTest {
     fun `the selection is cleared when the selected routine is deleted`() =
         runTest(mainDispatcherRule.testDispatcher.scheduler) {
             val routineDao = FakeRoutineDao(listOf(routineWithExercises(id = 1, name = "День ног")))
-            val viewModel = WorkoutsViewModel(routineDao, settingsRepository(), FakeActiveWorkoutRepository())
+            val viewModel = WorkoutsViewModel(routineDao, FakeScheduledWorkoutDao(), FakeCalendarRepository(), settingsRepository(), FakeActiveWorkoutRepository())
             collectUiState(viewModel)
             viewModel.onRoutineSelected(1)
 
@@ -129,7 +138,7 @@ class WorkoutsViewModelTest {
                 ),
             )
             val routineDao = FakeRoutineDao(listOf(routine))
-            val viewModel = WorkoutsViewModel(routineDao, settingsRepository(), FakeActiveWorkoutRepository())
+            val viewModel = WorkoutsViewModel(routineDao, FakeScheduledWorkoutDao(), FakeCalendarRepository(), settingsRepository(), FakeActiveWorkoutRepository())
 
             viewModel.duplicate(4)
 
@@ -149,7 +158,7 @@ class WorkoutsViewModelTest {
     fun `delete forwards the id to the dao`() = runTest(mainDispatcherRule.testDispatcher.scheduler) {
         val routineDao = FakeRoutineDao(listOf(routineWithExercises(id = 3, name = "День ног")))
 
-        val viewModel = WorkoutsViewModel(routineDao, settingsRepository(), FakeActiveWorkoutRepository())
+        val viewModel = WorkoutsViewModel(routineDao, FakeScheduledWorkoutDao(), FakeCalendarRepository(), settingsRepository(), FakeActiveWorkoutRepository())
 
         viewModel.delete(3)
 
@@ -236,6 +245,9 @@ class WorkoutsViewModelTest {
         override suspend fun getRoutineWithExercises(id: Long): RoutineWithExercises? =
             routines.value.find { it.routine.id == id }
 
+        override suspend fun getRoutineName(id: Long): String? =
+            routines.value.find { it.routine.id == id }?.routine?.name
+
         override suspend fun upsertRoutine(routine: RoutineEntity): Long {
             lastUpsertedRoutine = routine
             val id = if (routine.id == 0L) nextId++ else routine.id
@@ -259,6 +271,20 @@ class WorkoutsViewModelTest {
         override suspend fun updateRoutineExercise(routineExercise: RoutineExerciseEntity) = Unit
         override suspend fun deleteRoutineExercise(id: Long) = Unit
         override suspend fun deleteRoutineExercises(routineId: Long) = Unit
+    }
+
+    /** No-op [ScheduledWorkoutDao]: scheduling is covered in Стадия 22; here it only needs to compile. */
+    private class FakeScheduledWorkoutDao : ScheduledWorkoutDao {
+        override fun observeUpcoming(nowMillis: Long): Flow<List<ScheduledWithRoutine>> = flowOf(emptyList())
+        override suspend fun insert(scheduled: ScheduledWorkoutEntity): Long = 0
+        override suspend fun delete(id: Long) = Unit
+        override suspend fun getById(id: Long): ScheduledWorkoutEntity? = null
+    }
+
+    /** No-op [CalendarRepository]: these tests don't exercise scheduling, only routine management. */
+    private class FakeCalendarRepository : CalendarRepository {
+        override suspend fun schedule(routineId: Long, dateTimeMillis: Long): ScheduleResult = ScheduleResult.Success
+        override suspend fun cancel(scheduledId: Long): ScheduleResult = ScheduleResult.Success
     }
 
     /** No-op [ActiveWorkoutRepository]: these tests don't exercise workout start, only routine management. */

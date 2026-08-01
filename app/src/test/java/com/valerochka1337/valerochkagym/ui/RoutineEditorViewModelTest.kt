@@ -359,6 +359,9 @@ class RoutineEditorViewModelTest {
         override suspend fun getRoutineWithExercises(id: Long): RoutineWithExercises? =
             routines.value.find { it.routine.id == id }
 
+        override suspend fun getRoutineName(id: Long): String? =
+            routines.value.find { it.routine.id == id }?.routine?.name
+
         override suspend fun upsertRoutine(routine: RoutineEntity): Long {
             upsertCount++
             lastUpsertedRoutine = routine

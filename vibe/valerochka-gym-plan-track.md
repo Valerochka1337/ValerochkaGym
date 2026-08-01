@@ -24,7 +24,7 @@
 [X] Стадия 18: Тесты маппера
 [X] Стадия 19: Выгрузка в Sheets (WorkManager)
 [X] Стадия 20: Тесты выгрузки
-[ ] Стадия 21: Google Calendar (планирование)
+[X] Стадия 21: Google Calendar (планирование)
 [ ] Стадия 22: Тесты календаря
 [ ] Стадия 23: Полировка и финальная проверка
 
@@ -49,3 +49,4 @@
 *   Стадия 16: GoogleAuth.getAccessToken → sealed TokenResult (Success/NeedsConsent/Failed): NeedsConsent → «настройте доступ» (не ретраить), Failed → ретрай. null-token без resolution классифицируется как NeedsConsent (защита от тихого ретрай-цикла). Реальный OAuth client ID вставляется владельцем по README (strings.xml google_web_client_id).
 *   Стадия 19: UploadScheduler-интерфейс между VM и WorkManager (тестируемость); заголовок пишется атомарно одним append с данными при пустой колонке A; addSheet-400 гонка обрабатывается re-check'ом. Идемпотентность — чтение Workouts!A:A по UUID. Классификация: NeedsConsent/401/403/404/прочие 4xx → Permanent (FAILED+причина), IOException/429/5xx/TokenResult.Failed → Transient (ретрай, до 5).
 *   Стадия 20: FakeSheetsApi — шаблон честного фейка для Стадии 22; ВНИМАНИЕ для Стадии 22: фейк игнорирует range (одна колонка) — если календарный код трогает несколько range'ей, ключевать состояние по range. Отложено: тест failAppend-ручки, dedupe httpException-хелпера.
+*   Стадия 21 (2026-08-01): CalendarApi — второй Retrofit `@Named("calendar")` (base `https://www.googleapis.com/`), deleteEvent → `Response<Unit>` (404/410 = успех отмены). ScheduleResult (Success/NeedsConsent/Failure) — интерактивный, при ошибке API локально ничего не пишется. ДЛЯ Стадии 22: тесты CalendarRepositoryImpl с FakeCalendarApi (insert возвращает eventId, delete по коду) + проверка ISO_OFFSET_DATE_TIME и вставки ScheduledWorkoutEntity только на успех. UTC-midnight date-math: DatePicker.selectedDateMillis (UTC-полночь) → LocalDate в ZoneOffset.UTC + время из TimePicker → ZonedDateTime(systemDefault). Пикеры: material3 DatePickerDialog+DatePicker (selectableDates >= сегодняшняя UTC-полночь), время — кастомный Dialog поверх TimePicker (TimePickerDialog в 1.5.0-alpha24 слот-based/сложный). Снекбар — SnackbarHost поверх Box (без Scaffold). Новый RoutineDao.getRoutineName (потребовал getRoutineName в фейках RoutineEditor/WorkoutsViewModel тестов). 149 тестов зелёные.

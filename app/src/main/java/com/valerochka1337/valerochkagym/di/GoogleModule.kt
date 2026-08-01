@@ -1,5 +1,7 @@
 package com.valerochka1337.valerochkagym.di
 
+import com.valerochka1337.valerochkagym.data.google.CalendarRepository
+import com.valerochka1337.valerochkagym.data.google.CalendarRepositoryImpl
 import com.valerochka1337.valerochkagym.data.google.GoogleAuth
 import com.valerochka1337.valerochkagym.data.google.GoogleAuthManager
 import com.valerochka1337.valerochkagym.data.google.SheetsRepository
@@ -21,4 +23,8 @@ abstract class GoogleModule {
     @Binds
     @Singleton
     abstract fun bindSheetsRepository(impl: SheetsRepositoryImpl): SheetsRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindCalendarRepository(impl: CalendarRepositoryImpl): CalendarRepository
 }
