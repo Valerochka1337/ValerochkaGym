@@ -1,6 +1,8 @@
 package com.valerochka1337.valerochkagym.ui.routine
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -13,7 +15,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
@@ -208,7 +212,7 @@ private fun ExerciseCard(
             value = exercise.restSeconds.toField(),
             onValueChange = { onRestChange(it.toIntOrNull()) },
             modifier = Modifier.fillMaxWidth(),
-            label = "Отдых, сек (пусто — по умолчанию)",
+            label = "Отдых, сек",
         )
 
         Spacer(Modifier.height(12.dp))
@@ -243,15 +247,11 @@ private fun PlannedSetRow(
     onRemove: () -> Unit,
 ) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Text(
-            text = "Подход $number",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.width(88.dp),
-        )
+        SetNumberBadge(number)
+        Spacer(Modifier.width(10.dp))
         Row(
             modifier = Modifier.weight(1f),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             when (type) {
@@ -292,7 +292,7 @@ private fun PlannedSetRow(
                         value = set.inclinePct.toField(),
                         onValueChange = { onChange(set.copy(inclinePct = it.toDoubleOrNull())) },
                         modifier = Modifier.weight(1f),
-                        label = "накл %",
+                        label = "накл",
                         decimal = true,
                     )
                     NumberField(
@@ -313,6 +313,25 @@ private fun PlannedSetRow(
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+    }
+}
+
+/** Номер подхода в виде компактного кружка вместо надписи «Подход N». */
+@Composable
+private fun SetNumberBadge(number: Int) {
+    Box(
+        modifier = Modifier
+            .size(30.dp)
+            .clip(CircleShape)
+            .background(MaterialTheme.colorScheme.surfaceContainerHighest),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = number.toString(),
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
     }
 }
 

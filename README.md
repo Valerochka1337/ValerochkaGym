@@ -78,3 +78,9 @@ https://docs.google.com/spreadsheets/d/<SPREADSHEET_ID>/edit
 ./gradlew :app:assembleDebug
 ./gradlew :app:testDebugUnitTest
 ```
+
+## Документация
+
+- [docs/design-system.md](docs/design-system.md) — дизайн-система и правила, как делать UI дальше
+  (единственный акцент `#3DDC84`, плоские поверхности, иконки, пружинная моторика, плавающий навбар).
+- [docs/superpowers/specs/](docs/superpowers/specs/) — спецификации приложения (функциональность).

@@ -10,13 +10,24 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.CalendarMonth
+import androidx.compose.material.icons.rounded.CloudDone
+import androidx.compose.material.icons.rounded.CloudOff
+import androidx.compose.material.icons.rounded.CloudQueue
+import androidx.compose.material.icons.rounded.FitnessCenter
+import androidx.compose.material.icons.rounded.Timer
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -88,12 +99,17 @@ private fun HistoryCard(
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
-                Spacer(Modifier.height(2.dp))
-                Text(
-                    text = subtitle(item),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                Spacer(Modifier.height(6.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    MetaItem(icon = Icons.Rounded.CalendarMonth, value = item.date)
+                    MetaItem(icon = Icons.Rounded.Timer, value = item.duration)
+                    item.volume?.let { volume ->
+                        MetaItem(icon = Icons.Rounded.FitnessCenter, value = volume)
+                    }
+                }
             }
             Spacer(Modifier.width(12.dp))
             UploadStatusBadge(status = item.uploadStatus)
@@ -101,34 +117,59 @@ private fun HistoryCard(
     }
 }
 
-/** «31 июля · 45 мин» плюс объём, если он есть. */
-private fun subtitle(item: HistoryItemUi): String = buildString {
-    append(item.date)
-    append(" · ")
-    append(item.duration)
-    item.volume?.let {
-        append(" · ")
-        append(it)
+/** Ведущая иконка + значение мета-данных (дата / длительность / объём). */
+@Composable
+private fun MetaItem(icon: ImageVector, value: String) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(16.dp),
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 
-/** Бейдж статуса выгрузки: нейтральный «Ожидает», teal «Выгружено», error-тон «Ошибка». */
+/** Бейдж статуса выгрузки: иконка облака — нейтральное «Ожидает», primary «Выгружено», error «Ошибка». */
 @Composable
 fun UploadStatusBadge(status: UploadStatus) {
-    val (label, color) = when (status) {
-        UploadStatus.PENDING -> "Ожидает" to MaterialTheme.colorScheme.onSurfaceVariant
-        UploadStatus.UPLOADED -> "Выгружено" to MaterialTheme.colorScheme.primary
-        UploadStatus.FAILED -> "Ошибка" to MaterialTheme.colorScheme.error
+    val icon: ImageVector
+    val color: Color
+    val description: String
+    when (status) {
+        UploadStatus.PENDING -> {
+            icon = Icons.Rounded.CloudQueue
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+            description = "Ожидает выгрузки"
+        }
+        UploadStatus.UPLOADED -> {
+            icon = Icons.Rounded.CloudDone
+            color = MaterialTheme.colorScheme.primary
+            description = "Выгружено"
+        }
+        UploadStatus.FAILED -> {
+            icon = Icons.Rounded.CloudOff
+            color = MaterialTheme.colorScheme.error
+            description = "Ошибка выгрузки"
+        }
     }
-    Text(
-        text = label,
-        style = MaterialTheme.typography.labelMedium,
-        fontWeight = FontWeight.Medium,
-        color = color,
+    Icon(
+        imageVector = icon,
+        contentDescription = description,
+        tint = color,
         modifier = Modifier
             .clip(RoundedCornerShape(8.dp))
             .background(color.copy(alpha = 0.15f))
-            .padding(horizontal = 8.dp, vertical = 3.dp),
+            .padding(5.dp)
+            .size(18.dp),
     )
 }
 

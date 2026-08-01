@@ -21,20 +21,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.valerochka1337.valerochkagym.ui.theme.OnAccent
-import com.valerochka1337.valerochkagym.ui.theme.GymGreen
-import com.valerochka1337.valerochkagym.ui.theme.GymGreenLight
-
-private val PillGradient = Brush.horizontalGradient(listOf(GymGreen, GymGreenLight))
 
 /**
- * Fully-rounded pill button with a horizontal teal gradient and dark label.
- * Add [Modifier.fillMaxWidth] via [modifier] to make it span the full width.
+ * Fully-rounded pill button — the app's primary action. Flat solid [primary] fill with a
+ * dark [onPrimary] label. Add [Modifier.fillMaxWidth] via [modifier] to span the full width.
  */
 @Composable
 fun PillButton(
@@ -50,7 +44,7 @@ fun PillButton(
             .heightIn(min = 56.dp)
             .clip(CircleShape)
             .alpha(if (enabled) 1f else 0.5f)
-            .background(brush = PillGradient)
+            .background(MaterialTheme.colorScheme.primary)
             .clickable(
                 interactionSource = interactionSource,
                 indication = ripple(),
@@ -62,7 +56,7 @@ fun PillButton(
         horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        CompositionLocalProvider(LocalContentColor provides OnAccent) {
+        CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onPrimary) {
             if (leadingIcon != null) {
                 Icon(
                     imageVector = leadingIcon,

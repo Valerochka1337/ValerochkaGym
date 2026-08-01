@@ -1,6 +1,10 @@
 package com.valerochka1337.valerochkagym.ui.navigation
 
+import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.AnimatedContentTransitionScope.SlideDirection
+import androidx.compose.animation.core.FiniteAnimationSpec
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -8,7 +12,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.IntOffset
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.navigation.NavBackStackEntry
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
@@ -56,8 +62,32 @@ object GymRoutes {
 /** The tab root that the app opens on and that back navigation returns to. */
 const val GYM_START_DESTINATION = GymRoutes.WORKOUTS
 
-/** Длительность переходов навигации, мс. */
-private const val NAV_DURATION_MS = 300
+// Пружинная моторика M3 Expressive: плавный «спатиальный» сдвиг + «эффектное» затухание.
+private val NavSlideSpec: FiniteAnimationSpec<IntOffset> =
+    spring(dampingRatio = 0.9f, stiffness = Spring.StiffnessMediumLow)
+private val NavFadeSpec: FiniteAnimationSpec<Float> =
+    spring(stiffness = Spring.StiffnessMedium)
+
+/** Кроссфейд между вкладками нижнего меню — быстрый, предсказуемый, без слайда. */
+private val TabFadeSpec: FiniteAnimationSpec<Float> = tween(durationMillis = 180)
+
+/** Порядок нижних вкладок слева направо; -1 — маршрут не является вкладкой. */
+private fun tabIndex(route: String?): Int = when (route) {
+    GymRoutes.WORKOUTS -> 0
+    GymRoutes.HISTORY -> 1
+    GymRoutes.SETTINGS -> 2
+    else -> -1
+}
+
+/**
+ * Вкладки нижнего меню — сиблинги, а не иерархия, поэтому между ними используем чистый
+ * кроссфейд (направление слайда для них не имеет смысла и подтормаживает при restoreState).
+ */
+private fun AnimatedContentTransitionScope<NavBackStackEntry>.isTabSwitch(): Boolean {
+    val from = tabIndex(initialState.destination.route)
+    val to = tabIndex(targetState.destination.route)
+    return from >= 0 && to >= 0 && from != to
+}
 
 /**
  * Hosts every destination. [modifier] carries the padding from the enclosing
@@ -74,20 +104,20 @@ fun GymNavGraph(
         modifier = modifier,
         // Базовый переход для обычных экранов: сдвиг по горизонтали + затухание.
         enterTransition = {
-            fadeIn(tween(NAV_DURATION_MS)) +
-                slideIntoContainer(SlideDirection.Start, tween(NAV_DURATION_MS))
+            if (isTabSwitch()) fadeIn(TabFadeSpec)
+            else fadeIn(NavFadeSpec) + slideIntoContainer(SlideDirection.Start, NavSlideSpec)
         },
         exitTransition = {
-            fadeOut(tween(NAV_DURATION_MS)) +
-                slideOutOfContainer(SlideDirection.Start, tween(NAV_DURATION_MS))
+            if (isTabSwitch()) fadeOut(TabFadeSpec)
+            else fadeOut(NavFadeSpec) + slideOutOfContainer(SlideDirection.Start, NavSlideSpec)
         },
         popEnterTransition = {
-            fadeIn(tween(NAV_DURATION_MS)) +
-                slideIntoContainer(SlideDirection.End, tween(NAV_DURATION_MS))
+            if (isTabSwitch()) fadeIn(TabFadeSpec)
+            else fadeIn(NavFadeSpec) + slideIntoContainer(SlideDirection.End, NavSlideSpec)
         },
         popExitTransition = {
-            fadeOut(tween(NAV_DURATION_MS)) +
-                slideOutOfContainer(SlideDirection.End, tween(NAV_DURATION_MS))
+            if (isTabSwitch()) fadeOut(TabFadeSpec)
+            else fadeOut(NavFadeSpec) + slideOutOfContainer(SlideDirection.End, NavSlideSpec)
         },
     ) {
         composable(GymRoutes.WORKOUTS) {
@@ -119,12 +149,12 @@ fun GymNavGraph(
             GymRoutes.ACTIVE_WORKOUT,
             // Полноэкранный маршрут — выезжает снизу и уезжает вниз.
             enterTransition = {
-                fadeIn(tween(NAV_DURATION_MS)) +
-                    slideIntoContainer(SlideDirection.Up, tween(NAV_DURATION_MS))
+                fadeIn(NavFadeSpec) +
+                    slideIntoContainer(SlideDirection.Up, NavSlideSpec)
             },
             popExitTransition = {
-                fadeOut(tween(NAV_DURATION_MS)) +
-                    slideOutOfContainer(SlideDirection.Down, tween(NAV_DURATION_MS))
+                fadeOut(NavFadeSpec) +
+                    slideOutOfContainer(SlideDirection.Down, NavSlideSpec)
             },
         ) { backStackEntry ->
             val viewModel = hiltViewModel<ActiveWorkoutViewModel>(backStackEntry)
@@ -180,12 +210,12 @@ fun GymNavGraph(
             arguments = listOf(navArgument(GymRoutes.WORKOUT_ID_ARG) { type = NavType.StringType }),
             // Итоги — тоже полноэкранные: выезжают снизу, уезжают вниз.
             enterTransition = {
-                fadeIn(tween(NAV_DURATION_MS)) +
-                    slideIntoContainer(SlideDirection.Up, tween(NAV_DURATION_MS))
+                fadeIn(NavFadeSpec) +
+                    slideIntoContainer(SlideDirection.Up, NavSlideSpec)
             },
             popExitTransition = {
-                fadeOut(tween(NAV_DURATION_MS)) +
-                    slideOutOfContainer(SlideDirection.Down, tween(NAV_DURATION_MS))
+                fadeOut(NavFadeSpec) +
+                    slideOutOfContainer(SlideDirection.Down, NavSlideSpec)
             },
         ) {
             WorkoutSummaryScreen(

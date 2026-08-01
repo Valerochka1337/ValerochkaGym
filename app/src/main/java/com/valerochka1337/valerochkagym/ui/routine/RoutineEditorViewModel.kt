@@ -184,9 +184,12 @@ class RoutineEditorViewModel @Inject constructor(
         val state = _uiState.value
         if (!state.isValid) return
         viewModelScope.launch {
-            val id = routineDao.upsertRoutine(
+            // @Upsert возвращает -1 при обновлении существующей строки, поэтому для правки
+            // берём уже известный routineId, а результат upsert используем только для новой.
+            val insertedId = routineDao.upsertRoutine(
                 RoutineEntity(id = routineId ?: 0, name = state.name.trim(), note = state.note),
             )
+            val id = routineId ?: insertedId
             val entities = state.exercises.mapIndexed { index, exercise ->
                 RoutineExerciseEntity(
                     routineId = id,

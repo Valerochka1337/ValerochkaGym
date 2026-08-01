@@ -56,7 +56,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
@@ -76,9 +75,6 @@ import com.valerochka1337.valerochkagym.ui.components.GymCard
 import com.valerochka1337.valerochkagym.service.RestTimerState
 import com.valerochka1337.valerochkagym.ui.components.NumberField
 import com.valerochka1337.valerochkagym.ui.components.PillButton
-import com.valerochka1337.valerochkagym.ui.theme.OnAccent
-import com.valerochka1337.valerochkagym.ui.theme.GymGreen
-import com.valerochka1337.valerochkagym.ui.theme.GymGreenLight
 
 /** Крупный шаг веса (обычный тап), кг. */
 private const val WEIGHT_STEP = 2.5
@@ -330,7 +326,7 @@ private fun RestTimerPill(
                 .fillMaxWidth()
                 .padding(bottom = 12.dp)
                 .clip(CircleShape)
-                .background(brush = Brush.horizontalGradient(listOf(GymGreen, GymGreenLight)))
+                .background(MaterialTheme.colorScheme.primary)
                 .height(56.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -348,7 +344,7 @@ private fun RestTimerPill(
                     text = "⏱ ${formatRest(state.remainingSec)}",
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
-                    color = OnAccent,
+                    color = MaterialTheme.colorScheme.onPrimary,
                 )
             }
             RestPillSide(symbol = "+15с", contentDescription = "прибавить отдых") { onAddRestSeconds(REST_TIMER_STEP) }
@@ -375,7 +371,7 @@ private fun RestPillSide(
             text = symbol,
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.Bold,
-            color = OnAccent,
+            color = MaterialTheme.colorScheme.onPrimary,
         )
     }
 }
