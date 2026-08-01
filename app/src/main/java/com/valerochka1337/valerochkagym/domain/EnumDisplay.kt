@@ -21,3 +21,24 @@ fun ExerciseType.displayName(): String = when (this) {
     ExerciseType.TIMED -> "На время"
     ExerciseType.CARDIO -> "Кардио"
 }
+
+/**
+ * Разбирает русское имя группы мышц обратно в [MuscleGroup] (обратное к [displayName]).
+ * Сравнение регистронезависимо и без пробелов по краям. Неизвестная метка → [MuscleGroup.FULL_BODY],
+ * чтобы импорт из таблицы не падал на нестандартных значениях.
+ */
+fun muscleGroupFrom(label: String): MuscleGroup {
+    val normalized = label.trim().lowercase()
+    return MuscleGroup.entries.firstOrNull { it.displayName().lowercase() == normalized }
+        ?: MuscleGroup.FULL_BODY
+}
+
+/**
+ * Разбирает русское имя типа упражнения обратно в [ExerciseType] (обратное к [displayName]).
+ * Регистронезависимо, с фоллбэком на [ExerciseType.STRENGTH] для неизвестных меток.
+ */
+fun exerciseTypeFrom(label: String): ExerciseType {
+    val normalized = label.trim().lowercase()
+    return ExerciseType.entries.firstOrNull { it.displayName().lowercase() == normalized }
+        ?: ExerciseType.STRENGTH
+}
