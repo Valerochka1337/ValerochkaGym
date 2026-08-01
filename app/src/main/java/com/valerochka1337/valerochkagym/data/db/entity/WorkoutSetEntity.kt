@@ -27,4 +27,5 @@ data class WorkoutSetEntity(
     val speedKmh: Double? = null,
     val inclinePct: Double? = null,
     val isCompleted: Boolean = false,
+    val completedAt: Long? = null,
 )

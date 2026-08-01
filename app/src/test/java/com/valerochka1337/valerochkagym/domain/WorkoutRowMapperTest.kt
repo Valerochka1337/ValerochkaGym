@@ -173,6 +173,53 @@ class WorkoutRowMapperTest {
         assertEquals("Силовое", row[6])
     }
 
+    @Test
+    fun `row date and time come from set completedAt when present`() {
+        val setTime = STARTED_AT + 3_600_000L // +1 час к старту тренировки
+        val workout = workoutFull(
+            startedAt = STARTED_AT,
+            exercises = listOf(
+                exercise(
+                    name = "Присед",
+                    muscleGroup = MuscleGroup.LEGS,
+                    type = ExerciseType.STRENGTH,
+                    position = 0,
+                    sets = listOf(
+                        set(setIndex = 0, weightKg = 100.0, reps = 5, isCompleted = true, completedAt = setTime),
+                    ),
+                ),
+            ),
+        )
+
+        val row = WorkoutRowMapper.rows(workout).single()
+
+        assertEquals(expectedDate(setTime), row[1])
+        assertEquals(expectedTime(setTime), row[2])
+    }
+
+    @Test
+    fun `row falls back to workout start when set completedAt is null`() {
+        val workout = workoutFull(
+            startedAt = STARTED_AT,
+            exercises = listOf(
+                exercise(
+                    name = "Присед",
+                    muscleGroup = MuscleGroup.LEGS,
+                    type = ExerciseType.STRENGTH,
+                    position = 0,
+                    sets = listOf(
+                        set(setIndex = 0, weightKg = 100.0, reps = 5, isCompleted = true, completedAt = null),
+                    ),
+                ),
+            ),
+        )
+
+        val row = WorkoutRowMapper.rows(workout).single()
+
+        assertEquals(expectedDate(STARTED_AT), row[1])
+        assertEquals(expectedTime(STARTED_AT), row[2])
+    }
+
     // endregion
 
     // region filtering and ordering
@@ -290,6 +337,7 @@ class WorkoutRowMapperTest {
         speedKmh: Double? = null,
         inclinePct: Double? = null,
         isCompleted: Boolean,
+        completedAt: Long? = null,
     ): WorkoutSetEntity = WorkoutSetEntity(
         workoutExerciseId = 0,
         setIndex = setIndex,
@@ -299,6 +347,7 @@ class WorkoutRowMapperTest {
         speedKmh = speedKmh,
         inclinePct = inclinePct,
         isCompleted = isCompleted,
+        completedAt = completedAt,
     )
 
     private fun expectedDate(startedAt: Long): String =

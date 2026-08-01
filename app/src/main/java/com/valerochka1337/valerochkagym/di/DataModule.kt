@@ -42,6 +42,7 @@ object DataModule {
     ): GymDatabase =
         Room.databaseBuilder(context, GymDatabase::class.java, "gym.db")
             .addCallback(callback)
+            .addMigrations(GymDatabase.MIGRATION_1_2)
             .build()
 
     @Provides

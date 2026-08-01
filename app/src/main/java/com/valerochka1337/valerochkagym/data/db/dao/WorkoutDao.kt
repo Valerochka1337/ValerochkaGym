@@ -37,8 +37,8 @@ interface WorkoutDao {
     @Update
     suspend fun updateSet(set: WorkoutSetEntity)
 
-    @Query("UPDATE workout_sets SET isCompleted = :completed WHERE id = :setId")
-    suspend fun setSetCompleted(setId: Long, completed: Boolean)
+    @Query("UPDATE workout_sets SET isCompleted = :completed, completedAt = :completedAt WHERE id = :setId")
+    suspend fun setSetCompleted(setId: Long, completed: Boolean, completedAt: Long?)
 
     @Query("SELECT * FROM workout_sets WHERE id = :setId")
     suspend fun getSet(setId: Long): WorkoutSetEntity?
@@ -148,6 +148,10 @@ interface WorkoutDao {
         """,
     )
     suspend fun getFinishedNotUploaded(): List<String>
+
+    /** Id всех тренировок (для дедупликации импорта по `workout_id`). */
+    @Query("SELECT id FROM workouts")
+    suspend fun getExistingWorkoutIds(): List<String>
 
     @Query("DELETE FROM workouts WHERE id = :id")
     suspend fun deleteWorkout(id: String)

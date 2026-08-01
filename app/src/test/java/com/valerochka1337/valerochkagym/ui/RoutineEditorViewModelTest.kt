@@ -398,6 +398,7 @@ class RoutineEditorViewModelTest {
         override suspend fun insertAll(exercises: List<ExerciseEntity>) = Unit
         override suspend fun count(): Int = items.size
         override suspend fun getById(id: Long): ExerciseEntity? = items.find { it.id == id }
+        override suspend fun getAllOnce(): List<ExerciseEntity> = items
         override suspend fun getByIds(ids: List<Long>): List<ExerciseEntity> = items.filter { it.id in ids }
     }
 }

@@ -13,8 +13,8 @@ import java.time.format.DateTimeFormatter
  *
  * Колонки:
  *  - `workout_id`   — [com.valerochka1337.valerochkagym.data.db.entity.WorkoutEntity.id] (UUID).
- *  - `date`         — дата начала тренировки `yyyy-MM-dd` в локальной таймзоне.
- *  - `start_time`   — время начала `HH:mm` в локальной таймзоне.
+ *  - `date`         — дата отметки подхода `yyyy-MM-dd` в локальной таймзоне (фоллбэк — старт тренировки).
+ *  - `start_time`   — время отметки подхода `HH:mm` в локальной таймзоне (фоллбэк — старт тренировки).
  *  - `workout_name` — название тренировки.
  *  - `exercise`     — название упражнения.
  *  - `muscle_group` — русское отображаемое имя группы мышц.
@@ -54,9 +54,7 @@ object WorkoutRowMapper {
 
     /** Строки Sheets по выполненным подходам, упорядоченные по позиции упражнения и индексу подхода. */
     fun rows(workout: WorkoutFull): List<List<Any?>> {
-        val startedAt = Instant.ofEpochMilli(workout.workout.startedAt).atZone(ZoneId.systemDefault())
-        val date = DATE_FORMATTER.format(startedAt)
-        val startTime = TIME_FORMATTER.format(startedAt)
+        val zone = ZoneId.systemDefault()
 
         return workout.exercises
             .sortedBy { it.workoutExercise.position }
@@ -65,6 +63,12 @@ object WorkoutRowMapper {
                     .filter { it.isCompleted }
                     .sortedBy { it.setIndex }
                     .map { set ->
+                        // Время строки — момент отметки подхода; для «легаси»-подходов без
+                        // completedAt откатываемся на время старта тренировки.
+                        val instant = Instant.ofEpochMilli(set.completedAt ?: workout.workout.startedAt)
+                        val zoned = instant.atZone(zone)
+                        val date = DATE_FORMATTER.format(zoned)
+                        val startTime = TIME_FORMATTER.format(zoned)
                         val volume = if (
                             exercise.exercise.type == ExerciseType.STRENGTH &&
                             set.weightKg != null &&

@@ -6,6 +6,8 @@ import androidx.test.core.app.ApplicationProvider
 import com.valerochka1337.valerochkagym.data.db.GymDatabase
 import com.valerochka1337.valerochkagym.data.db.GymDatabaseCallback
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseDao
+import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
+import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleGroup
 import com.valerochka1337.valerochkagym.data.db.seedExercises
 import kotlinx.coroutines.CoroutineScope
@@ -14,6 +16,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -100,6 +103,28 @@ class ExerciseDaoTest {
         } finally {
             dbFile.delete()
         }
+    }
+
+    @Test
+    fun `getAllOnce returns every inserted exercise`() = runTest {
+        val dao = plainDatabase().exerciseDao()
+        dao.insert(ExerciseEntity(name = "Жим лёжа", muscleGroup = MuscleGroup.CHEST, type = ExerciseType.STRENGTH))
+        dao.insert(ExerciseEntity(name = "Присед", muscleGroup = MuscleGroup.LEGS, type = ExerciseType.STRENGTH))
+
+        val all = dao.getAllOnce()
+
+        assertEquals(2, all.size)
+        assertEquals(setOf("Жим лёжа", "Присед"), all.map { it.name }.toSet())
+    }
+
+    /** Пустая (без сидинга) in-memory БД для точечных DAO-проверок. */
+    private fun plainDatabase(): GymDatabase {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val db = Room.inMemoryDatabaseBuilder(context, GymDatabase::class.java)
+            .allowMainThreadQueries()
+            .build()
+        openDatabases += db
+        return db
     }
 
     private fun buildSeedingDatabase(fileName: String?): GymDatabase {
