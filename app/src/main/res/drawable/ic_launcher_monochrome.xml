@@ -4,7 +4,7 @@
     android:height="108dp"
     android:viewportWidth="1024"
     android:viewportHeight="1024">
-    <!-- Content scaled to 0.7 around the center to sit inside the adaptive safe zone. -->
+    <!-- Themed-icon layer: the system tints this shape; colors here are placeholders. -->
     <group
         android:pivotX="512"
         android:pivotY="512"
@@ -12,13 +12,13 @@
         android:scaleY="0.7">
         <path
             android:pathData="M264,512 a248,248 0 1,0 496,0 a248,248 0 1,0 -496,0"
-            android:strokeColor="#3DDC84"
+            android:strokeColor="#FFFFFF"
             android:strokeWidth="88"
             android:strokeLineCap="round"
             android:strokeLineJoin="round" />
         <path
             android:pathData="M418,414 L512,602 L606,414"
-            android:strokeColor="#3DDC84"
+            android:strokeColor="#FFFFFF"
             android:strokeWidth="84"
             android:strokeLineCap="round"
             android:strokeLineJoin="round" />

@@ -5,5 +5,5 @@
         Web application OAuth client ID из Google Cloud Console.
         Плейсхолдер: замените на реальный ID по инструкции в README.md.
     -->
-    <string name="google_web_client_id" translatable="false">YOUR_WEB_CLIENT_ID.apps.googleusercontent.com</string>
+    <string name="google_web_client_id" translatable="false">193759830496-lucic3av1r1l4441ed54ap9e30fkolfl.apps.googleusercontent.com</string>
 </resources>

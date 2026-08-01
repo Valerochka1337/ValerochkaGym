@@ -77,8 +77,8 @@ import com.valerochka1337.valerochkagym.service.RestTimerState
 import com.valerochka1337.valerochkagym.ui.components.NumberField
 import com.valerochka1337.valerochkagym.ui.components.PillButton
 import com.valerochka1337.valerochkagym.ui.theme.OnAccent
-import com.valerochka1337.valerochkagym.ui.theme.Teal
-import com.valerochka1337.valerochkagym.ui.theme.TealLight
+import com.valerochka1337.valerochkagym.ui.theme.GymGreen
+import com.valerochka1337.valerochkagym.ui.theme.GymGreenLight
 
 /** Крупный шаг веса (обычный тап), кг. */
 private const val WEIGHT_STEP = 2.5
@@ -330,7 +330,7 @@ private fun RestTimerPill(
                 .fillMaxWidth()
                 .padding(bottom = 12.dp)
                 .clip(CircleShape)
-                .background(brush = Brush.horizontalGradient(listOf(Teal, TealLight)))
+                .background(brush = Brush.horizontalGradient(listOf(GymGreen, GymGreenLight)))
                 .height(56.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {

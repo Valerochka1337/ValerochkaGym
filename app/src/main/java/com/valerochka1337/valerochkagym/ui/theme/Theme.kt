@@ -6,14 +6,14 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 
 private val GymColorScheme = darkColorScheme(
-    primary = Teal,
+    primary = GymGreen,
     onPrimary = OnAccent,
-    primaryContainer = TealContainer,
-    onPrimaryContainer = TealLight,
+    primaryContainer = GymGreenContainer,
+    onPrimaryContainer = GymGreenLight,
     secondary = Peach,
     onSecondary = OnAccent,
-    secondaryContainer = TealContainer,
-    onSecondaryContainer = TealLight,
+    secondaryContainer = GymGreenContainer,
+    onSecondaryContainer = GymGreenLight,
     tertiary = Peach,
     onTertiary = OnAccent,
     tertiaryContainer = PeachContainer,

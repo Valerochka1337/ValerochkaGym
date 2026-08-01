@@ -9,12 +9,12 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import com.valerochka1337.valerochkagym.ui.theme.GymBlack
+import com.valerochka1337.valerochkagym.ui.theme.GymGreen
 import com.valerochka1337.valerochkagym.ui.theme.Peach
-import com.valerochka1337.valerochkagym.ui.theme.Teal
 
 /**
  * Fills the screen with the near-black base and paints two soft radial glow spots
- * beneath [content]: a teal one in the top-right and a peach one in the bottom-left.
+ * beneath [content]: a green one in the top-right and a peach one in the bottom-left.
  */
 @Composable
 fun GlowBackground(
@@ -28,7 +28,7 @@ fun GlowBackground(
             .drawBehind {
                 drawRect(
                     brush = Brush.radialGradient(
-                        colors = listOf(Teal.copy(alpha = 0.30f), Teal.copy(alpha = 0f)),
+                        colors = listOf(GymGreen.copy(alpha = 0.30f), GymGreen.copy(alpha = 0f)),
                         center = Offset(size.width * 0.95f, size.height * 0.05f),
                         radius = size.maxDimension * 0.6f,
                     ),

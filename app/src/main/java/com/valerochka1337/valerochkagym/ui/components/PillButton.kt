@@ -27,10 +27,10 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.valerochka1337.valerochkagym.ui.theme.OnAccent
-import com.valerochka1337.valerochkagym.ui.theme.Teal
-import com.valerochka1337.valerochkagym.ui.theme.TealLight
+import com.valerochka1337.valerochkagym.ui.theme.GymGreen
+import com.valerochka1337.valerochkagym.ui.theme.GymGreenLight
 
-private val PillGradient = Brush.horizontalGradient(listOf(Teal, TealLight))
+private val PillGradient = Brush.horizontalGradient(listOf(GymGreen, GymGreenLight))
 
 /**
  * Fully-rounded pill button with a horizontal teal gradient and dark label.
