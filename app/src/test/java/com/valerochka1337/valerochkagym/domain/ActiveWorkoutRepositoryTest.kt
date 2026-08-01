@@ -11,10 +11,8 @@ import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleGroup
 import com.valerochka1337.valerochkagym.data.db.entity.RoutineEntity
 import com.valerochka1337.valerochkagym.data.db.entity.RoutineExerciseEntity
-import com.valerochka1337.valerochkagym.data.db.entity.WorkoutEntity
-import com.valerochka1337.valerochkagym.data.db.entity.WorkoutExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.WorkoutSetEntity
-import com.valerochka1337.valerochkagym.data.db.relation.WorkoutFull
+import com.valerochka1337.valerochkagym.data.sortedWorkoutFull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -52,7 +50,7 @@ class ActiveWorkoutRepositoryTest : RoomDaoTest() {
 
         val workoutId = repository.startFromRoutine(routineId)
 
-        val full = sortedFull(workoutId)
+        val full = sortedWorkoutFull(workoutFull(workoutId))
         assertEquals("День A", full.workout.name)
         assertEquals(routineId, full.workout.routineId)
         assertNull(full.workout.finishedAt)
@@ -76,7 +74,7 @@ class ActiveWorkoutRepositoryTest : RoomDaoTest() {
 
         val workoutId = repository.startFromRoutine(routineId)
 
-        val sets = sortedFull(workoutId).exercises.single().sets
+        val sets = sortedWorkoutFull(workoutFull(workoutId)).exercises.single().sets
         assertEquals(listOf(110.0, 112.5), sets.map { it.weightKg })
         assertEquals(listOf(6, 4), sets.map { it.reps })
         assertTrue(sets.none { it.isCompleted })
@@ -90,7 +88,7 @@ class ActiveWorkoutRepositoryTest : RoomDaoTest() {
 
         val workoutId = repository.startFromRoutine(routineId)
 
-        val set = sortedFull(workoutId).exercises.single().sets.single()
+        val set = sortedWorkoutFull(workoutFull(workoutId)).exercises.single().sets.single()
         assertEquals(80.0, set.weightKg!!, 0.0)
         assertEquals(12, set.reps)
         assertFalse(set.isCompleted)
@@ -110,7 +108,7 @@ class ActiveWorkoutRepositoryTest : RoomDaoTest() {
 
         val workoutId = repository.startFromRoutine(routineId)
 
-        val sets = sortedFull(workoutId).exercises.single().sets
+        val sets = sortedWorkoutFull(workoutFull(workoutId)).exercises.single().sets
         assertEquals(listOf(110.0, 100.0, 100.0), sets.map { it.weightKg })
         assertEquals(listOf(6, 5, 5), sets.map { it.reps })
     }
@@ -119,7 +117,7 @@ class ActiveWorkoutRepositoryTest : RoomDaoTest() {
     fun `startFromRoutine with a missing routine creates an empty workout`() = runTest {
         val workoutId = repository.startFromRoutine(routineId = 999)
 
-        val full = full(workoutId)
+        val full = workoutFull(workoutId)
         assertEquals("Тренировка", full.workout.name)
         assertNull(full.workout.routineId)
         assertTrue(full.exercises.isEmpty())
@@ -162,7 +160,7 @@ class ActiveWorkoutRepositoryTest : RoomDaoTest() {
 
         assertEquals(empty, fromRoutine)
         assertEquals(1, tableCount("workouts"))
-        val full = full(fromRoutine)
+        val full = workoutFull(fromRoutine)
         assertEquals("Тренировка", full.workout.name)
         assertTrue(full.exercises.isEmpty())
     }
@@ -266,18 +264,18 @@ class ActiveWorkoutRepositoryTest : RoomDaoTest() {
         val a = addExercise("A")
         val b = addExercise("B")
         val c = addExercise("C")
-        addWorkout("active", finishedAt = null)
-        val weA = addWorkoutExercise("active", a, position = 0)
-        addSet(weA, setIndex = 0, weightKg = 50.0, reps = 10, isCompleted = true) // real completed -> kept
-        addSet(weA, setIndex = 1, isCompleted = false) // empty uncompleted -> pruned
-        val weB = addWorkoutExercise("active", b, position = 1)
-        addSet(weB, setIndex = 0, isCompleted = false) // empty uncompleted -> pruned, exercise emptied -> dropped
-        val weC = addWorkoutExercise("active", c, position = 2)
-        addSet(weC, setIndex = 0, isCompleted = true) // completed but empty -> kept
+        insertWorkout("active", finishedAt = null)
+        val weA = insertWorkoutExercise("active", a, position = 0)
+        insertSet(weA, setIndex = 0, weightKg = 50.0, reps = 10, isCompleted = true) // real completed -> kept
+        insertSet(weA, setIndex = 1, isCompleted = false) // empty uncompleted -> pruned
+        val weB = insertWorkoutExercise("active", b, position = 1)
+        insertSet(weB, setIndex = 0, isCompleted = false) // empty uncompleted -> pruned, exercise emptied -> dropped
+        val weC = insertWorkoutExercise("active", c, position = 2)
+        insertSet(weC, setIndex = 0, isCompleted = true) // completed but empty -> kept
 
         repository.finish("active")
 
-        val full = full("active")
+        val full = workoutFull("active")
         assertNotNull(full.workout.finishedAt)
         assertEquals(setOf(a, c), full.exercises.map { it.exercise.id }.toSet())
         assertEquals(1, full.exercises.first { it.workoutExercise.id == weA }.sets.size)
@@ -287,29 +285,23 @@ class ActiveWorkoutRepositoryTest : RoomDaoTest() {
     }
 
     @Test
-    fun `finish is idempotent and keeps the original finishedAt`() = runTest {
+    fun `finish keeps an already stamped finishedAt`() = runTest {
         val a = addExercise("A")
-        addWorkout("active", finishedAt = null)
-        val we = addWorkoutExercise("active", a, position = 0)
-        addSet(we, setIndex = 0, weightKg = 50.0, reps = 10, isCompleted = true)
+        insertWorkout("done", finishedAt = 777)
+        val we = insertWorkoutExercise("done", a, position = 0)
+        insertSet(we, setIndex = 0, weightKg = 50.0, reps = 10, isCompleted = true)
 
-        repository.finish("active")
-        val firstStamp = full("active").workout.finishedAt
-        assertNotNull(firstStamp)
+        repository.finish("done")
 
-        Thread.sleep(5)
-        repository.finish("active")
-        val secondStamp = full("active").workout.finishedAt
-
-        assertEquals(firstStamp, secondStamp)
+        assertEquals(777L, workoutFull("done").workout.finishedAt)
     }
 
     @Test
     fun `discard deletes the workout and cascades to exercises and sets`() = runTest {
         val a = addExercise("A")
-        addWorkout("active", finishedAt = null)
-        val we = addWorkoutExercise("active", a, position = 0)
-        addSet(we, setIndex = 0, weightKg = 50.0, reps = 10, isCompleted = true)
+        insertWorkout("active", finishedAt = null)
+        val we = insertWorkoutExercise("active", a, position = 0)
+        insertSet(we, setIndex = 0, weightKg = 50.0, reps = 10, isCompleted = true)
 
         repository.discard("active")
 
@@ -326,13 +318,13 @@ class ActiveWorkoutRepositoryTest : RoomDaoTest() {
     fun `observeActive sorts exercises by position and sets by index`() = runTest {
         val a = addExercise("A")
         val b = addExercise("B")
-        addWorkout("active", finishedAt = null)
+        insertWorkout("active", finishedAt = null)
         // Inserted out of order to prove the flow applies the domain sort.
-        val weB = addWorkoutExercise("active", b, position = 1)
-        val weA = addWorkoutExercise("active", a, position = 0)
-        addSet(weA, setIndex = 2, weightKg = 60.0, reps = 5, isCompleted = false)
-        addSet(weA, setIndex = 0, weightKg = 40.0, reps = 5, isCompleted = false)
-        addSet(weA, setIndex = 1, weightKg = 50.0, reps = 5, isCompleted = false)
+        val weB = insertWorkoutExercise("active", b, position = 1)
+        val weA = insertWorkoutExercise("active", a, position = 0)
+        insertSet(weA, setIndex = 2, weightKg = 60.0, reps = 5, isCompleted = false)
+        insertSet(weA, setIndex = 0, weightKg = 40.0, reps = 5, isCompleted = false)
+        insertSet(weA, setIndex = 1, weightKg = 50.0, reps = 5, isCompleted = false)
 
         val full = repository.observeActive().first()!!
 
@@ -369,40 +361,10 @@ class ActiveWorkoutRepositoryTest : RoomDaoTest() {
         )
     }
 
-    private suspend fun addWorkout(id: String, finishedAt: Long?) {
-        workoutDao.insertWorkout(
-            WorkoutEntity(id = id, name = "Workout $id", startedAt = 1_000, finishedAt = finishedAt),
-        )
-    }
-
-    private suspend fun addWorkoutExercise(workoutId: String, exerciseId: Long, position: Int): Long =
-        workoutDao.insertWorkoutExercise(
-            WorkoutExerciseEntity(workoutId = workoutId, exerciseId = exerciseId, position = position),
-        )
-
-    private suspend fun addSet(
-        workoutExerciseId: Long,
-        setIndex: Int,
-        weightKg: Double? = null,
-        reps: Int? = null,
-        isCompleted: Boolean,
-    ): Long =
-        workoutDao.insertSet(
-            WorkoutSetEntity(
-                workoutExerciseId = workoutExerciseId,
-                setIndex = setIndex,
-                weightKg = weightKg,
-                reps = reps,
-                isCompleted = isCompleted,
-            ),
-        )
-
     /** Seeds a finished workout whose completed sets become the "last time" prefill source. */
     private suspend fun seedHistory(exerciseId: Long, sets: List<WorkoutSetEntity>) {
-        workoutDao.insertWorkout(
-            WorkoutEntity(id = "history", name = "История", startedAt = 100, finishedAt = 500),
-        )
-        val workoutExerciseId = addWorkoutExercise("history", exerciseId, position = 0)
+        insertWorkout("history", startedAt = 100, finishedAt = 500)
+        val workoutExerciseId = insertWorkoutExercise("history", exerciseId)
         workoutDao.insertSets(
             sets.mapIndexed { index, set -> set.copy(workoutExerciseId = workoutExerciseId, setIndex = index) },
         )
@@ -412,18 +374,6 @@ class ActiveWorkoutRepositoryTest : RoomDaoTest() {
 
     private fun completedSet(weightKg: Double, reps: Int): WorkoutSetEntity =
         WorkoutSetEntity(workoutExerciseId = 0, setIndex = 0, weightKg = weightKg, reps = reps, isCompleted = true)
-
-    private suspend fun full(workoutId: String): WorkoutFull = workoutDao.getWorkoutFull(workoutId)!!
-
-    /** Reads the workout with the production domain sort applied (exercises by position, sets by index). */
-    private suspend fun sortedFull(workoutId: String): WorkoutFull {
-        val full = full(workoutId)
-        return full.copy(
-            exercises = full.exercises
-                .sortedBy { it.workoutExercise.position }
-                .map { exercise -> exercise.copy(sets = exercise.sets.sortedBy { it.setIndex }) },
-        )
-    }
 
     private suspend fun setById(workoutExerciseId: Long, setId: Long): WorkoutSetEntity =
         workoutDao.getSetsForWorkoutExercise(workoutExerciseId).first { it.id == setId }

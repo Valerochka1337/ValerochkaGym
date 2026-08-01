@@ -6,8 +6,6 @@ import com.valerochka1337.valerochkagym.data.db.dao.WorkoutDao
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleGroup
-import com.valerochka1337.valerochkagym.data.db.entity.WorkoutEntity
-import com.valerochka1337.valerochkagym.data.db.entity.WorkoutExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.WorkoutSetEntity
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -33,14 +31,14 @@ class PreviousSetsUseCaseTest : RoomDaoTest() {
     fun `invoke returns the completed sets of the last finished workout`() = runTest {
         val squat = addExercise("Присед")
 
-        addWorkout("old", startedAt = 1_000, finishedAt = 2_000)
-        val oldWe = addWorkoutExercise("old", squat)
-        addSet(oldWe, setIndex = 0, weightKg = 90.0, reps = 5, isCompleted = true)
+        insertWorkout("old", startedAt = 1_000, finishedAt = 2_000)
+        val oldWe = insertWorkoutExercise("old", squat)
+        insertSet(oldWe, setIndex = 0, weightKg = 90.0, reps = 5, isCompleted = true)
 
-        addWorkout("new", startedAt = 3_000, finishedAt = 4_000)
-        val newWe = addWorkoutExercise("new", squat)
-        addSet(newWe, setIndex = 0, weightKg = 100.0, reps = 5, isCompleted = true)
-        addSet(newWe, setIndex = 1, weightKg = 100.0, reps = 4, isCompleted = true)
+        insertWorkout("new", startedAt = 3_000, finishedAt = 4_000)
+        val newWe = insertWorkoutExercise("new", squat)
+        insertSet(newWe, setIndex = 0, weightKg = 100.0, reps = 5, isCompleted = true)
+        insertSet(newWe, setIndex = 1, weightKg = 100.0, reps = 4, isCompleted = true)
 
         val result = useCase(squat)
 
@@ -88,34 +86,6 @@ class PreviousSetsUseCaseTest : RoomDaoTest() {
 
     private suspend fun addExercise(name: String): Long =
         exerciseDao.insert(ExerciseEntity(name = name, muscleGroup = MuscleGroup.LEGS, type = ExerciseType.STRENGTH))
-
-    private suspend fun addWorkout(id: String, startedAt: Long, finishedAt: Long?) {
-        workoutDao.insertWorkout(
-            WorkoutEntity(id = id, name = "Workout $id", startedAt = startedAt, finishedAt = finishedAt),
-        )
-    }
-
-    private suspend fun addWorkoutExercise(workoutId: String, exerciseId: Long): Long =
-        workoutDao.insertWorkoutExercise(
-            WorkoutExerciseEntity(workoutId = workoutId, exerciseId = exerciseId, position = 0),
-        )
-
-    private suspend fun addSet(
-        workoutExerciseId: Long,
-        setIndex: Int,
-        weightKg: Double?,
-        reps: Int?,
-        isCompleted: Boolean,
-    ): Long =
-        workoutDao.insertSet(
-            WorkoutSetEntity(
-                workoutExerciseId = workoutExerciseId,
-                setIndex = setIndex,
-                weightKg = weightKg,
-                reps = reps,
-                isCompleted = isCompleted,
-            ),
-        )
 
     private fun strengthSet(weightKg: Double, reps: Int): WorkoutSetEntity =
         WorkoutSetEntity(workoutExerciseId = 0, setIndex = 0, weightKg = weightKg, reps = reps)

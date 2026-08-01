@@ -5,9 +5,6 @@ import com.valerochka1337.valerochkagym.data.db.dao.WorkoutDao
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleGroup
-import com.valerochka1337.valerochkagym.data.db.entity.WorkoutEntity
-import com.valerochka1337.valerochkagym.data.db.entity.WorkoutExerciseEntity
-import com.valerochka1337.valerochkagym.data.db.entity.WorkoutSetEntity
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -34,16 +31,16 @@ class WorkoutDaoTest : RoomDaoTest() {
         runTest {
             val exerciseId = addExercise()
 
-            addWorkout("old", startedAt = 1_000, finishedAt = 2_000)
-            val oldWe = addWorkoutExercise("old", exerciseId)
-            addSet(oldWe, setIndex = 0, weightKg = 40.0, isCompleted = true)
+            insertWorkout("old", startedAt = 1_000, finishedAt = 2_000)
+            val oldWe = insertWorkoutExercise("old", exerciseId)
+            insertSet(oldWe, setIndex = 0, weightKg = 40.0, isCompleted = true)
 
-            addWorkout("new", startedAt = 3_000, finishedAt = 4_000)
-            val newWe = addWorkoutExercise("new", exerciseId)
+            insertWorkout("new", startedAt = 3_000, finishedAt = 4_000)
+            val newWe = insertWorkoutExercise("new", exerciseId)
             // Inserted out of index order to prove the query sorts by setIndex.
-            addSet(newWe, setIndex = 2, weightKg = 60.0, isCompleted = true)
-            addSet(newWe, setIndex = 0, weightKg = 50.0, isCompleted = true)
-            addSet(newWe, setIndex = 1, weightKg = 55.0, isCompleted = true)
+            insertSet(newWe, setIndex = 2, weightKg = 60.0, isCompleted = true)
+            insertSet(newWe, setIndex = 0, weightKg = 50.0, isCompleted = true)
+            insertSet(newWe, setIndex = 1, weightKg = 55.0, isCompleted = true)
 
             val result = workoutDao.lastCompletedSetsForExercise(exerciseId)
 
@@ -56,14 +53,14 @@ class WorkoutDaoTest : RoomDaoTest() {
     fun `lastCompletedSetsForExercise ignores unfinished workouts`() = runTest {
         val exerciseId = addExercise()
 
-        addWorkout("finished", startedAt = 1_000, finishedAt = 2_000)
-        val finishedWe = addWorkoutExercise("finished", exerciseId)
-        addSet(finishedWe, setIndex = 0, weightKg = 42.0, isCompleted = true)
+        insertWorkout("finished", startedAt = 1_000, finishedAt = 2_000)
+        val finishedWe = insertWorkoutExercise("finished", exerciseId)
+        insertSet(finishedWe, setIndex = 0, weightKg = 42.0, isCompleted = true)
 
         // Started later but never finished, so it must not shadow the finished one.
-        addWorkout("active", startedAt = 5_000, finishedAt = null)
-        val activeWe = addWorkoutExercise("active", exerciseId)
-        addSet(activeWe, setIndex = 0, weightKg = 99.0, isCompleted = true)
+        insertWorkout("active", startedAt = 5_000, finishedAt = null)
+        val activeWe = insertWorkoutExercise("active", exerciseId)
+        insertSet(activeWe, setIndex = 0, weightKg = 99.0, isCompleted = true)
 
         val result = workoutDao.lastCompletedSetsForExercise(exerciseId)
 
@@ -76,15 +73,15 @@ class WorkoutDaoTest : RoomDaoTest() {
         runTest {
             val exerciseId = addExercise()
 
-            addWorkout("previous", startedAt = 1_000, finishedAt = 2_000)
-            val previousWe = addWorkoutExercise("previous", exerciseId)
-            addSet(previousWe, setIndex = 0, weightKg = 30.0, isCompleted = true)
-            addSet(previousWe, setIndex = 1, weightKg = 35.0, isCompleted = true)
+            insertWorkout("previous", startedAt = 1_000, finishedAt = 2_000)
+            val previousWe = insertWorkoutExercise("previous", exerciseId)
+            insertSet(previousWe, setIndex = 0, weightKg = 30.0, isCompleted = true)
+            insertSet(previousWe, setIndex = 1, weightKg = 35.0, isCompleted = true)
 
             // Latest finished workout contains the exercise but nothing was completed.
-            addWorkout("latest", startedAt = 3_000, finishedAt = 4_000)
-            val latestWe = addWorkoutExercise("latest", exerciseId)
-            addSet(latestWe, setIndex = 0, weightKg = 70.0, isCompleted = false)
+            insertWorkout("latest", startedAt = 3_000, finishedAt = 4_000)
+            val latestWe = insertWorkoutExercise("latest", exerciseId)
+            insertSet(latestWe, setIndex = 0, weightKg = 70.0, isCompleted = false)
 
             val result = workoutDao.lastCompletedSetsForExercise(exerciseId)
 
@@ -107,19 +104,19 @@ class WorkoutDaoTest : RoomDaoTest() {
     fun `maxCompletedWeight takes the max over finished workouts and completed sets`() = runTest {
         val exerciseId = addExercise()
 
-        addWorkout("w1", startedAt = 1_000, finishedAt = 2_000)
-        val we1 = addWorkoutExercise("w1", exerciseId)
-        addSet(we1, setIndex = 0, weightKg = 50.0, isCompleted = true)
-        addSet(we1, setIndex = 1, weightKg = 80.0, isCompleted = true)
-        addSet(we1, setIndex = 2, weightKg = 500.0, isCompleted = false) // not completed -> ignored
+        insertWorkout("w1", startedAt = 1_000, finishedAt = 2_000)
+        val we1 = insertWorkoutExercise("w1", exerciseId)
+        insertSet(we1, setIndex = 0, weightKg = 50.0, isCompleted = true)
+        insertSet(we1, setIndex = 1, weightKg = 80.0, isCompleted = true)
+        insertSet(we1, setIndex = 2, weightKg = 500.0, isCompleted = false) // not completed -> ignored
 
-        addWorkout("w2", startedAt = 3_000, finishedAt = 4_000)
-        val we2 = addWorkoutExercise("w2", exerciseId)
-        addSet(we2, setIndex = 0, weightKg = 100.0, isCompleted = true)
+        insertWorkout("w2", startedAt = 3_000, finishedAt = 4_000)
+        val we2 = insertWorkoutExercise("w2", exerciseId)
+        insertSet(we2, setIndex = 0, weightKg = 100.0, isCompleted = true)
 
-        addWorkout("active", startedAt = 5_000, finishedAt = null)
-        val activeWe = addWorkoutExercise("active", exerciseId)
-        addSet(activeWe, setIndex = 0, weightKg = 200.0, isCompleted = true) // not finished -> ignored
+        insertWorkout("active", startedAt = 5_000, finishedAt = null)
+        val activeWe = insertWorkoutExercise("active", exerciseId)
+        insertSet(activeWe, setIndex = 0, weightKg = 200.0, isCompleted = true) // not finished -> ignored
 
         assertEquals(100.0, workoutDao.maxCompletedWeight(exerciseId, "no-such-workout")!!, 0.0)
     }
@@ -128,13 +125,13 @@ class WorkoutDaoTest : RoomDaoTest() {
     fun `maxCompletedWeight excludes the given workout`() = runTest {
         val exerciseId = addExercise()
 
-        addWorkout("w1", startedAt = 1_000, finishedAt = 2_000)
-        val we1 = addWorkoutExercise("w1", exerciseId)
-        addSet(we1, setIndex = 0, weightKg = 80.0, isCompleted = true)
+        insertWorkout("w1", startedAt = 1_000, finishedAt = 2_000)
+        val we1 = insertWorkoutExercise("w1", exerciseId)
+        insertSet(we1, setIndex = 0, weightKg = 80.0, isCompleted = true)
 
-        addWorkout("w2", startedAt = 3_000, finishedAt = 4_000)
-        val we2 = addWorkoutExercise("w2", exerciseId)
-        addSet(we2, setIndex = 0, weightKg = 100.0, isCompleted = true)
+        insertWorkout("w2", startedAt = 3_000, finishedAt = 4_000)
+        val we2 = insertWorkoutExercise("w2", exerciseId)
+        insertSet(we2, setIndex = 0, weightKg = 100.0, isCompleted = true)
 
         assertEquals(80.0, workoutDao.maxCompletedWeight(exerciseId, "w2")!!, 0.0)
     }
@@ -150,9 +147,9 @@ class WorkoutDaoTest : RoomDaoTest() {
     fun `maxCompletedWeight is null when completed sets carry no weight`() = runTest {
         val exerciseId = addExercise()
 
-        addWorkout("w1", startedAt = 1_000, finishedAt = 2_000)
-        val we1 = addWorkoutExercise("w1", exerciseId)
-        addSet(we1, setIndex = 0, weightKg = null, isCompleted = true)
+        insertWorkout("w1", startedAt = 1_000, finishedAt = 2_000)
+        val we1 = insertWorkoutExercise("w1", exerciseId)
+        insertSet(we1, setIndex = 0, weightKg = null, isCompleted = true)
 
         assertNull(workoutDao.maxCompletedWeight(exerciseId, "no-such-workout"))
     }
@@ -163,15 +160,15 @@ class WorkoutDaoTest : RoomDaoTest() {
 
     @Test
     fun `getActiveWorkoutId is null when nothing is active`() = runTest {
-        addWorkout("finished", startedAt = 1_000, finishedAt = 2_000)
+        insertWorkout("finished", startedAt = 1_000, finishedAt = 2_000)
 
         assertNull(workoutDao.getActiveWorkoutId())
     }
 
     @Test
     fun `active workout is the one without finishedAt`() = runTest {
-        addWorkout("finished", startedAt = 1_000, finishedAt = 2_000)
-        addWorkout("active", startedAt = 3_000, finishedAt = null)
+        insertWorkout("finished", startedAt = 1_000, finishedAt = 2_000)
+        insertWorkout("active", startedAt = 3_000, finishedAt = null)
 
         assertEquals("active", workoutDao.getActiveWorkoutId())
         assertEquals("active", workoutDao.observeActiveWorkout().first()?.workout?.id)
@@ -179,8 +176,8 @@ class WorkoutDaoTest : RoomDaoTest() {
 
     @Test
     fun `with several active workouts the most recent by startedAt wins`() = runTest {
-        addWorkout("active-old", startedAt = 3_000, finishedAt = null)
-        addWorkout("active-new", startedAt = 9_000, finishedAt = null)
+        insertWorkout("active-old", startedAt = 3_000, finishedAt = null)
+        insertWorkout("active-new", startedAt = 9_000, finishedAt = null)
 
         assertEquals("active-new", workoutDao.getActiveWorkoutId())
         assertEquals("active-new", workoutDao.observeActiveWorkout().first()?.workout?.id)
@@ -198,10 +195,10 @@ class WorkoutDaoTest : RoomDaoTest() {
     @Test
     fun `deleting a workout cascades to its exercises and sets`() = runTest {
         val exerciseId = addExercise()
-        addWorkout("w", startedAt = 1_000, finishedAt = 2_000)
-        val we = addWorkoutExercise("w", exerciseId)
-        addSet(we, setIndex = 0, weightKg = 50.0, isCompleted = true)
-        addSet(we, setIndex = 1, weightKg = 60.0, isCompleted = true)
+        insertWorkout("w", startedAt = 1_000, finishedAt = 2_000)
+        val we = insertWorkoutExercise("w", exerciseId)
+        insertSet(we, setIndex = 0, weightKg = 50.0, isCompleted = true)
+        insertSet(we, setIndex = 1, weightKg = 60.0, isCompleted = true)
 
         assertEquals(1, tableCount("workout_exercises"))
         assertEquals(2, tableCount("workout_sets"))
@@ -223,35 +220,4 @@ class WorkoutDaoTest : RoomDaoTest() {
             ),
         )
 
-    private suspend fun addWorkout(id: String, startedAt: Long, finishedAt: Long?) {
-        workoutDao.insertWorkout(
-            WorkoutEntity(
-                id = id,
-                name = "Workout $id",
-                startedAt = startedAt,
-                finishedAt = finishedAt,
-            ),
-        )
-    }
-
-    private suspend fun addWorkoutExercise(workoutId: String, exerciseId: Long, position: Int = 0): Long =
-        workoutDao.insertWorkoutExercise(
-            WorkoutExerciseEntity(workoutId = workoutId, exerciseId = exerciseId, position = position),
-        )
-
-    private suspend fun addSet(
-        workoutExerciseId: Long,
-        setIndex: Int,
-        weightKg: Double?,
-        isCompleted: Boolean,
-    ): Long =
-        workoutDao.insertSet(
-            WorkoutSetEntity(
-                workoutExerciseId = workoutExerciseId,
-                setIndex = setIndex,
-                weightKg = weightKg,
-                reps = 10,
-                isCompleted = isCompleted,
-            ),
-        )
 }
