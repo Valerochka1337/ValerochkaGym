@@ -6,6 +6,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.valerochka1337.valerochkagym.data.google.AuthorizeOutcome
 import com.valerochka1337.valerochkagym.data.google.GoogleAuth
+import com.valerochka1337.valerochkagym.data.google.ImportResult
+import com.valerochka1337.valerochkagym.data.google.WorkoutImportRepository
 import com.valerochka1337.valerochkagym.data.google.spreadsheetIdFrom
 import com.valerochka1337.valerochkagym.data.settings.GymSettings
 import com.valerochka1337.valerochkagym.data.settings.SettingsRepository
@@ -52,6 +54,7 @@ class SettingsViewModel @Inject constructor(
     private val settingsRepository: SettingsRepository,
     private val googleAuth: GoogleAuth,
     private val uploadScheduler: UploadScheduler,
+    private val importRepository: WorkoutImportRepository,
 ) : ViewModel() {
 
     private val authBusy = MutableStateFlow(false)
@@ -139,7 +142,20 @@ class SettingsViewModel @Inject constructor(
             return
         }
         spreadsheetError.value = false
-        viewModelScope.launch { settingsRepository.setSpreadsheetId(id) }
+        viewModelScope.launch {
+            settingsRepository.setSpreadsheetId(id)
+            importHistory()
+        }
+    }
+
+    /** Разово тянет историю из только что сохранённой таблицы и уведомляет о результате. */
+    private suspend fun importHistory() {
+        val message = when (val result = importRepository.importAll()) {
+            is ImportResult.Success -> "Импортировано тренировок: ${result.imported}"
+            ImportResult.NothingToImport -> "Нечего импортировать"
+            is ImportResult.Failure -> result.reason
+        }
+        _messages.send(message)
     }
 
     /**
