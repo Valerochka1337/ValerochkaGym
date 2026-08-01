@@ -26,8 +26,6 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -70,19 +68,7 @@ fun WorkoutsScreen(
     viewModel: WorkoutsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
-    val upcoming by viewModel.upcoming.collectAsStateWithLifecycle()
     var pendingDeleteId by rememberSaveable { mutableStateOf<Long?>(null) }
-    var pendingCancelId by rememberSaveable { mutableStateOf<Long?>(null) }
-
-    // Флоу планирования: routineId выбранной программы держится обе фазы; scheduleDateUtc != null
-    // означает, что дата выбрана и пора показывать выбор времени.
-    var scheduleRoutineId by rememberSaveable { mutableStateOf<Long?>(null) }
-    var scheduleDateUtc by rememberSaveable { mutableStateOf<Long?>(null) }
-
-    val snackbarHostState = remember { SnackbarHostState() }
-    LaunchedEffect(Unit) {
-        viewModel.scheduleEvents.collect { snackbarHostState.showSnackbar(it) }
-    }
 
     val context = LocalContext.current
     // Отказ в разрешении не блокирует тренировку — таймер работает на экране, просто без уведомлений.
@@ -118,14 +104,6 @@ fun WorkoutsScreen(
                     },
                 )
 
-                upcoming?.takeIf { it.isNotEmpty() }?.let { items ->
-                    UpcomingSection(
-                        items = items,
-                        onStartDue = viewModel::startScheduled,
-                        onCancel = { pendingCancelId = it.id },
-                    )
-                }
-
                 val routines = state.routines
                 when {
                     // Ещё не загружено: ничего не показываем (Room отдаёт быстро).
@@ -151,10 +129,6 @@ fun WorkoutsScreen(
                                 onClick = { viewModel.onRoutineSelected(routine.id) },
                                 onEdit = { onEditRoutine(routine.id) },
                                 onDuplicate = { viewModel.duplicate(routine.id) },
-                                onSchedule = {
-                                    scheduleRoutineId = routine.id
-                                    scheduleDateUtc = null
-                                },
                                 onDelete = { pendingDeleteId = routine.id },
                             )
                         }
@@ -169,11 +143,6 @@ fun WorkoutsScreen(
                     )
                 }
             }
-
-            SnackbarHost(
-                hostState = snackbarHostState,
-                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 88.dp),
-            )
         }
     }
 
@@ -189,41 +158,6 @@ fun WorkoutsScreen(
             onDismiss = { pendingDeleteId = null },
         )
     }
-
-    val cancelId = pendingCancelId
-    if (cancelId != null) {
-        val name = upcoming?.firstOrNull { it.id == cancelId }?.routineName.orEmpty()
-        CancelScheduledDialog(
-            routineName = name,
-            onConfirm = {
-                viewModel.cancelScheduled(cancelId)
-                pendingCancelId = null
-            },
-            onDismiss = { pendingCancelId = null },
-        )
-    }
-
-    // Фаза 1 — выбор даты (только сегодня и дальше). Затем фаза 2 — выбор времени.
-    val schedulingRoutineId = scheduleRoutineId
-    val pickedDateUtc = scheduleDateUtc
-    if (schedulingRoutineId != null && pickedDateUtc == null) {
-        ScheduleDatePickerDialog(
-            onConfirm = { scheduleDateUtc = it },
-            onDismiss = { scheduleRoutineId = null },
-        )
-    } else if (schedulingRoutineId != null && pickedDateUtc != null) {
-        ScheduleTimePickerDialog(
-            onConfirm = { hour, minute ->
-                viewModel.schedule(schedulingRoutineId, combineToMillis(pickedDateUtc, hour, minute))
-                scheduleRoutineId = null
-                scheduleDateUtc = null
-            },
-            onDismiss = {
-                scheduleRoutineId = null
-                scheduleDateUtc = null
-            },
-        )
-    }
 }
 
 @Composable
@@ -233,7 +167,6 @@ private fun RoutineCard(
     onClick: () -> Unit,
     onEdit: () -> Unit,
     onDuplicate: () -> Unit,
-    onSchedule: () -> Unit,
     onDelete: () -> Unit,
 ) {
     val borderModifier = if (selected) {
@@ -271,7 +204,6 @@ private fun RoutineCard(
             RoutineCardMenu(
                 onEdit = onEdit,
                 onDuplicate = onDuplicate,
-                onSchedule = onSchedule,
                 onDelete = onDelete,
             )
         }
@@ -282,7 +214,6 @@ private fun RoutineCard(
 private fun RoutineCardMenu(
     onEdit: () -> Unit,
     onDuplicate: () -> Unit,
-    onSchedule: () -> Unit,
     onDelete: () -> Unit,
 ) {
     var expanded by remember { mutableStateOf(false) }
@@ -307,13 +238,6 @@ private fun RoutineCardMenu(
                 onClick = {
                     expanded = false
                     onDuplicate()
-                },
-            )
-            DropdownMenuItem(
-                text = { Text("Запланировать") },
-                onClick = {
-                    expanded = false
-                    onSchedule()
                 },
             )
             DropdownMenuItem(

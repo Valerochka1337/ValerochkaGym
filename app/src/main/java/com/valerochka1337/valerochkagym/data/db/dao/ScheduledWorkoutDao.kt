@@ -28,6 +28,21 @@ interface ScheduledWorkoutDao {
     )
     fun observeUpcoming(nowMillis: Long): Flow<List<ScheduledWithRoutine>>
 
+    /**
+     * Все запланированные тренировки (ad-hoc) с именем программы, по времени начала. В отличие от
+     * [observeUpcoming] возвращает и прошлые записи — нужно календарю для отрисовки ячеек любого дня
+     * и содержимого нижней шторки выбранного дня.
+     */
+    @Query(
+        """
+        SELECT sw.*, r.name AS routineName
+        FROM scheduled_workouts sw
+        JOIN routines r ON r.id = sw.routineId
+        ORDER BY sw.dateTimeMillis ASC
+        """,
+    )
+    fun observeAll(): Flow<List<ScheduledWithRoutine>>
+
     @Insert
     suspend fun insert(scheduled: ScheduledWorkoutEntity): Long
 

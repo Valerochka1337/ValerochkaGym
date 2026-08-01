@@ -43,7 +43,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.valerochka1337.valerochkagym.ui.components.UploadStatusBadge
 import com.valerochka1337.valerochkagym.data.db.entity.UploadStatus
+import com.valerochka1337.valerochkagym.domain.muscleGroupFrom
+import com.valerochka1337.valerochkagym.ui.components.ExerciseAvatar
 import com.valerochka1337.valerochkagym.ui.components.GlowBackground
 import com.valerochka1337.valerochkagym.ui.components.GymCard
 
@@ -307,25 +310,25 @@ private fun ExerciseCard(exercise: DetailExerciseUi) {
         contentPadding = PaddingValues(horizontal = 18.dp, vertical = 14.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                Icons.Rounded.FitnessCenter,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(18.dp),
+            ExerciseAvatar(
+                name = exercise.name,
+                group = muscleGroupFrom(exercise.muscleGroup),
             )
-            Spacer(Modifier.width(8.dp))
-            Text(
-                text = exercise.name,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
+            Spacer(Modifier.width(12.dp))
+            Column {
+                Text(
+                    text = exercise.name,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Text(
+                    text = exercise.muscleGroup,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
-        Text(
-            text = exercise.muscleGroup,
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
         if (exercise.sets.isNotEmpty()) {
             Spacer(Modifier.height(8.dp))
             exercise.sets.forEach { set ->

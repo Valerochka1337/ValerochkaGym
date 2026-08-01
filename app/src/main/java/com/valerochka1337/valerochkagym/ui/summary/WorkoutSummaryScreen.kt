@@ -37,6 +37,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.valerochka1337.valerochkagym.domain.PrResult
+import com.valerochka1337.valerochkagym.ui.components.ExerciseAvatar
 import com.valerochka1337.valerochkagym.ui.components.GlowBackground
 import com.valerochka1337.valerochkagym.ui.components.GymCard
 import com.valerochka1337.valerochkagym.ui.components.PillButton
@@ -114,11 +115,7 @@ fun WorkoutSummaryScreen(
                             contentPadding = PaddingValues(horizontal = 18.dp, vertical = 14.dp),
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    Icons.Rounded.FitnessCenter,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                )
+                                ExerciseAvatar(name = exercise.name)
                                 Spacer(Modifier.width(12.dp))
                                 Text(
                                     text = exercise.name,

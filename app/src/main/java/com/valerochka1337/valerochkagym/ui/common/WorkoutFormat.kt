@@ -1,4 +1,4 @@
-package com.valerochka1337.valerochkagym.ui.history
+package com.valerochka1337.valerochkagym.ui.common
 
 import java.time.Instant
 import java.time.LocalDate

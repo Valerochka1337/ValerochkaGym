@@ -53,7 +53,7 @@ private data class TabItem(
 
 private val tabs = listOf(
     TabItem(GymRoutes.WORKOUTS, "Тренировки", R.drawable.ic_tab_workouts),
-    TabItem(GymRoutes.HISTORY, "История", R.drawable.ic_tab_history),
+    TabItem(GymRoutes.CALENDAR, "Календарь", R.drawable.ic_tab_calendar),
     TabItem(GymRoutes.ANALYSIS, "Анализы", R.drawable.ic_tab_analysis),
 )
 

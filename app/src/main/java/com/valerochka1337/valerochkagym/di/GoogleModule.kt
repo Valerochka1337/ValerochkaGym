@@ -8,6 +8,8 @@ import com.valerochka1337.valerochkagym.data.google.SheetsRepository
 import com.valerochka1337.valerochkagym.data.google.SheetsRepositoryImpl
 import com.valerochka1337.valerochkagym.data.google.WorkoutImportRepository
 import com.valerochka1337.valerochkagym.data.google.WorkoutImportRepositoryImpl
+import com.valerochka1337.valerochkagym.data.schedule.WeeklyScheduleRepository
+import com.valerochka1337.valerochkagym.data.schedule.WeeklyScheduleRepositoryImpl
 import dagger.Binds
 import dagger.Module
 import dagger.hilt.InstallIn
@@ -33,4 +35,8 @@ abstract class GoogleModule {
     @Binds
     @Singleton
     abstract fun bindWorkoutImportRepository(impl: WorkoutImportRepositoryImpl): WorkoutImportRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindWeeklyScheduleRepository(impl: WeeklyScheduleRepositoryImpl): WeeklyScheduleRepository
 }

@@ -70,6 +70,7 @@ import kotlinx.coroutines.flow.StateFlow
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
 import com.valerochka1337.valerochkagym.data.db.entity.WorkoutSetEntity
 import com.valerochka1337.valerochkagym.data.db.relation.WorkoutExerciseWithSets
+import com.valerochka1337.valerochkagym.ui.components.ExerciseAvatar
 import com.valerochka1337.valerochkagym.ui.components.GlowBackground
 import com.valerochka1337.valerochkagym.ui.components.GymCard
 import com.valerochka1337.valerochkagym.service.RestTimerState
@@ -434,6 +435,8 @@ private fun ExerciseSection(
             .animateContentSize(MaterialTheme.motionScheme.defaultSpatialSpec()),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
+            ExerciseAvatar(exercise = exercise.exercise)
+            Spacer(Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = exercise.exercise.name,

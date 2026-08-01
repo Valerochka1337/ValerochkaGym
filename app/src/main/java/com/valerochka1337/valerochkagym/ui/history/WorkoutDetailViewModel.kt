@@ -9,6 +9,9 @@ import com.valerochka1337.valerochkagym.data.sortedWorkoutFull
 import com.valerochka1337.valerochkagym.domain.PreviousSetsUseCase
 import com.valerochka1337.valerochkagym.domain.WorkoutStatsUseCase
 import com.valerochka1337.valerochkagym.domain.displayName
+import com.valerochka1337.valerochkagym.ui.common.formatDuration
+import com.valerochka1337.valerochkagym.ui.common.formatVolume
+import com.valerochka1337.valerochkagym.ui.common.formatWorkoutDateTime
 import com.valerochka1337.valerochkagym.ui.navigation.GymRoutes
 import com.valerochka1337.valerochkagym.worker.UploadScheduler
 import dagger.hilt.android.lifecycle.HiltViewModel

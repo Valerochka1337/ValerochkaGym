@@ -26,7 +26,8 @@ import androidx.navigation.navArgument
 import com.valerochka1337.valerochkagym.ui.active.ActiveWorkoutScreen
 import com.valerochka1337.valerochkagym.ui.active.ActiveWorkoutViewModel
 import com.valerochka1337.valerochkagym.ui.analysis.AnalysisScreen
-import com.valerochka1337.valerochkagym.ui.history.HistoryScreen
+import com.valerochka1337.valerochkagym.ui.calendar.CalendarScreen
+import com.valerochka1337.valerochkagym.ui.calendar.ScheduleEditorScreen
 import com.valerochka1337.valerochkagym.ui.history.WorkoutDetailScreen
 import com.valerochka1337.valerochkagym.ui.library.ExerciseLibraryScreen
 import com.valerochka1337.valerochkagym.ui.routine.RoutineEditorScreen
@@ -41,11 +42,12 @@ import com.valerochka1337.valerochkagym.ui.workouts.WorkoutsScreen
  */
 object GymRoutes {
     const val WORKOUTS = "workouts"
-    const val HISTORY = "history"
+    const val CALENDAR = "calendar"
     const val ANALYSIS = "analysis"
     const val SETTINGS = "settings"
     const val LIBRARY = "library"
     const val ACTIVE_WORKOUT = "active_workout"
+    const val SCHEDULE_EDITOR = "schedule_editor"
 
     const val ROUTINE_ID_ARG = "routineId"
     const val WORKOUT_ID_ARG = "workoutId"
@@ -80,7 +82,7 @@ private val TabFadeSpec: FiniteAnimationSpec<Float> = tween(durationMillis = 180
 /** Порядок нижних вкладок слева направо; -1 — маршрут не является вкладкой. */
 private fun tabIndex(route: String?): Int = when (route) {
     GymRoutes.WORKOUTS -> 0
-    GymRoutes.HISTORY -> 1
+    GymRoutes.CALENDAR -> 1
     GymRoutes.ANALYSIS -> 2
     else -> -1
 }
@@ -90,7 +92,7 @@ private fun tabIndex(route: String?): Int = when (route) {
  * НЕ должен уезжать/затухать — иначе сквозь всплывающую панель мелькает пустой скаффолд.
  */
 private fun isModalRoute(route: String?): Boolean = when (route) {
-    GymRoutes.ACTIVE_WORKOUT, GymRoutes.ROUTINE_EDITOR, GymRoutes.WORKOUT_SUMMARY -> true
+    GymRoutes.ACTIVE_WORKOUT, GymRoutes.ROUTINE_EDITOR, GymRoutes.WORKOUT_SUMMARY, GymRoutes.SCHEDULE_EDITOR -> true
     else -> false
 }
 
@@ -151,9 +153,11 @@ fun GymNavGraph(
                 onOpenSettings = { navController.navigate(GymRoutes.SETTINGS) },
             )
         }
-        composable(GymRoutes.HISTORY) {
-            HistoryScreen(
+        composable(GymRoutes.CALENDAR) {
+            CalendarScreen(
                 onWorkoutClick = { workoutId -> navController.navigate(GymRoutes.workoutDetail(workoutId)) },
+                onStartWorkout = { navController.navigate(GymRoutes.ACTIVE_WORKOUT) },
+                onOpenSchedule = { navController.navigate(GymRoutes.SCHEDULE_EDITOR) },
                 onOpenSettings = { navController.navigate(GymRoutes.SETTINGS) },
             )
         }
@@ -250,6 +254,15 @@ fun GymNavGraph(
             arguments = listOf(navArgument(GymRoutes.WORKOUT_ID_ARG) { type = NavType.StringType }),
         ) {
             WorkoutDetailScreen(onBack = { navController.popBackStack() })
+        }
+
+        composable(
+            route = GymRoutes.SCHEDULE_EDITOR,
+            // Редактор расписания — полноэкранная модалка: выезжает снизу, уезжает вниз.
+            enterTransition = { slideIntoContainer(SlideDirection.Up, NavSlideSpec) },
+            popExitTransition = { slideOutOfContainer(SlideDirection.Down, NavSlideSpec) },
+        ) {
+            ScheduleEditorScreen(onBack = { navController.popBackStack() })
         }
     }
 }
