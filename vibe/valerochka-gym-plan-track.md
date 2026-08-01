@@ -19,7 +19,7 @@
 [X] Стадия 13: Foreground service и таймер отдыха
 [X] Стадия 14: Тесты таймера
 [X] Стадия 15: История
-[ ] Стадия 16: Вход Google и настройки
+[X] Стадия 16: Вход Google и настройки
 [ ] Стадия 17: Маппинг тренировки в строки Sheets
 [ ] Стадия 18: Тесты маппера
 [ ] Стадия 19: Выгрузка в Sheets (WorkManager)
@@ -46,3 +46,4 @@
 *   Стадия 11: сид-хелперы insertWorkout/insertWorkoutExercise/insertSet/workoutFull — в RoomDaoTest (использовать в будущих DB-тестах). 98 тестов.
 *   Стадия 12: мутации подходов — через сериализующий Channel + свежее чтение из БД (per-field сеттеры); addSet/addExercise в withTransaction. Отложено: active/components.kt, оптимистичный оверлей. Диалог «Обновить программу?» — once per VM instance (после смерти процесса может показаться снова — принято).
 *   Стадия 13: RestTimerEngine — CAS-мутации (update/updateAndGet) + @Volatile generation-счётчик вместо однопоточного диспетчера (сохраняет TestScope virtual-time seam для Стадии 14); addSeconds no-op при remainingSec==0; сервис START_NOT_STICKY, startForeground в onStartCommand. Отложено (бэклог UX): отдых после последнего подхода, uncomplete не отменяет отдых, heads-up баннер.
+*   Стадия 16: GoogleAuth.getAccessToken → sealed TokenResult (Success/NeedsConsent/Failed): NeedsConsent → «настройте доступ» (не ретраить), Failed → ретрай. null-token без resolution классифицируется как NeedsConsent (защита от тихого ретрай-цикла). Реальный OAuth client ID вставляется владельцем по README (strings.xml google_web_client_id).
