@@ -149,6 +149,10 @@ interface WorkoutDao {
     )
     suspend fun getFinishedNotUploaded(): List<String>
 
+    /** Id всех тренировок (для дедупликации импорта по `workout_id`). */
+    @Query("SELECT id FROM workouts")
+    suspend fun getExistingWorkoutIds(): List<String>
+
     @Query("DELETE FROM workouts WHERE id = :id")
     suspend fun deleteWorkout(id: String)
 

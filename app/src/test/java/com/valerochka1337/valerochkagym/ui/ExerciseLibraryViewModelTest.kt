@@ -258,6 +258,9 @@ class ExerciseLibraryViewModelTest {
 
         override suspend fun getById(id: Long): ExerciseEntity? = items.value.find { it.id == id }
 
+        override suspend fun findByName(name: String): ExerciseEntity? =
+            items.value.find { it.name.equals(name, ignoreCase = true) }
+
         override suspend fun getByIds(ids: List<Long>): List<ExerciseEntity> =
             items.value.filter { it.id in ids }
     }

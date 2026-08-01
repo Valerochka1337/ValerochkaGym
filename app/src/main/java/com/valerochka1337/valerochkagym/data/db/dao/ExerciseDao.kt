@@ -5,6 +5,7 @@ import androidx.room.Insert
 import androidx.room.Query
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 
 @Dao
 interface ExerciseDao {
@@ -24,6 +25,18 @@ interface ExerciseDao {
 
     @Query("SELECT * FROM exercises WHERE id = :id")
     suspend fun getById(id: Long): ExerciseEntity?
+
+    /**
+     * Первое упражнение с таким именем без учёта регистра (матчинг при импорте).
+     *
+     * Сравнение делается в Kotlin (Unicode-aware): SQLite `COLLATE NOCASE` сворачивает регистр
+     * только для ASCII, поэтому для кириллических названий он не годится. Каталог небольшой и
+     * при импорте вызовов немного, так что разовое чтение списка допустимо.
+     */
+    suspend fun findByName(name: String): ExerciseEntity? {
+        val target = name.trim().lowercase()
+        return getAll().first().firstOrNull { it.name.trim().lowercase() == target }
+    }
 
     @Query("SELECT * FROM exercises WHERE id IN (:ids)")
     suspend fun getByIds(ids: List<Long>): List<ExerciseEntity>

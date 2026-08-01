@@ -228,6 +228,19 @@ class WorkoutDaoTest : RoomDaoTest() {
             assertNull(workoutDao.getSet(setId)!!.completedAt)
         }
 
+    @Test
+    fun `getExistingWorkoutIds returns all workout ids`() = runTest {
+        insertWorkout("a", startedAt = 1_000, finishedAt = 2_000)
+        insertWorkout("b", startedAt = 3_000, finishedAt = null)
+
+        assertEquals(setOf("a", "b"), workoutDao.getExistingWorkoutIds().toSet())
+    }
+
+    @Test
+    fun `getExistingWorkoutIds is empty without workouts`() = runTest {
+        assertTrue(workoutDao.getExistingWorkoutIds().isEmpty())
+    }
+
     // endregion
 
     private suspend fun addExercise(name: String = "Жим штанги лёжа"): Long =
