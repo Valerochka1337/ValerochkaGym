@@ -18,12 +18,15 @@ import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
+import com.valerochka1337.valerochkagym.ui.active.ActiveWorkoutScreen
+import com.valerochka1337.valerochkagym.ui.active.ActiveWorkoutViewModel
 import com.valerochka1337.valerochkagym.ui.components.GlowBackground
 import com.valerochka1337.valerochkagym.ui.history.HistoryScreen
 import com.valerochka1337.valerochkagym.ui.library.ExerciseLibraryScreen
 import com.valerochka1337.valerochkagym.ui.routine.RoutineEditorScreen
 import com.valerochka1337.valerochkagym.ui.routine.RoutineEditorViewModel
 import com.valerochka1337.valerochkagym.ui.settings.SettingsScreen
+import com.valerochka1337.valerochkagym.ui.summary.WorkoutSummaryScreen
 import com.valerochka1337.valerochkagym.ui.workouts.WorkoutsScreen
 
 /**
@@ -91,7 +94,28 @@ fun GymNavGraph(
                 },
             )
         }
-        composable(GymRoutes.ACTIVE_WORKOUT) { PlaceholderScreen("Активная тренировка") }
+        composable(GymRoutes.ACTIVE_WORKOUT) { backStackEntry ->
+            val viewModel = hiltViewModel<ActiveWorkoutViewModel>(backStackEntry)
+            val selectedExerciseId by backStackEntry.savedStateHandle
+                .getStateFlow<Long?>(GymRoutes.SELECTED_EXERCISE_ID, null)
+                .collectAsStateWithLifecycle()
+            LaunchedEffect(selectedExerciseId) {
+                val id = selectedExerciseId ?: return@LaunchedEffect
+                viewModel.addExerciseById(id)
+                backStackEntry.savedStateHandle[GymRoutes.SELECTED_EXERCISE_ID] = null
+            }
+            ActiveWorkoutScreen(
+                onFinished = { workoutId ->
+                    navController.navigate(GymRoutes.workoutSummary(workoutId)) {
+                        popUpTo(GymRoutes.ACTIVE_WORKOUT) { inclusive = true }
+                    }
+                },
+                onDiscarded = { navController.popBackStack(GymRoutes.WORKOUTS, inclusive = false) },
+                onNavigateBack = { navController.popBackStack() },
+                onAddExercise = { navController.navigate(GymRoutes.LIBRARY) },
+                viewModel = viewModel,
+            )
+        }
 
         composable(
             route = GymRoutes.ROUTINE_EDITOR,
@@ -122,7 +146,11 @@ fun GymNavGraph(
         composable(
             route = GymRoutes.WORKOUT_SUMMARY,
             arguments = listOf(navArgument(GymRoutes.WORKOUT_ID_ARG) { type = NavType.StringType }),
-        ) { PlaceholderScreen("Итоги тренировки") }
+        ) {
+            WorkoutSummaryScreen(
+                onDone = { navController.popBackStack(GymRoutes.WORKOUTS, inclusive = false) },
+            )
+        }
 
         composable(
             route = GymRoutes.WORKOUT_DETAIL,

@@ -15,12 +15,16 @@ import com.valerochka1337.valerochkagym.data.db.entity.RoutineExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.relation.RoutineExerciseWithExercise
 import com.valerochka1337.valerochkagym.data.db.relation.RoutineWithCount
 import com.valerochka1337.valerochkagym.data.db.relation.RoutineWithExercises
+import com.valerochka1337.valerochkagym.data.db.entity.WorkoutSetEntity
+import com.valerochka1337.valerochkagym.data.db.relation.WorkoutFull
 import com.valerochka1337.valerochkagym.data.settings.SettingsRepository
+import com.valerochka1337.valerochkagym.domain.ActiveWorkoutRepository
 import com.valerochka1337.valerochkagym.ui.workouts.WorkoutsViewModel
 import com.valerochka1337.valerochkagym.util.MainDispatcherRule
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -59,7 +63,11 @@ class WorkoutsViewModelTest {
                     routineExercise(exercise(2, "Выпады"), position = 1, restSeconds = null, sets = 2),
                 ),
             )
-            val viewModel = WorkoutsViewModel(FakeRoutineDao(listOf(routine)), settingsRepository(defaultRestSeconds = 90))
+            val viewModel = WorkoutsViewModel(
+                FakeRoutineDao(listOf(routine)),
+                settingsRepository(defaultRestSeconds = 90),
+                FakeActiveWorkoutRepository(),
+            )
             collectUiState(viewModel)
 
             val card = viewModel.uiState.value.routines!!.single()
@@ -78,6 +86,7 @@ class WorkoutsViewModelTest {
             val viewModel = WorkoutsViewModel(
                 FakeRoutineDao(listOf(routineWithExercises(id = 1, name = "День ног"))),
                 settingsRepository(),
+                FakeActiveWorkoutRepository(),
             )
             collectUiState(viewModel)
 
@@ -92,7 +101,7 @@ class WorkoutsViewModelTest {
     fun `the selection is cleared when the selected routine is deleted`() =
         runTest(mainDispatcherRule.testDispatcher.scheduler) {
             val routineDao = FakeRoutineDao(listOf(routineWithExercises(id = 1, name = "День ног")))
-            val viewModel = WorkoutsViewModel(routineDao, settingsRepository())
+            val viewModel = WorkoutsViewModel(routineDao, settingsRepository(), FakeActiveWorkoutRepository())
             collectUiState(viewModel)
             viewModel.onRoutineSelected(1)
 
@@ -120,7 +129,7 @@ class WorkoutsViewModelTest {
                 ),
             )
             val routineDao = FakeRoutineDao(listOf(routine))
-            val viewModel = WorkoutsViewModel(routineDao, settingsRepository())
+            val viewModel = WorkoutsViewModel(routineDao, settingsRepository(), FakeActiveWorkoutRepository())
 
             viewModel.duplicate(4)
 
@@ -140,7 +149,7 @@ class WorkoutsViewModelTest {
     fun `delete forwards the id to the dao`() = runTest(mainDispatcherRule.testDispatcher.scheduler) {
         val routineDao = FakeRoutineDao(listOf(routineWithExercises(id = 3, name = "День ног")))
 
-        val viewModel = WorkoutsViewModel(routineDao, settingsRepository())
+        val viewModel = WorkoutsViewModel(routineDao, settingsRepository(), FakeActiveWorkoutRepository())
 
         viewModel.delete(3)
 
@@ -250,6 +259,21 @@ class WorkoutsViewModelTest {
         override suspend fun updateRoutineExercise(routineExercise: RoutineExerciseEntity) = Unit
         override suspend fun deleteRoutineExercise(id: Long) = Unit
         override suspend fun deleteRoutineExercises(routineId: Long) = Unit
+    }
+
+    /** No-op [ActiveWorkoutRepository]: these tests don't exercise workout start, only routine management. */
+    private class FakeActiveWorkoutRepository : ActiveWorkoutRepository {
+        override suspend fun startFromRoutine(routineId: Long): String = "workout"
+        override suspend fun startEmpty(): String = "workout"
+        override fun observeActive(): Flow<WorkoutFull?> = flowOf(null)
+        override suspend fun updateSet(set: WorkoutSetEntity) = Unit
+        override suspend fun toggleSetCompleted(setId: Long, completed: Boolean) = Unit
+        override suspend fun addSet(workoutExerciseId: Long) = Unit
+        override suspend fun deleteSet(setId: Long) = Unit
+        override suspend fun addExercise(workoutId: String, exerciseId: Long): Long = 0
+        override suspend fun deleteExercise(workoutExerciseId: Long) = Unit
+        override suspend fun finish(workoutId: String) = Unit
+        override suspend fun discard(workoutId: String) = Unit
     }
 
     /** Minimal in-memory [DataStore] emitting a fixed set of [Preferences] so a real [SettingsRepository] can read them. */

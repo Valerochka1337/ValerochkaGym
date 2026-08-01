@@ -26,6 +26,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -46,8 +47,8 @@ import com.valerochka1337.valerochkagym.ui.components.PillButton
  * Вкладка «Тренировки»: список программ и быстрый старт. Тап по карточке выбирает
  * программу (обводка primary), меню карточки — редактирование/дублирование/удаление.
  *
- * [onStartWorkout] пока используется и для «Начать тренировку», и для «Пустая тренировка» —
- * реальный старт по программе появится в Стадии 12.
+ * Старт тренировки создаётся в [WorkoutsViewModel] (single-flight); по событию
+ * [WorkoutsViewModel.startEvents] экран навигирует на активную тренировку через [onStartWorkout].
  */
 @Composable
 fun WorkoutsScreen(
@@ -59,6 +60,10 @@ fun WorkoutsScreen(
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     var pendingDeleteId by rememberSaveable { mutableStateOf<Long?>(null) }
+
+    LaunchedEffect(Unit) {
+        viewModel.startEvents.collect { onStartWorkout() }
+    }
 
     GlowBackground(modifier = modifier) {
         Box(modifier = Modifier.fillMaxSize()) {
@@ -99,8 +104,8 @@ fun WorkoutsScreen(
                 if (routines != null && routines.isNotEmpty()) {
                     StartBar(
                         startEnabled = state.selectedRoutineId != null,
-                        onStart = onStartWorkout,
-                        onEmpty = onStartWorkout,
+                        onStart = { state.selectedRoutineId?.let(viewModel::startFromRoutine) },
+                        onEmpty = viewModel::startEmpty,
                     )
                 }
             }
