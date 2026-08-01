@@ -34,6 +34,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -47,10 +48,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.flow.StateFlow
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
 import com.valerochka1337.valerochkagym.data.db.entity.WorkoutSetEntity
 import com.valerochka1337.valerochkagym.data.db.relation.WorkoutExerciseWithSets
@@ -97,21 +102,32 @@ fun ActiveWorkoutScreen(
 
     KeepScreenOn()
 
+    val setActions = remember(viewModel) {
+        SetActions(
+            stepWeight = viewModel::stepWeight,
+            stepReps = viewModel::stepReps,
+            stepDuration = viewModel::stepDuration,
+            stepSpeed = viewModel::stepSpeed,
+            stepIncline = viewModel::stepIncline,
+            setWeight = viewModel::setWeight,
+            setReps = viewModel::setReps,
+            setDuration = viewModel::setDuration,
+            setSpeed = viewModel::setSpeed,
+            setIncline = viewModel::setIncline,
+            complete = viewModel::completeSet,
+            uncomplete = viewModel::uncompleteSet,
+            addSet = viewModel::addSet,
+            deleteSet = viewModel::deleteSet,
+        )
+    }
+
     GlowBackground(modifier = modifier) {
         val workout = state.workout
         when {
             workout != null -> ActiveWorkoutContent(
                 state = state,
-                onStepWeight = viewModel::stepWeight,
-                onStepReps = viewModel::stepReps,
-                onStepDuration = viewModel::stepDuration,
-                onStepSpeed = viewModel::stepSpeed,
-                onStepIncline = viewModel::stepIncline,
-                onSetValue = viewModel::setSetValue,
-                onCompleteSet = viewModel::completeSet,
-                onUncompleteSet = viewModel::uncompleteSet,
-                onAddSet = viewModel::addSet,
-                onDeleteSet = viewModel::deleteSet,
+                elapsedSeconds = viewModel.elapsedSeconds,
+                setActions = setActions,
                 onDeleteExercise = viewModel::deleteExercise,
                 onAddExercise = onAddExercise,
                 onFinish = viewModel::finish,
@@ -125,19 +141,29 @@ fun ActiveWorkoutScreen(
     }
 }
 
+/** Колбэки правок подходов, прокинутые от [ActiveWorkoutViewModel] в карточки текущего подхода. */
+private class SetActions(
+    val stepWeight: (Long, Double) -> Unit,
+    val stepReps: (Long, Int) -> Unit,
+    val stepDuration: (Long, Int) -> Unit,
+    val stepSpeed: (Long, Double) -> Unit,
+    val stepIncline: (Long, Double) -> Unit,
+    val setWeight: (Long, String) -> Unit,
+    val setReps: (Long, String) -> Unit,
+    val setDuration: (Long, String) -> Unit,
+    val setSpeed: (Long, String) -> Unit,
+    val setIncline: (Long, String) -> Unit,
+    val complete: (Long) -> Unit,
+    val uncomplete: (Long) -> Unit,
+    val addSet: (Long) -> Unit,
+    val deleteSet: (Long) -> Unit,
+)
+
 @Composable
 private fun ActiveWorkoutContent(
     state: ActiveWorkoutUiState,
-    onStepWeight: (Long, Double) -> Unit,
-    onStepReps: (Long, Int) -> Unit,
-    onStepDuration: (Long, Int) -> Unit,
-    onStepSpeed: (Long, Double) -> Unit,
-    onStepIncline: (Long, Double) -> Unit,
-    onSetValue: (WorkoutSetEntity) -> Unit,
-    onCompleteSet: (Long) -> Unit,
-    onUncompleteSet: (Long) -> Unit,
-    onAddSet: (Long) -> Unit,
-    onDeleteSet: (Long) -> Unit,
+    elapsedSeconds: StateFlow<Long>,
+    setActions: SetActions,
     onDeleteExercise: (Long) -> Unit,
     onAddExercise: () -> Unit,
     onFinish: () -> Unit,
@@ -155,7 +181,7 @@ private fun ActiveWorkoutContent(
     Column(modifier = Modifier.fillMaxSize()) {
         ActiveWorkoutHeader(
             name = workout.workout.name,
-            elapsedSeconds = state.elapsedSeconds,
+            elapsedSeconds = elapsedSeconds,
             currentNumber = currentNumber,
             total = exercises.size,
         )
@@ -169,16 +195,7 @@ private fun ActiveWorkoutContent(
                 ExerciseSection(
                     exercise = exercise,
                     previous = state.previousByExercise[exercise.exercise.id].orEmpty(),
-                    onStepWeight = onStepWeight,
-                    onStepReps = onStepReps,
-                    onStepDuration = onStepDuration,
-                    onStepSpeed = onStepSpeed,
-                    onStepIncline = onStepIncline,
-                    onSetValue = onSetValue,
-                    onCompleteSet = onCompleteSet,
-                    onUncompleteSet = onUncompleteSet,
-                    onAddSet = { onAddSet(exercise.workoutExercise.id) },
-                    onDeleteSet = onDeleteSet,
+                    actions = setActions,
                     onDeleteExercise = { pendingDeleteExerciseId = exercise.workoutExercise.id },
                 )
             }
@@ -258,10 +275,12 @@ private fun ActiveWorkoutContent(
 @Composable
 private fun ActiveWorkoutHeader(
     name: String,
-    elapsedSeconds: Long,
+    elapsedSeconds: StateFlow<Long>,
     currentNumber: Int,
     total: Int,
 ) {
+    // Собираем таймер только здесь, чтобы посекундный тик не рекомпозил список подходов.
+    val elapsed by elapsedSeconds.collectAsStateWithLifecycle()
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -276,7 +295,7 @@ private fun ActiveWorkoutHeader(
         Spacer(Modifier.height(4.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                text = formatElapsed(elapsedSeconds),
+                text = formatElapsed(elapsed),
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.primary,
@@ -297,16 +316,7 @@ private fun ActiveWorkoutHeader(
 private fun ExerciseSection(
     exercise: WorkoutExerciseWithSets,
     previous: String,
-    onStepWeight: (Long, Double) -> Unit,
-    onStepReps: (Long, Int) -> Unit,
-    onStepDuration: (Long, Int) -> Unit,
-    onStepSpeed: (Long, Double) -> Unit,
-    onStepIncline: (Long, Double) -> Unit,
-    onSetValue: (WorkoutSetEntity) -> Unit,
-    onCompleteSet: (Long) -> Unit,
-    onUncompleteSet: (Long) -> Unit,
-    onAddSet: () -> Unit,
-    onDeleteSet: (Long) -> Unit,
+    actions: SetActions,
     onDeleteExercise: () -> Unit,
 ) {
     val type = exercise.exercise.type
@@ -345,20 +355,13 @@ private fun ExerciseSection(
                 set.id == currentSet?.id -> CurrentSetCard(
                     set = set,
                     type = type,
-                    onStepWeight = onStepWeight,
-                    onStepReps = onStepReps,
-                    onStepDuration = onStepDuration,
-                    onStepSpeed = onStepSpeed,
-                    onStepIncline = onStepIncline,
-                    onSetValue = onSetValue,
-                    onComplete = { onCompleteSet(set.id) },
-                    onDelete = { onDeleteSet(set.id) },
+                    actions = actions,
                 )
 
                 set.isCompleted -> CompletedSetPill(
                     set = set,
                     type = type,
-                    onClick = { onUncompleteSet(set.id) },
+                    onClick = { actions.uncomplete(set.id) },
                 )
 
                 else -> FutureSetPill(set = set, type = type)
@@ -366,7 +369,7 @@ private fun ExerciseSection(
             Spacer(Modifier.height(8.dp))
         }
 
-        TextButton(onClick = onAddSet) {
+        TextButton(onClick = { actions.addSet(exercise.workoutExercise.id) }) {
             Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
             Spacer(Modifier.width(6.dp))
             Text("Подход")
@@ -378,14 +381,7 @@ private fun ExerciseSection(
 private fun CurrentSetCard(
     set: WorkoutSetEntity,
     type: ExerciseType,
-    onStepWeight: (Long, Double) -> Unit,
-    onStepReps: (Long, Int) -> Unit,
-    onStepDuration: (Long, Int) -> Unit,
-    onStepSpeed: (Long, Double) -> Unit,
-    onStepIncline: (Long, Double) -> Unit,
-    onSetValue: (WorkoutSetEntity) -> Unit,
-    onComplete: () -> Unit,
-    onDelete: () -> Unit,
+    actions: SetActions,
 ) {
     GymCard(
         modifier = Modifier.fillMaxWidth(),
@@ -399,7 +395,7 @@ private fun CurrentSetCard(
                 color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.weight(1f),
             )
-            IconButton(onClick = onDelete) {
+            IconButton(onClick = { actions.deleteSet(set.id) }) {
                 Icon(
                     Icons.Default.Delete,
                     contentDescription = "Удалить подход",
@@ -415,20 +411,20 @@ private fun CurrentSetCard(
                 StepperField(
                     label = "кг",
                     value = set.weightKg.toField(),
-                    onValueChange = { onSetValue(set.copy(weightKg = it.toDoubleOrNull())) },
-                    onStepDown = { onStepWeight(set.id, -WEIGHT_STEP) },
-                    onStepUp = { onStepWeight(set.id, WEIGHT_STEP) },
-                    onFineDown = { onStepWeight(set.id, -WEIGHT_FINE_STEP) },
-                    onFineUp = { onStepWeight(set.id, WEIGHT_FINE_STEP) },
+                    onValueChange = { actions.setWeight(set.id, it) },
+                    onStepDown = { actions.stepWeight(set.id, -WEIGHT_STEP) },
+                    onStepUp = { actions.stepWeight(set.id, WEIGHT_STEP) },
+                    onFineDown = { actions.stepWeight(set.id, -WEIGHT_FINE_STEP) },
+                    onFineUp = { actions.stepWeight(set.id, WEIGHT_FINE_STEP) },
                     decimal = true,
                 )
                 Spacer(Modifier.height(10.dp))
                 StepperField(
                     label = "повторы",
                     value = set.reps.toField(),
-                    onValueChange = { onSetValue(set.copy(reps = it.toIntOrNull())) },
-                    onStepDown = { onStepReps(set.id, -REPS_STEP) },
-                    onStepUp = { onStepReps(set.id, REPS_STEP) },
+                    onValueChange = { actions.setReps(set.id, it) },
+                    onStepDown = { actions.stepReps(set.id, -REPS_STEP) },
+                    onStepUp = { actions.stepReps(set.id, REPS_STEP) },
                 )
             }
 
@@ -436,9 +432,9 @@ private fun CurrentSetCard(
                 StepperField(
                     label = "секунды",
                     value = set.durationSec.toField(),
-                    onValueChange = { onSetValue(set.copy(durationSec = it.toIntOrNull())) },
-                    onStepDown = { onStepDuration(set.id, -DURATION_STEP) },
-                    onStepUp = { onStepDuration(set.id, DURATION_STEP) },
+                    onValueChange = { actions.setDuration(set.id, it) },
+                    onStepDown = { actions.stepDuration(set.id, -DURATION_STEP) },
+                    onStepUp = { actions.stepDuration(set.id, DURATION_STEP) },
                 )
             }
 
@@ -446,27 +442,27 @@ private fun CurrentSetCard(
                 StepperField(
                     label = "км/ч",
                     value = set.speedKmh.toField(),
-                    onValueChange = { onSetValue(set.copy(speedKmh = it.toDoubleOrNull())) },
-                    onStepDown = { onStepSpeed(set.id, -SPEED_STEP) },
-                    onStepUp = { onStepSpeed(set.id, SPEED_STEP) },
+                    onValueChange = { actions.setSpeed(set.id, it) },
+                    onStepDown = { actions.stepSpeed(set.id, -SPEED_STEP) },
+                    onStepUp = { actions.stepSpeed(set.id, SPEED_STEP) },
                     decimal = true,
                 )
                 Spacer(Modifier.height(10.dp))
                 StepperField(
                     label = "наклон %",
                     value = set.inclinePct.toField(),
-                    onValueChange = { onSetValue(set.copy(inclinePct = it.toDoubleOrNull())) },
-                    onStepDown = { onStepIncline(set.id, -INCLINE_STEP) },
-                    onStepUp = { onStepIncline(set.id, INCLINE_STEP) },
+                    onValueChange = { actions.setIncline(set.id, it) },
+                    onStepDown = { actions.stepIncline(set.id, -INCLINE_STEP) },
+                    onStepUp = { actions.stepIncline(set.id, INCLINE_STEP) },
                     decimal = true,
                 )
                 Spacer(Modifier.height(10.dp))
                 StepperField(
                     label = "секунды",
                     value = set.durationSec.toField(),
-                    onValueChange = { onSetValue(set.copy(durationSec = it.toIntOrNull())) },
-                    onStepDown = { onStepDuration(set.id, -DURATION_STEP) },
-                    onStepUp = { onStepDuration(set.id, DURATION_STEP) },
+                    onValueChange = { actions.setDuration(set.id, it) },
+                    onStepDown = { actions.stepDuration(set.id, -DURATION_STEP) },
+                    onStepUp = { actions.stepDuration(set.id, DURATION_STEP) },
                 )
             }
         }
@@ -475,7 +471,7 @@ private fun CurrentSetCard(
 
         PillButton(
             text = "Подход выполнен",
-            onClick = onComplete,
+            onClick = { actions.complete(set.id) },
             leadingIcon = Icons.Default.Check,
             modifier = Modifier.fillMaxWidth(),
         )
@@ -503,7 +499,12 @@ private fun StepperField(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        StepButton(symbol = "−", onClick = onStepDown, onLongClick = onFineDown)
+        StepButton(
+            symbol = "−",
+            contentDescription = "уменьшить $label",
+            onClick = onStepDown,
+            onLongClick = onFineDown,
+        )
         NumberField(
             value = value,
             onValueChange = onValueChange,
@@ -511,13 +512,19 @@ private fun StepperField(
             label = label,
             decimal = decimal,
         )
-        StepButton(symbol = "+", onClick = onStepUp, onLongClick = onFineUp)
+        StepButton(
+            symbol = "+",
+            contentDescription = "увеличить $label",
+            onClick = onStepUp,
+            onLongClick = onFineUp,
+        )
     }
 }
 
 @Composable
 private fun StepButton(
     symbol: String,
+    contentDescription: String,
     onClick: () -> Unit,
     onLongClick: (() -> Unit)?,
 ) {
@@ -528,10 +535,12 @@ private fun StepButton(
             .background(MaterialTheme.colorScheme.surfaceContainerHighest)
             .combinedClickable(
                 interactionSource = remember { MutableInteractionSource() },
-                indication = null,
+                indication = ripple(),
+                role = Role.Button,
                 onClick = onClick,
                 onLongClick = onLongClick,
-            ),
+            )
+            .semantics { this.contentDescription = contentDescription },
         contentAlignment = Alignment.Center,
     ) {
         Text(

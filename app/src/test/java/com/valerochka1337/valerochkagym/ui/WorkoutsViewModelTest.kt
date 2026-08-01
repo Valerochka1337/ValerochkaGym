@@ -266,6 +266,7 @@ class WorkoutsViewModelTest {
         override suspend fun startFromRoutine(routineId: Long): String = "workout"
         override suspend fun startEmpty(): String = "workout"
         override fun observeActive(): Flow<WorkoutFull?> = flowOf(null)
+        override suspend fun getSet(setId: Long): WorkoutSetEntity? = null
         override suspend fun updateSet(set: WorkoutSetEntity) = Unit
         override suspend fun toggleSetCompleted(setId: Long, completed: Boolean) = Unit
         override suspend fun addSet(workoutExerciseId: Long) = Unit

@@ -24,6 +24,9 @@ interface ActiveWorkoutRepository {
     /** Активная тренировка с доменной сортировкой (упражнения по position, подходы по setIndex). */
     fun observeActive(): Flow<WorkoutFull?>
 
+    /** Текущее состояние подхода из БД (для сериализованного read-modify-write степперов). */
+    suspend fun getSet(setId: Long): WorkoutSetEntity?
+
     suspend fun updateSet(set: WorkoutSetEntity)
 
     suspend fun toggleSetCompleted(setId: Long, completed: Boolean)

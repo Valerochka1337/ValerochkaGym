@@ -83,12 +83,14 @@ class ActiveWorkoutRepositoryImpl @Inject constructor(
     override fun observeActive(): Flow<WorkoutFull?> =
         workoutDao.observeActiveWorkout().map { full -> full?.let(::sortedWorkoutFull) }
 
+    override suspend fun getSet(setId: Long): WorkoutSetEntity? = workoutDao.getSet(setId)
+
     override suspend fun updateSet(set: WorkoutSetEntity) = workoutDao.updateSet(set)
 
     override suspend fun toggleSetCompleted(setId: Long, completed: Boolean) =
         workoutDao.setSetCompleted(setId, completed)
 
-    override suspend fun addSet(workoutExerciseId: Long) {
+    override suspend fun addSet(workoutExerciseId: Long) = database.withTransaction {
         val existing = workoutDao.getSetsForWorkoutExercise(workoutExerciseId)
         val nextIndex = (existing.maxOfOrNull { it.setIndex } ?: -1) + 1
         val last = existing.lastOrNull()
@@ -104,11 +106,12 @@ class ActiveWorkoutRepositoryImpl @Inject constructor(
                 isCompleted = false,
             ),
         )
+        Unit
     }
 
     override suspend fun deleteSet(setId: Long) = workoutDao.deleteSet(setId)
 
-    override suspend fun addExercise(workoutId: String, exerciseId: Long): Long {
+    override suspend fun addExercise(workoutId: String, exerciseId: Long): Long = database.withTransaction {
         val existing = workoutDao.getWorkoutExercises(workoutId)
         val position = (existing.maxOfOrNull { it.position } ?: -1) + 1
         val workoutExerciseId = workoutDao.insertWorkoutExercise(
@@ -127,7 +130,7 @@ class ActiveWorkoutRepositoryImpl @Inject constructor(
                 isCompleted = false,
             ),
         )
-        return workoutExerciseId
+        workoutExerciseId
     }
 
     override suspend fun deleteExercise(workoutExerciseId: Long) =

@@ -32,8 +32,13 @@ import kotlin.math.roundToInt
 data class ActiveWorkoutUiState(
     val loading: Boolean = true,
     val workout: WorkoutFull? = null,
-    val elapsedSeconds: Long = 0L,
     val previousByExercise: Map<Long, String> = emptyMap(),
+)
+
+/** Отложенная правка одного подхода: применяется к его текущему (свежему из БД) состоянию. */
+private data class SetMutation(
+    val setId: Long,
+    val transform: (WorkoutSetEntity) -> WorkoutSetEntity,
 )
 
 /** Навигационные события экрана активной тренировки. */
@@ -74,16 +79,12 @@ class ActiveWorkoutViewModel @Inject constructor(
 
     val uiState: StateFlow<ActiveWorkoutUiState> = combine(
         activeWorkout,
-        tickerFlow,
         previousSummaries,
         loaded,
-    ) { workout, nowMillis, previous, isLoaded ->
+    ) { workout, previous, isLoaded ->
         ActiveWorkoutUiState(
             loading = !isLoaded,
             workout = workout,
-            elapsedSeconds = workout
-                ?.let { ((nowMillis - it.workout.startedAt) / 1000).coerceAtLeast(0) }
-                ?: 0L,
             previousByExercise = previous,
         )
     }.stateIn(
@@ -92,40 +93,75 @@ class ActiveWorkoutViewModel @Inject constructor(
         initialValue = ActiveWorkoutUiState(),
     )
 
+    /**
+     * Секунды с начала тренировки — отдельный поток, чтобы посекундный тик не перерисовывал
+     * весь [uiState] (его собирает только шапка экрана).
+     */
+    val elapsedSeconds: StateFlow<Long> = combine(activeWorkout, tickerFlow) { workout, nowMillis ->
+        workout?.let { ((nowMillis - it.workout.startedAt) / 1000).coerceAtLeast(0) } ?: 0L
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(SUBSCRIPTION_TIMEOUT_MS),
+        initialValue = 0L,
+    )
+
     private val _events = Channel<ActiveWorkoutEvent>(Channel.BUFFERED)
     val events = _events.receiveAsFlow()
+
+    /**
+     * Все правки одного подхода сериализуются через этот канал и применяются одним потребителем
+     * (см. init): он читает текущее значение из БД и пишет результат [SetMutation.transform].
+     * Так быстрые тапы по степперам и клавиатурный ввод не затирают друг друга (lost update).
+     */
+    private val setMutations = Channel<SetMutation>(Channel.UNLIMITED)
+
+    init {
+        viewModelScope.launch {
+            for (mutation in setMutations) {
+                val current = repository.getSet(mutation.setId) ?: continue
+                repository.updateSet(mutation.transform(current))
+            }
+        }
+    }
 
     // --- Шаговые изменения значений подхода (кнопки ± на карточке текущего подхода). ---
 
     /** Вес: обычный тап ±2.5, долгое нажатие ±0.5. Не уходит ниже нуля. */
-    fun stepWeight(setId: Long, delta: Double) = mutateSet(setId) {
+    fun stepWeight(setId: Long, delta: Double) = enqueue(setId) {
         it.copy(weightKg = ((it.weightKg ?: 0.0) + delta).coerceAtLeast(0.0).round2())
     }
 
     /** Повторы: ±1, не ниже нуля. */
-    fun stepReps(setId: Long, delta: Int) = mutateSet(setId) {
+    fun stepReps(setId: Long, delta: Int) = enqueue(setId) {
         it.copy(reps = ((it.reps ?: 0) + delta).coerceAtLeast(0))
     }
 
     /** Длительность: ±15 сек, не ниже нуля. */
-    fun stepDuration(setId: Long, delta: Int) = mutateSet(setId) {
+    fun stepDuration(setId: Long, delta: Int) = enqueue(setId) {
         it.copy(durationSec = ((it.durationSec ?: 0) + delta).coerceAtLeast(0))
     }
 
     /** Скорость: ±0.5, не ниже нуля. */
-    fun stepSpeed(setId: Long, delta: Double) = mutateSet(setId) {
+    fun stepSpeed(setId: Long, delta: Double) = enqueue(setId) {
         it.copy(speedKmh = ((it.speedKmh ?: 0.0) + delta).coerceAtLeast(0.0).round2())
     }
 
     /** Наклон: ±0.5, не ниже нуля. */
-    fun stepIncline(setId: Long, delta: Double) = mutateSet(setId) {
+    fun stepIncline(setId: Long, delta: Double) = enqueue(setId) {
         it.copy(inclinePct = ((it.inclinePct ?: 0.0) + delta).coerceAtLeast(0.0).round2())
     }
 
-    /** Полное обновление подхода из клавиатурного ввода (NumberField). */
-    fun setSetValue(set: WorkoutSetEntity) {
-        viewModelScope.launch { repository.updateSet(set) }
-    }
+    // --- Клавиатурный ввод (NumberField): правит одно поле поверх свежего состояния подхода. ---
+
+    fun setWeight(setId: Long, raw: String) = enqueue(setId) { it.copy(weightKg = raw.toDoubleOrNull()) }
+
+    fun setReps(setId: Long, raw: String) = enqueue(setId) { it.copy(reps = raw.toIntOrNull()) }
+
+    fun setDuration(setId: Long, raw: String) = enqueue(setId) { it.copy(durationSec = raw.toIntOrNull()) }
+
+    fun setSpeed(setId: Long, raw: String) = enqueue(setId) { it.copy(speedKmh = raw.toDoubleOrNull()) }
+
+    fun setIncline(setId: Long, raw: String) = enqueue(setId) { it.copy(inclinePct = raw.toDoubleOrNull()) }
 
     fun completeSet(setId: Long) {
         viewModelScope.launch {
@@ -180,15 +216,9 @@ class ActiveWorkoutViewModel @Inject constructor(
         // Rest-timer engine wired in Stage 13.
     }
 
-    private fun mutateSet(setId: Long, transform: (WorkoutSetEntity) -> WorkoutSetEntity) {
-        val set = currentSet(setId) ?: return
-        viewModelScope.launch { repository.updateSet(transform(set)) }
+    private fun enqueue(setId: Long, transform: (WorkoutSetEntity) -> WorkoutSetEntity) {
+        setMutations.trySend(SetMutation(setId, transform))
     }
-
-    private fun currentSet(setId: Long): WorkoutSetEntity? =
-        activeWorkout.value?.exercises?.firstNotNullOfOrNull { exercise ->
-            exercise.sets.firstOrNull { it.id == setId }
-        }
 
     private fun ensurePreviousLoaded(workout: WorkoutFull?) {
         val exercises = workout?.exercises ?: return
