@@ -1,4 +1,4 @@
-package com.valerochka1337.valerochkagym.ui.common
+package com.valerochka1337.valerochkagym.domain
 
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleGroup
