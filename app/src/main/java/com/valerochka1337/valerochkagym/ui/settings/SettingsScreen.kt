@@ -20,6 +20,15 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.AccountCircle
+import androidx.compose.material.icons.rounded.CloudUpload
+import androidx.compose.material.icons.rounded.Link
+import androidx.compose.material.icons.rounded.TableChart
+import androidx.compose.material.icons.rounded.Timer
+import androidx.compose.material.icons.rounded.Vibration
+import androidx.compose.material.icons.automirrored.rounded.VolumeUp
+import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -38,6 +47,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -142,7 +152,7 @@ private fun GoogleAccountCard(
     onSignIn: () -> Unit,
     onSignOut: () -> Unit,
 ) {
-    SectionCard(title = "Google-аккаунт") {
+    SectionCard(title = "Google-аккаунт", icon = Icons.Rounded.AccountCircle) {
         if (email == null) {
             Text(
                 text = "Войдите, чтобы выгружать тренировки в Google Sheets и Calendar.",
@@ -157,12 +167,15 @@ private fun GoogleAccountCard(
                 modifier = Modifier.fillMaxWidth(),
             )
         } else {
-            Text(
-                text = email,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = email,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+            }
             Spacer(Modifier.height(4.dp))
             TextButton(onClick = onSignOut, enabled = !authBusy) {
                 Text("Выйти")
@@ -186,7 +199,7 @@ private fun SpreadsheetCard(
     onSave: (String) -> Unit,
     onExportAll: () -> Unit,
 ) {
-    SectionCard(title = "Google Sheets") {
+    SectionCard(title = "Google Sheets", icon = Icons.Rounded.TableChart) {
         var input by rememberSaveable(currentId) { mutableStateOf(currentId.orEmpty()) }
         OutlinedTextField(
             value = input,
@@ -194,6 +207,13 @@ private fun SpreadsheetCard(
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
             label = { Text("Ссылка или ID таблицы") },
+            leadingIcon = {
+                Icon(
+                    imageVector = Icons.Rounded.Link,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            },
             isError = error,
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
             keyboardActions = KeyboardActions(onDone = { onSave(input) }),
@@ -217,6 +237,12 @@ private fun SpreadsheetCard(
                 Text("Сохранить")
             }
             OutlinedButton(onClick = onExportAll, enabled = currentId != null) {
+                Icon(
+                    imageVector = Icons.Rounded.CloudUpload,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(Modifier.width(8.dp))
                 Text("Выгрузить всё")
             }
         }
@@ -230,7 +256,7 @@ private fun RestTimerCard(
     onToggleSound: (Boolean) -> Unit,
     onToggleVibration: (Boolean) -> Unit,
 ) {
-    SectionCard(title = "Таймер отдыха") {
+    SectionCard(title = "Таймер отдыха", icon = Icons.Rounded.Timer) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -240,6 +266,7 @@ private fun RestTimerCard(
                 text = "Отдых по умолчанию",
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.weight(1f),
             )
             Row(verticalAlignment = Alignment.CenterVertically) {
                 StepperButton(symbol = "−", description = "убавить отдых") {
@@ -251,7 +278,9 @@ private fun RestTimerCard(
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onSurface,
                     textAlign = TextAlign.Center,
-                    modifier = Modifier.width(104.dp),
+                    maxLines = 1,
+                    softWrap = false,
+                    modifier = Modifier.width(116.dp),
                 )
                 StepperButton(symbol = "+", description = "прибавить отдых") {
                     onChangeRest(REST_STEP_SECONDS)
@@ -261,11 +290,13 @@ private fun RestTimerCard(
         Spacer(Modifier.height(8.dp))
         ToggleRow(
             label = "Звук",
+            icon = Icons.AutoMirrored.Rounded.VolumeUp,
             checked = settings.soundEnabled,
             onCheckedChange = onToggleSound,
         )
         ToggleRow(
             label = "Вибрация",
+            icon = Icons.Rounded.Vibration,
             checked = settings.vibrationEnabled,
             onCheckedChange = onToggleVibration,
         )
@@ -275,6 +306,7 @@ private fun RestTimerCard(
 @Composable
 private fun ToggleRow(
     label: String,
+    icon: ImageVector,
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
 ) {
@@ -283,11 +315,24 @@ private fun ToggleRow(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = if (checked) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+                modifier = Modifier.size(20.dp),
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                text = label,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+        }
         Switch(checked = checked, onCheckedChange = onCheckedChange)
     }
 }
@@ -315,15 +360,25 @@ private fun StepperButton(
 @Composable
 private fun SectionCard(
     title: String,
+    icon: ImageVector,
     content: @Composable () -> Unit,
 ) {
     GymCard(modifier = Modifier.fillMaxWidth()) {
-        Text(
-            text = title,
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(20.dp),
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+        }
         Spacer(Modifier.height(12.dp))
         content()
     }

@@ -48,8 +48,8 @@ fun NumberField(
         modifier = modifier,
         singleLine = true,
         interactionSource = interactionSource,
-        label = label?.let { { Text(it) } },
-        placeholder = placeholder?.let { { Text(it) } },
+        label = label?.let { { Text(it, maxLines = 1, softWrap = false) } },
+        placeholder = placeholder?.let { { Text(it, maxLines = 1, softWrap = false) } },
         keyboardOptions = KeyboardOptions(
             keyboardType = if (decimal) KeyboardType.Decimal else KeyboardType.Number,
         ),

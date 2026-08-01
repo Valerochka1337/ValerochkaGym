@@ -10,14 +10,15 @@ private val GymColorScheme = darkColorScheme(
     onPrimary = OnAccent,
     primaryContainer = GymGreenContainer,
     onPrimaryContainer = GymGreenLight,
-    secondary = Peach,
+    // Single-accent policy: secondary/tertiary are green-derived, never a second hue.
+    secondary = GymGreenLight,
     onSecondary = OnAccent,
     secondaryContainer = GymGreenContainer,
     onSecondaryContainer = GymGreenLight,
-    tertiary = Peach,
+    tertiary = GymGreenLight,
     onTertiary = OnAccent,
-    tertiaryContainer = PeachContainer,
-    onTertiaryContainer = Peach,
+    tertiaryContainer = GymGreenContainer,
+    onTertiaryContainer = GymGreenLight,
     background = GymBlack,
     onBackground = TextPrimary,
     surface = GymSurface,
@@ -39,6 +40,7 @@ fun GymTheme(content: @Composable () -> Unit) {
     MaterialExpressiveTheme(
         colorScheme = GymColorScheme,
         typography = GymTypography,
+        shapes = GymShapes,
         content = content,
     )
 }
