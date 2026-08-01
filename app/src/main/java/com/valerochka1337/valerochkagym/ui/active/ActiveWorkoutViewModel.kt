@@ -9,6 +9,7 @@ import com.valerochka1337.valerochkagym.domain.PreviousSetsUseCase
 import com.valerochka1337.valerochkagym.domain.RestDurationResolver
 import com.valerochka1337.valerochkagym.service.RestTimerEngine
 import com.valerochka1337.valerochkagym.service.RestTimerState
+import com.valerochka1337.valerochkagym.worker.UploadScheduler
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
@@ -62,6 +63,7 @@ class ActiveWorkoutViewModel @Inject constructor(
     private val previousSetsUseCase: PreviousSetsUseCase,
     private val restDurationResolver: RestDurationResolver,
     private val restTimerEngine: RestTimerEngine,
+    private val uploadScheduler: UploadScheduler,
 ) : ViewModel() {
 
     /** Состояние таймера отдыха (null = неактивен) — пилюля на экране подписана прямо на движок. */
@@ -210,6 +212,7 @@ class ActiveWorkoutViewModel @Inject constructor(
         val workoutId = activeWorkout.value?.workout?.id ?: return
         viewModelScope.launch {
             repository.finish(workoutId)
+            uploadScheduler.schedule(workoutId)
             _events.send(ActiveWorkoutEvent.NavigateToSummary(workoutId))
         }
     }

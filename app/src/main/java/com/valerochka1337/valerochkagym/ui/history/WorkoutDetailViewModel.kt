@@ -10,6 +10,7 @@ import com.valerochka1337.valerochkagym.domain.PreviousSetsUseCase
 import com.valerochka1337.valerochkagym.domain.WorkoutStatsUseCase
 import com.valerochka1337.valerochkagym.domain.displayName
 import com.valerochka1337.valerochkagym.ui.navigation.GymRoutes
+import com.valerochka1337.valerochkagym.worker.UploadScheduler
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -61,6 +62,7 @@ class WorkoutDetailViewModel @Inject constructor(
     private val workoutDao: WorkoutDao,
     private val statsUseCase: WorkoutStatsUseCase,
     private val previousSetsUseCase: PreviousSetsUseCase,
+    private val uploadScheduler: UploadScheduler,
 ) : ViewModel() {
 
     private val workoutId: String? = savedStateHandle[GymRoutes.WORKOUT_ID_ARG]
@@ -112,7 +114,21 @@ class WorkoutDetailViewModel @Inject constructor(
                 note = full.workout.note,
                 exercises = exercises,
             )
+            // Дерево тренировки неизменно, но статус выгрузки меняется воркером — держим его живым.
+            workoutDao.observeWorkout(id).collect { entity ->
+                if (entity != null) {
+                    _uiState.update {
+                        it.copy(uploadStatus = entity.uploadStatus, uploadError = entity.uploadError)
+                    }
+                }
+            }
         }
+    }
+
+    /** Повторная выгрузка упавшей тренировки: сбрасывает статус в PENDING и ставит воркер в очередь. */
+    fun retryUpload() {
+        val id = workoutId ?: return
+        viewModelScope.launch { uploadScheduler.retry(id) }
     }
 
     fun delete() {

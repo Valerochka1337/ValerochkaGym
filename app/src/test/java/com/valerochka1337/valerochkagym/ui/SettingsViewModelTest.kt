@@ -12,6 +12,7 @@ import com.valerochka1337.valerochkagym.data.google.TokenResult
 import com.valerochka1337.valerochkagym.data.settings.SettingsRepository
 import com.valerochka1337.valerochkagym.ui.settings.SettingsViewModel
 import com.valerochka1337.valerochkagym.util.MainDispatcherRule
+import com.valerochka1337.valerochkagym.worker.UploadScheduler
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -44,7 +45,7 @@ class SettingsViewModelTest {
 
     @Test
     fun `changeDefaultRest adds the step`() = runTest(mainDispatcherRule.testDispatcher.scheduler) {
-        val viewModel = SettingsViewModel(settingsRepository(defaultRestSeconds = 120), FakeGoogleAuth())
+        val viewModel = SettingsViewModel(settingsRepository(defaultRestSeconds = 120), FakeGoogleAuth(), FakeUploadScheduler())
         collectUiState(viewModel)
 
         viewModel.changeDefaultRest(15)
@@ -54,7 +55,7 @@ class SettingsViewModelTest {
 
     @Test
     fun `changeDefaultRest subtracts the step`() = runTest(mainDispatcherRule.testDispatcher.scheduler) {
-        val viewModel = SettingsViewModel(settingsRepository(defaultRestSeconds = 120), FakeGoogleAuth())
+        val viewModel = SettingsViewModel(settingsRepository(defaultRestSeconds = 120), FakeGoogleAuth(), FakeUploadScheduler())
         collectUiState(viewModel)
 
         viewModel.changeDefaultRest(-15)
@@ -65,7 +66,7 @@ class SettingsViewModelTest {
     @Test
     fun `changeDefaultRest coerces to the minimum of fifteen`() =
         runTest(mainDispatcherRule.testDispatcher.scheduler) {
-            val viewModel = SettingsViewModel(settingsRepository(defaultRestSeconds = 20), FakeGoogleAuth())
+            val viewModel = SettingsViewModel(settingsRepository(defaultRestSeconds = 20), FakeGoogleAuth(), FakeUploadScheduler())
             collectUiState(viewModel)
 
             viewModel.changeDefaultRest(-15)
@@ -80,7 +81,7 @@ class SettingsViewModelTest {
     @Test
     fun `setSpreadsheetInput persists the parsed id and clears the error`() =
         runTest(mainDispatcherRule.testDispatcher.scheduler) {
-            val viewModel = SettingsViewModel(settingsRepository(), FakeGoogleAuth())
+            val viewModel = SettingsViewModel(settingsRepository(), FakeGoogleAuth(), FakeUploadScheduler())
             collectUiState(viewModel)
 
             val url = "https://docs.google.com/spreadsheets/d/$validSpreadsheetId/edit#gid=0"
@@ -93,7 +94,7 @@ class SettingsViewModelTest {
     @Test
     fun `setSpreadsheetInput sets the error and does not persist on invalid input`() =
         runTest(mainDispatcherRule.testDispatcher.scheduler) {
-            val viewModel = SettingsViewModel(settingsRepository(), FakeGoogleAuth())
+            val viewModel = SettingsViewModel(settingsRepository(), FakeGoogleAuth(), FakeUploadScheduler())
             collectUiState(viewModel)
 
             viewModel.setSpreadsheetInput("не ссылка")
@@ -105,7 +106,7 @@ class SettingsViewModelTest {
     @Test
     fun `setSpreadsheetInput clears a previous error once a valid value is entered`() =
         runTest(mainDispatcherRule.testDispatcher.scheduler) {
-            val viewModel = SettingsViewModel(settingsRepository(), FakeGoogleAuth())
+            val viewModel = SettingsViewModel(settingsRepository(), FakeGoogleAuth(), FakeUploadScheduler())
             collectUiState(viewModel)
 
             viewModel.setSpreadsheetInput("мусор")
@@ -123,7 +124,7 @@ class SettingsViewModelTest {
 
     @Test
     fun `toggleSound persists the flag`() = runTest(mainDispatcherRule.testDispatcher.scheduler) {
-        val viewModel = SettingsViewModel(settingsRepository(), FakeGoogleAuth())
+        val viewModel = SettingsViewModel(settingsRepository(), FakeGoogleAuth(), FakeUploadScheduler())
         collectUiState(viewModel)
 
         viewModel.toggleSound(false)
@@ -133,7 +134,7 @@ class SettingsViewModelTest {
 
     @Test
     fun `toggleVibration persists the flag`() = runTest(mainDispatcherRule.testDispatcher.scheduler) {
-        val viewModel = SettingsViewModel(settingsRepository(), FakeGoogleAuth())
+        val viewModel = SettingsViewModel(settingsRepository(), FakeGoogleAuth(), FakeUploadScheduler())
         collectUiState(viewModel)
 
         viewModel.toggleVibration(false)
@@ -156,6 +157,13 @@ class SettingsViewModelTest {
             mutablePreferencesOf(intPreferencesKey("default_rest_seconds") to defaultRestSeconds)
         }
         return SettingsRepository(FakeDataStore(prefs))
+    }
+
+    /** No-op [UploadScheduler]: these tests never invoke the export path. */
+    private class FakeUploadScheduler : UploadScheduler {
+        override fun schedule(workoutId: String) = Unit
+        override suspend fun retry(workoutId: String) = Unit
+        override suspend fun scheduleAllPending(): Int = 0
     }
 
     /** No-op [GoogleAuth]: rest/spreadsheet/toggle paths never touch Google, so defaults suffice. */

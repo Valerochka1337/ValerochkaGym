@@ -132,6 +132,23 @@ interface WorkoutDao {
     @Query("UPDATE workouts SET uploadStatus = :status, uploadError = :error WHERE id = :workoutId")
     suspend fun setUploadStatus(workoutId: String, status: UploadStatus, error: String?)
 
+    /** Реактивно отдаёт саму запись тренировки — деталям нужен живой статус выгрузки. */
+    @Query("SELECT * FROM workouts WHERE id = :id")
+    fun observeWorkout(id: String): Flow<WorkoutEntity?>
+
+    /**
+     * Id завершённых тренировок, ещё не выгруженных ([UploadStatus.PENDING]) или упавших
+     * ([UploadStatus.FAILED]) — для массовой повторной выгрузки «Выгрузить всё».
+     */
+    @Query(
+        """
+        SELECT id FROM workouts
+        WHERE finishedAt IS NOT NULL AND uploadStatus IN ('PENDING', 'FAILED')
+        ORDER BY startedAt DESC
+        """,
+    )
+    suspend fun getFinishedNotUploaded(): List<String>
+
     @Query("DELETE FROM workouts WHERE id = :id")
     suspend fun deleteWorkout(id: String)
 

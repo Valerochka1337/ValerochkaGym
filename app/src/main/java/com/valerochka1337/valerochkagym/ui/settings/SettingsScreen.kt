@@ -6,6 +6,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -23,6 +24,8 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -30,6 +33,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -62,6 +66,11 @@ fun SettingsScreen(
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val activity = LocalActivity.current
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    LaunchedEffect(viewModel) {
+        viewModel.messages.collect { snackbarHostState.showSnackbar(it) }
+    }
 
     val consentLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartIntentSenderForResult(),
@@ -80,40 +89,47 @@ fun SettingsScreen(
     }
 
     GlowBackground(modifier = modifier) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(24.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            Text(
-                text = "Настройки",
-                style = MaterialTheme.typography.headlineLarge,
-                color = MaterialTheme.colorScheme.onBackground,
-            )
+        Box(modifier = Modifier.fillMaxSize()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(24.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                Text(
+                    text = "Настройки",
+                    style = MaterialTheme.typography.headlineLarge,
+                    color = MaterialTheme.colorScheme.onBackground,
+                )
 
-            val settings = state.settings
-            if (settings != null) {
-                GoogleAccountCard(
-                    email = settings.googleEmail,
-                    authBusy = state.authBusy,
-                    authError = state.authError,
-                    onSignIn = { activity?.let(viewModel::signIn) },
-                    onSignOut = viewModel::signOut,
-                )
-                SpreadsheetCard(
-                    currentId = settings.spreadsheetId,
-                    error = state.spreadsheetError,
-                    onSave = viewModel::setSpreadsheetInput,
-                )
-                RestTimerCard(
-                    settings = settings,
-                    onChangeRest = viewModel::changeDefaultRest,
-                    onToggleSound = viewModel::toggleSound,
-                    onToggleVibration = viewModel::toggleVibration,
-                )
+                val settings = state.settings
+                if (settings != null) {
+                    GoogleAccountCard(
+                        email = settings.googleEmail,
+                        authBusy = state.authBusy,
+                        authError = state.authError,
+                        onSignIn = { activity?.let(viewModel::signIn) },
+                        onSignOut = viewModel::signOut,
+                    )
+                    SpreadsheetCard(
+                        currentId = settings.spreadsheetId,
+                        error = state.spreadsheetError,
+                        onSave = viewModel::setSpreadsheetInput,
+                        onExportAll = viewModel::exportAll,
+                    )
+                    RestTimerCard(
+                        settings = settings,
+                        onChangeRest = viewModel::changeDefaultRest,
+                        onToggleSound = viewModel::toggleSound,
+                        onToggleVibration = viewModel::toggleVibration,
+                    )
+                }
             }
+            SnackbarHost(
+                hostState = snackbarHostState,
+                modifier = Modifier.align(Alignment.BottomCenter),
+            )
         }
     }
 }
@@ -168,6 +184,7 @@ private fun SpreadsheetCard(
     currentId: String?,
     error: Boolean,
     onSave: (String) -> Unit,
+    onExportAll: () -> Unit,
 ) {
     SectionCard(title = "Google Sheets") {
         var input by rememberSaveable(currentId) { mutableStateOf(currentId.orEmpty()) }
@@ -199,14 +216,9 @@ private fun SpreadsheetCard(
             OutlinedButton(onClick = { onSave(input) }) {
                 Text("Сохранить")
             }
-            OutlinedButton(onClick = {}, enabled = false) {
+            OutlinedButton(onClick = onExportAll, enabled = currentId != null) {
                 Text("Выгрузить всё")
             }
-            Text(
-                text = "скоро",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
         }
     }
 }

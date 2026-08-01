@@ -9,6 +9,7 @@ import com.valerochka1337.valerochkagym.data.google.GoogleAuth
 import com.valerochka1337.valerochkagym.data.google.spreadsheetIdFrom
 import com.valerochka1337.valerochkagym.data.settings.GymSettings
 import com.valerochka1337.valerochkagym.data.settings.SettingsRepository
+import com.valerochka1337.valerochkagym.worker.UploadScheduler
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
@@ -50,6 +51,7 @@ data class SettingsUiState(
 class SettingsViewModel @Inject constructor(
     private val settingsRepository: SettingsRepository,
     private val googleAuth: GoogleAuth,
+    private val uploadScheduler: UploadScheduler,
 ) : ViewModel() {
 
     private val authBusy = MutableStateFlow(false)
@@ -79,6 +81,11 @@ class SettingsViewModel @Inject constructor(
 
     /** Запросы согласия на OAuth-доступ, которые экран должен запустить через launcher. */
     val consentRequests: Flow<IntentSender> = _consentRequests.receiveAsFlow()
+
+    private val _messages = Channel<String>(Channel.BUFFERED)
+
+    /** Короткие уведомления для snackbar (например, результат «Выгрузить всё»). */
+    val messages: Flow<String> = _messages.receiveAsFlow()
 
     fun signIn(activity: Activity) {
         viewModelScope.launch {
@@ -133,6 +140,17 @@ class SettingsViewModel @Inject constructor(
         }
         spreadsheetError.value = false
         viewModelScope.launch { settingsRepository.setSpreadsheetId(id) }
+    }
+
+    /**
+     * Ставит в очередь выгрузку всех завершённых, ещё не выгруженных тренировок (PENDING/FAILED):
+     * каждой сбрасывает статус в PENDING и запускает воркер. Показывает, сколько поставлено в очередь.
+     */
+    fun exportAll() {
+        viewModelScope.launch {
+            val count = uploadScheduler.scheduleAllPending()
+            _messages.send("Поставлено в очередь: $count")
+        }
     }
 
     /** Меняет отдых по умолчанию на [delta] секунд (обычно ±[REST_STEP_SECONDS]), не ниже минимума. */

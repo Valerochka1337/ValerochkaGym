@@ -76,7 +76,11 @@ fun WorkoutDetailScreen(
                 }
 
                 item {
-                    UploadCard(status = state.uploadStatus, error = state.uploadError)
+                    UploadCard(
+                        status = state.uploadStatus,
+                        error = state.uploadError,
+                        onRetry = viewModel::retryUpload,
+                    )
                 }
 
                 if (state.exercises.isNotEmpty()) {
@@ -225,6 +229,7 @@ private fun StatColumn(
 private fun UploadCard(
     status: UploadStatus,
     error: String?,
+    onRetry: () -> Unit,
 ) {
     GymCard(
         modifier = Modifier.fillMaxWidth(),
@@ -250,9 +255,8 @@ private fun UploadCard(
                 )
             }
             Spacer(Modifier.height(4.dp))
-            // Повторная выгрузка подключается в Стадии 19; пока заглушка.
-            TextButton(onClick = {}, enabled = false) {
-                Text("Повторить выгрузку · скоро")
+            TextButton(onClick = onRetry) {
+                Text("Повторить выгрузку")
             }
         }
     }
