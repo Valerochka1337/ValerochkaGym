@@ -88,7 +88,7 @@ class ActiveWorkoutRepositoryImpl @Inject constructor(
     override suspend fun updateSet(set: WorkoutSetEntity) = workoutDao.updateSet(set)
 
     override suspend fun toggleSetCompleted(setId: Long, completed: Boolean) =
-        workoutDao.setSetCompleted(setId, completed)
+        workoutDao.setSetCompleted(setId, completed, completedAt = if (completed) now() else null)
 
     override suspend fun addSet(workoutExerciseId: Long) = database.withTransaction {
         val existing = workoutDao.getSetsForWorkoutExercise(workoutExerciseId)

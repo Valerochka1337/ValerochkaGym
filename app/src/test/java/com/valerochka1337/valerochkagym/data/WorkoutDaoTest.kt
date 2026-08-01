@@ -211,6 +211,25 @@ class WorkoutDaoTest : RoomDaoTest() {
 
     // endregion
 
+    // region completedAt
+
+    @Test
+    fun `setSetCompleted writes completedAt when completing and clears it when uncompleting`() =
+        runTest {
+            val exerciseId = addExercise()
+            insertWorkout("w", startedAt = 1_000, finishedAt = null)
+            val we = insertWorkoutExercise("w", exerciseId)
+            val setId = insertSet(we, setIndex = 0, weightKg = 50.0, isCompleted = false)
+
+            workoutDao.setSetCompleted(setId, completed = true, completedAt = 12_345L)
+            assertEquals(12_345L, workoutDao.getSet(setId)!!.completedAt)
+
+            workoutDao.setSetCompleted(setId, completed = false, completedAt = null)
+            assertNull(workoutDao.getSet(setId)!!.completedAt)
+        }
+
+    // endregion
+
     private suspend fun addExercise(name: String = "Жим штанги лёжа"): Long =
         exerciseDao.insert(
             ExerciseEntity(

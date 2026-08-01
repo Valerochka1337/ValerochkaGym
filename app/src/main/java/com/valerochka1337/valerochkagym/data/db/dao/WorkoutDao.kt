@@ -37,8 +37,8 @@ interface WorkoutDao {
     @Update
     suspend fun updateSet(set: WorkoutSetEntity)
 
-    @Query("UPDATE workout_sets SET isCompleted = :completed WHERE id = :setId")
-    suspend fun setSetCompleted(setId: Long, completed: Boolean)
+    @Query("UPDATE workout_sets SET isCompleted = :completed, completedAt = :completedAt WHERE id = :setId")
+    suspend fun setSetCompleted(setId: Long, completed: Boolean, completedAt: Long?)
 
     @Query("SELECT * FROM workout_sets WHERE id = :setId")
     suspend fun getSet(setId: Long): WorkoutSetEntity?
