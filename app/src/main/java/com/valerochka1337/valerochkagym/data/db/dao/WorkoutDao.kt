@@ -10,6 +10,7 @@ import com.valerochka1337.valerochkagym.data.db.entity.WorkoutEntity
 import com.valerochka1337.valerochkagym.data.db.entity.WorkoutExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.WorkoutSetEntity
 import com.valerochka1337.valerochkagym.data.db.relation.WorkoutFull
+import com.valerochka1337.valerochkagym.data.db.relation.WorkoutVolume
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -60,6 +61,26 @@ interface WorkoutDao {
 
     @Query("SELECT * FROM workouts WHERE finishedAt IS NOT NULL ORDER BY startedAt DESC")
     fun observeFinishedWorkouts(): Flow<List<WorkoutEntity>>
+
+    /**
+     * Суммарный тоннаж (Σ weightKg × reps по выполненным силовым подходам) по каждой тренировке.
+     * Один агрегатный запрос для списка истории — без загрузки полных деревьев тренировок.
+     * Тренировки без силового объёма в результат не попадают.
+     */
+    @Query(
+        """
+        SELECT we.workoutId AS workoutId, SUM(ws.weightKg * ws.reps) AS volume
+        FROM workout_sets ws
+        JOIN workout_exercises we ON we.id = ws.workoutExerciseId
+        JOIN exercises e ON e.id = we.exerciseId
+        WHERE ws.isCompleted = 1
+          AND e.type = 'STRENGTH'
+          AND ws.weightKg IS NOT NULL
+          AND ws.reps IS NOT NULL
+        GROUP BY we.workoutId
+        """,
+    )
+    fun observeWorkoutVolumes(): Flow<List<WorkoutVolume>>
 
     @Transaction
     @Query("SELECT * FROM workouts WHERE id = :id")

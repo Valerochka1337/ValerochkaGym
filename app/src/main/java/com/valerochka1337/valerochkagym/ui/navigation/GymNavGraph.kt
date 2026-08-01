@@ -1,16 +1,9 @@
 package com.valerochka1337.valerochkagym.ui.navigation
 
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
@@ -20,8 +13,8 @@ import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 import com.valerochka1337.valerochkagym.ui.active.ActiveWorkoutScreen
 import com.valerochka1337.valerochkagym.ui.active.ActiveWorkoutViewModel
-import com.valerochka1337.valerochkagym.ui.components.GlowBackground
 import com.valerochka1337.valerochkagym.ui.history.HistoryScreen
+import com.valerochka1337.valerochkagym.ui.history.WorkoutDetailScreen
 import com.valerochka1337.valerochkagym.ui.library.ExerciseLibraryScreen
 import com.valerochka1337.valerochkagym.ui.routine.RoutineEditorScreen
 import com.valerochka1337.valerochkagym.ui.routine.RoutineEditorViewModel
@@ -80,7 +73,11 @@ fun GymNavGraph(
                 onStartWorkout = { navController.navigate(GymRoutes.ACTIVE_WORKOUT) },
             )
         }
-        composable(GymRoutes.HISTORY) { HistoryScreen() }
+        composable(GymRoutes.HISTORY) {
+            HistoryScreen(
+                onWorkoutClick = { workoutId -> navController.navigate(GymRoutes.workoutDetail(workoutId)) },
+            )
+        }
         composable(GymRoutes.SETTINGS) { SettingsScreen() }
 
         composable(GymRoutes.LIBRARY) {
@@ -155,25 +152,8 @@ fun GymNavGraph(
         composable(
             route = GymRoutes.WORKOUT_DETAIL,
             arguments = listOf(navArgument(GymRoutes.WORKOUT_ID_ARG) { type = NavType.StringType }),
-        ) { PlaceholderScreen("Детали тренировки") }
-    }
-}
-
-/** Temporary full-screen placeholder for routes whose real screens land in later stages. */
-@Composable
-private fun PlaceholderScreen(title: String) {
-    GlowBackground {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(24.dp),
-            contentAlignment = Alignment.Center,
         ) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.headlineLarge,
-                color = MaterialTheme.colorScheme.onBackground,
-            )
+            WorkoutDetailScreen(onBack = { navController.popBackStack() })
         }
     }
 }
