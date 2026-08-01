@@ -13,12 +13,14 @@ import com.valerochka1337.valerochkagym.data.google.ScheduleResult
 import com.valerochka1337.valerochkagym.data.settings.SettingsRepository
 import com.valerochka1337.valerochkagym.domain.ActiveWorkoutRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.receiveAsFlow
@@ -109,21 +111,26 @@ class WorkoutsViewModel @Inject constructor(
     val scheduleEvents = _scheduleEvents.receiveAsFlow()
 
     /**
-     * Ближайшие запланированные тренировки. `nowMillis` фиксируется в момент подписки
-     * ([flow] пересобирается при возврате подписчиков), от него же считается [UpcomingUi.isDue].
-     * null — «ещё не загружено».
+     * Ближайшие запланированные тренировки. `nowMillis` тикает раз в минуту, поэтому
+     * [UpcomingUi.isDue] переключается вживую, а 6h-grace-окно [ScheduledWorkoutDao] истекает
+     * без переподписки. null — «ещё не загружено».
      */
+    @OptIn(ExperimentalCoroutinesApi::class)
     val upcoming: StateFlow<List<UpcomingUi>?> =
-        flow { emitAll(scheduledWorkoutDao.observeUpcoming(System.currentTimeMillis())) }
-            .map { list ->
-                val now = System.currentTimeMillis()
+        flow {
+            while (true) {
+                emit(System.currentTimeMillis())
+                delay(60_000)
+            }
+        }.flatMapLatest { now ->
+            scheduledWorkoutDao.observeUpcoming(now).map { list ->
                 list.map { it.toUpcomingUi(now) }
             }
-            .stateIn(
-                scope = viewModelScope,
-                started = SharingStarted.WhileSubscribed(5_000),
-                initialValue = null,
-            )
+        }.stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5_000),
+            initialValue = null,
+        )
 
     private val defaultRestSeconds = settingsRepository.settings.map { it.defaultRestSeconds }
 
@@ -235,7 +242,7 @@ class WorkoutsViewModel @Inject constructor(
     }
 
     private companion object {
-        const val NEEDS_CONSENT_MESSAGE = "Настройте доступ в настройках"
+        const val NEEDS_CONSENT_MESSAGE = "Настройте доступ к Google в настройках"
     }
 }
 
