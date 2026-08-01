@@ -6,6 +6,8 @@ import com.valerochka1337.valerochkagym.data.google.GoogleAuth
 import com.valerochka1337.valerochkagym.data.google.GoogleAuthManager
 import com.valerochka1337.valerochkagym.data.google.SheetsRepository
 import com.valerochka1337.valerochkagym.data.google.SheetsRepositoryImpl
+import com.valerochka1337.valerochkagym.data.google.WorkoutImportRepository
+import com.valerochka1337.valerochkagym.data.google.WorkoutImportRepositoryImpl
 import dagger.Binds
 import dagger.Module
 import dagger.hilt.InstallIn
@@ -27,4 +29,8 @@ abstract class GoogleModule {
     @Binds
     @Singleton
     abstract fun bindCalendarRepository(impl: CalendarRepositoryImpl): CalendarRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindWorkoutImportRepository(impl: WorkoutImportRepositoryImpl): WorkoutImportRepository
 }
