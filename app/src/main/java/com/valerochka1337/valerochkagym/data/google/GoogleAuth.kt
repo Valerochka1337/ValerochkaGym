@@ -18,6 +18,18 @@ sealed interface AuthorizeOutcome {
 }
 
 /**
+ * Результат запроса access-токена без участия Activity ([GoogleAuth.getAccessToken]).
+ *
+ * [Success] — токен получен. [NeedsConsent] — доступ ещё не выдан, нужен интерактивный
+ * [GoogleAuth.authorize] с Activity. [Failed] — запрос не удался (нет сети и т. п.).
+ */
+sealed interface TokenResult {
+    data class Success(val token: String) : TokenResult
+    data object NeedsConsent : TokenResult
+    data class Failed(val error: Throwable?) : TokenResult
+}
+
+/**
  * Вход через Google и выдача OAuth-доступа к нужным API. Интерфейс отделяет UI и будущие
  * загрузчики (Стадии 19/21) от конкретной реализации на Credential Manager /
  * AuthorizationClient — чтобы их можно было мокать в тестах.
@@ -38,10 +50,10 @@ interface GoogleAuth {
     suspend fun authorize(activity: Activity): AuthorizeOutcome
 
     /**
-     * Access-токен для Bearer-авторизации без участия Activity. Возвращает `null`, если
-     * доступ ещё не выдан (требуется [authorize]) или пользователь не залогинен.
+     * Access-токен для Bearer-авторизации без участия Activity. [TokenResult.NeedsConsent],
+     * если доступ ещё не выдан (требуется [authorize]) или пользователь не залогинен.
      */
-    suspend fun getAccessToken(): String?
+    suspend fun getAccessToken(): TokenResult
 
     /** Выход: очищает состояние Credential Manager и стирает сохранённый email. */
     suspend fun signOut()

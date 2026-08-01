@@ -5,6 +5,7 @@ import android.content.Context
 import androidx.credentials.ClearCredentialStateRequest
 import androidx.credentials.CredentialManager
 import androidx.credentials.GetCredentialRequest
+import androidx.credentials.exceptions.ClearCredentialException
 import androidx.credentials.exceptions.GetCredentialCancellationException
 import com.google.android.gms.auth.api.identity.AuthorizationRequest
 import com.google.android.gms.auth.api.identity.AuthorizationResult
@@ -16,6 +17,7 @@ import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.valerochka1337.valerochkagym.R
 import com.valerochka1337.valerochkagym.data.settings.SettingsRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.suspendCancellableCoroutine
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -60,6 +62,8 @@ class GoogleAuthManager @Inject constructor(
         } catch (cancellation: GetCredentialCancellationException) {
             // Пользователь закрыл диалог выбора аккаунта — тихо, без побочных эффектов.
             Result.failure(cancellation)
+        } catch (c: CancellationException) {
+            throw c
         } catch (e: Exception) {
             Result.failure(e)
         }
@@ -74,21 +78,37 @@ class GoogleAuthManager @Inject constructor(
             } else {
                 AuthorizeOutcome.Granted
             }
+        } catch (c: CancellationException) {
+            throw c
         } catch (e: Exception) {
             AuthorizeOutcome.Failed(e)
         }
 
-    override suspend fun getAccessToken(): String? =
+    override suspend fun getAccessToken(): TokenResult =
         try {
             val result = requestAuthorization(context)
-            // Есть resolution → требуется согласие пользователя, токена пока нет.
-            if (result.hasResolution()) null else result.accessToken
+            val token = result.accessToken
+            when {
+                // Есть resolution → требуется согласие пользователя, токена пока нет.
+                result.hasResolution() -> TokenResult.NeedsConsent
+                token != null -> TokenResult.Success(token)
+                else -> TokenResult.NeedsConsent
+            }
+        } catch (c: CancellationException) {
+            throw c
         } catch (e: Exception) {
-            null
+            TokenResult.Failed(e)
         }
 
     override suspend fun signOut() {
-        credentialManager.clearCredentialState(ClearCredentialStateRequest())
+        try {
+            credentialManager.clearCredentialState(ClearCredentialStateRequest())
+        } catch (c: CancellationException) {
+            throw c
+        } catch (_: ClearCredentialException) {
+            // Не критично: даже если очистка состояния Credential Manager не удалась,
+            // всё равно стираем сохранённый email — для пользователя это и есть «выход».
+        }
         settingsRepository.setGoogleEmail(null)
     }
 

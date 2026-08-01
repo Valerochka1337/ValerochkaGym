@@ -98,6 +98,7 @@ fun SettingsScreen(
                 GoogleAccountCard(
                     email = settings.googleEmail,
                     authBusy = state.authBusy,
+                    authError = state.authError,
                     onSignIn = { activity?.let(viewModel::signIn) },
                     onSignOut = viewModel::signOut,
                 )
@@ -121,6 +122,7 @@ fun SettingsScreen(
 private fun GoogleAccountCard(
     email: String?,
     authBusy: Boolean,
+    authError: String?,
     onSignIn: () -> Unit,
     onSignOut: () -> Unit,
 ) {
@@ -149,6 +151,14 @@ private fun GoogleAccountCard(
             TextButton(onClick = onSignOut, enabled = !authBusy) {
                 Text("Выйти")
             }
+        }
+        if (authError != null) {
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = authError,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+            )
         }
     }
 }

@@ -10,12 +10,13 @@ import com.valerochka1337.valerochkagym.data.google.spreadsheetIdFrom
 import com.valerochka1337.valerochkagym.data.settings.GymSettings
 import com.valerochka1337.valerochkagym.data.settings.SettingsRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -24,15 +25,20 @@ import javax.inject.Inject
 private const val REST_STEP_SECONDS = 15
 private const val MIN_REST_SECONDS = 15
 
+/** Сообщение об ошибке настройки OAuth-доступа. */
+private const val AUTH_ERROR_MESSAGE = "Не удалось настроить доступ — попробуйте ещё раз"
+
 /**
  * Состояние экрана настроек. [settings] == null — ещё не загружено (не мигаем пустой формой).
  * [authBusy] — идёт вход/выход через Google. [spreadsheetError] — последний ввод ссылки/ID не
- * распознан.
+ * распознан. [authError] — не удалось войти или настроить доступ (показываем и сбрасываем при
+ * повторной попытке).
  */
 data class SettingsUiState(
     val settings: GymSettings? = null,
     val authBusy: Boolean = false,
     val spreadsheetError: Boolean = false,
+    val authError: String? = null,
 )
 
 /**
@@ -48,49 +54,73 @@ class SettingsViewModel @Inject constructor(
 
     private val authBusy = MutableStateFlow(false)
     private val spreadsheetError = MutableStateFlow(false)
+    private val authError = MutableStateFlow<String?>(null)
 
     val uiState: StateFlow<SettingsUiState> =
-        combine(settingsRepository.settings, authBusy, spreadsheetError) { settings, busy, error ->
-            SettingsUiState(settings = settings, authBusy = busy, spreadsheetError = error)
+        combine(
+            settingsRepository.settings,
+            authBusy,
+            spreadsheetError,
+            authError,
+        ) { settings, busy, sheetError, authError ->
+            SettingsUiState(
+                settings = settings,
+                authBusy = busy,
+                spreadsheetError = sheetError,
+                authError = authError,
+            )
         }.stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5_000),
             initialValue = SettingsUiState(),
         )
 
-    private val _consentRequests = MutableSharedFlow<IntentSender>(extraBufferCapacity = 1)
+    private val _consentRequests = Channel<IntentSender>(Channel.CONFLATED)
 
     /** Запросы согласия на OAuth-доступ, которые экран должен запустить через launcher. */
-    val consentRequests: SharedFlow<IntentSender> = _consentRequests
+    val consentRequests: Flow<IntentSender> = _consentRequests.receiveAsFlow()
 
     fun signIn(activity: Activity) {
         viewModelScope.launch {
             authBusy.value = true
-            val result = googleAuth.signIn(activity)
-            if (result.isSuccess) {
-                requestAuthorize(activity)
+            authError.value = null
+            try {
+                val result = googleAuth.signIn(activity)
+                if (result.isSuccess) {
+                    requestAuthorize(activity)
+                } else {
+                    authError.value = AUTH_ERROR_MESSAGE
+                }
+            } finally {
+                authBusy.value = false
             }
-            authBusy.value = false
         }
     }
 
     fun signOut() {
         viewModelScope.launch {
             authBusy.value = true
-            googleAuth.signOut()
-            authBusy.value = false
+            try {
+                googleAuth.signOut()
+            } finally {
+                authBusy.value = false
+            }
         }
     }
 
     /** Повторный запрос доступа после того, как пользователь прошёл экран согласия. */
     fun consentResolved(activity: Activity) {
-        viewModelScope.launch { requestAuthorize(activity) }
+        viewModelScope.launch {
+            authError.value = null
+            requestAuthorize(activity)
+        }
     }
 
     private suspend fun requestAuthorize(activity: Activity) {
-        val outcome = googleAuth.authorize(activity)
-        if (outcome is AuthorizeOutcome.NeedsConsent) {
-            _consentRequests.emit(outcome.pendingIntent.intentSender)
+        when (val outcome = googleAuth.authorize(activity)) {
+            is AuthorizeOutcome.NeedsConsent -> _consentRequests.send(outcome.pendingIntent.intentSender)
+            is AuthorizeOutcome.Failed -> authError.value = AUTH_ERROR_MESSAGE
+            AuthorizeOutcome.Granted -> Unit
         }
     }
 
