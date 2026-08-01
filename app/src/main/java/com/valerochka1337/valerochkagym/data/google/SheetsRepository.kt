@@ -66,11 +66,22 @@ class SheetsRepositoryImpl @Inject constructor(
         val bearer = "Bearer $token"
         return try {
             ensureWorkoutsSheet(bearer, spreadsheetId)
-            if (isAlreadyUploaded(bearer, spreadsheetId, workoutId)) {
+            val workoutIdColumn = readWorkoutIdColumn(bearer, spreadsheetId)
+            if (workoutIdColumn.any { it.firstOrNull() == workoutId }) {
                 workoutDao.setUploadStatus(workoutId, UploadStatus.UPLOADED, null)
                 return UploadResult.Success
             }
-            appendRows(bearer, spreadsheetId, WorkoutRowMapper.rows(workout))
+            // Если колонка пуста (лист только что создан или без шапки), добавляем HEADER_ROW тем же
+            // батчем, что и данные, — один атомарный append, без окна «есть лист, но нет шапки».
+            // Оговорка: две одновременные выгрузки могут обе увидеть пустую колонку и записать
+            // шапку дважды — маловероятно (уникальная работа + REPLACE) и приемлемо для v1.
+            val dataRows = WorkoutRowMapper.rows(workout)
+            val rows = if (workoutIdColumn.isEmpty()) {
+                listOf(WorkoutRowMapper.HEADER_ROW) + dataRows
+            } else {
+                dataRows
+            }
+            appendRows(bearer, spreadsheetId, rows)
             workoutDao.setUploadStatus(workoutId, UploadStatus.UPLOADED, null)
             UploadResult.Success
         } catch (e: HttpException) {
@@ -80,30 +91,31 @@ class SheetsRepositoryImpl @Inject constructor(
         }
     }
 
-    /** Создаёт лист «Workouts» с шапкой, если его ещё нет. */
+    /** Создаёт лист «Workouts», если его ещё нет (шапку добавляет уже [uploadWorkout]). */
     private suspend fun ensureWorkoutsSheet(bearer: String, spreadsheetId: String) {
-        val spreadsheet = api.getSpreadsheet(bearer, spreadsheetId)
-        val exists = spreadsheet.sheets.any { it.properties.title == WORKOUTS_SHEET }
-        if (exists) return
-        api.batchUpdate(
-            bearer,
-            spreadsheetId,
-            BatchUpdateRequestDto(
-                requests = listOf(BatchRequestDto(AddSheetDto(SheetPropertiesDto(WORKOUTS_SHEET)))),
-            ),
-        )
-        appendRows(bearer, spreadsheetId, listOf(WorkoutRowMapper.HEADER_ROW))
+        if (workoutsSheetExists(bearer, spreadsheetId)) return
+        try {
+            api.batchUpdate(
+                bearer,
+                spreadsheetId,
+                BatchUpdateRequestDto(
+                    requests = listOf(BatchRequestDto(AddSheetDto(SheetPropertiesDto(WORKOUTS_SHEET)))),
+                ),
+            )
+        } catch (e: HttpException) {
+            // Гонка: другой воркер мог создать лист между нашими проверкой и addSheet — Sheets
+            // отвечает 400. Если лист теперь есть, продолжаем; иначе это настоящая ошибка.
+            if (e.code() == ADD_SHEET_CONFLICT && workoutsSheetExists(bearer, spreadsheetId)) return
+            throw e
+        }
     }
 
-    /** true, если `workout_id` уже есть в колонке A листа «Workouts». */
-    private suspend fun isAlreadyUploaded(
-        bearer: String,
-        spreadsheetId: String,
-        workoutId: String,
-    ): Boolean {
-        val values = api.getValues(bearer, spreadsheetId, WORKOUT_ID_RANGE).values ?: return false
-        return values.any { it.firstOrNull() == workoutId }
-    }
+    private suspend fun workoutsSheetExists(bearer: String, spreadsheetId: String): Boolean =
+        api.getSpreadsheet(bearer, spreadsheetId).sheets.any { it.properties.title == WORKOUTS_SHEET }
+
+    /** Колонка A листа «Workouts» (`workout_id` по строкам); пустой список, если ключа нет. */
+    private suspend fun readWorkoutIdColumn(bearer: String, spreadsheetId: String): List<List<String>> =
+        api.getValues(bearer, spreadsheetId, WORKOUT_ID_RANGE).values ?: emptyList()
 
     private suspend fun appendRows(bearer: String, spreadsheetId: String, rows: List<List<Any?>>) {
         val values: JsonArray = buildJsonArray {
@@ -146,6 +158,9 @@ class SheetsRepositoryImpl @Inject constructor(
 
     private companion object {
         const val WORKOUTS_SHEET = "Workouts"
+
+        /** Sheets отвечает 400 на addSheet, если лист с таким title уже существует. */
+        const val ADD_SHEET_CONFLICT = 400
 
         /** Колонка A листа «Workouts» — там лежат `workout_id`. */
         const val WORKOUT_ID_RANGE = "Workouts!A:A"
