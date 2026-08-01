@@ -76,12 +76,21 @@ class WorkoutSessionService : LifecycleService() {
             },
             Context.RECEIVER_NOT_EXPORTED,
         )
+        observeState()
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        super.onStartCommand(intent, flags, startId)
+        // Здесь, а не в onCreate: покрывает и первый старт, и повторную доставку intent — так
+        // startForeground гарантированно вызывается в отведённое окно после startForegroundService.
         startForeground(
             SESSION_NOTIFICATION_ID,
-            buildSessionNotification(null),
+            buildSessionNotification(currentWorkout),
             ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE,
         )
-        observeState()
+        // NOT_STICKY: после гибели процесса состояние движка/тренировки не восстановить, а sticky
+        // рестарт оставил бы «зомби»-уведомление «Тренировка» без реальной сессии.
+        return START_NOT_STICKY
     }
 
     override fun onDestroy() {
