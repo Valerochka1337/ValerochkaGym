@@ -16,7 +16,7 @@
 [X] Стадия 10: Домен активной тренировки
 [X] Стадия 11: Тесты домена
 [X] Стадия 12: UI активной тренировки (вариант B)
-[ ] Стадия 13: Foreground service и таймер отдыха
+[X] Стадия 13: Foreground service и таймер отдыха
 [ ] Стадия 14: Тесты таймера
 [ ] Стадия 15: История
 [ ] Стадия 16: Вход Google и настройки
@@ -45,3 +45,4 @@
 *   Стадия 10: ОБЯЗАТЕЛЬНО для Стадии 12 — single-flight/debounce кнопок старта во ViewModel (check-then-insert guard не закрывает гонку двойного тапа полностью). startFromRoutine/startEmpty/finish — в withTransaction; finish идемпотентен. Отложено: Clock/id-семы, rename/note-операции, субминутное кардио-форматирование.
 *   Стадия 11: сид-хелперы insertWorkout/insertWorkoutExercise/insertSet/workoutFull — в RoomDaoTest (использовать в будущих DB-тестах). 98 тестов.
 *   Стадия 12: мутации подходов — через сериализующий Channel + свежее чтение из БД (per-field сеттеры); addSet/addExercise в withTransaction. Отложено: active/components.kt, оптимистичный оверлей. Диалог «Обновить программу?» — once per VM instance (после смерти процесса может показаться снова — принято).
+*   Стадия 13: RestTimerEngine — CAS-мутации (update/updateAndGet) + @Volatile generation-счётчик вместо однопоточного диспетчера (сохраняет TestScope virtual-time seam для Стадии 14); addSeconds no-op при remainingSec==0; сервис START_NOT_STICKY, startForeground в onStartCommand. Отложено (бэклог UX): отдых после последнего подхода, uncomplete не отменяет отдых, heads-up баннер.
