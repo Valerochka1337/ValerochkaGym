@@ -6,6 +6,9 @@ import com.valerochka1337.valerochkagym.data.db.entity.WorkoutSetEntity
 import com.valerochka1337.valerochkagym.data.db.relation.WorkoutFull
 import com.valerochka1337.valerochkagym.domain.ActiveWorkoutRepository
 import com.valerochka1337.valerochkagym.domain.PreviousSetsUseCase
+import com.valerochka1337.valerochkagym.domain.RestDurationResolver
+import com.valerochka1337.valerochkagym.service.RestTimerEngine
+import com.valerochka1337.valerochkagym.service.RestTimerState
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
@@ -57,7 +60,12 @@ sealed interface ActiveWorkoutEvent {
 class ActiveWorkoutViewModel @Inject constructor(
     private val repository: ActiveWorkoutRepository,
     private val previousSetsUseCase: PreviousSetsUseCase,
+    private val restDurationResolver: RestDurationResolver,
+    private val restTimerEngine: RestTimerEngine,
 ) : ViewModel() {
+
+    /** Состояние таймера отдыха (null = неактивен) — пилюля на экране подписана прямо на движок. */
+    val restTimer: StateFlow<RestTimerState?> = restTimerEngine.state
 
     private val loaded = MutableStateFlow(false)
     private val previousSummaries = MutableStateFlow<Map<Long, String>>(emptyMap())
@@ -170,6 +178,12 @@ class ActiveWorkoutViewModel @Inject constructor(
         }
     }
 
+    /** Прибавить/убавить время текущего отдыха (кнопки ±15 на пилюле). */
+    fun addRestSeconds(delta: Int) = restTimerEngine.addSeconds(delta)
+
+    /** Пропустить отдых (тап по центру пилюли). */
+    fun skipRest() = restTimerEngine.skip()
+
     fun uncompleteSet(setId: Long) {
         viewModelScope.launch { repository.toggleSetCompleted(setId, false) }
     }
@@ -209,11 +223,16 @@ class ActiveWorkoutViewModel @Inject constructor(
     }
 
     /**
-     * Точка подключения таймера отдыха (Стадия 13): вызывается сразу после отметки подхода
-     * выполненным. Сейчас пусто — реальный движок таймера подключит следующая стадия.
+     * Вызывается сразу после отметки подхода выполненным: резолвит длительность отдыха
+     * (программа → restSeconds упражнения, иначе настройки) и запускает таймер отдыха.
      */
-    private fun onSetCompleted(setId: Long) {
-        // Rest-timer engine wired in Stage 13.
+    private suspend fun onSetCompleted(setId: Long) {
+        val workout = activeWorkout.value ?: return
+        val exerciseId = workout.exercises
+            .firstOrNull { exercise -> exercise.sets.any { it.id == setId } }
+            ?.exercise?.id ?: return
+        val restSeconds = restDurationResolver(workout, exerciseId)
+        restTimerEngine.start(restSeconds)
     }
 
     private fun enqueue(setId: Long, transform: (WorkoutSetEntity) -> WorkoutSetEntity) {

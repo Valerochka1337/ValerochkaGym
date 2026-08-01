@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.view.WindowManager
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -13,6 +14,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -46,6 +48,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
@@ -61,8 +64,12 @@ import com.valerochka1337.valerochkagym.data.db.entity.WorkoutSetEntity
 import com.valerochka1337.valerochkagym.data.db.relation.WorkoutExerciseWithSets
 import com.valerochka1337.valerochkagym.ui.components.GlowBackground
 import com.valerochka1337.valerochkagym.ui.components.GymCard
+import com.valerochka1337.valerochkagym.service.RestTimerState
 import com.valerochka1337.valerochkagym.ui.components.NumberField
 import com.valerochka1337.valerochkagym.ui.components.PillButton
+import com.valerochka1337.valerochkagym.ui.theme.OnAccent
+import com.valerochka1337.valerochkagym.ui.theme.Teal
+import com.valerochka1337.valerochkagym.ui.theme.TealLight
 
 /** Крупный шаг веса (обычный тап), кг. */
 private const val WEIGHT_STEP = 2.5
@@ -74,6 +81,9 @@ private const val SPEED_STEP = 0.5
 private const val INCLINE_STEP = 0.5
 private const val DURATION_STEP = 15
 private const val REPS_STEP = 1
+
+/** Шаг правки таймера отдыха на пилюле, сек. */
+private const val REST_TIMER_STEP = 15
 
 /**
  * Экран активной тренировки («вариант B» — фокус на текущем подходе). Тренировка уже создана
@@ -127,11 +137,14 @@ fun ActiveWorkoutScreen(
             workout != null -> ActiveWorkoutContent(
                 state = state,
                 elapsedSeconds = viewModel.elapsedSeconds,
+                restTimer = viewModel.restTimer,
                 setActions = setActions,
                 onDeleteExercise = viewModel::deleteExercise,
                 onAddExercise = onAddExercise,
                 onFinish = viewModel::finish,
                 onDiscard = viewModel::discard,
+                onAddRestSeconds = viewModel::addRestSeconds,
+                onSkipRest = viewModel::skipRest,
             )
 
             state.loading -> Unit
@@ -163,11 +176,14 @@ private class SetActions(
 private fun ActiveWorkoutContent(
     state: ActiveWorkoutUiState,
     elapsedSeconds: StateFlow<Long>,
+    restTimer: StateFlow<RestTimerState?>,
     setActions: SetActions,
     onDeleteExercise: (Long) -> Unit,
     onAddExercise: () -> Unit,
     onFinish: () -> Unit,
     onDiscard: () -> Unit,
+    onAddRestSeconds: (Int) -> Unit,
+    onSkipRest: () -> Unit,
 ) {
     val workout = state.workout ?: return
     val exercises = workout.exercises
@@ -215,6 +231,11 @@ private fun ActiveWorkoutContent(
                 .padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 16.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
+            RestTimerPill(
+                restTimer = restTimer,
+                onAddRestSeconds = onAddRestSeconds,
+                onSkipRest = onSkipRest,
+            )
             PillButton(
                 text = "Завершить",
                 onClick = { showFinishDialog = true },
@@ -268,6 +289,73 @@ private fun ActiveWorkoutContent(
                 onDeleteExercise(deleteExerciseId)
             },
             onDismiss = { pendingDeleteExerciseId = null },
+        )
+    }
+}
+
+/**
+ * Пилюля таймера отдыха внизу экрана. Видна только пока идёт отдых ([restTimer] != null).
+ * Слева «−15с», по центру «⏱ M:SS» (тап = пропустить), справа «+15с». Собирает [restTimer]
+ * внутри себя, чтобы посекундный тик не рекомпозил остальной экран.
+ */
+@Composable
+private fun RestTimerPill(
+    restTimer: StateFlow<RestTimerState?>,
+    onAddRestSeconds: (Int) -> Unit,
+    onSkipRest: () -> Unit,
+) {
+    val rest by restTimer.collectAsStateWithLifecycle()
+    val state = rest ?: return
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(bottom = 12.dp)
+            .clip(CircleShape)
+            .background(brush = Brush.horizontalGradient(listOf(Teal, TealLight)))
+            .height(56.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        RestPillSide(symbol = "−15с", contentDescription = "убавить отдых") { onAddRestSeconds(-REST_TIMER_STEP) }
+        Row(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxHeight()
+                .clickable(role = Role.Button, onClick = onSkipRest)
+                .semantics { contentDescription = "Пропустить отдых" },
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = "⏱ ${formatRest(state.remainingSec)}",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                color = OnAccent,
+            )
+        }
+        RestPillSide(symbol = "+15с", contentDescription = "прибавить отдых") { onAddRestSeconds(REST_TIMER_STEP) }
+    }
+}
+
+@Composable
+private fun RestPillSide(
+    symbol: String,
+    contentDescription: String,
+    onClick: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxHeight()
+            .clip(CircleShape)
+            .clickable(role = Role.Button, onClick = onClick)
+            .semantics { this.contentDescription = contentDescription }
+            .padding(horizontal = 20.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = symbol,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+            color = OnAccent,
         )
     }
 }
@@ -719,6 +807,12 @@ private fun formatSetValues(set: WorkoutSetEntity, type: ExerciseType): String =
         set.inclinePct?.let { add("${it.toField()}%") }
         set.durationSec?.let { add("${it / 60} мин") }
     }.joinToString(" · ")
+}
+
+/** Остаток отдыха в формате M:SS. */
+private fun formatRest(totalSeconds: Int): String {
+    val safe = totalSeconds.coerceAtLeast(0)
+    return "%d:%02d".format(safe / 60, safe % 60)
 }
 
 private fun formatElapsed(totalSeconds: Long): String {

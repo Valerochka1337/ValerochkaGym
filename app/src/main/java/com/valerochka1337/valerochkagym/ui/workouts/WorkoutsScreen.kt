@@ -1,5 +1,9 @@
 package com.valerochka1337.valerochkagym.ui.workouts
 
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -34,10 +38,13 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.valerochka1337.valerochkagym.service.WorkoutSessionService
 import com.valerochka1337.valerochkagym.ui.components.GlowBackground
 import com.valerochka1337.valerochkagym.ui.components.GymCard
 import com.valerochka1337.valerochkagym.ui.components.GymCardShape
@@ -61,8 +68,22 @@ fun WorkoutsScreen(
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     var pendingDeleteId by rememberSaveable { mutableStateOf<Long?>(null) }
 
+    val context = LocalContext.current
+    // Отказ в разрешении не блокирует тренировку — таймер работает на экране, просто без уведомлений.
+    val notificationPermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { /* результат не важен */ }
+
     LaunchedEffect(Unit) {
-        viewModel.startEvents.collect { onStartWorkout() }
+        viewModel.startEvents.collect {
+            if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS)
+                != PackageManager.PERMISSION_GRANTED
+            ) {
+                notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+            WorkoutSessionService.start(context)
+            onStartWorkout()
+        }
     }
 
     GlowBackground(modifier = modifier) {
