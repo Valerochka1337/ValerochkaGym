@@ -3,6 +3,8 @@ package com.valerochka1337.valerochkagym.data.db
 import androidx.room.Database
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseDao
 import com.valerochka1337.valerochkagym.data.db.dao.RoutineDao
 import com.valerochka1337.valerochkagym.data.db.dao.ScheduledWorkoutDao
@@ -25,7 +27,7 @@ import com.valerochka1337.valerochkagym.data.db.entity.WorkoutSetEntity
         WorkoutExerciseEntity::class,
         WorkoutSetEntity::class,
     ],
-    version = 1,
+    version = 2,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -34,4 +36,13 @@ abstract class GymDatabase : RoomDatabase() {
     abstract fun routineDao(): RoutineDao
     abstract fun workoutDao(): WorkoutDao
     abstract fun scheduledWorkoutDao(): ScheduledWorkoutDao
+
+    companion object {
+        /** v1 → v2: у подходов появляется момент отметки (nullable, старые строки → NULL). */
+        val MIGRATION_1_2: Migration = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE workout_sets ADD COLUMN completedAt INTEGER")
+            }
+        }
+    }
 }
