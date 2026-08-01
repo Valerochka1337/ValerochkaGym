@@ -80,6 +80,8 @@ object WorkoutRowMapper {
                             startTime,
                             workout.workout.name,
                             exercise.exercise.name,
+                            // Экспорт намеренно использует русские UI-названия;
+                            // изменение displayName() меняет семантику исторических выгрузок.
                             exercise.exercise.muscleGroup.displayName(),
                             exercise.exercise.type.displayName(),
                             set.setIndex + 1,

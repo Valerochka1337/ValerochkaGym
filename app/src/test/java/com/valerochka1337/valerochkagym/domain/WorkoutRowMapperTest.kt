@@ -21,6 +21,29 @@ class WorkoutRowMapperTest {
     // region column contract
 
     @Test
+    fun `HEADER_ROW matches the expected column order`() {
+        assertEquals(
+            listOf(
+                "workout_id",
+                "date",
+                "start_time",
+                "workout_name",
+                "exercise",
+                "muscle_group",
+                "type",
+                "set_index",
+                "weight_kg",
+                "reps",
+                "duration_sec",
+                "speed_kmh",
+                "incline_pct",
+                "volume",
+            ),
+            WorkoutRowMapper.HEADER_ROW,
+        )
+    }
+
+    @Test
     fun `strength set maps to a full row with human set index and volume`() {
         val workout = workoutFull(
             id = "w-1",
