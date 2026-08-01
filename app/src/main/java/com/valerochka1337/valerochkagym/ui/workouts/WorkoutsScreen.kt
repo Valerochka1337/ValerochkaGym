@@ -46,9 +46,11 @@ import androidx.core.content.ContextCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.valerochka1337.valerochkagym.service.WorkoutSessionService
+import com.valerochka1337.valerochkagym.ui.components.CircleIconButton
 import com.valerochka1337.valerochkagym.ui.components.GlowBackground
 import com.valerochka1337.valerochkagym.ui.components.GymCard
 import com.valerochka1337.valerochkagym.ui.components.GymCardShape
+import com.valerochka1337.valerochkagym.ui.components.GymTopBar
 import com.valerochka1337.valerochkagym.ui.components.PillButton
 
 /**
@@ -63,6 +65,7 @@ fun WorkoutsScreen(
     onCreateRoutine: () -> Unit,
     onEditRoutine: (Long) -> Unit,
     onStartWorkout: () -> Unit,
+    onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier,
     viewModel: WorkoutsViewModel = hiltViewModel(),
 ) {
@@ -102,7 +105,18 @@ fun WorkoutsScreen(
     GlowBackground(modifier = modifier) {
         Box(modifier = Modifier.fillMaxSize()) {
             Column(modifier = Modifier.fillMaxSize()) {
-                WorkoutsHeader()
+                GymTopBar(
+                    title = "Тренировки",
+                    onOpenSettings = onOpenSettings,
+                    actions = {
+                        CircleIconButton(
+                            icon = Icons.Default.Add,
+                            contentDescription = "Новая программа",
+                            onClick = onCreateRoutine,
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                    },
+                )
 
                 upcoming?.takeIf { it.isNotEmpty() }?.let { items ->
                     UpcomingSection(
@@ -154,17 +168,6 @@ fun WorkoutsScreen(
                         onEmpty = viewModel::startEmpty,
                     )
                 }
-            }
-
-            IconButton(
-                onClick = onCreateRoutine,
-                modifier = Modifier.align(Alignment.TopEnd).padding(top = 12.dp, end = 20.dp),
-            ) {
-                Icon(
-                    Icons.Default.Add,
-                    contentDescription = "Новая программа",
-                    tint = MaterialTheme.colorScheme.primary,
-                )
             }
 
             SnackbarHost(
@@ -221,16 +224,6 @@ fun WorkoutsScreen(
             },
         )
     }
-}
-
-@Composable
-private fun WorkoutsHeader() {
-    Text(
-        text = "Тренировки",
-        style = MaterialTheme.typography.headlineLarge,
-        color = MaterialTheme.colorScheme.onBackground,
-        modifier = Modifier.padding(start = 24.dp, end = 24.dp, top = 16.dp, bottom = 12.dp),
-    )
 }
 
 @Composable

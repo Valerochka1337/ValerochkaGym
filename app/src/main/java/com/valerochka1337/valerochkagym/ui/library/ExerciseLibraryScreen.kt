@@ -329,8 +329,8 @@ private fun CreateExerciseDialog(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Spacer(Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    ExerciseType.entries.forEach { entry ->
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(ExerciseType.entries, key = { it.name }) { entry ->
                         FilterChip(
                             selected = entry == type,
                             onClick = { typeName = entry.name },

@@ -21,6 +21,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.rounded.AccountCircle
 import androidx.compose.material.icons.rounded.CloudUpload
 import androidx.compose.material.icons.rounded.Link
@@ -71,6 +72,7 @@ private const val REST_STEP_SECONDS = 15
  */
 @Composable
 fun SettingsScreen(
+    onBack: () -> Unit,
     modifier: Modifier = Modifier,
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
@@ -100,40 +102,38 @@ fun SettingsScreen(
 
     GlowBackground(modifier = modifier) {
         Box(modifier = Modifier.fillMaxSize()) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
-                    .padding(24.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
-            ) {
-                Text(
-                    text = "Настройки",
-                    style = MaterialTheme.typography.headlineLarge,
-                    color = MaterialTheme.colorScheme.onBackground,
-                )
-
-                val settings = state.settings
-                if (settings != null) {
-                    GoogleAccountCard(
-                        email = settings.googleEmail,
-                        authBusy = state.authBusy,
-                        authError = state.authError,
-                        onSignIn = { activity?.let(viewModel::signIn) },
-                        onSignOut = viewModel::signOut,
-                    )
-                    SpreadsheetCard(
-                        currentId = settings.spreadsheetId,
-                        error = state.spreadsheetError,
-                        onSave = viewModel::setSpreadsheetInput,
-                        onExportAll = viewModel::exportAll,
-                    )
-                    RestTimerCard(
-                        settings = settings,
-                        onChangeRest = viewModel::changeDefaultRest,
-                        onToggleSound = viewModel::toggleSound,
-                        onToggleVibration = viewModel::toggleVibration,
-                    )
+            Column(modifier = Modifier.fillMaxSize()) {
+                SettingsHeader(onBack = onBack)
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .verticalScroll(rememberScrollState())
+                        .padding(start = 24.dp, end = 24.dp, top = 4.dp, bottom = 24.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                ) {
+                    val settings = state.settings
+                    if (settings != null) {
+                        GoogleAccountCard(
+                            email = settings.googleEmail,
+                            authBusy = state.authBusy,
+                            authError = state.authError,
+                            onSignIn = { activity?.let(viewModel::signIn) },
+                            onSignOut = viewModel::signOut,
+                        )
+                        SpreadsheetCard(
+                            currentId = settings.spreadsheetId,
+                            error = state.spreadsheetError,
+                            onSave = viewModel::setSpreadsheetInput,
+                            onExportAll = viewModel::exportAll,
+                        )
+                        RestTimerCard(
+                            settings = settings,
+                            onChangeRest = viewModel::changeDefaultRest,
+                            onToggleSound = viewModel::toggleSound,
+                            onToggleVibration = viewModel::toggleVibration,
+                        )
+                    }
                 }
             }
             SnackbarHost(
@@ -141,6 +141,31 @@ fun SettingsScreen(
                 modifier = Modifier.align(Alignment.BottomCenter),
             )
         }
+    }
+}
+
+@Composable
+private fun SettingsHeader(onBack: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 8.dp, end = 8.dp, top = 12.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconButton(onClick = onBack) {
+            Icon(
+                Icons.AutoMirrored.Filled.ArrowBack,
+                contentDescription = "Назад",
+                tint = MaterialTheme.colorScheme.onBackground,
+            )
+        }
+        Spacer(Modifier.width(4.dp))
+        Text(
+            text = "Настройки",
+            style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onBackground,
+        )
     }
 }
 

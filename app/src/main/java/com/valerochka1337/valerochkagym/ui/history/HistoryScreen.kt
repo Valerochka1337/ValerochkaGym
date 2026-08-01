@@ -39,6 +39,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.valerochka1337.valerochkagym.data.db.entity.UploadStatus
 import com.valerochka1337.valerochkagym.ui.components.GlowBackground
 import com.valerochka1337.valerochkagym.ui.components.GymCard
+import com.valerochka1337.valerochkagym.ui.components.GymTopBar
 
 /**
  * Вкладка «История»: список завершённых тренировок. Тап по карточке открывает детальный экран
@@ -48,6 +49,7 @@ import com.valerochka1337.valerochkagym.ui.components.GymCard
 @Composable
 fun HistoryScreen(
     onWorkoutClick: (String) -> Unit,
+    onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier,
     viewModel: HistoryViewModel = hiltViewModel(),
 ) {
@@ -55,12 +57,7 @@ fun HistoryScreen(
 
     GlowBackground(modifier = modifier) {
         Column(modifier = Modifier.fillMaxSize()) {
-            Text(
-                text = "История",
-                style = MaterialTheme.typography.headlineLarge,
-                color = MaterialTheme.colorScheme.onBackground,
-                modifier = Modifier.padding(start = 24.dp, end = 24.dp, top = 16.dp, bottom = 12.dp),
-            )
+            GymTopBar(title = "История", onOpenSettings = onOpenSettings)
 
             val workouts = state.workouts
             when {

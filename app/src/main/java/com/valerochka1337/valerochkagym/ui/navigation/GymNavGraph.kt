@@ -25,6 +25,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 import com.valerochka1337.valerochkagym.ui.active.ActiveWorkoutScreen
 import com.valerochka1337.valerochkagym.ui.active.ActiveWorkoutViewModel
+import com.valerochka1337.valerochkagym.ui.analysis.AnalysisScreen
 import com.valerochka1337.valerochkagym.ui.history.HistoryScreen
 import com.valerochka1337.valerochkagym.ui.history.WorkoutDetailScreen
 import com.valerochka1337.valerochkagym.ui.library.ExerciseLibraryScreen
@@ -41,6 +42,7 @@ import com.valerochka1337.valerochkagym.ui.workouts.WorkoutsScreen
 object GymRoutes {
     const val WORKOUTS = "workouts"
     const val HISTORY = "history"
+    const val ANALYSIS = "analysis"
     const val SETTINGS = "settings"
     const val LIBRARY = "library"
     const val ACTIVE_WORKOUT = "active_workout"
@@ -79,7 +81,7 @@ private val TabFadeSpec: FiniteAnimationSpec<Float> = tween(durationMillis = 180
 private fun tabIndex(route: String?): Int = when (route) {
     GymRoutes.WORKOUTS -> 0
     GymRoutes.HISTORY -> 1
-    GymRoutes.SETTINGS -> 2
+    GymRoutes.ANALYSIS -> 2
     else -> -1
 }
 
@@ -146,14 +148,21 @@ fun GymNavGraph(
                 onCreateRoutine = { navController.navigate(GymRoutes.routineEditor(null)) },
                 onEditRoutine = { id -> navController.navigate(GymRoutes.routineEditor(id.toString())) },
                 onStartWorkout = { navController.navigate(GymRoutes.ACTIVE_WORKOUT) },
+                onOpenSettings = { navController.navigate(GymRoutes.SETTINGS) },
             )
         }
         composable(GymRoutes.HISTORY) {
             HistoryScreen(
                 onWorkoutClick = { workoutId -> navController.navigate(GymRoutes.workoutDetail(workoutId)) },
+                onOpenSettings = { navController.navigate(GymRoutes.SETTINGS) },
             )
         }
-        composable(GymRoutes.SETTINGS) { SettingsScreen() }
+        composable(GymRoutes.ANALYSIS) {
+            AnalysisScreen(onOpenSettings = { navController.navigate(GymRoutes.SETTINGS) })
+        }
+        composable(GymRoutes.SETTINGS) {
+            SettingsScreen(onBack = { navController.popBackStack() })
+        }
 
         composable(GymRoutes.LIBRARY) {
             ExerciseLibraryScreen(
