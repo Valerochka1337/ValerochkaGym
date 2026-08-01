@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.mutablePreferencesOf
 import androidx.datastore.preferences.core.stringPreferencesKey
+import com.valerochka1337.valerochkagym.data.db.dao.ExerciseDao
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleGroup
@@ -120,6 +121,32 @@ class WorkoutImportRepositoryTest : RoomDaoTest() {
     fun `IOException is a failure`() = runTest {
         val api = FakeSheetsApi(sheets = mutableListOf("Workouts"), failGetValues = IOException("net"))
         assertTrue(repository(api).importAll() is ImportResult.Failure)
+    }
+
+    @Test
+    fun `database error during insert surfaces as failure`() = runTest {
+        // Реальный путь вставки, но упражнение падает при insert → транзакция откатывается,
+        // а общий catch превращает ошибку в Failure вместо пробрасывания наружу.
+        val failingExercises = object : ExerciseDao by db.exerciseDao() {
+            override suspend fun insert(exercise: ExerciseEntity): Long = throw RuntimeException("db insert failed")
+        }
+        val api = FakeSheetsApi(
+            sheets = mutableListOf("Workouts"),
+            values = mutableListOf(
+                header,
+                dataRow("w-1", "2026-01-02", "10:00", "T", "Присед", "Ноги", "Силовое", "1", "100", "5"),
+            ),
+        )
+        val repo = WorkoutImportRepositoryImpl(
+            api,
+            FakeGoogleAuth(TokenResult.Success("token")),
+            settingsRepository(SPREADSHEET_ID),
+            db,
+            db.workoutDao(),
+            failingExercises,
+        )
+
+        assertTrue(repo.importAll() is ImportResult.Failure)
     }
 
     // region helpers

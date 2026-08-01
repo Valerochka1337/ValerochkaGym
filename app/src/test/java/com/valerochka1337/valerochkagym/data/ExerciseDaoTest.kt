@@ -19,7 +19,6 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -107,18 +106,15 @@ class ExerciseDaoTest {
     }
 
     @Test
-    fun `findByName matches case-insensitively`() = runTest {
+    fun `getAllOnce returns every inserted exercise`() = runTest {
         val dao = plainDatabase().exerciseDao()
-        dao.insert(
-            ExerciseEntity(name = "Жим лёжа", muscleGroup = MuscleGroup.CHEST, type = ExerciseType.STRENGTH),
-        )
+        dao.insert(ExerciseEntity(name = "Жим лёжа", muscleGroup = MuscleGroup.CHEST, type = ExerciseType.STRENGTH))
+        dao.insert(ExerciseEntity(name = "Присед", muscleGroup = MuscleGroup.LEGS, type = ExerciseType.STRENGTH))
 
-        assertEquals("Жим лёжа", dao.findByName("жим лёжа")?.name)
-    }
+        val all = dao.getAllOnce()
 
-    @Test
-    fun `findByName is null when nothing matches`() = runTest {
-        assertNull(plainDatabase().exerciseDao().findByName("Присед"))
+        assertEquals(2, all.size)
+        assertEquals(setOf("Жим лёжа", "Присед"), all.map { it.name }.toSet())
     }
 
     /** Пустая (без сидинга) in-memory БД для точечных DAO-проверок. */

@@ -73,19 +73,28 @@ class WorkoutImportRepositoryImpl @Inject constructor(
             val fresh = parsed.filter { it.id !in existing }
             if (fresh.isEmpty()) return ImportResult.NothingToImport
 
-            fresh.forEach { insertWorkout(it) }
+            // Один снимок каталога → матчинг по имени в памяти (без запроса на каждое упражнение);
+            // сравнение по lowercase() (Unicode-aware, в отличие от SQLite COLLATE NOCASE). Новые
+            // имена добавляются в карту, чтобы упражнение создавалось один раз на весь импорт.
+            val byName = exerciseDao.getAllOnce().associateTo(mutableMapOf()) { it.name.lowercase() to it.id }
+            fresh.forEach { insertWorkout(it, byName) }
             ImportResult.Success(fresh.size)
         } catch (e: HttpException) {
             ImportResult.Failure(classifyHttp(e.code()))
         } catch (e: IOException) {
             ImportResult.Failure(GoogleErrorMessages.NO_NETWORK)
+        } catch (e: Exception) {
+            ImportResult.Failure("Не удалось импортировать историю")
         }
     }
 
     private suspend fun workoutsSheetExists(bearer: String, spreadsheetId: String): Boolean =
         api.getSpreadsheet(bearer, spreadsheetId).sheets.any { it.properties.title == WORKOUTS_SHEET }
 
-    private suspend fun insertWorkout(parsed: ParsedWorkout) = database.withTransaction {
+    private suspend fun insertWorkout(
+        parsed: ParsedWorkout,
+        byName: MutableMap<String, Long>,
+    ) = database.withTransaction {
         workoutDao.insertWorkout(
             WorkoutEntity(
                 id = parsed.id,
@@ -98,7 +107,8 @@ class WorkoutImportRepositoryImpl @Inject constructor(
             ),
         )
         for (exercise in parsed.exercises) {
-            val exerciseId = exerciseDao.findByName(exercise.name)?.id
+            val key = exercise.name.lowercase()
+            val exerciseId = byName[key]
                 ?: exerciseDao.insert(
                     ExerciseEntity(
                         name = exercise.name,
@@ -106,7 +116,7 @@ class WorkoutImportRepositoryImpl @Inject constructor(
                         type = exercise.type,
                         isCustom = true,
                     ),
-                )
+                ).also { byName[key] = it }
             val workoutExerciseId = workoutDao.insertWorkoutExercise(
                 WorkoutExerciseEntity(
                     workoutId = parsed.id,
