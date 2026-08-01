@@ -39,6 +39,9 @@ data class EditorExercise(
  */
 data class RoutineEditorUiState(
     val isNew: Boolean = true,
+    // Пока true, тело редактора не рисуется: иначе для существующей программы кадр показывает
+    // пустую «готовую» форму, которую тут же подменяет загруженная — это и есть моргание.
+    val isLoading: Boolean = false,
     val name: String = "",
     val note: String = "",
     val exercises: List<EditorExercise> = emptyList(),
@@ -61,7 +64,9 @@ class RoutineEditorViewModel @Inject constructor(
     private val routineId: Long? =
         savedStateHandle.get<String>(GymRoutes.ROUTINE_ID_ARG)?.toLongOrNull()
 
-    private val _uiState = MutableStateFlow(RoutineEditorUiState(isNew = routineId == null))
+    private val _uiState = MutableStateFlow(
+        RoutineEditorUiState(isNew = routineId == null, isLoading = routineId != null),
+    )
     val uiState: StateFlow<RoutineEditorUiState> = _uiState.asStateFlow()
 
     private val _saved = Channel<Unit>(Channel.BUFFERED)
@@ -74,7 +79,12 @@ class RoutineEditorViewModel @Inject constructor(
     }
 
     private suspend fun load(id: Long) {
-        val full = routineDao.getRoutineWithExercises(id) ?: return
+        val full = routineDao.getRoutineWithExercises(id)
+        if (full == null) {
+            // Программа исчезла (например, удалена) — снимаем загрузку, чтобы не залипнуть.
+            _uiState.update { it.copy(isLoading = false) }
+            return
+        }
         _uiState.value = RoutineEditorUiState(
             isNew = false,
             name = full.routine.name,

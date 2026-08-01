@@ -74,6 +74,10 @@ fun RoutineEditorScreen(
                 onSave = viewModel::save,
             )
 
+            // Тело появляется только с готовыми данными — до этого показываем пустой фон, а не
+            // мигающую пустую форму. Для новой программы isLoading = false, тело сразу на месте.
+            if (state.isLoading) return@Column
+
             OutlinedTextField(
                 value = state.name,
                 onValueChange = viewModel::setName,
@@ -97,8 +101,14 @@ fun RoutineEditorScreen(
                 ),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                itemsIndexed(state.exercises) { index, exercise ->
+                itemsIndexed(
+                    state.exercises,
+                    // Ключ по упражнению (а не по позиции): корректная анимация reorder/удаления
+                    // и правильная привязка локального состояния полей ввода к своей карточке.
+                    key = { _, exercise -> exercise.exerciseId },
+                ) { index, exercise ->
                     ExerciseCard(
+                        modifier = Modifier.animateItem(),
                         exercise = exercise,
                         isFirst = index == 0,
                         isLast = index == state.exercises.lastIndex,
@@ -172,9 +182,10 @@ private fun ExerciseCard(
     onAddSet: () -> Unit,
     onRemoveSet: (Int) -> Unit,
     onSetChange: (Int, PlannedSet) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     GymCard(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth(),
         contentPadding = PaddingValues(start = 16.dp, end = 8.dp, top = 12.dp, bottom = 14.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {

@@ -2,6 +2,8 @@ package com.valerochka1337.valerochkagym.ui.navigation
 
 import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.AnimatedContentTransitionScope.SlideDirection
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.FiniteAnimationSpec
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
@@ -62,11 +64,13 @@ object GymRoutes {
 /** The tab root that the app opens on and that back navigation returns to. */
 const val GYM_START_DESTINATION = GymRoutes.WORKOUTS
 
-// Пружинная моторика M3 Expressive: плавный «спатиальный» сдвиг + «эффектное» затухание.
+// Пружинная моторика M3 Expressive: сдвиг и затухание живут в ОДНОМ тайминге, иначе
+// контент успевает стать непрозрачным, пока экран ещё едет, — это читается как «тормозит».
+// StiffnessMedium (~300 мс) вместо MediumLow (~450 мс) делает переход снапнутее.
 private val NavSlideSpec: FiniteAnimationSpec<IntOffset> =
-    spring(dampingRatio = 0.9f, stiffness = Spring.StiffnessMediumLow)
+    spring(dampingRatio = 0.9f, stiffness = Spring.StiffnessMedium)
 private val NavFadeSpec: FiniteAnimationSpec<Float> =
-    spring(stiffness = Spring.StiffnessMedium)
+    spring(dampingRatio = 0.9f, stiffness = Spring.StiffnessMedium)
 
 /** Кроссфейд между вкладками нижнего меню — быстрый, предсказуемый, без слайда. */
 private val TabFadeSpec: FiniteAnimationSpec<Float> = tween(durationMillis = 180)
@@ -77,6 +81,15 @@ private fun tabIndex(route: String?): Int = when (route) {
     GymRoutes.HISTORY -> 1
     GymRoutes.SETTINGS -> 2
     else -> -1
+}
+
+/**
+ * Полноэкранные модальные маршруты: всплывают снизу поверх неподвижного фона. Фон под ними
+ * НЕ должен уезжать/затухать — иначе сквозь всплывающую панель мелькает пустой скаффолд.
+ */
+private fun isModalRoute(route: String?): Boolean = when (route) {
+    GymRoutes.ACTIVE_WORKOUT, GymRoutes.ROUTINE_EDITOR, GymRoutes.WORKOUT_SUMMARY -> true
+    else -> false
 }
 
 /**
@@ -108,12 +121,20 @@ fun GymNavGraph(
             else fadeIn(NavFadeSpec) + slideIntoContainer(SlideDirection.Start, NavSlideSpec)
         },
         exitTransition = {
-            if (isTabSwitch()) fadeOut(TabFadeSpec)
-            else fadeOut(NavFadeSpec) + slideOutOfContainer(SlideDirection.Start, NavSlideSpec)
+            when {
+                // Уходим под всплывающую модалку — стоим на месте и держим непрозрачность.
+                isModalRoute(targetState.destination.route) -> ExitTransition.None
+                isTabSwitch() -> fadeOut(TabFadeSpec)
+                else -> fadeOut(NavFadeSpec) + slideOutOfContainer(SlideDirection.Start, NavSlideSpec)
+            }
         },
         popEnterTransition = {
-            if (isTabSwitch()) fadeIn(TabFadeSpec)
-            else fadeIn(NavFadeSpec) + slideIntoContainer(SlideDirection.End, NavSlideSpec)
+            when {
+                // Модалка над нами уезжает вниз — мы всё это время были под ней, просто остаёмся.
+                isModalRoute(initialState.destination.route) -> EnterTransition.None
+                isTabSwitch() -> fadeIn(TabFadeSpec)
+                else -> fadeIn(NavFadeSpec) + slideIntoContainer(SlideDirection.End, NavSlideSpec)
+            }
         },
         popExitTransition = {
             if (isTabSwitch()) fadeOut(TabFadeSpec)
@@ -148,14 +169,8 @@ fun GymNavGraph(
         composable(
             GymRoutes.ACTIVE_WORKOUT,
             // Полноэкранный маршрут — выезжает снизу и уезжает вниз.
-            enterTransition = {
-                fadeIn(NavFadeSpec) +
-                    slideIntoContainer(SlideDirection.Up, NavSlideSpec)
-            },
-            popExitTransition = {
-                fadeOut(NavFadeSpec) +
-                    slideOutOfContainer(SlideDirection.Down, NavSlideSpec)
-            },
+            enterTransition = { slideIntoContainer(SlideDirection.Up, NavSlideSpec) },
+            popExitTransition = { slideOutOfContainer(SlideDirection.Down, NavSlideSpec) },
         ) { backStackEntry ->
             val viewModel = hiltViewModel<ActiveWorkoutViewModel>(backStackEntry)
             val selectedExerciseId by backStackEntry.savedStateHandle
@@ -188,6 +203,10 @@ fun GymNavGraph(
                     defaultValue = null
                 },
             ),
+            // Редактор — полноэкранная модалка, как активная тренировка и итоги:
+            // выезжает снизу, уезжает вниз (единое правило для модальных маршрутов).
+            enterTransition = { slideIntoContainer(SlideDirection.Up, NavSlideSpec) },
+            popExitTransition = { slideOutOfContainer(SlideDirection.Down, NavSlideSpec) },
         ) { backStackEntry ->
             val viewModel = hiltViewModel<RoutineEditorViewModel>(backStackEntry)
             val selectedExerciseId by backStackEntry.savedStateHandle
@@ -209,14 +228,8 @@ fun GymNavGraph(
             route = GymRoutes.WORKOUT_SUMMARY,
             arguments = listOf(navArgument(GymRoutes.WORKOUT_ID_ARG) { type = NavType.StringType }),
             // Итоги — тоже полноэкранные: выезжают снизу, уезжают вниз.
-            enterTransition = {
-                fadeIn(NavFadeSpec) +
-                    slideIntoContainer(SlideDirection.Up, NavSlideSpec)
-            },
-            popExitTransition = {
-                fadeOut(NavFadeSpec) +
-                    slideOutOfContainer(SlideDirection.Down, NavSlideSpec)
-            },
+            enterTransition = { slideIntoContainer(SlideDirection.Up, NavSlideSpec) },
+            popExitTransition = { slideOutOfContainer(SlideDirection.Down, NavSlideSpec) },
         ) {
             WorkoutSummaryScreen(
                 onDone = { navController.popBackStack(GymRoutes.WORKOUTS, inclusive = false) },
