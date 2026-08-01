@@ -22,7 +22,7 @@
 [X] Стадия 16: Вход Google и настройки
 [X] Стадия 17: Маппинг тренировки в строки Sheets
 [X] Стадия 18: Тесты маппера
-[ ] Стадия 19: Выгрузка в Sheets (WorkManager)
+[X] Стадия 19: Выгрузка в Sheets (WorkManager)
 [ ] Стадия 20: Тесты выгрузки
 [ ] Стадия 21: Google Calendar (планирование)
 [ ] Стадия 22: Тесты календаря
@@ -47,3 +47,4 @@
 *   Стадия 12: мутации подходов — через сериализующий Channel + свежее чтение из БД (per-field сеттеры); addSet/addExercise в withTransaction. Отложено: active/components.kt, оптимистичный оверлей. Диалог «Обновить программу?» — once per VM instance (после смерти процесса может показаться снова — принято).
 *   Стадия 13: RestTimerEngine — CAS-мутации (update/updateAndGet) + @Volatile generation-счётчик вместо однопоточного диспетчера (сохраняет TestScope virtual-time seam для Стадии 14); addSeconds no-op при remainingSec==0; сервис START_NOT_STICKY, startForeground в onStartCommand. Отложено (бэклог UX): отдых после последнего подхода, uncomplete не отменяет отдых, heads-up баннер.
 *   Стадия 16: GoogleAuth.getAccessToken → sealed TokenResult (Success/NeedsConsent/Failed): NeedsConsent → «настройте доступ» (не ретраить), Failed → ретрай. null-token без resolution классифицируется как NeedsConsent (защита от тихого ретрай-цикла). Реальный OAuth client ID вставляется владельцем по README (strings.xml google_web_client_id).
+*   Стадия 19: UploadScheduler-интерфейс между VM и WorkManager (тестируемость); заголовок пишется атомарно одним append с данными при пустой колонке A; addSheet-400 гонка обрабатывается re-check'ом. Идемпотентность — чтение Workouts!A:A по UUID. Классификация: NeedsConsent/401/403/404/прочие 4xx → Permanent (FAILED+причина), IOException/429/5xx/TokenResult.Failed → Transient (ретрай, до 5).
