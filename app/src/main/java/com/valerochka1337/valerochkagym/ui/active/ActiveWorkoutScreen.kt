@@ -70,6 +70,7 @@ import kotlinx.coroutines.flow.StateFlow
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
 import com.valerochka1337.valerochkagym.data.db.entity.WorkoutSetEntity
 import com.valerochka1337.valerochkagym.data.db.relation.WorkoutExerciseWithSets
+import com.valerochka1337.valerochkagym.ui.common.formatRestClock
 import com.valerochka1337.valerochkagym.ui.components.ExerciseAvatar
 import com.valerochka1337.valerochkagym.ui.components.GlowBackground
 import com.valerochka1337.valerochkagym.ui.components.GymCard
@@ -342,7 +343,7 @@ private fun RestTimerPill(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = "⏱ ${formatRest(state.remainingSec)}",
+                    text = "⏱ ${formatRestClock(state.remainingSec)}",
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onPrimary,
@@ -844,12 +845,6 @@ private fun formatSetValues(set: WorkoutSetEntity, type: ExerciseType): String =
         set.inclinePct?.let { add("${it.toField()}%") }
         set.durationSec?.let { add("${it / 60} мин") }
     }.joinToString(" · ")
-}
-
-/** Остаток отдыха в формате M:SS. */
-private fun formatRest(totalSeconds: Int): String {
-    val safe = totalSeconds.coerceAtLeast(0)
-    return "%d:%02d".format(safe / 60, safe % 60)
 }
 
 private fun formatElapsed(totalSeconds: Long): String {

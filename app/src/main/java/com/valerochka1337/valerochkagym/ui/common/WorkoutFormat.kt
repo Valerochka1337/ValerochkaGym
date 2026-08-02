@@ -31,6 +31,12 @@ internal fun formatDuration(durationMs: Long): String {
     return if (hours > 0) "$hours ч %02d мин".format(minutes) else "$minutes мин"
 }
 
+/** Остаток отдыха как M:SS — пилюля на экране тренировки и плашка на вкладках. */
+internal fun formatRestClock(totalSeconds: Int): String {
+    val safe = totalSeconds.coerceAtLeast(0)
+    return "%d:%02d".format(safe / 60, safe % 60)
+}
+
 /** Объём с пробелом-разделителем тысяч: «2 340 кг». Возвращает null, если объём не положителен. */
 internal fun formatVolume(volume: Double): String? {
     val kg = volume.roundToLong()

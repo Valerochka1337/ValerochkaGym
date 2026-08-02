@@ -2,11 +2,11 @@ package com.valerochka1337.valerochkagym.ui.active
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.valerochka1337.valerochkagym.data.db.entity.WorkoutSetEntity
 import com.valerochka1337.valerochkagym.data.db.relation.WorkoutFull
 import com.valerochka1337.valerochkagym.domain.ActiveWorkoutRepository
+import com.valerochka1337.valerochkagym.domain.CompleteSetUseCase
 import com.valerochka1337.valerochkagym.domain.PreviousSetsUseCase
-import com.valerochka1337.valerochkagym.domain.RestDurationResolver
+import com.valerochka1337.valerochkagym.domain.WorkoutSetMutator
 import com.valerochka1337.valerochkagym.service.RestTimerEngine
 import com.valerochka1337.valerochkagym.service.RestTimerState
 import com.valerochka1337.valerochkagym.worker.UploadScheduler
@@ -25,7 +25,6 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
-import kotlin.math.roundToInt
 
 /**
  * Состояние экрана активной тренировки. [loading] отличает «ещё не загрузили из БД» от
@@ -39,12 +38,6 @@ data class ActiveWorkoutUiState(
     val previousByExercise: Map<Long, String> = emptyMap(),
 )
 
-/** Отложенная правка одного подхода: применяется к его текущему (свежему из БД) состоянию. */
-private data class SetMutation(
-    val setId: Long,
-    val transform: (WorkoutSetEntity) -> WorkoutSetEntity,
-)
-
 /** Навигационные события экрана активной тренировки. */
 sealed interface ActiveWorkoutEvent {
     data class NavigateToSummary(val workoutId: String) : ActiveWorkoutEvent
@@ -56,12 +49,17 @@ sealed interface ActiveWorkoutEvent {
  * (см. WorkoutsViewModel); сюда состояние приходит само через [ActiveWorkoutRepository.observeActive].
  * Шаговые правки значений и завершение/отмена делегируются в репозиторий, состояние
  * перечитывается реактивно.
+ *
+ * Правки подхода и закрытие подхода уходят в процессные [WorkoutSetMutator] и [CompleteSetUseCase]:
+ * ровно те же операции доступны с кнопок уведомления в шторке, и писатель должен быть один на
+ * процесс (иначе вернутся lost update'ы на быстрых тапах).
  */
 @HiltViewModel
 class ActiveWorkoutViewModel @Inject constructor(
     private val repository: ActiveWorkoutRepository,
     private val previousSetsUseCase: PreviousSetsUseCase,
-    private val restDurationResolver: RestDurationResolver,
+    private val setMutator: WorkoutSetMutator,
+    private val completeSetUseCase: CompleteSetUseCase,
     private val restTimerEngine: RestTimerEngine,
     private val uploadScheduler: UploadScheduler,
 ) : ViewModel() {
@@ -118,66 +116,38 @@ class ActiveWorkoutViewModel @Inject constructor(
     private val _events = Channel<ActiveWorkoutEvent>(Channel.BUFFERED)
     val events = _events.receiveAsFlow()
 
-    /**
-     * Все правки одного подхода сериализуются через этот канал и применяются одним потребителем
-     * (см. init): он читает текущее значение из БД и пишет результат [SetMutation.transform].
-     * Так быстрые тапы по степперам и клавиатурный ввод не затирают друг друга (lost update).
-     */
-    private val setMutations = Channel<SetMutation>(Channel.UNLIMITED)
-
-    init {
-        viewModelScope.launch {
-            for (mutation in setMutations) {
-                val current = repository.getSet(mutation.setId) ?: continue
-                repository.updateSet(mutation.transform(current))
-            }
-        }
-    }
-
     // --- Шаговые изменения значений подхода (кнопки ± на карточке текущего подхода). ---
 
     /** Вес: обычный тап ±2.5, долгое нажатие ±0.5. Не уходит ниже нуля. */
-    fun stepWeight(setId: Long, delta: Double) = enqueue(setId) {
-        it.copy(weightKg = ((it.weightKg ?: 0.0) + delta).coerceAtLeast(0.0).round2())
-    }
+    fun stepWeight(setId: Long, delta: Double) = setMutator.stepWeight(setId, delta)
 
     /** Повторы: ±1, не ниже нуля. */
-    fun stepReps(setId: Long, delta: Int) = enqueue(setId) {
-        it.copy(reps = ((it.reps ?: 0) + delta).coerceAtLeast(0))
-    }
+    fun stepReps(setId: Long, delta: Int) = setMutator.stepReps(setId, delta)
 
     /** Длительность: ±15 сек, не ниже нуля. */
-    fun stepDuration(setId: Long, delta: Int) = enqueue(setId) {
-        it.copy(durationSec = ((it.durationSec ?: 0) + delta).coerceAtLeast(0))
-    }
+    fun stepDuration(setId: Long, delta: Int) = setMutator.stepDuration(setId, delta)
 
     /** Скорость: ±0.5, не ниже нуля. */
-    fun stepSpeed(setId: Long, delta: Double) = enqueue(setId) {
-        it.copy(speedKmh = ((it.speedKmh ?: 0.0) + delta).coerceAtLeast(0.0).round2())
-    }
+    fun stepSpeed(setId: Long, delta: Double) = setMutator.stepSpeed(setId, delta)
 
     /** Наклон: ±0.5, не ниже нуля. */
-    fun stepIncline(setId: Long, delta: Double) = enqueue(setId) {
-        it.copy(inclinePct = ((it.inclinePct ?: 0.0) + delta).coerceAtLeast(0.0).round2())
-    }
+    fun stepIncline(setId: Long, delta: Double) = setMutator.stepIncline(setId, delta)
 
     // --- Клавиатурный ввод (NumberField): правит одно поле поверх свежего состояния подхода. ---
 
-    fun setWeight(setId: Long, raw: String) = enqueue(setId) { it.copy(weightKg = raw.toDoubleOrNull()) }
+    fun setWeight(setId: Long, raw: String) = setMutator.setWeight(setId, raw)
 
-    fun setReps(setId: Long, raw: String) = enqueue(setId) { it.copy(reps = raw.toIntOrNull()) }
+    fun setReps(setId: Long, raw: String) = setMutator.setReps(setId, raw)
 
-    fun setDuration(setId: Long, raw: String) = enqueue(setId) { it.copy(durationSec = raw.toIntOrNull()) }
+    fun setDuration(setId: Long, raw: String) = setMutator.setDuration(setId, raw)
 
-    fun setSpeed(setId: Long, raw: String) = enqueue(setId) { it.copy(speedKmh = raw.toDoubleOrNull()) }
+    fun setSpeed(setId: Long, raw: String) = setMutator.setSpeed(setId, raw)
 
-    fun setIncline(setId: Long, raw: String) = enqueue(setId) { it.copy(inclinePct = raw.toDoubleOrNull()) }
+    fun setIncline(setId: Long, raw: String) = setMutator.setIncline(setId, raw)
 
+    /** Отмечает подход выполненным и запускает отдых (та же операция, что кнопка в уведомлении). */
     fun completeSet(setId: Long) {
-        viewModelScope.launch {
-            repository.toggleSetCompleted(setId, true)
-            onSetCompleted(setId)
-        }
+        viewModelScope.launch { completeSetUseCase(setId) }
     }
 
     /** Прибавить/убавить время текущего отдыха (кнопки ±15 на пилюле). */
@@ -225,23 +195,6 @@ class ActiveWorkoutViewModel @Inject constructor(
         }
     }
 
-    /**
-     * Вызывается сразу после отметки подхода выполненным: резолвит длительность отдыха
-     * (программа → restSeconds упражнения, иначе настройки) и запускает таймер отдыха.
-     */
-    private suspend fun onSetCompleted(setId: Long) {
-        val workout = activeWorkout.value ?: return
-        val exerciseId = workout.exercises
-            .firstOrNull { exercise -> exercise.sets.any { it.id == setId } }
-            ?.exercise?.id ?: return
-        val restSeconds = restDurationResolver(workout, exerciseId)
-        restTimerEngine.start(restSeconds)
-    }
-
-    private fun enqueue(setId: Long, transform: (WorkoutSetEntity) -> WorkoutSetEntity) {
-        setMutations.trySend(SetMutation(setId, transform))
-    }
-
     private fun ensurePreviousLoaded(workout: WorkoutFull?) {
         val exercises = workout?.exercises ?: return
         for (exercise in exercises) {
@@ -261,6 +214,3 @@ class ActiveWorkoutViewModel @Inject constructor(
 }
 
 private const val SUBSCRIPTION_TIMEOUT_MS = 5_000L
-
-/** Округление веса/скорости/наклона до сотых, чтобы шаги ±0.5/±2.5 не накапливали дрейф double. */
-private fun Double.round2(): Double = (this * 100).roundToInt() / 100.0

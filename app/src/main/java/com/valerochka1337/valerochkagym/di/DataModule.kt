@@ -13,6 +13,7 @@ import com.valerochka1337.valerochkagym.data.db.dao.ExerciseMuscleDao
 import com.valerochka1337.valerochkagym.data.db.dao.RoutineDao
 import com.valerochka1337.valerochkagym.data.db.dao.ScheduledWorkoutDao
 import com.valerochka1337.valerochkagym.data.db.dao.WorkoutDao
+import com.valerochka1337.valerochkagym.service.WallClock
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -34,6 +35,15 @@ object DataModule {
     @ApplicationScope
     fun provideApplicationScope(): CoroutineScope =
         CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    /**
+     * Стенные часы для [com.valerochka1337.valerochkagym.service.RestTimerEngine]: дедлайн отдыха
+     * уезжает в `Notification.setWhen`, а хронометр уведомления сравнивает его именно с
+     * [System.currentTimeMillis].
+     */
+    @Provides
+    @Singleton
+    fun provideWallClock(): WallClock = WallClock { System.currentTimeMillis() }
 
     @Provides
     @Singleton

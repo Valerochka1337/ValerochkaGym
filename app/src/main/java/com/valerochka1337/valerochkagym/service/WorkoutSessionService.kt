@@ -4,32 +4,61 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.app.RemoteInput
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.ServiceInfo
+import android.graphics.drawable.Icon
 import android.media.RingtoneManager
+import android.os.Bundle
 import android.os.VibrationEffect
 import android.os.VibratorManager
-import androidx.core.app.NotificationCompat
+import androidx.compose.ui.graphics.toArgb
 import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
 import com.valerochka1337.valerochkagym.MainActivity
 import com.valerochka1337.valerochkagym.R
+import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
 import com.valerochka1337.valerochkagym.data.db.relation.WorkoutFull
 import com.valerochka1337.valerochkagym.data.settings.SettingsRepository
 import com.valerochka1337.valerochkagym.domain.ActiveWorkoutRepository
+import com.valerochka1337.valerochkagym.domain.CompleteSetUseCase
+import com.valerochka1337.valerochkagym.domain.SessionFocus
+import com.valerochka1337.valerochkagym.domain.WorkoutSetMutator
+import com.valerochka1337.valerochkagym.domain.currentFocus
+import com.valerochka1337.valerochkagym.domain.formatSet
+import com.valerochka1337.valerochkagym.domain.lastCompletedFocus
+import com.valerochka1337.valerochkagym.domain.parseQuickSetEdit
+import com.valerochka1337.valerochkagym.ui.navigation.GymRoutes
+import com.valerochka1337.valerochkagym.ui.theme.AccentColor
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 /**
- * Foreground-сервис активной тренировки. Держит постоянное уведомление сессии (название, живой
- * хронометр, текущее упражнение) и, пока идёт отдых, переключается на отсчёт «Отдых: M:SS» с
- * действиями «+15 сек» / «Пропустить». По окончании отдыха даёт звук/вибрацию (по настройкам) и
- * отдельное heads-up уведомление «Отдых окончен».
+ * Foreground-сервис активной тренировки. Держит одно постоянное уведомление, которое живёт в двух
+ * состояниях:
+ *
+ *  * **рабочее** — «Жим лёжа · подход 3 из 4», текущие вес×повторы, полоса подходов упражнения и
+ *    кнопки «−2.5 кг / +2.5 кг / Готово»;
+ *  * **отдых** — обратный отсчёт, только что закрытый подход и кнопки «+15 с / Пропустить /
+ *    Изменить» (последняя открывает инлайн-поле и правит этот подход).
+ *
+ * Уведомление помечено как Live Update (см. [requestPromotedOngoing]), поэтому система показывает
+ * его чипом в статус-баре, а оболочки вроде Fluid Cloud на OxygenOS — в «острове». Отсюда все
+ * ограничения формата: стандартный шаблон вместо RemoteViews, без `setColorized` и не больше трёх
+ * кнопок — их набор поэтому контекстный.
+ *
+ * Отсчёт в чипе рисует сама система: `setChronometerCountDown` + `setWhen(endsAtMillis)` тикают без
+ * участия приложения, поэтому [RestTimerEngine] и обязан хранить дедлайн по стенным часам.
+ *
+ * Используется платформенный [Notification.Builder], а не `NotificationCompat`: `ProgressStyle` в
+ * androidx.core этой версии ещё нет, а minSdk 36 позволяет звать платформу напрямую.
  *
  * Жизненный цикл: [start] вызывается из UI при старте тренировки (приложение на переднем плане —
  * запуск FGS разрешён). Явный stop не нужен: сервис подписан на [ActiveWorkoutRepository.observeActive]
@@ -44,23 +73,38 @@ class WorkoutSessionService : LifecycleService() {
 
     @Inject lateinit var settingsRepository: SettingsRepository
 
+    @Inject lateinit var setMutator: WorkoutSetMutator
+
+    @Inject lateinit var completeSetUseCase: CompleteSetUseCase
+
     private val notificationManager: NotificationManager by lazy {
         getSystemService(NotificationManager::class.java)
     }
 
     private var currentWorkout: WorkoutFull? = null
     private var currentRest: RestTimerState? = null
+    private var accent: AccentColor = AccentColor.DEFAULT
 
     // Защита от преждевременного stopSelf: гасим сервис только увидев, что тренировка исчезла
     // ПОСЛЕ того как хотя бы раз её наблюдали.
     private var sawWorkout = false
 
-    /** Внутренний приёмник действий уведомления отдыха (+15 / пропустить). Не экспортируется. */
+    /**
+     * Внутренний приёмник действий уведомления. Не экспортируется.
+     *
+     * Подход берётся не из intent'а, а пересчитывается по свежему [currentWorkout]: уведомление в
+     * шторке может отставать от БД, а нажатие должно применяться к тому подходу, который актуален
+     * сейчас.
+     */
     private val actionReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             when (intent?.action) {
-                ACTION_ADD_15 -> restTimerEngine.addSeconds(REST_STEP_SECONDS)
-                ACTION_SKIP -> restTimerEngine.skip()
+                ACTION_REST_ADD_15 -> restTimerEngine.addSeconds(REST_STEP_SECONDS)
+                ACTION_REST_SKIP -> restTimerEngine.skip()
+                ACTION_SET_STEP_DOWN -> stepCurrentSet(-1)
+                ACTION_SET_STEP_UP -> stepCurrentSet(1)
+                ACTION_SET_COMPLETE -> completeCurrentSet()
+                ACTION_SET_QUICK_EDIT -> applyQuickEdit(intent)
             }
         }
     }
@@ -71,8 +115,12 @@ class WorkoutSessionService : LifecycleService() {
         registerReceiver(
             actionReceiver,
             IntentFilter().apply {
-                addAction(ACTION_ADD_15)
-                addAction(ACTION_SKIP)
+                addAction(ACTION_REST_ADD_15)
+                addAction(ACTION_REST_SKIP)
+                addAction(ACTION_SET_STEP_DOWN)
+                addAction(ACTION_SET_STEP_UP)
+                addAction(ACTION_SET_COMPLETE)
+                addAction(ACTION_SET_QUICK_EDIT)
             },
             Context.RECEIVER_NOT_EXPORTED,
         )
@@ -85,7 +133,7 @@ class WorkoutSessionService : LifecycleService() {
         // startForeground гарантированно вызывается в отведённое окно после startForegroundService.
         startForeground(
             SESSION_NOTIFICATION_ID,
-            buildSessionNotification(currentWorkout),
+            buildNotification(),
             ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE,
         )
         // NOT_STICKY: после гибели процесса состояние движка/тренировки не восстановить, а sticky
@@ -107,7 +155,9 @@ class WorkoutSessionService : LifecycleService() {
                 }
                 sawWorkout = true
                 currentWorkout = workout
-                if (currentRest == null) updateForegroundNotification()
+                // Обновляем и во время отдыха: там подписан только что закрытый подход, а его
+                // правят кнопкой «Изменить» прямо из этого уведомления.
+                updateForegroundNotification()
             }
         }
         lifecycleScope.launch {
@@ -119,49 +169,152 @@ class WorkoutSessionService : LifecycleService() {
         lifecycleScope.launch {
             restTimerEngine.finished.collect { onRestFinished() }
         }
+        lifecycleScope.launch {
+            settingsRepository.settings.map { it.accent }.distinctUntilChanged().collect { value ->
+                accent = value
+                updateForegroundNotification()
+            }
+        }
     }
 
     private fun updateForegroundNotification() {
-        val rest = currentRest
-        val notification = if (rest != null) {
-            buildRestNotification(rest)
-        } else {
-            buildSessionNotification(currentWorkout)
-        }
-        notificationManager.notify(SESSION_NOTIFICATION_ID, notification)
+        notificationManager.notify(SESSION_NOTIFICATION_ID, buildNotification())
     }
 
-    private fun buildSessionNotification(workout: WorkoutFull?): Notification {
-        val title = workout?.workout?.name ?: DEFAULT_WORKOUT_TITLE
-        val builder = NotificationCompat.Builder(this, SESSION_CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_rest_timer)
-            .setContentTitle(title)
-            .setContentIntent(openAppIntent())
+    // --- Действия уведомления ---
+
+    /** Шаг ± по главному значению подхода: вес у силовых, длительность у временных, скорость у кардио. */
+    private fun stepCurrentSet(sign: Int) {
+        val focus = currentWorkout?.currentFocus() ?: return
+        when (focus.type) {
+            ExerciseType.STRENGTH -> setMutator.stepWeight(focus.set.id, sign * WEIGHT_STEP_KG)
+            ExerciseType.TIMED -> setMutator.stepDuration(focus.set.id, sign * DURATION_STEP_SECONDS)
+            ExerciseType.CARDIO -> setMutator.stepSpeed(focus.set.id, sign * SPEED_STEP_KMH)
+        }
+    }
+
+    private fun completeCurrentSet() {
+        val setId = currentWorkout?.currentFocus()?.set?.id ?: return
+        lifecycleScope.launch { completeSetUseCase(setId) }
+    }
+
+    /** Правит только что закрытый подход по строке из инлайн-поля («60x8»). Мусор игнорируется. */
+    private fun applyQuickEdit(intent: Intent) {
+        val raw = RemoteInput.getResultsFromIntent(intent)
+            ?.getCharSequence(REMOTE_INPUT_KEY)
+            ?.toString()
+        val focus = currentWorkout?.lastCompletedFocus()
+        if (raw != null && focus != null) {
+            parseQuickSetEdit(raw, focus.type)?.let { edit ->
+                setMutator.edit(focus.set.id) { edit.applyTo(it) }
+            }
+        }
+        // Пересобираем уведомление в любом случае: пока оно не обновилось, система держит поле
+        // ввода открытым со спиннером — даже если правка не применилась.
+        updateForegroundNotification()
+    }
+
+    // --- Сборка уведомлений ---
+
+    private fun buildNotification(): Notification {
+        val rest = currentRest
+        return if (rest != null) buildRestNotification(rest) else buildWorkNotification()
+    }
+
+    private fun baseBuilder(): Notification.Builder =
+        Notification.Builder(this, SESSION_CHANNEL_ID)
+            .setContentIntent(openActiveWorkoutIntent())
             .setOngoing(true)
-            .setSilent(true)
-            .setCategory(NotificationCompat.CATEGORY_WORKOUT)
-        // Живое время тренировки без ручных тиков.
+            .setOnlyAlertOnce(true)
+            .setCategory(Notification.CATEGORY_WORKOUT)
+            // setColor красит иконку и акценты шаблона. setColorized звать нельзя — он запрещён
+            // для промотируемых уведомлений и выкинул бы нас из острова.
+            .setColor(accent.primary.toArgb())
+            .requestPromotedOngoing()
+
+    private fun buildWorkNotification(): Notification {
+        val workout = currentWorkout
+        val builder = baseBuilder().setSmallIcon(R.drawable.ic_notification_gym)
         workout?.workout?.startedAt?.let { startedAt ->
+            // Живое время тренировки без ручных тиков.
             builder.setUsesChronometer(true).setWhen(startedAt).setShowWhen(true)
         }
-        currentExerciseName(workout)?.let { builder.setContentText(it) }
+
+        val focus = workout?.currentFocus()
+        if (focus == null) {
+            // Тренировка ещё не загрузилась (первый startForeground) либо все подходы закрыты.
+            builder.setContentTitle(workout?.workout?.name ?: DEFAULT_WORKOUT_TITLE)
+            if (workout != null) builder.setContentText(ALL_SETS_DONE_TEXT)
+            return builder.build()
+        }
+
+        builder
+            .setContentTitle("${focus.exerciseName} · подход ${focus.setNumber} из ${focus.setsInExercise}")
+            // Влезает в чип целиком: он показывает текст полностью только до 7 символов.
+            .setShortCriticalText("${focus.setNumber}/${focus.setsInExercise}")
+            .setStyle(setsProgressStyle(focus))
+        formatSet(focus.set, focus.type)?.let { builder.setContentText(it) }
+
+        val (down, up) = stepLabels(focus.type)
+        builder
+            .addAction(action(R.drawable.ic_notif_minus, down, ACTION_SET_STEP_DOWN, REQUEST_STEP_DOWN))
+            .addAction(action(R.drawable.ic_notif_plus, up, ACTION_SET_STEP_UP, REQUEST_STEP_UP))
+            .addAction(action(R.drawable.ic_notif_check, COMPLETE_LABEL, ACTION_SET_COMPLETE, REQUEST_COMPLETE))
         return builder.build()
     }
 
     private fun buildRestNotification(rest: RestTimerState): Notification {
-        return NotificationCompat.Builder(this, SESSION_CHANNEL_ID)
+        val workout = currentWorkout
+        val done = workout?.lastCompletedFocus()
+        val builder = baseBuilder()
             .setSmallIcon(R.drawable.ic_rest_timer)
-            .setContentTitle(REST_TITLE)
-            .setContentText(formatRest(rest.remainingSec))
-            .setContentIntent(openAppIntent())
-            .setOngoing(true)
-            .setOnlyAlertOnce(true)
-            .setSilent(true)
-            .setCategory(NotificationCompat.CATEGORY_WORKOUT)
-            .addAction(0, ACTION_ADD_15_LABEL, broadcastIntent(ACTION_ADD_15, REQUEST_ADD_15))
-            .addAction(0, ACTION_SKIP_LABEL, broadcastIntent(ACTION_SKIP, REQUEST_SKIP))
-            .build()
+            .setContentTitle(restTitle(workout?.currentFocus(), done))
+            // Система сама тикает отсчёт до дедлайна — и в шторке, и в чипе статус-бара.
+            // shortCriticalText здесь намеренно не ставим: он бы вытеснил живое время.
+            .setUsesChronometer(true)
+            .setChronometerCountDown(true)
+            .setWhen(rest.endsAtMillis)
+            .setShowWhen(true)
+            .setStyle(restProgressStyle(rest))
+            .addAction(action(R.drawable.ic_notif_plus, ADD_15_LABEL, ACTION_REST_ADD_15, REQUEST_ADD_15))
+            .addAction(action(R.drawable.ic_notif_skip, SKIP_LABEL, ACTION_REST_SKIP, REQUEST_SKIP))
+
+        if (done != null) {
+            val value = formatSet(done.set, done.type)
+            builder.setContentText(listOfNotNull(done.exerciseName, value).joinToString(" · "))
+            builder.addAction(quickEditAction(done.type))
+        }
+        return builder.build()
     }
+
+    /** «Отдых · далее подход 4», а на стыке упражнений — «Отдых · далее Тяга верхнего блока». */
+    private fun restTitle(next: SessionFocus?, done: SessionFocus?): String = when {
+        next == null -> REST_TITLE
+        done != null && next.exerciseName == done.exerciseName -> "$REST_TITLE · далее подход ${next.setNumber}"
+        else -> "$REST_TITLE · далее ${next.exerciseName}"
+    }
+
+    /** Полоса подходов текущего упражнения: закрытые — до бегунка, оставшиеся — приглушены. */
+    private fun setsProgressStyle(focus: SessionFocus): Notification.ProgressStyle {
+        val style = Notification.ProgressStyle()
+            .setProgressTrackerIcon(Icon.createWithResource(this, R.drawable.ic_notification_gym))
+        // currentFocus — первый незакрытый подход упражнения, значит всё до него уже сделано.
+        repeat(focus.setsInExercise) {
+            style.addProgressSegment(
+                Notification.ProgressStyle.Segment(1).setColor(accent.primary.toArgb()),
+            )
+        }
+        return style.setProgress(focus.setNumber - 1)
+    }
+
+    /** Одна полоса, заполняющаяся по мере отдыха. */
+    private fun restProgressStyle(rest: RestTimerState): Notification.ProgressStyle =
+        Notification.ProgressStyle()
+            .setProgressTrackerIcon(Icon.createWithResource(this, R.drawable.ic_rest_timer))
+            .addProgressSegment(
+                Notification.ProgressStyle.Segment(rest.totalSec).setColor(accent.primary.toArgb()),
+            )
+            .setProgress(rest.totalSec - rest.remainingSec)
 
     private fun onRestFinished() {
         lifecycleScope.launch {
@@ -169,15 +322,15 @@ class WorkoutSessionService : LifecycleService() {
             if (settings.soundEnabled) playFinishedSound()
             if (settings.vibrationEnabled) vibrate()
         }
-        val notification = NotificationCompat.Builder(this, REST_DONE_CHANNEL_ID)
+        val notification = Notification.Builder(this, REST_DONE_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_rest_timer)
             .setContentTitle(REST_DONE_TITLE)
             .setContentText(REST_DONE_TEXT)
-            .setContentIntent(openAppIntent())
+            .setContentIntent(openActiveWorkoutIntent())
+            .setColor(accent.primary.toArgb())
             .setAutoCancel(true)
             .setTimeoutAfter(REST_DONE_TIMEOUT_MS)
-            .setCategory(NotificationCompat.CATEGORY_WORKOUT)
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(Notification.CATEGORY_WORKOUT)
             .build()
         notificationManager.notify(REST_DONE_NOTIFICATION_ID, notification)
     }
@@ -192,31 +345,55 @@ class WorkoutSessionService : LifecycleService() {
         vibrator.vibrate(VibrationEffect.createOneShot(VIBRATION_MS, VibrationEffect.DEFAULT_AMPLITUDE))
     }
 
-    private fun currentExerciseName(workout: WorkoutFull?): String? =
-        workout?.exercises
-            ?.firstOrNull { exercise -> exercise.sets.any { !it.isCompleted } }
-            ?.exercise
-            ?.name
+    // --- Intent'ы ---
 
-    private fun openAppIntent(): PendingIntent {
+    /**
+     * Тап по уведомлению/чипу открывает сразу экран активной тренировки.
+     *
+     * Именно через extra, а не через URI-deep link: [MainActivity] объявлена `exported="false"`
+     * без intent-filter (вход идёт через activity-alias под выбранную иконку), так что
+     * навигационный deep link по URI до неё просто не доедет.
+     */
+    private fun openActiveWorkoutIntent(): PendingIntent {
         val intent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_NEW_TASK
+            putExtra(MainActivity.EXTRA_DESTINATION, GymRoutes.ACTIVE_WORKOUT)
         }
         return PendingIntent.getActivity(
             this,
             REQUEST_OPEN_APP,
             intent,
-            PendingIntent.FLAG_IMMUTABLE,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
     }
 
-    private fun broadcastIntent(action: String, requestCode: Int): PendingIntent {
+    private fun action(icon: Int, label: String, action: String, requestCode: Int): Notification.Action =
+        Notification.Action.Builder(
+            Icon.createWithResource(this, icon),
+            label,
+            broadcastIntent(action, requestCode, PendingIntent.FLAG_IMMUTABLE),
+        ).build()
+
+    private fun quickEditAction(type: ExerciseType): Notification.Action {
+        val remoteInput = RemoteInput.Builder(REMOTE_INPUT_KEY)
+            .setLabel(quickEditHint(type))
+            .setAllowFreeFormInput(true)
+            .build()
+        return Notification.Action.Builder(
+            Icon.createWithResource(this, R.drawable.ic_notif_edit),
+            EDIT_LABEL,
+            // MUTABLE обязателен: систему нужно пустить дописать в intent результат RemoteInput.
+            broadcastIntent(ACTION_SET_QUICK_EDIT, REQUEST_QUICK_EDIT, PendingIntent.FLAG_MUTABLE),
+        ).addRemoteInput(remoteInput).build()
+    }
+
+    private fun broadcastIntent(action: String, requestCode: Int, mutability: Int): PendingIntent {
         val intent = Intent(action).setPackage(packageName)
         return PendingIntent.getBroadcast(
             this,
             requestCode,
             intent,
-            PendingIntent.FLAG_IMMUTABLE,
+            mutability or PendingIntent.FLAG_UPDATE_CURRENT,
         )
     }
 
@@ -224,6 +401,7 @@ class WorkoutSessionService : LifecycleService() {
         val session = NotificationChannel(
             SESSION_CHANNEL_ID,
             SESSION_CHANNEL_NAME,
+            // LOW: без звука, но промотировать в Live Update можно всё, кроме IMPORTANCE_MIN.
             NotificationManager.IMPORTANCE_LOW,
         ).apply {
             description = SESSION_CHANNEL_DESC
@@ -262,28 +440,69 @@ class WorkoutSessionService : LifecycleService() {
         private const val SESSION_NOTIFICATION_ID = 1001
         private const val REST_DONE_NOTIFICATION_ID = 1002
 
-        private const val ACTION_ADD_15 = "com.valerochka1337.valerochkagym.action.REST_ADD_15"
-        private const val ACTION_SKIP = "com.valerochka1337.valerochkagym.action.REST_SKIP"
-        private const val ACTION_ADD_15_LABEL = "+15 сек"
-        private const val ACTION_SKIP_LABEL = "Пропустить"
+        private const val ACTION_REST_ADD_15 = "com.valerochka1337.valerochkagym.action.REST_ADD_15"
+        private const val ACTION_REST_SKIP = "com.valerochka1337.valerochkagym.action.REST_SKIP"
+        private const val ACTION_SET_STEP_DOWN = "com.valerochka1337.valerochkagym.action.SET_STEP_DOWN"
+        private const val ACTION_SET_STEP_UP = "com.valerochka1337.valerochkagym.action.SET_STEP_UP"
+        private const val ACTION_SET_COMPLETE = "com.valerochka1337.valerochkagym.action.SET_COMPLETE"
+        private const val ACTION_SET_QUICK_EDIT = "com.valerochka1337.valerochkagym.action.SET_QUICK_EDIT"
+
+        private const val REMOTE_INPUT_KEY = "quick_set_edit"
 
         private const val REQUEST_OPEN_APP = 0
         private const val REQUEST_ADD_15 = 1
         private const val REQUEST_SKIP = 2
+        private const val REQUEST_STEP_DOWN = 3
+        private const val REQUEST_STEP_UP = 4
+        private const val REQUEST_COMPLETE = 5
+        private const val REQUEST_QUICK_EDIT = 6
 
         private const val REST_STEP_SECONDS = 15
+        private const val WEIGHT_STEP_KG = 2.5
+        private const val DURATION_STEP_SECONDS = 15
+        private const val SPEED_STEP_KMH = 0.5
         private const val VIBRATION_MS = 500L
         private const val REST_DONE_TIMEOUT_MS = 10_000L
 
+        private const val ADD_15_LABEL = "+15 с"
+        private const val SKIP_LABEL = "Пропустить"
+        private const val COMPLETE_LABEL = "Готово"
+        private const val EDIT_LABEL = "Изменить"
+
         private const val DEFAULT_WORKOUT_TITLE = "Тренировка"
+        private const val ALL_SETS_DONE_TEXT = "Все подходы выполнены"
         private const val REST_TITLE = "Отдых"
         private const val REST_DONE_TITLE = "Отдых окончен"
         private const val REST_DONE_TEXT = "Пора продолжать"
     }
 }
 
-/** Форматирует остаток отдыха как M:SS. */
-private fun formatRest(totalSeconds: Int): String {
-    val safe = totalSeconds.coerceAtLeast(0)
-    return "%d:%02d".format(safe / 60, safe % 60)
+/**
+ * Просим систему поднять уведомление до Live Update — чип в статус-баре и «остров» оболочки.
+ *
+ * Запрос ставится экстрой, а не типизированным `setRequestPromotedOngoing`, намеренно. Сеттер
+ * появился только в SDK 36.1 и не делает ничего, кроме этой же записи в extras, — а OxygenOS 16
+ * на OnePlus 15 репортит 36.0, но Live Updates поддерживает (в системе есть и разрешение
+ * `POST_PROMOTED_NOTIFICATIONS`, и служба `com.oplus.systemui...LIVE_ALERT_SERVICE`). Проверка
+ * минорной версии отсекала бы именно то устройство, ради которого фича и делается. На прошивках
+ * без поддержки лишняя экстра просто игнорируется.
+ */
+private fun Notification.Builder.requestPromotedOngoing(): Notification.Builder =
+    addExtras(Bundle().apply { putBoolean(EXTRA_REQUEST_PROMOTED_ONGOING, true) })
+
+/** Значение [Notification.EXTRA_REQUEST_PROMOTED_ONGOING]; константа доступна только с SDK 36.1. */
+private const val EXTRA_REQUEST_PROMOTED_ONGOING = "android.requestPromotedOngoing"
+
+/** Подписи кнопок шага: главное значение подхода зависит от типа упражнения. */
+private fun stepLabels(type: ExerciseType): Pair<String, String> = when (type) {
+    ExerciseType.STRENGTH -> "−2.5 кг" to "+2.5 кг"
+    ExerciseType.TIMED -> "−15 с" to "+15 с"
+    ExerciseType.CARDIO -> "−0.5 км/ч" to "+0.5 км/ч"
+}
+
+/** Подсказка в инлайн-поле быстрой правки — показывает ожидаемый формат. */
+private fun quickEditHint(type: ExerciseType): String = when (type) {
+    ExerciseType.STRENGTH -> "60x8"
+    ExerciseType.TIMED -> "45"
+    ExerciseType.CARDIO -> "10x5"
 }
