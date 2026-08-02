@@ -38,6 +38,7 @@ import com.valerochka1337.valerochkagym.ui.analysis.body.BodyMapFlip
 import com.valerochka1337.valerochkagym.ui.analysis.charts.ChartSpec
 import com.valerochka1337.valerochkagym.ui.analysis.charts.rememberChartColors
 import com.valerochka1337.valerochkagym.ui.theme.ChartPalette
+import com.valerochka1337.valerochkagym.ui.theme.GymMotion
 
 /**
  * Тепловая карта тела: интерактивный человек, закрашенный по недельному объёму каждой мышцы.
@@ -76,7 +77,10 @@ internal fun MuscleHeatmapCard(
         Spacer(Modifier.height(12.dp))
         HeatLegend()
         Spacer(Modifier.height(12.dp))
-        SelectedMuscleDetails(state.selectedMuscleLoad, modifier = Modifier.animateContentSize())
+        SelectedMuscleDetails(
+            state.selectedMuscleLoad,
+            modifier = Modifier.animateContentSize(GymMotion.spatialDefault()),
+        )
     }
 }
 

@@ -77,6 +77,7 @@ import com.valerochka1337.valerochkagym.ui.components.GymCard
 import com.valerochka1337.valerochkagym.service.RestTimerState
 import com.valerochka1337.valerochkagym.ui.components.NumberField
 import com.valerochka1337.valerochkagym.ui.components.PillButton
+import com.valerochka1337.valerochkagym.ui.theme.GymMotion
 
 /** Крупный шаг веса (обычный тап), кг. */
 private const val WEIGHT_STEP = 2.5
@@ -315,8 +316,8 @@ private fun RestTimerPill(
     val rest by restTimer.collectAsStateWithLifecycle()
     AnimatedVisibility(
         visible = rest != null,
-        enter = slideInVertically { it } + fadeIn(),
-        exit = slideOutVertically { it } + fadeOut(),
+        enter = slideInVertically(GymMotion.spatialDefault()) { it } + fadeIn(GymMotion.effectsDefault()),
+        exit = slideOutVertically(GymMotion.spatialDefault()) { it } + fadeOut(GymMotion.effectsDefault()),
     ) {
         // Пока идёт exit-анимация, `rest` уже null — держим последнее ненулевое значение,
         // чтобы контент пилюли не исчезал мгновенно.
@@ -433,7 +434,7 @@ private fun ExerciseSection(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .animateContentSize(MaterialTheme.motionScheme.defaultSpatialSpec()),
+            .animateContentSize(GymMotion.spatialDefault()),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             ExerciseAvatar(exercise = exercise.exercise)
@@ -673,10 +674,10 @@ private fun CompletedSetPill(
     onClick: () -> Unit,
 ) {
     // Короткий scale-панч на галочке при появлении пилюли (подход только что отмечен выполненным).
-    val motionScheme = MaterialTheme.motionScheme
+    val punchSpec = GymMotion.spatialDefault<Float>()
     val checkScale = remember { Animatable(0.6f) }
     LaunchedEffect(Unit) {
-        checkScale.animateTo(1f, motionScheme.defaultSpatialSpec())
+        checkScale.animateTo(1f, punchSpec)
     }
     SetPill(
         number = set.setIndex + 1,

@@ -42,6 +42,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.valerochka1337.valerochkagym.data.db.entity.Muscle
 import com.valerochka1337.valerochkagym.ui.theme.ChartPalette
+import com.valerochka1337.valerochkagym.ui.theme.GymMotion
 import kotlin.math.min
 
 /** Соотношение сторон фигуры: вьюпорт библиотеки 724×1448, то есть строго 1:2. */
@@ -85,7 +86,11 @@ fun BodyMapFlip(
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Box(modifier = Modifier.fillMaxWidth(0.56f)) {
-            Crossfade(targetState = view, label = "body-view") { current ->
+            Crossfade(
+                targetState = view,
+                animationSpec = GymMotion.effectsDefault(),
+                label = "body-view",
+            ) { current ->
                 BodyMap(
                     view = current,
                     fillFor = fillFor,

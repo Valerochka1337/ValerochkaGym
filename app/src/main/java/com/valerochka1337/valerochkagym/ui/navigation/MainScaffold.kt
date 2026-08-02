@@ -52,6 +52,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.valerochka1337.valerochkagym.R
 import com.valerochka1337.valerochkagym.ui.common.formatRestClock
+import com.valerochka1337.valerochkagym.ui.theme.GymMotion
 
 /** A root tab shown in the bottom [NavigationBar]. */
 private data class TabItem(
@@ -108,8 +109,8 @@ fun MainScaffold(
             Column {
                 AnimatedVisibility(
                     visible = showResumeBanner,
-                    enter = expandVertically() + fadeIn(),
-                    exit = shrinkVertically() + fadeOut(),
+                    enter = expandVertically(GymMotion.spatialDefault()) + fadeIn(GymMotion.effectsDefault()),
+                    exit = shrinkVertically(GymMotion.spatialDefault()) + fadeOut(GymMotion.effectsDefault()),
                 ) {
                     // Во время exit-анимации состояние уже null — держим последнее ненулевое,
                     // чтобы содержимое плашки не схлопывалось мгновенно.
@@ -124,8 +125,8 @@ fun MainScaffold(
                 }
                 AnimatedVisibility(
                     visible = showBottomBar,
-                    enter = slideInVertically { it } + fadeIn(),
-                    exit = slideOutVertically { it } + fadeOut(),
+                    enter = slideInVertically(GymMotion.spatialDefault()) { it } + fadeIn(GymMotion.effectsDefault()),
+                    exit = slideOutVertically(GymMotion.spatialDefault()) { it } + fadeOut(GymMotion.effectsDefault()),
                 ) {
                     // Плавающий навбар: отступает от боковых и нижнего краёв, скруглён.
                     NavigationBar(

@@ -4,17 +4,12 @@ import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.AnimatedContentTransitionScope.SlideDirection
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
-import androidx.compose.animation.core.FiniteAnimationSpec
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.IntOffset
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.navigation.NavBackStackEntry
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -34,6 +29,7 @@ import com.valerochka1337.valerochkagym.ui.routine.RoutineEditorScreen
 import com.valerochka1337.valerochkagym.ui.routine.RoutineEditorViewModel
 import com.valerochka1337.valerochkagym.ui.settings.SettingsScreen
 import com.valerochka1337.valerochkagym.ui.summary.WorkoutSummaryScreen
+import com.valerochka1337.valerochkagym.ui.theme.GymMotion
 import com.valerochka1337.valerochkagym.ui.workouts.WorkoutsScreen
 
 /**
@@ -68,16 +64,10 @@ object GymRoutes {
 /** The tab root that the app opens on and that back navigation returns to. */
 const val GYM_START_DESTINATION = GymRoutes.WORKOUTS
 
-// Пружинная моторика M3 Expressive: сдвиг и затухание живут в ОДНОМ тайминге, иначе
-// контент успевает стать непрозрачным, пока экран ещё едет, — это читается как «тормозит».
-// StiffnessMedium (~300 мс) вместо MediumLow (~450 мс) делает переход снапнутее.
-private val NavSlideSpec: FiniteAnimationSpec<IntOffset> =
-    spring(dampingRatio = 0.9f, stiffness = Spring.StiffnessMedium)
-private val NavFadeSpec: FiniteAnimationSpec<Float> =
-    spring(dampingRatio = 0.9f, stiffness = Spring.StiffnessMedium)
-
-/** Кроссфейд между вкладками нижнего меню — быстрый, предсказуемый, без слайда. */
-private val TabFadeSpec: FiniteAnimationSpec<Float> = tween(durationMillis = 180)
+// Спеки переходов — из GymMotion (ui/theme/Motion.kt): единственное место, где они объявлены.
+private val NavSlideSpec = GymMotion.NavSlideSpec
+private val NavFadeSpec = GymMotion.NavFadeSpec
+private val TabFadeSpec = GymMotion.TabFadeSpec
 
 /** Порядок нижних вкладок слева направо; -1 — маршрут не является вкладкой. */
 private fun tabIndex(route: String?): Int = when (route) {

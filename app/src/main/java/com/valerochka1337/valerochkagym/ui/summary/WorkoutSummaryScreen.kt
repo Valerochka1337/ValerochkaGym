@@ -21,7 +21,6 @@ import androidx.compose.material.icons.rounded.EmojiEvents
 import androidx.compose.material.icons.rounded.FitnessCenter
 import androidx.compose.material.icons.rounded.Timer
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -41,6 +40,7 @@ import com.valerochka1337.valerochkagym.ui.components.ExerciseAvatar
 import com.valerochka1337.valerochkagym.ui.components.GlowBackground
 import com.valerochka1337.valerochkagym.ui.components.GymCard
 import com.valerochka1337.valerochkagym.ui.components.PillButton
+import com.valerochka1337.valerochkagym.ui.theme.GymMotion
 import java.math.BigDecimal
 
 /**
@@ -217,17 +217,15 @@ private fun StatTile(
     }
 }
 
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun PrCard(pr: PrResult) {
     // Каждая строка рекорда «впрыгивает» отдельно (expressive bouncy scale + затухание) —
     // акцент на достижении. Анимация запускается один раз при первом появлении карточки.
     val appear = remember { MutableTransitionState(false).apply { targetState = true } }
-    val motionScheme = MaterialTheme.motionScheme
     AnimatedVisibility(
         visibleState = appear,
-        enter = scaleIn(animationSpec = motionScheme.defaultSpatialSpec(), initialScale = 0.8f) +
-            fadeIn(animationSpec = motionScheme.defaultEffectsSpec()),
+        enter = scaleIn(animationSpec = GymMotion.spatialDefault(), initialScale = 0.8f) +
+            fadeIn(animationSpec = GymMotion.effectsDefault()),
     ) {
         GymCard(
             modifier = Modifier.fillMaxWidth(),
