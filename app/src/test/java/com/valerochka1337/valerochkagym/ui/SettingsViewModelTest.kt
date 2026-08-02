@@ -159,6 +159,17 @@ class SettingsViewModelTest {
             assertTrue(viewModel.uiState.value.settings?.vibrationEnabled ?: false)
         }
 
+    @Test
+    fun `toggleRestAutostart persists the flag`() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val viewModel = SettingsViewModel(settingsRepository(), FakeGoogleAuth(), FakeUploadScheduler(), FakeImportRepository())
+            collectUiState(viewModel)
+
+            viewModel.toggleRestAutostart(false)
+
+            assertFalse(viewModel.uiState.value.settings?.restAutostart ?: true)
+        }
+
     // endregion
 
     // region accent

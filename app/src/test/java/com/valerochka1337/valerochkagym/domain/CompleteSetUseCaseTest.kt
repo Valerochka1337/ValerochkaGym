@@ -2,6 +2,7 @@ package com.valerochka1337.valerochkagym.domain
 
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.mutablePreferencesOf
@@ -44,7 +45,7 @@ class CompleteSetUseCaseTest : RoomDaoTest() {
         val setId = seedActiveWorkout()
         settingsRepository = settingsWithRest(90)
         val engine = RestTimerEngine(backgroundScope) { 0L }
-        val useCase = CompleteSetUseCase(repository, restDurationResolver(), engine)
+        val useCase = CompleteSetUseCase(repository, restDurationResolver(), engine, settingsRepository)
 
         useCase(setId)
 
@@ -62,11 +63,31 @@ class CompleteSetUseCaseTest : RoomDaoTest() {
         val staleSetId = seedFinishedWorkoutSet()
         settingsRepository = settingsWithRest(90)
         val engine = RestTimerEngine(backgroundScope) { 0L }
-        val useCase = CompleteSetUseCase(repository, restDurationResolver(), engine)
+        val useCase = CompleteSetUseCase(repository, restDurationResolver(), engine, settingsRepository)
 
         useCase(staleSetId)
 
         assertTrue(repository.getSet(staleSetId)!!.isCompleted)
+        assertNull(engine.state.value)
+    }
+
+    @Test
+    fun `with autostart disabled the set is marked but rest does not start`() = runTest {
+        val setId = seedActiveWorkout()
+        settingsRepository = SettingsRepository(
+            FakeDataStore(
+                mutablePreferencesOf(
+                    intPreferencesKey("default_rest_seconds") to 90,
+                    booleanPreferencesKey("rest_autostart") to false,
+                ),
+            ),
+        )
+        val engine = RestTimerEngine(backgroundScope) { 0L }
+        val useCase = CompleteSetUseCase(repository, restDurationResolver(), engine, settingsRepository)
+
+        useCase(setId)
+
+        assertTrue(repository.getSet(setId)!!.isCompleted)
         assertNull(engine.state.value)
     }
 

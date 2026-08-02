@@ -23,6 +23,8 @@ data class GymSettings(
     val vibrationEnabled: Boolean = true,
     /** Тактильный отклик интерфейса (гейтит [com.valerochka1337.valerochkagym.ui.haptics.GymHaptics]). */
     val hapticsEnabled: Boolean = true,
+    /** Автостарт таймера отдыха после отметки подхода; выключен — отдых только не запускается сам. */
+    val restAutostart: Boolean = true,
     val accent: AccentColor = AccentColor.DEFAULT,
 ) {
     companion object {
@@ -42,6 +44,7 @@ class SettingsRepository @Inject constructor(
         val SOUND_ENABLED = booleanPreferencesKey("sound_enabled")
         val VIBRATION_ENABLED = booleanPreferencesKey("vibration_enabled")
         val HAPTICS_ENABLED = booleanPreferencesKey("haptics_enabled")
+        val REST_AUTOSTART = booleanPreferencesKey("rest_autostart")
         val ACCENT_COLOR = stringPreferencesKey("accent_color")
     }
 
@@ -55,6 +58,7 @@ class SettingsRepository @Inject constructor(
             soundEnabled = prefs[Keys.SOUND_ENABLED] ?: true,
             vibrationEnabled = prefs[Keys.VIBRATION_ENABLED] ?: true,
             hapticsEnabled = prefs[Keys.HAPTICS_ENABLED] ?: true,
+            restAutostart = prefs[Keys.REST_AUTOSTART] ?: true,
             accent = AccentColor.fromId(prefs[Keys.ACCENT_COLOR]),
         )
     }
@@ -81,6 +85,10 @@ class SettingsRepository @Inject constructor(
 
     suspend fun setHapticsEnabled(value: Boolean) = dataStore.edit { prefs ->
         prefs[Keys.HAPTICS_ENABLED] = value
+    }
+
+    suspend fun setRestAutostart(value: Boolean) = dataStore.edit { prefs ->
+        prefs[Keys.REST_AUTOSTART] = value
     }
 
     suspend fun setAccent(value: AccentColor) = dataStore.edit { prefs ->

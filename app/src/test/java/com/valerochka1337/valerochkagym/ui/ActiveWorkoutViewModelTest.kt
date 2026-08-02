@@ -252,6 +252,7 @@ class ActiveWorkoutViewModelTest {
                 repository = repository,
                 restDurationResolver = RestDurationResolver(FakeRoutineDao(), settingsRepository),
                 restTimerEngine = restTimerEngine,
+                settingsRepository = settingsRepository,
             ),
             restTimerEngine = restTimerEngine,
             uploadScheduler = uploadScheduler,

@@ -193,6 +193,11 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch { settingsRepository.setHapticsEnabled(enabled) }
     }
 
+    /** Автостарт таймера отдыха после отметки подхода. */
+    fun toggleRestAutostart(enabled: Boolean) {
+        viewModelScope.launch { settingsRepository.setRestAutostart(enabled) }
+    }
+
     /**
      * Меняет акцент приложения. Иконку в лаунчере переключать отсюда не нужно: за ней следит
      * [com.valerochka1337.valerochkagym.data.appicon.AppIconManager], подписанный на настройку.
