@@ -5,7 +5,7 @@
 ## Стадии выполнения
 
 [X] Стадия 1: Git-подготовка (2026-08-02: merge ff в main, ветка feature/final-polish, план+трекер, базовая линия тестов зелёная)
-[ ] Стадия 2: Тесты чистой доменной логики (MuscleLandmarks, CardioMet, MuscleDefaults)
+[X] Стадия 2: Тесты чистой доменной логики (MuscleLandmarks, CardioMet, MuscleDefaults)
 [ ] Стадия 3: Тесты форматтеров
 [ ] Стадия 4: Тесты ActiveWorkoutViewModel
 [ ] Стадия 5: Тесты остальных ViewModel
