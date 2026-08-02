@@ -19,6 +19,7 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -35,6 +36,10 @@ object DataModule {
     @ApplicationScope
     fun provideApplicationScope(): CoroutineScope =
         CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    @Provides
+    @ComputeDispatcher
+    fun provideComputeDispatcher(): CoroutineDispatcher = Dispatchers.Default
 
     /**
      * Стенные часы для [com.valerochka1337.valerochkagym.service.RestTimerEngine]: дедлайн отдыха

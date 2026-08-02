@@ -34,10 +34,13 @@ import com.valerochka1337.valerochkagym.domain.parseQuickSetEdit
 import com.valerochka1337.valerochkagym.ui.navigation.GymRoutes
 import com.valerochka1337.valerochkagym.ui.theme.AccentColor
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 /**
@@ -147,8 +150,19 @@ class WorkoutSessionService : LifecycleService() {
     }
 
     private fun observeState() {
+        // Один collect на все источники уведомления: combine конфлейтит одновременные изменения
+        // (закрытие подхода сразу запускает отдых), и уведомление пересобирается один раз, а не
+        // по разу на каждый затронутый поток.
         lifecycleScope.launch {
-            activeWorkoutRepository.observeActive().collect { workout ->
+            combine(
+                activeWorkoutRepository.observeActive(),
+                restTimerEngine.state,
+                settingsRepository.settings.map { it.accent }.distinctUntilChanged(),
+            ) { workout, rest, accentValue ->
+                Triple(workout, rest, accentValue)
+            }.collect { (workout, rest, accentValue) ->
+                currentRest = rest
+                accent = accentValue
                 if (workout == null) {
                     if (sawWorkout) stopSelf()
                     return@collect
@@ -161,19 +175,7 @@ class WorkoutSessionService : LifecycleService() {
             }
         }
         lifecycleScope.launch {
-            restTimerEngine.state.collect { rest ->
-                currentRest = rest
-                updateForegroundNotification()
-            }
-        }
-        lifecycleScope.launch {
             restTimerEngine.finished.collect { onRestFinished() }
-        }
-        lifecycleScope.launch {
-            settingsRepository.settings.map { it.accent }.distinctUntilChanged().collect { value ->
-                accent = value
-                updateForegroundNotification()
-            }
         }
     }
 
@@ -319,7 +321,8 @@ class WorkoutSessionService : LifecycleService() {
     private fun onRestFinished() {
         lifecycleScope.launch {
             val settings = settingsRepository.settings.first()
-            if (settings.soundEnabled) playFinishedSound()
+            // Рингтон открывает медиа-ресурсы — не на главном потоке сервиса.
+            if (settings.soundEnabled) withContext(Dispatchers.IO) { playFinishedSound() }
             if (settings.vibrationEnabled) vibrate()
         }
         val notification = Notification.Builder(this, REST_DONE_CHANNEL_ID)

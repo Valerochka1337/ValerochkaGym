@@ -188,6 +188,8 @@ class AnalysisViewModelTest : RoomDaoTest() {
         workoutDao = db.workoutDao(),
         exerciseMuscleDao = db.exerciseMuscleDao(),
         engine = AnalyticsEngine(),
+        // Тестовый диспетчер вместо Dispatchers.Default — пересчёт остаётся на виртуальном времени.
+        computeDispatcher = mainDispatcherRule.testDispatcher,
     )
 
     /**

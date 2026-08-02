@@ -19,6 +19,7 @@ import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
@@ -51,10 +52,13 @@ internal fun MuscleHeatmapCard(
     onMuscleClicked: (Muscle?) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val loads = state.report.muscleLoads.associateBy { it.muscle }
-    val overloaded = state.report.muscleLoads
-        .filter { it.zone == VolumeZone.EXCESSIVE }
-        .mapTo(mutableSetOf()) { it.muscle }
+    // Производные от отчёта, а не от выбора: пересобирать их на каждый тап по карте незачем.
+    val loads = remember(state.report) { state.report.muscleLoads.associateBy { it.muscle } }
+    val overloaded = remember(state.report) {
+        state.report.muscleLoads
+            .filter { it.zone == VolumeZone.EXCESSIVE }
+            .mapTo(mutableSetOf()) { it.muscle }
+    }
 
     AnalysisCard(
         title = "Карта нагрузки",

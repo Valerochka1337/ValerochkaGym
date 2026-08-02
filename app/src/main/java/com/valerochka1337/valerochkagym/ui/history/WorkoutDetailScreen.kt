@@ -105,7 +105,7 @@ fun WorkoutDetailScreen(
                             color = MaterialTheme.colorScheme.onBackground,
                         )
                     }
-                    items(state.exercises) { exercise ->
+                    items(state.exercises, key = { it.id }) { exercise ->
                         ExerciseCard(exercise = exercise)
                     }
                 }

@@ -95,7 +95,7 @@ fun WorkoutSummaryScreen(
                             color = MaterialTheme.colorScheme.onBackground,
                         )
                     }
-                    items(state.prs) { pr ->
+                    items(state.prs, key = { it.exerciseId }) { pr ->
                         PrCard(pr)
                     }
                 }
@@ -109,7 +109,7 @@ fun WorkoutSummaryScreen(
                             color = MaterialTheme.colorScheme.onBackground,
                         )
                     }
-                    items(state.exercises) { exercise ->
+                    items(state.exercises, key = { it.id }) { exercise ->
                         GymCard(
                             modifier = Modifier.fillMaxWidth(),
                             contentPadding = PaddingValues(horizontal = 18.dp, vertical = 14.dp),

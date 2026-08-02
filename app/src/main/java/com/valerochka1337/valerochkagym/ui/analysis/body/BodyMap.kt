@@ -234,7 +234,16 @@ internal class ParsedBody(
         muscles.firstOrNull { it.region.contains(vx, vy) }?.muscle
 
     companion object {
-        fun of(view: BodyView): ParsedBody {
+        /**
+         * Кэш на процесс: разбор ~40 SVG-путей и построение регионов занимают заметное время на
+         * главном потоке, а фигура неизменна — нет смысла разбирать её заново после каждого
+         * переворота Crossfade или возврата на экран. Доступ только из композиции (main).
+         */
+        private val cache = mutableMapOf<BodyView, ParsedBody>()
+
+        fun of(view: BodyView): ParsedBody = cache.getOrPut(view) { build(view) }
+
+        private fun build(view: BodyView): ParsedBody {
             val backOffset = view == BodyView.BACK
             val silhouette = silhouetteOf(view, backOffset)
             val muscles = musclePaths(view).map { (muscle, ds) ->

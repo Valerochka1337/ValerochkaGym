@@ -18,8 +18,9 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
-/** Сводка одного упражнения в итогах: имя и краткая строка выполненных подходов. */
+/** Сводка одного упражнения в итогах: имя и краткая строка выполненных подходов. [id] — ключ списка. */
 data class ExerciseSummaryUi(
+    val id: Long,
     val name: String,
     val setsSummary: String,
 )
@@ -84,6 +85,7 @@ class WorkoutSummaryViewModel @Inject constructor(
             val duration = ((full.workout.finishedAt ?: full.workout.startedAt) - full.workout.startedAt) / 1000
             val exercises = full.exercises.map { exercise ->
                 ExerciseSummaryUi(
+                    id = exercise.workoutExercise.id,
                     name = exercise.exercise.name,
                     setsSummary = previousSetsUseCase.formatSummary(
                         exercise.sets.filter { it.isCompleted },

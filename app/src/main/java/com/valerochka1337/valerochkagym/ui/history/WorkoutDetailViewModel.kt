@@ -31,8 +31,9 @@ data class DetailSetUi(
     val completed: Boolean,
 )
 
-/** Упражнение в деталях: имя, мышечная группа и строки подходов. */
+/** Упражнение в деталях: имя, мышечная группа и строки подходов. [id] — ключ элемента списка. */
 data class DetailExerciseUi(
+    val id: Long,
     val name: String,
     val muscleGroup: String,
     val sets: List<DetailSetUi>,
@@ -95,6 +96,7 @@ class WorkoutDetailViewModel @Inject constructor(
             val duration = (full.workout.finishedAt ?: full.workout.startedAt) - full.workout.startedAt
             val exercises = full.exercises.map { exercise ->
                 DetailExerciseUi(
+                    id = exercise.workoutExercise.id,
                     name = exercise.exercise.name,
                     muscleGroup = exercise.exercise.muscleGroup.displayName(),
                     sets = exercise.sets.mapIndexed { index, set ->

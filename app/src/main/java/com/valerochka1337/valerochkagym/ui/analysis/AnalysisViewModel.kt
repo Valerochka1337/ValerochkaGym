@@ -12,8 +12,11 @@ import com.valerochka1337.valerochkagym.domain.analysis.AnalyticsInput
 import com.valerochka1337.valerochkagym.domain.analysis.AnalyticsReport
 import com.valerochka1337.valerochkagym.domain.analysis.ExerciseProgress
 import com.valerochka1337.valerochkagym.domain.analysis.MuscleLoadSummary
+import com.valerochka1337.valerochkagym.di.ComputeDispatcher
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -64,6 +67,7 @@ class AnalysisViewModel @Inject constructor(
     private val workoutDao: WorkoutDao,
     private val exerciseMuscleDao: ExerciseMuscleDao,
     private val engine: AnalyticsEngine,
+    @param:ComputeDispatcher private val computeDispatcher: CoroutineDispatcher,
 ) : ViewModel() {
 
     private val zone: ZoneId = ZoneId.systemDefault()
@@ -105,6 +109,9 @@ class AnalysisViewModel @Inject constructor(
             selectedPeriod,
         )
     }
+        // Пересчёт отчёта — O(история × подходы), уводим с Main: combine-трансформа иначе
+        // исполнялась бы на Dispatchers.Main.immediate через stateIn(viewModelScope).
+        .flowOn(computeDispatcher)
 
     val uiState: StateFlow<AnalysisUiState> =
         combine(reportFlow, selection) { report, current ->
