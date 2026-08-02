@@ -26,10 +26,14 @@ class GymDatabaseCallback @Inject constructor(
     override fun onOpen(db: SupportSQLiteDatabase) {
         super.onOpen(db)
         scope.launch {
-            val dao = database.get().exerciseDao()
+            val database = database.get()
+            val dao = database.exerciseDao()
             if (dao.count() == 0) {
                 dao.insertAll(seedExercises)
             }
+            // Карты мышц досеиваются отдельным шагом: их не хватает и после апгрейда с v2
+            // (миграция создаёт таблицу пустой), и у упражнений, созданных импортом.
+            seedMissingExerciseMuscles(dao, database.exerciseMuscleDao())
         }
     }
 }

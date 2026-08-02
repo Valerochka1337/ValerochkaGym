@@ -3,6 +3,7 @@ package com.valerochka1337.valerochkagym.data.db.dao
 import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.Query
+import androidx.room.Update
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
 import kotlinx.coroutines.flow.Flow
 
@@ -15,6 +16,10 @@ interface ExerciseDao {
 
     @Insert
     suspend fun insert(exercise: ExerciseEntity): Long
+
+    /** Правка упражнения из редактора: название своего упражнения и тип. */
+    @Update
+    suspend fun update(exercise: ExerciseEntity)
 
     @Insert
     suspend fun insertAll(exercises: List<ExerciseEntity>)

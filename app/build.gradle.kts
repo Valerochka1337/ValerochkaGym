@@ -115,4 +115,9 @@ dependencies {
     testImplementation(libs.androidx.room.testing)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.androidx.test.core)
+    // Рендер Compose в юнит-тестах (Robolectric, нативная графика): проверяет, что графики
+    // и карта тела действительно отрисовываются, а не только компилируются.
+    testImplementation(platform(libs.androidx.compose.bom))
+    testImplementation(libs.androidx.ui.test.junit4)
+    debugImplementation(libs.androidx.ui.test.manifest)
 }

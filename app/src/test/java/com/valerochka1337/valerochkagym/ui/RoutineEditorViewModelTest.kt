@@ -395,6 +395,7 @@ class RoutineEditorViewModelTest {
 
         override fun getAll(): Flow<List<ExerciseEntity>> = MutableStateFlow(items)
         override suspend fun insert(exercise: ExerciseEntity): Long = 0
+        override suspend fun update(exercise: ExerciseEntity) = Unit
         override suspend fun insertAll(exercises: List<ExerciseEntity>) = Unit
         override suspend fun count(): Int = items.size
         override suspend fun getById(id: Long): ExerciseEntity? = items.find { it.id == id }

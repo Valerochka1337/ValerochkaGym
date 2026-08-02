@@ -2,6 +2,7 @@ package com.valerochka1337.valerochkagym.data.db
 
 import androidx.room.TypeConverter
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
+import com.valerochka1337.valerochkagym.data.db.entity.Muscle
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleGroup
 import com.valerochka1337.valerochkagym.data.db.entity.UploadStatus
 import kotlinx.serialization.json.Json
@@ -15,6 +16,12 @@ class Converters {
 
     @TypeConverter
     fun toMuscleGroup(value: String): MuscleGroup = MuscleGroup.valueOf(value)
+
+    @TypeConverter
+    fun fromMuscle(value: Muscle): String = value.name
+
+    @TypeConverter
+    fun toMuscle(value: String): Muscle = Muscle.valueOf(value)
 
     @TypeConverter
     fun fromExerciseType(value: ExerciseType): String = value.name

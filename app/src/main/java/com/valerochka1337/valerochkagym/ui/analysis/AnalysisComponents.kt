@@ -1,0 +1,270 @@
+package com.valerochka1337.valerochkagym.ui.analysis
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import com.valerochka1337.valerochkagym.ui.components.GymCard
+
+/**
+ * Карточка блока аналитики: заголовок, пояснение и содержимое.
+ *
+ * Пояснение под заголовком обязательное по смыслу, а не декоративное: почти каждый график здесь
+ * показывает величину с оговоркой («в среднем за неделю», «оценка по формуле»), и без подписи
+ * его легко прочитать неверно.
+ */
+@Composable
+internal fun AnalysisCard(
+    title: String,
+    modifier: Modifier = Modifier,
+    subtitle: String? = null,
+    icon: ImageVector? = null,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    GymCard(
+        modifier = modifier.fillMaxWidth(),
+        contentPadding = PaddingValues(horizontal = 18.dp, vertical = 16.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (icon != null) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp),
+                )
+                Spacer(Modifier.width(10.dp))
+            }
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+        }
+        if (subtitle != null) {
+            Spacer(Modifier.height(2.dp))
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Spacer(Modifier.height(14.dp))
+        content()
+    }
+}
+
+/** Ряд взаимоисключающих чипов — переключатель вида/метрики/периода. */
+@Composable
+internal fun <T> ChipRow(
+    options: List<T>,
+    selected: T,
+    label: (T) -> String,
+    onSelect: (T) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    FlowRow(
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        options.forEach { option ->
+            FilterChip(
+                selected = option == selected,
+                onClick = { onSelect(option) },
+                label = { Text(label(option)) },
+                colors = FilterChipDefaults.filterChipColors(
+                    selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
+                    selectedLabelColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                ),
+            )
+        }
+    }
+}
+
+/**
+ * Ряд чипов с горизонтальной прокруткой — для длинных подписей вроде названий упражнений.
+ * Перенос по строкам там даёт по одному чипу на строку и съедает пол-экрана.
+ */
+@Composable
+internal fun <T> ScrollableChipRow(
+    options: List<T>,
+    selected: T,
+    label: (T) -> String,
+    onSelect: (T) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    LazyRow(
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        items(options) { option ->
+            FilterChip(
+                selected = option == selected,
+                onClick = { onSelect(option) },
+                label = { Text(label(option), maxLines = 1) },
+                colors = FilterChipDefaults.filterChipColors(
+                    selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
+                    selectedLabelColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                ),
+            )
+        }
+    }
+}
+
+/**
+ * Легенда шкалы: цветной образец плюс подпись. Образец с обводкой ([outlined]) показывает
+ * состояния, которые кодируются не заливкой, а обводкой — например перебор объёма.
+ */
+@Composable
+internal fun LegendSwatch(
+    color: Color,
+    label: String,
+    modifier: Modifier = Modifier,
+    outlined: Boolean = false,
+) {
+    Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
+        Box(
+            modifier = Modifier
+                .size(12.dp)
+                .clip(RoundedCornerShape(3.dp))
+                .background(if (outlined) MaterialTheme.colorScheme.surfaceContainerHighest else color)
+                .then(
+                    if (outlined) Modifier.border(2.dp, color, RoundedCornerShape(3.dp)) else Modifier,
+                ),
+        )
+        Spacer(Modifier.width(6.dp))
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            softWrap = false,
+        )
+    }
+}
+
+/**
+ * Строка «подпись — значение» для таблиц-двойников под графиками.
+ *
+ * Оба текста получают долю ширины через `weight`. Это не украшательство, а единственный
+ * рабочий вариант: в `Row` дети без веса меряются первыми и по всей ширине, поэтому
+ * значение без веса забирает строку целиком, а подписи достаётся ноль — и она рассыпается
+ * в столбик по букве. Значение всё равно должно быть коротким; длинному тексту место
+ * в [ValueBlock].
+ */
+@Composable
+internal fun ValueRow(
+    label: String,
+    value: String,
+    modifier: Modifier = Modifier,
+    accent: Boolean = false,
+) {
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f).padding(end = 12.dp),
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = if (accent) FontWeight.SemiBold else FontWeight.Normal,
+            color = if (accent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+            textAlign = TextAlign.End,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            softWrap = false,
+            modifier = Modifier.weight(VALUE_WEIGHT),
+        )
+    }
+}
+
+/**
+ * Доля ширины под значение в [ValueRow]. Числа и короткие фразы («8 · 12–20 · 22», «40 мин»)
+ * укладываются примерно в сорок процентов строки, а остальное нужнее подписи: она длиннее.
+ */
+private const val VALUE_WEIGHT = 0.72f
+
+/**
+ * Подпись и значение в две строки — для значений, которые в строку не помещаются в принципе
+ * (перечисления, названия упражнений). Переносится по словам, а не обрезается: список из трёх
+ * упражнений с многоточием после первого не отвечает ни на один вопрос.
+ */
+@Composable
+internal fun ValueBlock(
+    label: String,
+    value: String,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier = modifier.fillMaxWidth()) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 3,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+/** Компактный бейдж-пилюля: короткий статус рядом с заголовком. */
+@Composable
+internal fun StatusPill(
+    text: String,
+    color: Color,
+    modifier: Modifier = Modifier,
+) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.labelSmall,
+        fontWeight = FontWeight.SemiBold,
+        color = color,
+        maxLines = 1,
+        softWrap = false,
+        modifier = modifier
+            .clip(CircleShape)
+            .background(color.copy(alpha = 0.16f))
+            .padding(horizontal = 10.dp, vertical = 4.dp),
+    )
+}

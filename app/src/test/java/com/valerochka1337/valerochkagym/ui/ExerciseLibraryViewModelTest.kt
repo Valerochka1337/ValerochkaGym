@@ -1,9 +1,13 @@
 package com.valerochka1337.valerochkagym.ui
 
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseDao
+import com.valerochka1337.valerochkagym.data.db.dao.ExerciseMuscleDao
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
+import com.valerochka1337.valerochkagym.data.db.entity.ExerciseMuscleEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
+import com.valerochka1337.valerochkagym.data.db.entity.Muscle
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleGroup
+import com.valerochka1337.valerochkagym.data.db.entity.MuscleLoad
 import com.valerochka1337.valerochkagym.ui.library.ExerciseLibraryViewModel
 import com.valerochka1337.valerochkagym.util.MainDispatcherRule
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -15,6 +19,7 @@ import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -39,7 +44,7 @@ class ExerciseLibraryViewModelTest {
     @Test
     fun `query filters by Cyrillic name ignoring case`() = runTest(mainDispatcherRule.testDispatcher.scheduler) {
         val dao = FakeExerciseDao(catalogue())
-        val viewModel = ExerciseLibraryViewModel(dao)
+        val viewModel = ExerciseLibraryViewModel(dao, FakeExerciseMuscleDao())
         collectUiState(viewModel)
 
         viewModel.onQueryChange("жим")
@@ -51,7 +56,7 @@ class ExerciseLibraryViewModelTest {
     @Test
     fun `query is trimmed before matching`() = runTest(mainDispatcherRule.testDispatcher.scheduler) {
         val dao = FakeExerciseDao(catalogue())
-        val viewModel = ExerciseLibraryViewModel(dao)
+        val viewModel = ExerciseLibraryViewModel(dao, FakeExerciseMuscleDao())
         collectUiState(viewModel)
 
         viewModel.onQueryChange("  жим  ")
@@ -64,7 +69,7 @@ class ExerciseLibraryViewModelTest {
     @Test
     fun `empty query returns the whole catalogue`() = runTest(mainDispatcherRule.testDispatcher.scheduler) {
         val dao = FakeExerciseDao(catalogue())
-        val viewModel = ExerciseLibraryViewModel(dao)
+        val viewModel = ExerciseLibraryViewModel(dao, FakeExerciseMuscleDao())
         collectUiState(viewModel)
 
         viewModel.onQueryChange("")
@@ -75,7 +80,7 @@ class ExerciseLibraryViewModelTest {
     @Test
     fun `clearQuery restores the full catalogue`() = runTest(mainDispatcherRule.testDispatcher.scheduler) {
         val dao = FakeExerciseDao(catalogue())
-        val viewModel = ExerciseLibraryViewModel(dao)
+        val viewModel = ExerciseLibraryViewModel(dao, FakeExerciseMuscleDao())
         collectUiState(viewModel)
 
         viewModel.onQueryChange("жим")
@@ -93,7 +98,7 @@ class ExerciseLibraryViewModelTest {
     @Test
     fun `selecting a group narrows the list to that group`() = runTest(mainDispatcherRule.testDispatcher.scheduler) {
         val dao = FakeExerciseDao(catalogue())
-        val viewModel = ExerciseLibraryViewModel(dao)
+        val viewModel = ExerciseLibraryViewModel(dao, FakeExerciseMuscleDao())
         collectUiState(viewModel)
 
         viewModel.onGroupClicked(MuscleGroup.LEGS)
@@ -108,7 +113,7 @@ class ExerciseLibraryViewModelTest {
     @Test
     fun `re-tapping the active group clears the filter`() = runTest(mainDispatcherRule.testDispatcher.scheduler) {
         val dao = FakeExerciseDao(catalogue())
-        val viewModel = ExerciseLibraryViewModel(dao)
+        val viewModel = ExerciseLibraryViewModel(dao, FakeExerciseMuscleDao())
         collectUiState(viewModel)
 
         viewModel.onGroupClicked(MuscleGroup.LEGS)
@@ -126,7 +131,7 @@ class ExerciseLibraryViewModelTest {
     @Test
     fun `query and group filter together`() = runTest(mainDispatcherRule.testDispatcher.scheduler) {
         val dao = FakeExerciseDao(catalogue())
-        val viewModel = ExerciseLibraryViewModel(dao)
+        val viewModel = ExerciseLibraryViewModel(dao, FakeExerciseMuscleDao())
         collectUiState(viewModel)
 
         viewModel.onGroupClicked(MuscleGroup.LEGS)
@@ -143,7 +148,7 @@ class ExerciseLibraryViewModelTest {
     @Test
     fun `initial state is loading with no subscribers`() = runTest(mainDispatcherRule.testDispatcher.scheduler) {
         val dao = FakeExerciseDao(catalogue())
-        val viewModel = ExerciseLibraryViewModel(dao)
+        val viewModel = ExerciseLibraryViewModel(dao, FakeExerciseMuscleDao())
 
         val state = viewModel.uiState.value
         assertNull(state.exercises)
@@ -153,7 +158,7 @@ class ExerciseLibraryViewModelTest {
     @Test
     fun `first emission carries data and is not empty`() = runTest(mainDispatcherRule.testDispatcher.scheduler) {
         val dao = FakeExerciseDao(catalogue())
-        val viewModel = ExerciseLibraryViewModel(dao)
+        val viewModel = ExerciseLibraryViewModel(dao, FakeExerciseMuscleDao())
         collectUiState(viewModel)
 
         val state = viewModel.uiState.value
@@ -164,7 +169,7 @@ class ExerciseLibraryViewModelTest {
     @Test
     fun `a list filtered to nothing reports empty`() = runTest(mainDispatcherRule.testDispatcher.scheduler) {
         val dao = FakeExerciseDao(catalogue())
-        val viewModel = ExerciseLibraryViewModel(dao)
+        val viewModel = ExerciseLibraryViewModel(dao, FakeExerciseMuscleDao())
         collectUiState(viewModel)
 
         viewModel.onQueryChange("плавание")
@@ -176,33 +181,78 @@ class ExerciseLibraryViewModelTest {
 
     // endregion
 
-    // region createCustomExercise
+    // region editor
 
     @Test
-    fun `createCustomExercise inserts a trimmed custom exercise`() = runTest(mainDispatcherRule.testDispatcher.scheduler) {
-        val dao = FakeExerciseDao()
-        val viewModel = ExerciseLibraryViewModel(dao)
+    fun `saving a new exercise stores it with the muscle map and derived group`() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val dao = FakeExerciseDao()
+            val muscleDao = FakeExerciseMuscleDao()
+            val viewModel = ExerciseLibraryViewModel(dao, muscleDao)
 
-        viewModel.createCustomExercise("  Планка  ", MuscleGroup.CORE, ExerciseType.TIMED)
+            viewModel.openCreate()
+            viewModel.saveEditor(
+                name = "  Тяга сумо  ",
+                type = ExerciseType.STRENGTH,
+                loads = listOf(
+                    MuscleLoad(Muscle.GLUTES, 100),
+                    MuscleLoad(Muscle.LOWER_BACK, 70),
+                ),
+            )
 
-        val inserted = dao.lastInserted
-        assertEquals(1, dao.insertCount)
-        assertEquals("Планка", inserted?.name)
-        assertEquals(MuscleGroup.CORE, inserted?.muscleGroup)
-        assertEquals(ExerciseType.TIMED, inserted?.type)
-        assertTrue(inserted!!.isCustom)
-    }
+            val inserted = dao.lastInserted!!
+            assertEquals("Тяга сумо", inserted.name)
+            assertTrue(inserted.isCustom)
+            // Крупная группа выведена из самой вовлечённой мышцы, вручную её не выбирают.
+            assertEquals(MuscleGroup.LEGS, inserted.muscleGroup)
+            assertEquals(
+                mapOf(Muscle.GLUTES to 100, Muscle.LOWER_BACK to 70),
+                muscleDao.rows[inserted.id]?.associate { it.muscle to it.contribution },
+            )
+            assertNull(viewModel.editor.value)
+        }
 
     @Test
-    fun `createCustomExercise ignores a blank name`() = runTest(mainDispatcherRule.testDispatcher.scheduler) {
-        val dao = FakeExerciseDao()
-        val viewModel = ExerciseLibraryViewModel(dao)
+    fun `saving without a name or without muscles is ignored`() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val dao = FakeExerciseDao()
+            val viewModel = ExerciseLibraryViewModel(dao, FakeExerciseMuscleDao())
 
-        viewModel.createCustomExercise("   ", MuscleGroup.CORE, ExerciseType.TIMED)
+            viewModel.openCreate()
+            viewModel.saveEditor("   ", ExerciseType.STRENGTH, listOf(MuscleLoad(Muscle.CHEST, 100)))
+            viewModel.saveEditor("Жим", ExerciseType.STRENGTH, emptyList())
 
-        assertEquals(0, dao.insertCount)
-        assertNull(dao.lastInserted)
-    }
+            assertEquals(0, dao.insertCount)
+            assertNotNull("шторка должна остаться открытой", viewModel.editor.value)
+        }
+
+    @Test
+    fun `editing a built-in exercise replaces its muscle map but keeps name and group`() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val dao = FakeExerciseDao(catalogue())
+            val muscleDao = FakeExerciseMuscleDao()
+            muscleDao.rows[1L] = mutableListOf(ExerciseMuscleEntity(1L, Muscle.CHEST, 100))
+            val viewModel = ExerciseLibraryViewModel(dao, muscleDao)
+
+            viewModel.openEdit(catalogue().first())
+            val editor = viewModel.editor.value!!
+            assertEquals(mapOf(Muscle.CHEST to 100), editor.loads)
+            assertFalse("встроенное упражнение нельзя переименовать", editor.editableName)
+
+            viewModel.saveEditor(
+                name = "Другое имя",
+                type = ExerciseType.STRENGTH,
+                loads = listOf(MuscleLoad(Muscle.CHEST, 100), MuscleLoad(Muscle.TRICEPS, 65)),
+            )
+
+            val stored = dao.items.value.first { it.id == 1L }
+            assertEquals("Жим штанги лёжа", stored.name)
+            assertEquals(MuscleGroup.CHEST, stored.muscleGroup)
+            assertEquals(
+                mapOf(Muscle.CHEST to 100, Muscle.TRICEPS to 65),
+                muscleDao.rows[1L]?.associate { it.muscle to it.contribution },
+            )
+        }
 
     // endregion
 
@@ -232,7 +282,7 @@ class ExerciseLibraryViewModelTest {
      */
     private class FakeExerciseDao(initial: List<ExerciseEntity> = emptyList()) : ExerciseDao {
 
-        private val items = MutableStateFlow(initial)
+        val items = MutableStateFlow(initial)
 
         var insertCount = 0
             private set
@@ -250,6 +300,10 @@ class ExerciseLibraryViewModelTest {
             return id
         }
 
+        override suspend fun update(exercise: ExerciseEntity) {
+            items.value = items.value.map { if (it.id == exercise.id) exercise else it }
+        }
+
         override suspend fun insertAll(exercises: List<ExerciseEntity>) {
             exercises.forEach { insert(it) }
         }
@@ -262,5 +316,31 @@ class ExerciseLibraryViewModelTest {
 
         override suspend fun getByIds(ids: List<Long>): List<ExerciseEntity> =
             items.value.filter { it.id in ids }
+    }
+
+    /** In-memory [ExerciseMuscleDao]: карта мышц по упражнению, без Room. */
+    private class FakeExerciseMuscleDao : ExerciseMuscleDao {
+
+        val rows = mutableMapOf<Long, MutableList<ExerciseMuscleEntity>>()
+
+        override fun observeAll(): Flow<List<ExerciseMuscleEntity>> =
+            MutableStateFlow(rows.values.flatten())
+
+        override suspend fun getForExercise(exerciseId: Long): List<ExerciseMuscleEntity> =
+            rows[exerciseId].orEmpty().sortedByDescending { it.contribution }
+
+        override suspend fun getMappedExerciseIds(): List<Long> = rows.keys.toList()
+
+        override suspend fun upsertAll(rows: List<ExerciseMuscleEntity>) {
+            rows.forEach { row ->
+                val list = this.rows.getOrPut(row.exerciseId) { mutableListOf() }
+                list.removeAll { it.muscle == row.muscle }
+                list += row
+            }
+        }
+
+        override suspend fun deleteForExercise(exerciseId: Long) {
+            rows.remove(exerciseId)
+        }
     }
 }

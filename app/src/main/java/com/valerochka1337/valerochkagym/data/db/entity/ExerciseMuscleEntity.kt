@@ -1,0 +1,32 @@
+package com.valerochka1337.valerochkagym.data.db.entity
+
+import androidx.room.Entity
+import androidx.room.ForeignKey
+import androidx.room.Index
+
+/**
+ * Одна строка карты вовлечения мышц упражнения: «жим лёжа → трицепс 65%».
+ *
+ * Составной ключ `(exerciseId, muscle)` не даёт продублировать мышцу у одного упражнения,
+ * каскад по `exerciseId` убирает карту вместе с упражнением. Хранится отдельной таблицей,
+ * а не JSON-колонкой, чтобы недельный объём по мышцам агрегировался в SQL.
+ */
+@Entity(
+    tableName = "exercise_muscles",
+    primaryKeys = ["exerciseId", "muscle"],
+    foreignKeys = [
+        ForeignKey(
+            entity = ExerciseEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["exerciseId"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+    ],
+    indices = [Index("exerciseId")],
+)
+data class ExerciseMuscleEntity(
+    val exerciseId: Long,
+    val muscle: Muscle,
+    /** Доля вовлечения 0..100 (см. [MuscleLoad.contribution]). */
+    val contribution: Int,
+)

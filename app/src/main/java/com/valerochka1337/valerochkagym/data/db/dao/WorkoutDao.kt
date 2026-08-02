@@ -9,6 +9,7 @@ import com.valerochka1337.valerochkagym.data.db.entity.UploadStatus
 import com.valerochka1337.valerochkagym.data.db.entity.WorkoutEntity
 import com.valerochka1337.valerochkagym.data.db.entity.WorkoutExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.WorkoutSetEntity
+import com.valerochka1337.valerochkagym.data.db.relation.AnalyticsSetRow
 import com.valerochka1337.valerochkagym.data.db.relation.WorkoutFull
 import com.valerochka1337.valerochkagym.data.db.relation.WorkoutVolume
 import kotlinx.coroutines.flow.Flow
@@ -81,6 +82,34 @@ interface WorkoutDao {
         """,
     )
     fun observeWorkoutVolumes(): Flow<List<WorkoutVolume>>
+
+    /**
+     * Все выполненные подходы завершённых тренировок одной плоской проекцией — вход вкладки
+     * «Анализы» (см. [AnalyticsSetRow]). Незавершённая тренировка в аналитику не попадает:
+     * её объём ещё меняется. Порядок по времени отметки, чтобы скользящие окна считались
+     * без досортировки.
+     */
+    @Query(
+        """
+        SELECT w.id AS workoutId,
+               we.exerciseId AS exerciseId,
+               e.name AS exerciseName,
+               e.type AS exerciseType,
+               ws.weightKg AS weightKg,
+               ws.reps AS reps,
+               ws.durationSec AS durationSec,
+               ws.speedKmh AS speedKmh,
+               ws.inclinePct AS inclinePct,
+               COALESCE(ws.completedAt, w.startedAt) AS completedAt
+        FROM workout_sets ws
+        JOIN workout_exercises we ON we.id = ws.workoutExerciseId
+        JOIN workouts w ON w.id = we.workoutId
+        JOIN exercises e ON e.id = we.exerciseId
+        WHERE ws.isCompleted = 1 AND w.finishedAt IS NOT NULL
+        ORDER BY completedAt ASC
+        """,
+    )
+    fun observeCompletedSets(): Flow<List<AnalyticsSetRow>>
 
     @Transaction
     @Query("SELECT * FROM workouts WHERE id = :id")

@@ -144,6 +144,7 @@ class WorkoutImportRepositoryTest : RoomDaoTest() {
             db,
             db.workoutDao(),
             failingExercises,
+            db.exerciseMuscleDao(),
         )
 
         assertTrue(repo.importAll() is ImportResult.Failure)
@@ -156,7 +157,15 @@ class WorkoutImportRepositoryTest : RoomDaoTest() {
         auth: GoogleAuth = FakeGoogleAuth(TokenResult.Success("token")),
         settings: SettingsRepository = settingsRepository(SPREADSHEET_ID),
     ): WorkoutImportRepositoryImpl =
-        WorkoutImportRepositoryImpl(api, auth, settings, db, db.workoutDao(), db.exerciseDao())
+        WorkoutImportRepositoryImpl(
+            api,
+            auth,
+            settings,
+            db,
+            db.workoutDao(),
+            db.exerciseDao(),
+            db.exerciseMuscleDao(),
+        )
 
     private fun settingsRepository(spreadsheetId: String?): SettingsRepository {
         val prefs = if (spreadsheetId == null) emptyPreferences()

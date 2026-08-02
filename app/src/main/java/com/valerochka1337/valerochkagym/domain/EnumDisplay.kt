@@ -1,6 +1,7 @@
 package com.valerochka1337.valerochkagym.domain
 
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
+import com.valerochka1337.valerochkagym.data.db.entity.Muscle
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleGroup
 
 /** Russian label for a muscle group, shown across exercise-related screens. */
@@ -13,6 +14,31 @@ fun MuscleGroup.displayName(): String = when (this) {
     MuscleGroup.CORE -> "Пресс"
     MuscleGroup.CARDIO -> "Кардио"
     MuscleGroup.FULL_BODY -> "Всё тело"
+}
+
+/**
+ * Russian label for a concrete muscle — подписи мышц в аналитике, легенде тепловой карты и
+ * редакторе упражнения. Короткие (2 слова максимум): подписи стоят рядом с числами на графиках.
+ */
+fun Muscle.displayName(): String = when (this) {
+    Muscle.CHEST -> "Грудь"
+    Muscle.FRONT_DELTS -> "Передняя дельта"
+    Muscle.SIDE_DELTS -> "Средняя дельта"
+    Muscle.REAR_DELTS -> "Задняя дельта"
+    Muscle.TRAPS -> "Трапеции"
+    Muscle.LATS -> "Широчайшие"
+    Muscle.UPPER_BACK -> "Середина спины"
+    Muscle.LOWER_BACK -> "Разгибатели спины"
+    Muscle.BICEPS -> "Бицепс"
+    Muscle.TRICEPS -> "Трицепс"
+    Muscle.FOREARMS -> "Предплечья"
+    Muscle.ABS -> "Пресс"
+    Muscle.OBLIQUES -> "Косые"
+    Muscle.GLUTES -> "Ягодичные"
+    Muscle.QUADS -> "Квадрицепс"
+    Muscle.HAMSTRINGS -> "Бицепс бедра"
+    Muscle.ADDUCTORS -> "Приводящие"
+    Muscle.CALVES -> "Икры"
 }
 
 /** Russian label for an exercise type. */

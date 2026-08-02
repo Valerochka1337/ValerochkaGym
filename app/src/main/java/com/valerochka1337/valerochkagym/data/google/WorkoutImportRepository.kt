@@ -3,13 +3,16 @@ package com.valerochka1337.valerochkagym.data.google
 import androidx.room.withTransaction
 import com.valerochka1337.valerochkagym.data.db.GymDatabase
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseDao
+import com.valerochka1337.valerochkagym.data.db.dao.ExerciseMuscleDao
 import com.valerochka1337.valerochkagym.data.db.dao.WorkoutDao
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
+import com.valerochka1337.valerochkagym.data.db.muscleRows
 import com.valerochka1337.valerochkagym.data.db.entity.UploadStatus
 import com.valerochka1337.valerochkagym.data.db.entity.WorkoutEntity
 import com.valerochka1337.valerochkagym.data.db.entity.WorkoutExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.WorkoutSetEntity
 import com.valerochka1337.valerochkagym.data.settings.SettingsRepository
+import com.valerochka1337.valerochkagym.domain.ParsedExercise
 import com.valerochka1337.valerochkagym.domain.ParsedWorkout
 import com.valerochka1337.valerochkagym.domain.WorkoutRowParser
 import kotlinx.coroutines.flow.first
@@ -49,6 +52,7 @@ class WorkoutImportRepositoryImpl @Inject constructor(
     private val database: GymDatabase,
     private val workoutDao: WorkoutDao,
     private val exerciseDao: ExerciseDao,
+    private val exerciseMuscleDao: ExerciseMuscleDao,
 ) : WorkoutImportRepository {
 
     override suspend fun importAll(): ImportResult {
@@ -108,15 +112,7 @@ class WorkoutImportRepositoryImpl @Inject constructor(
         )
         for (exercise in parsed.exercises) {
             val key = exercise.name.lowercase()
-            val exerciseId = byName[key]
-                ?: exerciseDao.insert(
-                    ExerciseEntity(
-                        name = exercise.name,
-                        muscleGroup = exercise.muscleGroup,
-                        type = exercise.type,
-                        isCustom = true,
-                    ),
-                ).also { byName[key] = it }
+            val exerciseId = byName[key] ?: createExercise(exercise).also { byName[key] = it }
             val workoutExerciseId = workoutDao.insertWorkoutExercise(
                 WorkoutExerciseEntity(
                     workoutId = parsed.id,
@@ -142,6 +138,24 @@ class WorkoutImportRepositoryImpl @Inject constructor(
                 )
             }
         }
+    }
+
+    /**
+     * Создаёт упражнение, которого нет в каталоге, вместе с картой вовлечения мышц: в таблице
+     * есть только колонка `muscle_group`, поэтому карта берётся точная по имени, а если имя
+     * незнакомое — типичная для группы (см. `muscleLoadsFor`). Без этого шага импортированные
+     * упражнения не попадали бы в тепловую карту до следующего открытия базы.
+     */
+    private suspend fun createExercise(exercise: ParsedExercise): Long {
+        val entity = ExerciseEntity(
+            name = exercise.name,
+            muscleGroup = exercise.muscleGroup,
+            type = exercise.type,
+            isCustom = true,
+        )
+        val id = exerciseDao.insert(entity)
+        exerciseMuscleDao.upsertAll(entity.copy(id = id).muscleRows())
+        return id
     }
 
     /** Те же формулировки, что при выгрузке (см. `SheetsRepositoryImpl.classifyHttp`). */

@@ -1,0 +1,55 @@
+package com.valerochka1337.valerochkagym.ui.theme
+
+import androidx.compose.ui.graphics.Color
+import com.valerochka1337.valerochkagym.domain.analysis.VolumeZone
+
+/**
+ * Палитра визуализаций — единственное место, где приложение выходит за «один зелёный акцент».
+ *
+ * Правило единственного акцента в `docs/design-system.md` действует для интерфейса: кнопок,
+ * состояний, чисел. На шкале «сколько нагрузки получила мышца» цвет несёт **значение**, а не
+ * идентичность, и одна зелёная шкала не различит «мало» и «норму» — читатель увидит только
+ * «более/менее зелёно». Поэтому здесь работает семантическая тепловая шкала красный → зелёный;
+ * она обязательна вместе с легендой.
+ *
+ * Шкала **ступенчатая, а не градиентная**: глаз всё равно не различает непрерывную заливку
+ * точнее четырёх-пяти уровней, зато по ступеням читается легенда. Ступени совпадают с зонами
+ * недельного объёма ([VolumeZone]) — цвет и слово всегда говорят одно и то же.
+ *
+ * Заливка строго монотонна (меньше → краснее, больше → зеленее), поэтому «перебор» **не**
+ * красится вторым красным: иначе один цвет означал бы противоположные вещи. Перебор — это
+ * зелёная заливка плюс отдельный канал: обводка [Overload], значок и слово в списке.
+ */
+object ChartPalette {
+
+    /** Нет нагрузки — нейтральный серый вне тепловой шкалы. */
+    val Empty = Color(0xFF343A41)
+
+    /** Ниже MEV: нагрузка есть, но для роста её мало. */
+    val TooLittle = Color(0xFFE5484D)
+
+    /** MEV..MAV: рабочий минимум. */
+    val Maintenance = Color(0xFFF2A93B)
+
+    /** Рабочий коридор — совпадает с акцентом приложения. */
+    val Optimal = Color(0xFF3DDC84)
+
+    /** Обводка и значок для объёма выше MRV. */
+    val Overload = Color(0xFFE5484D)
+
+    /** Заливка мышцы по зоне недельного объёма. */
+    fun zoneColor(zone: VolumeZone): Color = when (zone) {
+        VolumeZone.NONE -> Empty
+        VolumeZone.BELOW_MEV -> TooLittle
+        VolumeZone.MAINTENANCE -> Maintenance
+        VolumeZone.OPTIMAL, VolumeZone.EXCESSIVE -> Optimal
+    }
+
+    /** Порядок ступеней для легенды — от «нет» к «норме». */
+    val legendZones: List<VolumeZone> = listOf(
+        VolumeZone.NONE,
+        VolumeZone.BELOW_MEV,
+        VolumeZone.MAINTENANCE,
+        VolumeZone.OPTIMAL,
+    )
+}

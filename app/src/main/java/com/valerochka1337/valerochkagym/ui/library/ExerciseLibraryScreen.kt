@@ -22,7 +22,6 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.FloatingActionButton
@@ -32,12 +31,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -46,7 +41,6 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
-import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleGroup
 import com.valerochka1337.valerochkagym.domain.displayName
 import com.valerochka1337.valerochkagym.ui.components.ExerciseAvatar
@@ -55,10 +49,11 @@ import com.valerochka1337.valerochkagym.ui.components.GymCard
 
 /**
  * The exercise library: search field, muscle-group filter chips and a list of
- * exercises. A FAB opens a dialog for creating a custom exercise.
+ * exercises. A FAB opens the editor sheet for creating a custom exercise.
  *
  * When [onExerciseSelected] is non-null the screen acts as a picker: tapping a
- * row invokes the callback. When null, rows are inert (browsing only).
+ * row invokes the callback. В режиме просмотра тап по строке открывает разметку мышц
+ * упражнения — тот же редактор, что и при создании (см. [ExerciseEditorSheet]).
  */
 @Composable
 fun ExerciseLibraryScreen(
@@ -68,7 +63,7 @@ fun ExerciseLibraryScreen(
     viewModel: ExerciseLibraryViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
-    var showCreateDialog by rememberSaveable { mutableStateOf(false) }
+    val editor by viewModel.editor.collectAsStateWithLifecycle()
 
     GlowBackground(modifier = modifier) {
         Box(modifier = Modifier.fillMaxSize()) {
@@ -111,9 +106,9 @@ fun ExerciseLibraryScreen(
                         items(exercises, key = { it.id }) { exercise ->
                             ExerciseRow(
                                 exercise = exercise,
-                                onClick = onExerciseSelected?.let { callback ->
-                                    { callback(exercise) }
-                                },
+                                onClick = onExerciseSelected
+                                    ?.let { callback -> { callback(exercise) } }
+                                    ?: { viewModel.openEdit(exercise) },
                             )
                         }
                     }
@@ -121,7 +116,7 @@ fun ExerciseLibraryScreen(
             }
 
             FloatingActionButton(
-                onClick = { showCreateDialog = true },
+                onClick = viewModel::openCreate,
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
                     .padding(24.dp),
@@ -133,13 +128,11 @@ fun ExerciseLibraryScreen(
         }
     }
 
-    if (showCreateDialog) {
-        CreateExerciseDialog(
-            onDismiss = { showCreateDialog = false },
-            onCreate = { name, group, type ->
-                viewModel.createCustomExercise(name, group, type)
-                showCreateDialog = false
-            },
+    editor?.let { initial ->
+        ExerciseEditorSheet(
+            initial = initial,
+            onDismiss = viewModel::closeEditor,
+            onSave = viewModel::saveEditor,
         )
     }
 }
@@ -282,79 +275,4 @@ private fun EmptyState(modifier: Modifier = Modifier) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
-}
-
-@Composable
-private fun CreateExerciseDialog(
-    onDismiss: () -> Unit,
-    onCreate: (name: String, group: MuscleGroup, type: ExerciseType) -> Unit,
-) {
-    // Enums aren't Parcelable, so persist their .name across recreation and map back.
-    var name by rememberSaveable { mutableStateOf("") }
-    var groupName by rememberSaveable { mutableStateOf(MuscleGroup.CHEST.name) }
-    var typeName by rememberSaveable { mutableStateOf(ExerciseType.STRENGTH.name) }
-    val group = MuscleGroup.valueOf(groupName)
-    val type = ExerciseType.valueOf(typeName)
-    val canCreate = name.trim().isNotEmpty()
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Своё упражнение") },
-        text = {
-            Column {
-                OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    label = { Text("Название") },
-                )
-                Spacer(Modifier.height(16.dp))
-                Text(
-                    text = "Группа мышц",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.height(8.dp))
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(MuscleGroup.entries, key = { it.name }) { entry ->
-                        FilterChip(
-                            selected = entry == group,
-                            onClick = { groupName = entry.name },
-                            label = { Text(entry.displayName()) },
-                        )
-                    }
-                }
-                Spacer(Modifier.height(16.dp))
-                Text(
-                    text = "Тип",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.height(8.dp))
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(ExerciseType.entries, key = { it.name }) { entry ->
-                        FilterChip(
-                            selected = entry == type,
-                            onClick = { typeName = entry.name },
-                            label = { Text(entry.displayName()) },
-                        )
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = { onCreate(name, group, type) },
-                enabled = canCreate,
-            ) {
-                Text("Создать")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Отмена")
-            }
-        },
-    )
 }
