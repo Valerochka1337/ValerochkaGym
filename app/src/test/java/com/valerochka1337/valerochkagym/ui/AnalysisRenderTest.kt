@@ -31,7 +31,9 @@ import com.valerochka1337.valerochkagym.ui.analysis.MuscleVolumeCard
 import com.valerochka1337.valerochkagym.ui.analysis.RecordsCard
 import com.valerochka1337.valerochkagym.ui.analysis.SummaryCard
 import com.valerochka1337.valerochkagym.ui.analysis.WeeklyVolumeCard
-import com.valerochka1337.valerochkagym.ui.analysis.body.BodyMapPair
+import com.valerochka1337.valerochkagym.domain.analysis.VolumeZone
+import com.valerochka1337.valerochkagym.ui.analysis.body.BodyMapFlip
+import com.valerochka1337.valerochkagym.ui.analysis.body.BodyView
 import com.valerochka1337.valerochkagym.ui.theme.ChartPalette
 import com.valerochka1337.valerochkagym.ui.theme.GymTheme
 import org.junit.Assert.assertTrue
@@ -103,13 +105,18 @@ class AnalysisRenderTest {
 
     @Test
     fun `heatmap renders a muscle selected on the back side`() {
-        // Мышца может быть выбрана на любой из двух фигур — обводка должна найтись на задней.
-        val state = buildState().copy(selectedMuscle = Muscle.LATS)
+        // Задняя фигура и её сдвиг координат нигде больше не видны на снимках — рендерим её явно
+        // с выбранной широчайшей, чтобы поймать и разбор задних путей, и обводку выбора.
+        val loads = buildState().report.muscleLoads.associateBy { it.muscle }
 
         composeRule.setContent {
             GymTheme {
                 Column(modifier = Modifier.width(420.dp).padding(16.dp)) {
-                    MuscleHeatmapCard(state, onMuscleClicked = {})
+                    BodyMapFlip(
+                        fillFor = { muscle -> ChartPalette.zoneColor(loads[muscle]?.zone ?: VolumeZone.NONE) },
+                        selectedMuscle = Muscle.LATS,
+                        initialView = BodyView.BACK,
+                    )
                 }
             }
         }
@@ -135,7 +142,7 @@ class AnalysisRenderTest {
                 val base = MaterialTheme.colorScheme.surfaceContainerHighest
                 val accent = MaterialTheme.colorScheme.primary
                 Column(modifier = Modifier.width(420.dp).padding(16.dp)) {
-                    BodyMapPair(
+                    BodyMapFlip(
                         fillFor = { muscle ->
                             val load = loads[muscle]
                             if (load == null) ChartPalette.Empty else lerp(base, accent, load / 100f)

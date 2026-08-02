@@ -9,13 +9,6 @@ import kotlin.math.roundToLong
 
 private val RU: Locale = Locale.forLanguageTag("ru")
 
-/** Дата тренировки в родительном падеже: «31 июля», с годом — «31 июля 2025», если год не текущий. */
-internal fun formatWorkoutDate(startedAt: Long): String {
-    val date = Instant.ofEpochMilli(startedAt).atZone(ZoneId.systemDefault()).toLocalDate()
-    val pattern = if (date.year == LocalDate.now().year) "d MMMM" else "d MMMM yyyy"
-    return date.format(DateTimeFormatter.ofPattern(pattern, RU))
-}
-
 /** Дата и время начала тренировки: «31 июля, 19:30» (с годом, если год не текущий). */
 internal fun formatWorkoutDateTime(startedAt: Long): String {
     val dateTime = Instant.ofEpochMilli(startedAt).atZone(ZoneId.systemDefault())

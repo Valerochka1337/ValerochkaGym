@@ -122,7 +122,7 @@ class WorkoutSessionService : LifecycleService() {
                 addAction(ACTION_SET_COMPLETE)
                 addAction(ACTION_SET_QUICK_EDIT)
             },
-            Context.RECEIVER_NOT_EXPORTED,
+            RECEIVER_NOT_EXPORTED,
         )
         observeState()
     }
@@ -424,10 +424,6 @@ class WorkoutSessionService : LifecycleService() {
     companion object {
         fun start(context: Context) {
             context.startForegroundService(Intent(context, WorkoutSessionService::class.java))
-        }
-
-        fun stop(context: Context) {
-            context.stopService(Intent(context, WorkoutSessionService::class.java))
         }
 
         private const val SESSION_CHANNEL_ID = "workout_session"

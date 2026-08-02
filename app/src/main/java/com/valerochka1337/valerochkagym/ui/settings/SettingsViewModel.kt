@@ -26,7 +26,6 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 /** Шаг изменения отдыха по умолчанию и его нижняя граница (в секундах). */
-private const val REST_STEP_SECONDS = 15
 private const val MIN_REST_SECONDS = 15
 
 /** Сообщение об ошибке настройки OAuth-доступа. */

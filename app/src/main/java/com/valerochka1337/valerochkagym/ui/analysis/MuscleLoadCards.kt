@@ -33,7 +33,7 @@ import com.valerochka1337.valerochkagym.domain.analysis.MuscleLoadSummary
 import com.valerochka1337.valerochkagym.domain.analysis.VolumeZone
 import com.valerochka1337.valerochkagym.domain.analysis.landmarks
 import com.valerochka1337.valerochkagym.domain.displayName
-import com.valerochka1337.valerochkagym.ui.analysis.body.BodyMapPair
+import com.valerochka1337.valerochkagym.ui.analysis.body.BodyMapFlip
 import com.valerochka1337.valerochkagym.ui.analysis.charts.ChartSpec
 import com.valerochka1337.valerochkagym.ui.analysis.charts.rememberChartColors
 import com.valerochka1337.valerochkagym.ui.theme.ChartPalette
@@ -62,7 +62,7 @@ internal fun MuscleHeatmapCard(
         icon = Icons.Rounded.Accessibility,
         modifier = modifier,
     ) {
-        BodyMapPair(
+        BodyMapFlip(
             fillFor = { muscle -> ChartPalette.zoneColor(loads[muscle]?.zone ?: VolumeZone.NONE) },
             selectedMuscle = state.selectedMuscle,
             outlined = overloaded,

@@ -14,7 +14,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -43,7 +45,8 @@ import com.valerochka1337.valerochkagym.data.db.entity.Muscle
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleLoad
 import com.valerochka1337.valerochkagym.data.db.entity.group
 import com.valerochka1337.valerochkagym.domain.displayName
-import com.valerochka1337.valerochkagym.ui.analysis.body.BodyMapPair
+import com.valerochka1337.valerochkagym.ui.analysis.body.BodyMapFlip
+import com.valerochka1337.valerochkagym.ui.analysis.body.offFigureMuscles
 import com.valerochka1337.valerochkagym.ui.components.PillButton
 import com.valerochka1337.valerochkagym.ui.theme.ChartPalette
 
@@ -136,7 +139,7 @@ internal fun ExerciseEditorSheet(
             )
 
             Spacer(Modifier.height(12.dp))
-            BodyMapPair(
+            BodyMapFlip(
                 fillFor = { muscle ->
                     val load = loads[muscle]
                     if (load == null || load <= 0) ChartPalette.Empty else lerp(base, accent, load / 100f)
@@ -152,6 +155,30 @@ internal fun ExerciseEditorSheet(
                     }
                 },
             )
+
+            // Мышцы без своей области на фигуре не выбрать тапом — добавляем их кнопками.
+            val addable = offFigureMuscles.filter { it !in loads.keys }
+            if (addable.isNotEmpty()) {
+                Spacer(Modifier.height(8.dp))
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    addable.forEach { muscle ->
+                        AssistChip(
+                            onClick = {
+                                active = muscle
+                                if (loads[muscle] == null) loads[muscle] = DEFAULT_LOAD
+                            },
+                            label = { Text(muscle.displayName()) },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Rounded.Add,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            },
+                        )
+                    }
+                }
+            }
 
             val activeMuscle = active
             if (activeMuscle != null) {

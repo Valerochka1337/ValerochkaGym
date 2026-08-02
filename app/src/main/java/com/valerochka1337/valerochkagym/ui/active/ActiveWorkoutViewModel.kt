@@ -25,6 +25,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+import kotlin.time.Duration.Companion.milliseconds
 
 /**
  * Состояние экрана активной тренировки. [loading] отличает «ещё не загрузили из БД» от
@@ -81,7 +82,7 @@ class ActiveWorkoutViewModel @Inject constructor(
     private val tickerFlow: Flow<Long> = flow {
         while (true) {
             emit(System.currentTimeMillis())
-            delay(1000)
+            delay(1000.milliseconds)
         }
     }
 

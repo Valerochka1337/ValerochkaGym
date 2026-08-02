@@ -16,6 +16,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlin.time.Duration.Companion.milliseconds
 
 /** Источник «сейчас» в миллисекундах стенных часов. Единственный сид времени для [RestTimerEngine]. */
 fun interface WallClock {
@@ -92,7 +93,7 @@ class RestTimerEngine @Inject constructor(
         }
         tickerJob = scope.launch {
             while (isActive && myGeneration == generation) {
-                delay(TICK_MS)
+                delay(TICK_MS.milliseconds)
                 if (myGeneration != generation) break
                 // Время читаем один раз до CAS: лямбда может быть вызвана повторно при гонке, и
                 // разные показания часов внутри неё дали бы неповторяемый результат.
@@ -103,7 +104,7 @@ class RestTimerEngine @Inject constructor(
                 if (updated == null) break
                 if (updated.remainingSec == 0) {
                     _finished.emit(Unit)
-                    delay(FINAL_FRAME_MS)
+                    delay(FINAL_FRAME_MS.milliseconds)
                     // Не затираем состояние, если за это время уже стартовал новый отдых.
                     if (myGeneration == generation) {
                         _state.update { current -> if (current?.remainingSec == 0) null else current }

@@ -11,6 +11,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kotlin.time.Duration.Companion.milliseconds
 
 /**
  * Unit tests for [RestTimerEngine]. The engine is Android-free: its seams are the injected
@@ -25,7 +26,7 @@ import org.junit.Test
  * including) the next tick, then `runCurrent()` fires the tick scheduled at that instant. Stepping one
  * second at a time lets each intermediate frame be asserted deterministically.
  *
- * By default the [WallClock] is wired to the scheduler's virtual clock, so wall time and coroutine
+ * By default, the [WallClock] is wired to the scheduler's virtual clock, so wall time and coroutine
  * time move together. The stall test deliberately decouples them: that is the only way to model a
  * frozen process, where `delay` does not fire while real time keeps running.
  *
@@ -131,7 +132,7 @@ class RestTimerEngineTest {
         engine.skip()
         assertNull(engine.state.value)
 
-        // The old ticker is cancelled: no more decrements, no finished, however far the clock moves.
+        // The old ticker is canceled: no more decrements, no finished, however far the clock moves.
         advanceSeconds(60)
         assertNull(engine.state.value)
         assertTrue(finished.isEmpty())
@@ -208,7 +209,7 @@ class RestTimerEngineTest {
         // no tick runs, yet real seconds keep passing. A decrementing counter would come back 45s
         // behind; recomputing from the deadline must not.
         var wallMillis = 0L
-        val engine = RestTimerEngine(backgroundScope, { wallMillis })
+        val engine = RestTimerEngine(backgroundScope) { wallMillis }
         val finished = collectFinished(engine)
 
         engine.start(60)
@@ -228,7 +229,7 @@ class RestTimerEngineTest {
 
     /** Engine whose wall clock follows the test's virtual time, so both clocks move together. */
     private fun TestScope.engine(): RestTimerEngine =
-        RestTimerEngine(backgroundScope, { testScheduler.currentTime })
+        RestTimerEngine(backgroundScope) { testScheduler.currentTime }
 
     /**
      * Subscribes to [RestTimerEngine.finished] on an eager unconfined dispatcher and returns the
@@ -245,7 +246,7 @@ class RestTimerEngineTest {
     /** Drives the virtual clock forward one tick at a time so each per-second frame is observable. */
     private fun TestScope.advanceSeconds(seconds: Int) {
         repeat(seconds) {
-            advanceTimeBy(1000)
+            advanceTimeBy(1000.milliseconds)
             runCurrent()
         }
     }
