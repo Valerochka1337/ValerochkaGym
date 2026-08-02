@@ -19,8 +19,6 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -35,6 +33,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.valerochka1337.valerochkagym.ui.components.GymCard
+import com.valerochka1337.valerochkagym.ui.components.GymFilterChip
 
 /**
  * Карточка блока аналитики: заголовок, пояснение и содержимое.
@@ -100,14 +99,10 @@ internal fun <T> ChipRow(
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         options.forEach { option ->
-            FilterChip(
+            GymFilterChip(
                 selected = option == selected,
                 onClick = { onSelect(option) },
-                label = { Text(label(option)) },
-                colors = FilterChipDefaults.filterChipColors(
-                    selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
-                    selectedLabelColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                ),
+                label = label(option),
             )
         }
     }
@@ -130,14 +125,10 @@ internal fun <T> ScrollableChipRow(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         items(options) { option ->
-            FilterChip(
+            GymFilterChip(
                 selected = option == selected,
                 onClick = { onSelect(option) },
-                label = { Text(label(option), maxLines = 1) },
-                colors = FilterChipDefaults.filterChipColors(
-                    selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
-                    selectedLabelColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                ),
+                label = label(option),
             )
         }
     }

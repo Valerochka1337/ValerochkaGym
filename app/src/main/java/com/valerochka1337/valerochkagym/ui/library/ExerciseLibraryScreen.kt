@@ -22,8 +22,6 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -44,8 +42,10 @@ import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleGroup
 import com.valerochka1337.valerochkagym.domain.displayName
 import com.valerochka1337.valerochkagym.ui.components.ExerciseAvatar
+import com.valerochka1337.valerochkagym.ui.components.FadeInContent
 import com.valerochka1337.valerochkagym.ui.components.GlowBackground
 import com.valerochka1337.valerochkagym.ui.components.GymCard
+import com.valerochka1337.valerochkagym.ui.components.GymFilterChip
 
 /**
  * The exercise library: search field, muscle-group filter chips and a list of
@@ -92,24 +92,27 @@ fun ExerciseLibraryScreen(
                 when {
                     // Not loaded yet: show nothing (Room emits quickly).
                     exercises == null -> Unit
-                    exercises.isEmpty() -> EmptyState(modifier = Modifier.fillMaxSize())
-                    else -> LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(
-                            start = 24.dp,
-                            end = 24.dp,
-                            top = 4.dp,
-                            bottom = 96.dp,
-                        ),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        items(exercises, key = { it.id }) { exercise ->
-                            ExerciseRow(
-                                exercise = exercise,
-                                onClick = onExerciseSelected
-                                    ?.let { callback -> { callback(exercise) } }
-                                    ?: { viewModel.openEdit(exercise) },
-                            )
+                    exercises.isEmpty() -> FadeInContent { EmptyState(modifier = Modifier.fillMaxSize()) }
+                    else -> FadeInContent {
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(
+                                start = 24.dp,
+                                end = 24.dp,
+                                top = 4.dp,
+                                bottom = 96.dp,
+                            ),
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            items(exercises, key = { it.id }) { exercise ->
+                                ExerciseRow(
+                                    exercise = exercise,
+                                    onClick = onExerciseSelected
+                                        ?.let { callback -> { callback(exercise) } }
+                                        ?: { viewModel.openEdit(exercise) },
+                                    modifier = Modifier.animateItem(),
+                                )
+                            }
                         }
                     }
                 }
@@ -200,14 +203,10 @@ private fun GroupFilterRow(
     ) {
         items(MuscleGroup.entries, key = { it.name }) { group ->
             val selected = group == selectedGroup
-            FilterChip(
+            GymFilterChip(
                 selected = selected,
                 onClick = { onGroupClicked(group) },
-                label = { Text(group.displayName()) },
-                colors = FilterChipDefaults.filterChipColors(
-                    selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
-                    selectedLabelColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                ),
+                label = group.displayName(),
             )
         }
     }
@@ -217,9 +216,10 @@ private fun GroupFilterRow(
 private fun ExerciseRow(
     exercise: ExerciseEntity,
     onClick: (() -> Unit)?,
+    modifier: Modifier = Modifier,
 ) {
     GymCard(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth(),
         onClick = onClick,
         contentPadding = PaddingValues(horizontal = 18.dp, vertical = 14.dp),
     ) {

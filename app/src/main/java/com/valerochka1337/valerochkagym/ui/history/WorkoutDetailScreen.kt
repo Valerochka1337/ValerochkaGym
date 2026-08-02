@@ -106,7 +106,7 @@ fun WorkoutDetailScreen(
                         )
                     }
                     items(state.exercises, key = { it.id }) { exercise ->
-                        ExerciseCard(exercise = exercise)
+                        ExerciseCard(exercise = exercise, modifier = Modifier.animateItem())
                     }
                 }
 
@@ -304,9 +304,9 @@ private fun UploadCard(
 }
 
 @Composable
-private fun ExerciseCard(exercise: DetailExerciseUi) {
+private fun ExerciseCard(exercise: DetailExerciseUi, modifier: Modifier = Modifier) {
     GymCard(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth(),
         contentPadding = PaddingValues(horizontal = 18.dp, vertical = 14.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {

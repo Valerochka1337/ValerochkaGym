@@ -111,7 +111,7 @@ fun WorkoutSummaryScreen(
                     }
                     items(state.exercises, key = { it.id }) { exercise ->
                         GymCard(
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier.fillMaxWidth().animateItem(),
                             contentPadding = PaddingValues(horizontal = 18.dp, vertical = 14.dp),
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically) {

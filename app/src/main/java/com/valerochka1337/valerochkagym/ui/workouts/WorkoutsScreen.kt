@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -37,6 +38,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -45,11 +47,13 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.valerochka1337.valerochkagym.service.WorkoutSessionService
 import com.valerochka1337.valerochkagym.ui.components.CircleIconButton
+import com.valerochka1337.valerochkagym.ui.components.FadeInContent
 import com.valerochka1337.valerochkagym.ui.components.GlowBackground
 import com.valerochka1337.valerochkagym.ui.components.GymCard
 import com.valerochka1337.valerochkagym.ui.components.GymCardShape
 import com.valerochka1337.valerochkagym.ui.components.GymTopBar
 import com.valerochka1337.valerochkagym.ui.components.PillButton
+import com.valerochka1337.valerochkagym.ui.theme.GymMotion
 
 /**
  * Вкладка «Тренировки»: список программ и быстрый старт. Тап по карточке выбирает
@@ -108,29 +112,34 @@ fun WorkoutsScreen(
                 when {
                     // Ещё не загружено: ничего не показываем (Room отдаёт быстро).
                     routines == null -> Unit
-                    routines.isEmpty() -> EmptyState(
-                        onCreateRoutine = onCreateRoutine,
-                        modifier = Modifier.weight(1f),
-                    )
-                    else -> LazyColumn(
-                        modifier = Modifier.weight(1f),
-                        contentPadding = PaddingValues(
-                            start = 24.dp,
-                            end = 24.dp,
-                            top = 4.dp,
-                            bottom = 16.dp,
-                        ),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        items(routines, key = { it.id }) { routine ->
-                            RoutineCard(
-                                routine = routine,
-                                selected = routine.id == state.selectedRoutineId,
-                                onClick = { viewModel.onRoutineSelected(routine.id) },
-                                onEdit = { onEditRoutine(routine.id) },
-                                onDuplicate = { viewModel.duplicate(routine.id) },
-                                onDelete = { pendingDeleteId = routine.id },
-                            )
+                    routines.isEmpty() -> FadeInContent(modifier = Modifier.weight(1f)) {
+                        EmptyState(
+                            onCreateRoutine = onCreateRoutine,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
+                    else -> FadeInContent(modifier = Modifier.weight(1f)) {
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(
+                                start = 24.dp,
+                                end = 24.dp,
+                                top = 4.dp,
+                                bottom = 16.dp,
+                            ),
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            items(routines, key = { it.id }) { routine ->
+                                RoutineCard(
+                                    routine = routine,
+                                    selected = routine.id == state.selectedRoutineId,
+                                    onClick = { viewModel.onRoutineSelected(routine.id) },
+                                    onEdit = { onEditRoutine(routine.id) },
+                                    onDuplicate = { viewModel.duplicate(routine.id) },
+                                    onDelete = { pendingDeleteId = routine.id },
+                                    modifier = Modifier.animateItem(),
+                                )
+                            }
                         }
                     }
                 }
@@ -168,14 +177,16 @@ private fun RoutineCard(
     onEdit: () -> Unit,
     onDuplicate: () -> Unit,
     onDelete: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    val borderModifier = if (selected) {
-        Modifier.border(2.dp, MaterialTheme.colorScheme.primary, GymCardShape)
-    } else {
-        Modifier
-    }
+    // Рамка выделения проявляется цветом, а не скачком: ширина постоянная, анимируется цвет.
+    val borderColor by animateColorAsState(
+        targetValue = if (selected) MaterialTheme.colorScheme.primary else Color.Transparent,
+        animationSpec = GymMotion.effectsFast(),
+        label = "routine-border",
+    )
     GymCard(
-        modifier = Modifier.fillMaxWidth().then(borderModifier),
+        modifier = modifier.fillMaxWidth().border(2.dp, borderColor, GymCardShape),
         onClick = onClick,
         contentPadding = PaddingValues(start = 18.dp, end = 6.dp, top = 14.dp, bottom = 14.dp),
     ) {

@@ -72,6 +72,7 @@ import com.valerochka1337.valerochkagym.data.db.entity.WorkoutSetEntity
 import com.valerochka1337.valerochkagym.data.db.relation.WorkoutExerciseWithSets
 import com.valerochka1337.valerochkagym.ui.common.formatRestClock
 import com.valerochka1337.valerochkagym.ui.components.ExerciseAvatar
+import com.valerochka1337.valerochkagym.ui.components.FadeInContent
 import com.valerochka1337.valerochkagym.ui.components.GlowBackground
 import com.valerochka1337.valerochkagym.ui.components.GymCard
 import com.valerochka1337.valerochkagym.service.RestTimerState
@@ -142,22 +143,24 @@ fun ActiveWorkoutScreen(
     GlowBackground(modifier = modifier) {
         val workout = state.workout
         when {
-            workout != null -> ActiveWorkoutContent(
-                state = state,
-                elapsedSeconds = viewModel.elapsedSeconds,
-                restTimer = viewModel.restTimer,
-                setActions = setActions,
-                onDeleteExercise = viewModel::deleteExercise,
-                onAddExercise = onAddExercise,
-                onFinish = viewModel::finish,
-                onDiscard = viewModel::discard,
-                onAddRestSeconds = viewModel::addRestSeconds,
-                onSkipRest = viewModel::skipRest,
-            )
+            workout != null -> FadeInContent {
+                ActiveWorkoutContent(
+                    state = state,
+                    elapsedSeconds = viewModel.elapsedSeconds,
+                    restTimer = viewModel.restTimer,
+                    setActions = setActions,
+                    onDeleteExercise = viewModel::deleteExercise,
+                    onAddExercise = onAddExercise,
+                    onFinish = viewModel::finish,
+                    onDiscard = viewModel::discard,
+                    onAddRestSeconds = viewModel::addRestSeconds,
+                    onSkipRest = viewModel::skipRest,
+                )
+            }
 
             state.loading -> Unit
 
-            else -> NoActiveWorkout(onNavigateBack = onNavigateBack)
+            else -> FadeInContent { NoActiveWorkout(onNavigateBack = onNavigateBack) }
         }
     }
 }

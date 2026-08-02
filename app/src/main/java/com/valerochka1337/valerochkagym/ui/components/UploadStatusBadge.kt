@@ -1,5 +1,10 @@
 package com.valerochka1337.valerochkagym.ui.components
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -17,38 +22,55 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import com.valerochka1337.valerochkagym.data.db.entity.UploadStatus
+import com.valerochka1337.valerochkagym.ui.theme.GymMotion
 
-/** Бейдж статуса выгрузки: иконка облака — нейтральное «Ожидает», primary «Выгружено», error «Ошибка». */
+/**
+ * Бейдж статуса выгрузки: иконка облака — нейтральное «Ожидает», primary «Выгружено», error
+ * «Ошибка». Статус меняется воркером в фоне, поэтому смена иконки анимируется (fade + лёгкий
+ * scale), а не подменяется кадром.
+ */
 @Composable
 fun UploadStatusBadge(status: UploadStatus) {
-    val icon: ImageVector
-    val color: Color
-    val description: String
-    when (status) {
-        UploadStatus.PENDING -> {
-            icon = Icons.Rounded.CloudQueue
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-            description = "Ожидает выгрузки"
+    // Спеки берутся здесь: transitionSpec-лямбда не @Composable.
+    val fadeSpec = GymMotion.effectsFast<Float>()
+    val scaleSpec = GymMotion.spatialFast<Float>()
+    AnimatedContent(
+        targetState = status,
+        transitionSpec = {
+            (fadeIn(fadeSpec) + scaleIn(scaleSpec, initialScale = 0.8f))
+                .togetherWith(fadeOut(fadeSpec))
+        },
+        label = "upload-status",
+    ) { shown ->
+        val icon: ImageVector
+        val color: Color
+        val description: String
+        when (shown) {
+            UploadStatus.PENDING -> {
+                icon = Icons.Rounded.CloudQueue
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+                description = "Ожидает выгрузки"
+            }
+            UploadStatus.UPLOADED -> {
+                icon = Icons.Rounded.CloudDone
+                color = MaterialTheme.colorScheme.primary
+                description = "Выгружено"
+            }
+            UploadStatus.FAILED -> {
+                icon = Icons.Rounded.CloudOff
+                color = MaterialTheme.colorScheme.error
+                description = "Ошибка выгрузки"
+            }
         }
-        UploadStatus.UPLOADED -> {
-            icon = Icons.Rounded.CloudDone
-            color = MaterialTheme.colorScheme.primary
-            description = "Выгружено"
-        }
-        UploadStatus.FAILED -> {
-            icon = Icons.Rounded.CloudOff
-            color = MaterialTheme.colorScheme.error
-            description = "Ошибка выгрузки"
-        }
+        Icon(
+            imageVector = icon,
+            contentDescription = description,
+            tint = color,
+            modifier = Modifier
+                .clip(RoundedCornerShape(8.dp))
+                .background(color.copy(alpha = 0.15f))
+                .padding(5.dp)
+                .size(18.dp),
+        )
     }
-    Icon(
-        imageVector = icon,
-        contentDescription = description,
-        tint = color,
-        modifier = Modifier
-            .clip(RoundedCornerShape(8.dp))
-            .background(color.copy(alpha = 0.15f))
-            .padding(5.dp)
-            .size(18.dp),
-    )
 }
