@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
+import com.valerochka1337.valerochkagym.ui.theme.AccentColor
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
@@ -20,6 +21,7 @@ data class GymSettings(
     val defaultRestSeconds: Int = DEFAULT_REST_SECONDS,
     val soundEnabled: Boolean = true,
     val vibrationEnabled: Boolean = true,
+    val accent: AccentColor = AccentColor.DEFAULT,
 ) {
     companion object {
         const val DEFAULT_REST_SECONDS: Int = 120
@@ -37,6 +39,7 @@ class SettingsRepository @Inject constructor(
         val DEFAULT_REST_SECONDS = intPreferencesKey("default_rest_seconds")
         val SOUND_ENABLED = booleanPreferencesKey("sound_enabled")
         val VIBRATION_ENABLED = booleanPreferencesKey("vibration_enabled")
+        val ACCENT_COLOR = stringPreferencesKey("accent_color")
     }
 
     val settings: Flow<GymSettings> = dataStore.data
@@ -48,6 +51,7 @@ class SettingsRepository @Inject constructor(
             defaultRestSeconds = prefs[Keys.DEFAULT_REST_SECONDS] ?: GymSettings.DEFAULT_REST_SECONDS,
             soundEnabled = prefs[Keys.SOUND_ENABLED] ?: true,
             vibrationEnabled = prefs[Keys.VIBRATION_ENABLED] ?: true,
+            accent = AccentColor.fromId(prefs[Keys.ACCENT_COLOR]),
         )
     }
 
@@ -69,5 +73,9 @@ class SettingsRepository @Inject constructor(
 
     suspend fun setVibrationEnabled(value: Boolean) = dataStore.edit { prefs ->
         prefs[Keys.VIBRATION_ENABLED] = value
+    }
+
+    suspend fun setAccent(value: AccentColor) = dataStore.edit { prefs ->
+        prefs[Keys.ACCENT_COLOR] = value.id
     }
 }

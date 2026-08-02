@@ -13,6 +13,7 @@ import com.valerochka1337.valerochkagym.data.google.TokenResult
 import com.valerochka1337.valerochkagym.data.google.WorkoutImportRepository
 import com.valerochka1337.valerochkagym.data.settings.SettingsRepository
 import com.valerochka1337.valerochkagym.ui.settings.SettingsViewModel
+import com.valerochka1337.valerochkagym.ui.theme.AccentColor
 import com.valerochka1337.valerochkagym.util.MainDispatcherRule
 import com.valerochka1337.valerochkagym.worker.UploadScheduler
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -143,6 +144,28 @@ class SettingsViewModelTest {
         viewModel.toggleVibration(false)
 
         assertFalse(viewModel.uiState.value.settings?.vibrationEnabled ?: true)
+    }
+
+    // endregion
+
+    // region accent
+
+    @Test
+    fun `setAccent persists the choice`() = runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val viewModel = SettingsViewModel(settingsRepository(), FakeGoogleAuth(), FakeUploadScheduler(), FakeImportRepository())
+        collectUiState(viewModel)
+
+        viewModel.setAccent(AccentColor.CYAN)
+
+        assertEquals(AccentColor.CYAN, viewModel.uiState.value.settings?.accent)
+    }
+
+    @Test
+    fun `accent defaults to green`() = runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val viewModel = SettingsViewModel(settingsRepository(), FakeGoogleAuth(), FakeUploadScheduler(), FakeImportRepository())
+        collectUiState(viewModel)
+
+        assertEquals(AccentColor.GREEN, viewModel.uiState.value.settings?.accent)
     }
 
     // endregion

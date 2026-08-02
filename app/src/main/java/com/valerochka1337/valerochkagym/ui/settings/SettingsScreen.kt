@@ -5,11 +5,15 @@ import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -17,6 +21,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -25,6 +31,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.rounded.AccountCircle
 import androidx.compose.material.icons.rounded.CloudUpload
 import androidx.compose.material.icons.rounded.Link
+import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.TableChart
 import androidx.compose.material.icons.rounded.Timer
 import androidx.compose.material.icons.rounded.Vibration
@@ -48,7 +55,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -61,6 +76,8 @@ import com.valerochka1337.valerochkagym.data.settings.GymSettings
 import com.valerochka1337.valerochkagym.ui.components.GlowBackground
 import com.valerochka1337.valerochkagym.ui.components.GymCard
 import com.valerochka1337.valerochkagym.ui.components.PillButton
+import com.valerochka1337.valerochkagym.ui.theme.AccentColor
+import com.valerochka1337.valerochkagym.ui.theme.LauncherIconBackground
 
 /** Шаг степпера отдыха по умолчанию (секунды) — совпадает с шагом внутри [SettingsViewModel]. */
 private const val REST_STEP_SECONDS = 15
@@ -132,6 +149,10 @@ fun SettingsScreen(
                             onChangeRest = viewModel::changeDefaultRest,
                             onToggleSound = viewModel::toggleSound,
                             onToggleVibration = viewModel::toggleVibration,
+                        )
+                        AccentCard(
+                            selected = settings.accent,
+                            onSelect = viewModel::setAccent,
                         )
                     }
                 }
@@ -324,6 +345,120 @@ private fun RestTimerCard(
             icon = Icons.Rounded.Vibration,
             checked = settings.vibrationEnabled,
             onCheckedChange = onToggleVibration,
+        )
+    }
+}
+
+/**
+ * Выбор акцента. Варианты показаны так, как их увидит лаунчер — тем же силуэтом иконки на её
+ * тёмной подложке: пользователь выбирает не абстрактный цвет, а конкретную иконку приложения.
+ */
+@Composable
+private fun AccentCard(
+    selected: AccentColor,
+    onSelect: (AccentColor) -> Unit,
+) {
+    SectionCard(title = "Акцент", icon = Icons.Rounded.Palette) {
+        Text(
+            text = "Цвет интерфейса и иконки. Иконка на рабочем столе сменится, когда свернёте приложение.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(12.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            AccentColor.entries.forEach { accent ->
+                AccentSwatch(
+                    accent = accent,
+                    selected = accent == selected,
+                    onClick = { onSelect(accent) },
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+    }
+}
+
+/** Уголок иконки в долях стороны — повторяет скругление адаптивной иконки в лаунчере. */
+private const val ICON_CORNER_PERCENT = 26
+
+@Composable
+private fun AccentSwatch(
+    accent: AccentColor,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val shape = RoundedCornerShape(percent = ICON_CORNER_PERCENT)
+    Box(
+        modifier = modifier
+            .aspectRatio(1f)
+            .clip(shape)
+            .background(LauncherIconBackground)
+            .border(
+                width = if (selected) 2.dp else 1.dp,
+                color = if (selected) {
+                    MaterialTheme.colorScheme.onSurface
+                } else {
+                    MaterialTheme.colorScheme.outline
+                },
+                shape = shape,
+            )
+            .selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
+            .semantics { contentDescription = accent.label },
+        contentAlignment = Alignment.Center,
+    ) {
+        LauncherGlyph(color = accent.primary, modifier = Modifier.fillMaxSize())
+    }
+}
+
+/** Размер вьюпорта и геометрия силуэта — те же числа, что в `drawable/ic_launcher_foreground.xml`. */
+private const val GLYPH_VIEWPORT = 1024f
+private const val GLYPH_CENTER = 512f
+private const val GLYPH_RING_RADIUS = 248f
+private const val GLYPH_RING_STROKE = 88f
+private const val GLYPH_V_STROKE = 84f
+
+/**
+ * Масштаб силуэта: 0.7 — группа внутри самой иконки, 1.5 — переход от вьюпорта 108dp к безопасной
+ * зоне 72dp, которую и показывает лаунчер после обрезки маской.
+ */
+private const val GLYPH_SCALE = 0.7f * 1.5f
+
+/**
+ * Силуэт иконки приложения. Рисуется на `Canvas`, а не `painterResource`: четыре превью — это
+ * четыре инфляции векторного drawable, и карточка акцента заметно «доезжала» после остальных.
+ */
+@Composable
+private fun LauncherGlyph(color: Color, modifier: Modifier = Modifier) {
+    Canvas(modifier) {
+        val k = GLYPH_SCALE * size.minDimension / GLYPH_VIEWPORT
+        fun point(x: Float, y: Float) =
+            Offset(center.x + (x - GLYPH_CENTER) * k, center.y + (y - GLYPH_CENTER) * k)
+
+        drawCircle(
+            color = color,
+            radius = GLYPH_RING_RADIUS * k,
+            center = center,
+            style = Stroke(width = GLYPH_RING_STROKE * k),
+        )
+        drawPath(
+            path = Path().apply {
+                val start = point(418f, 414f)
+                val bottom = point(512f, 602f)
+                val end = point(606f, 414f)
+                moveTo(start.x, start.y)
+                lineTo(bottom.x, bottom.y)
+                lineTo(end.x, end.y)
+            },
+            color = color,
+            style = Stroke(
+                width = GLYPH_V_STROKE * k,
+                cap = StrokeCap.Round,
+                join = StrokeJoin.Round,
+            ),
         )
     }
 }

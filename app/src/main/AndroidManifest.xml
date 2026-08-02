@@ -19,15 +19,71 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.ValerochkaGym">
 
+        <!-- Запускается не напрямую, а через один из activity-alias ниже: иконку в лаунчере
+             выбирает пользователь (акцент), а сменить её можно только включением/выключением
+             компонентов. Поэтому здесь нет intent-filter и exported="false". -->
         <activity
             android:name=".MainActivity"
+            android:exported="false"
+            android:theme="@style/Theme.ValerochkaGym" />
+
+        <!-- Иконки под акценты. Включён ровно один; переключает AppIconManager по настройке.
+             Порядок и имена связаны с AccentColor.aliasName — менять только вместе. -->
+        <activity-alias
+            android:name=".MainActivityGreen"
+            android:enabled="true"
             android:exported="true"
-            android:theme="@style/Theme.ValerochkaGym">
+            android:icon="@mipmap/ic_launcher"
+            android:label="@string/app_name"
+            android:roundIcon="@mipmap/ic_launcher_round"
+            android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-        </activity>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".MainActivityLime"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_lime"
+            android:label="@string/app_name"
+            android:roundIcon="@mipmap/ic_launcher_lime"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".MainActivityCyan"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_cyan"
+            android:label="@string/app_name"
+            android:roundIcon="@mipmap/ic_launcher_cyan"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".MainActivityCoral"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_coral"
+            android:label="@string/app_name"
+            android:roundIcon="@mipmap/ic_launcher_coral"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
 
         <service
             android:name=".service.WorkoutSessionService"

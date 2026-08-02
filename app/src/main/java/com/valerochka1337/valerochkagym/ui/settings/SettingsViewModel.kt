@@ -11,6 +11,7 @@ import com.valerochka1337.valerochkagym.data.google.WorkoutImportRepository
 import com.valerochka1337.valerochkagym.data.google.spreadsheetIdFrom
 import com.valerochka1337.valerochkagym.data.settings.GymSettings
 import com.valerochka1337.valerochkagym.data.settings.SettingsRepository
+import com.valerochka1337.valerochkagym.ui.theme.AccentColor
 import com.valerochka1337.valerochkagym.worker.UploadScheduler
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.channels.Channel
@@ -183,5 +184,13 @@ class SettingsViewModel @Inject constructor(
 
     fun toggleVibration(enabled: Boolean) {
         viewModelScope.launch { settingsRepository.setVibrationEnabled(enabled) }
+    }
+
+    /**
+     * Меняет акцент приложения. Иконку в лаунчере переключать отсюда не нужно: за ней следит
+     * [com.valerochka1337.valerochkagym.data.appicon.AppIconManager], подписанный на настройку.
+     */
+    fun setAccent(accent: AccentColor) {
+        viewModelScope.launch { settingsRepository.setAccent(accent) }
     }
 }
