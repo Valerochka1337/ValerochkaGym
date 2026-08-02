@@ -1,6 +1,10 @@
 package com.valerochka1337.valerochkagym.di
 
 import com.valerochka1337.valerochkagym.data.ActiveWorkoutRepositoryImpl
+import com.valerochka1337.valerochkagym.data.backup.ClearDataUseCase
+import com.valerochka1337.valerochkagym.data.backup.ClearDataUseCaseImpl
+import com.valerochka1337.valerochkagym.data.backup.DatabaseExporter
+import com.valerochka1337.valerochkagym.data.backup.DatabaseExporterImpl
 import com.valerochka1337.valerochkagym.domain.ActiveWorkoutRepository
 import com.valerochka1337.valerochkagym.worker.UploadScheduler
 import com.valerochka1337.valerochkagym.worker.WorkManagerUploadScheduler
@@ -23,4 +27,12 @@ abstract class DomainModule {
     @Binds
     @Singleton
     abstract fun bindUploadScheduler(impl: WorkManagerUploadScheduler): UploadScheduler
+
+    @Binds
+    @Singleton
+    abstract fun bindDatabaseExporter(impl: DatabaseExporterImpl): DatabaseExporter
+
+    @Binds
+    @Singleton
+    abstract fun bindClearDataUseCase(impl: ClearDataUseCaseImpl): ClearDataUseCase
 }

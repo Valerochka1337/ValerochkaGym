@@ -6,6 +6,9 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.mutablePreferencesOf
+import com.valerochka1337.valerochkagym.data.backup.ClearDataUseCase
+import com.valerochka1337.valerochkagym.data.backup.DatabaseExporter
+import com.valerochka1337.valerochkagym.data.backup.ExportResult
 import com.valerochka1337.valerochkagym.data.google.AuthorizeOutcome
 import com.valerochka1337.valerochkagym.data.google.GoogleAuth
 import com.valerochka1337.valerochkagym.data.google.ImportResult
@@ -49,7 +52,7 @@ class SettingsViewModelTest {
 
     @Test
     fun `changeDefaultRest adds the step`() = runTest(mainDispatcherRule.testDispatcher.scheduler) {
-        val viewModel = SettingsViewModel(settingsRepository(defaultRestSeconds = 120), FakeGoogleAuth(), FakeUploadScheduler(), FakeImportRepository())
+        val viewModel = SettingsViewModel(settingsRepository(defaultRestSeconds = 120), FakeGoogleAuth(), FakeUploadScheduler(), FakeImportRepository(), FakeDatabaseExporter(), FakeClearData())
         collectUiState(viewModel)
 
         viewModel.changeDefaultRest(15)
@@ -59,7 +62,7 @@ class SettingsViewModelTest {
 
     @Test
     fun `changeDefaultRest subtracts the step`() = runTest(mainDispatcherRule.testDispatcher.scheduler) {
-        val viewModel = SettingsViewModel(settingsRepository(defaultRestSeconds = 120), FakeGoogleAuth(), FakeUploadScheduler(), FakeImportRepository())
+        val viewModel = SettingsViewModel(settingsRepository(defaultRestSeconds = 120), FakeGoogleAuth(), FakeUploadScheduler(), FakeImportRepository(), FakeDatabaseExporter(), FakeClearData())
         collectUiState(viewModel)
 
         viewModel.changeDefaultRest(-15)
@@ -70,7 +73,7 @@ class SettingsViewModelTest {
     @Test
     fun `changeDefaultRest coerces to the minimum of fifteen`() =
         runTest(mainDispatcherRule.testDispatcher.scheduler) {
-            val viewModel = SettingsViewModel(settingsRepository(defaultRestSeconds = 20), FakeGoogleAuth(), FakeUploadScheduler(), FakeImportRepository())
+            val viewModel = SettingsViewModel(settingsRepository(defaultRestSeconds = 20), FakeGoogleAuth(), FakeUploadScheduler(), FakeImportRepository(), FakeDatabaseExporter(), FakeClearData())
             collectUiState(viewModel)
 
             viewModel.changeDefaultRest(-15)
@@ -85,7 +88,7 @@ class SettingsViewModelTest {
     @Test
     fun `setSpreadsheetInput persists the parsed id and clears the error`() =
         runTest(mainDispatcherRule.testDispatcher.scheduler) {
-            val viewModel = SettingsViewModel(settingsRepository(), FakeGoogleAuth(), FakeUploadScheduler(), FakeImportRepository())
+            val viewModel = SettingsViewModel(settingsRepository(), FakeGoogleAuth(), FakeUploadScheduler(), FakeImportRepository(), FakeDatabaseExporter(), FakeClearData())
             collectUiState(viewModel)
 
             val url = "https://docs.google.com/spreadsheets/d/$validSpreadsheetId/edit#gid=0"
@@ -98,7 +101,7 @@ class SettingsViewModelTest {
     @Test
     fun `setSpreadsheetInput sets the error and does not persist on invalid input`() =
         runTest(mainDispatcherRule.testDispatcher.scheduler) {
-            val viewModel = SettingsViewModel(settingsRepository(), FakeGoogleAuth(), FakeUploadScheduler(), FakeImportRepository())
+            val viewModel = SettingsViewModel(settingsRepository(), FakeGoogleAuth(), FakeUploadScheduler(), FakeImportRepository(), FakeDatabaseExporter(), FakeClearData())
             collectUiState(viewModel)
 
             viewModel.setSpreadsheetInput("не ссылка")
@@ -110,7 +113,7 @@ class SettingsViewModelTest {
     @Test
     fun `setSpreadsheetInput clears a previous error once a valid value is entered`() =
         runTest(mainDispatcherRule.testDispatcher.scheduler) {
-            val viewModel = SettingsViewModel(settingsRepository(), FakeGoogleAuth(), FakeUploadScheduler(), FakeImportRepository())
+            val viewModel = SettingsViewModel(settingsRepository(), FakeGoogleAuth(), FakeUploadScheduler(), FakeImportRepository(), FakeDatabaseExporter(), FakeClearData())
             collectUiState(viewModel)
 
             viewModel.setSpreadsheetInput("мусор")
@@ -128,7 +131,7 @@ class SettingsViewModelTest {
 
     @Test
     fun `toggleSound persists the flag`() = runTest(mainDispatcherRule.testDispatcher.scheduler) {
-        val viewModel = SettingsViewModel(settingsRepository(), FakeGoogleAuth(), FakeUploadScheduler(), FakeImportRepository())
+        val viewModel = SettingsViewModel(settingsRepository(), FakeGoogleAuth(), FakeUploadScheduler(), FakeImportRepository(), FakeDatabaseExporter(), FakeClearData())
         collectUiState(viewModel)
 
         viewModel.toggleSound(false)
@@ -138,7 +141,7 @@ class SettingsViewModelTest {
 
     @Test
     fun `toggleVibration persists the flag`() = runTest(mainDispatcherRule.testDispatcher.scheduler) {
-        val viewModel = SettingsViewModel(settingsRepository(), FakeGoogleAuth(), FakeUploadScheduler(), FakeImportRepository())
+        val viewModel = SettingsViewModel(settingsRepository(), FakeGoogleAuth(), FakeUploadScheduler(), FakeImportRepository(), FakeDatabaseExporter(), FakeClearData())
         collectUiState(viewModel)
 
         viewModel.toggleVibration(false)
@@ -149,7 +152,7 @@ class SettingsViewModelTest {
     @Test
     fun `toggleHaptics persists the flag independently of the timer vibration`() =
         runTest(mainDispatcherRule.testDispatcher.scheduler) {
-            val viewModel = SettingsViewModel(settingsRepository(), FakeGoogleAuth(), FakeUploadScheduler(), FakeImportRepository())
+            val viewModel = SettingsViewModel(settingsRepository(), FakeGoogleAuth(), FakeUploadScheduler(), FakeImportRepository(), FakeDatabaseExporter(), FakeClearData())
             collectUiState(viewModel)
 
             viewModel.toggleHaptics(false)
@@ -162,7 +165,7 @@ class SettingsViewModelTest {
     @Test
     fun `toggleRestAutostart persists the flag`() =
         runTest(mainDispatcherRule.testDispatcher.scheduler) {
-            val viewModel = SettingsViewModel(settingsRepository(), FakeGoogleAuth(), FakeUploadScheduler(), FakeImportRepository())
+            val viewModel = SettingsViewModel(settingsRepository(), FakeGoogleAuth(), FakeUploadScheduler(), FakeImportRepository(), FakeDatabaseExporter(), FakeClearData())
             collectUiState(viewModel)
 
             viewModel.toggleRestAutostart(false)
@@ -176,7 +179,7 @@ class SettingsViewModelTest {
 
     @Test
     fun `setAccent persists the choice`() = runTest(mainDispatcherRule.testDispatcher.scheduler) {
-        val viewModel = SettingsViewModel(settingsRepository(), FakeGoogleAuth(), FakeUploadScheduler(), FakeImportRepository())
+        val viewModel = SettingsViewModel(settingsRepository(), FakeGoogleAuth(), FakeUploadScheduler(), FakeImportRepository(), FakeDatabaseExporter(), FakeClearData())
         collectUiState(viewModel)
 
         viewModel.setAccent(AccentColor.CYAN)
@@ -186,7 +189,7 @@ class SettingsViewModelTest {
 
     @Test
     fun `accent defaults to green`() = runTest(mainDispatcherRule.testDispatcher.scheduler) {
-        val viewModel = SettingsViewModel(settingsRepository(), FakeGoogleAuth(), FakeUploadScheduler(), FakeImportRepository())
+        val viewModel = SettingsViewModel(settingsRepository(), FakeGoogleAuth(), FakeUploadScheduler(), FakeImportRepository(), FakeDatabaseExporter(), FakeClearData())
         collectUiState(viewModel)
 
         assertEquals(AccentColor.GREEN, viewModel.uiState.value.settings?.accent)
@@ -200,7 +203,7 @@ class SettingsViewModelTest {
     fun `saving a valid link triggers import and posts the result message`() =
         runTest(mainDispatcherRule.testDispatcher.scheduler) {
             val import = FakeImportRepository(ImportResult.Success(3))
-            val viewModel = SettingsViewModel(settingsRepository(), FakeGoogleAuth(), FakeUploadScheduler(), import)
+            val viewModel = SettingsViewModel(settingsRepository(), FakeGoogleAuth(), FakeUploadScheduler(), import, FakeDatabaseExporter(), FakeClearData())
             collectUiState(viewModel)
 
             viewModel.setSpreadsheetInput(validSpreadsheetId)
@@ -213,7 +216,7 @@ class SettingsViewModelTest {
     fun `invalid link does not trigger import`() =
         runTest(mainDispatcherRule.testDispatcher.scheduler) {
             val import = FakeImportRepository()
-            val viewModel = SettingsViewModel(settingsRepository(), FakeGoogleAuth(), FakeUploadScheduler(), import)
+            val viewModel = SettingsViewModel(settingsRepository(), FakeGoogleAuth(), FakeUploadScheduler(), import, FakeDatabaseExporter(), FakeClearData())
             collectUiState(viewModel)
 
             viewModel.setSpreadsheetInput("не ссылка")
@@ -225,7 +228,7 @@ class SettingsViewModelTest {
     fun `nothing to import posts an informational message`() =
         runTest(mainDispatcherRule.testDispatcher.scheduler) {
             val import = FakeImportRepository(ImportResult.NothingToImport)
-            val viewModel = SettingsViewModel(settingsRepository(), FakeGoogleAuth(), FakeUploadScheduler(), import)
+            val viewModel = SettingsViewModel(settingsRepository(), FakeGoogleAuth(), FakeUploadScheduler(), import, FakeDatabaseExporter(), FakeClearData())
             collectUiState(viewModel)
 
             viewModel.setSpreadsheetInput(validSpreadsheetId)
@@ -237,12 +240,29 @@ class SettingsViewModelTest {
     fun `import failure posts the reason`() =
         runTest(mainDispatcherRule.testDispatcher.scheduler) {
             val import = FakeImportRepository(ImportResult.Failure("Нет доступа к таблице — проверьте вход и права"))
-            val viewModel = SettingsViewModel(settingsRepository(), FakeGoogleAuth(), FakeUploadScheduler(), import)
+            val viewModel = SettingsViewModel(settingsRepository(), FakeGoogleAuth(), FakeUploadScheduler(), import, FakeDatabaseExporter(), FakeClearData())
             collectUiState(viewModel)
 
             viewModel.setSpreadsheetInput(validSpreadsheetId)
 
             assertEquals("Нет доступа к таблице — проверьте вход и права", viewModel.messages.first())
+        }
+
+    // endregion
+
+    // region data card
+
+    @Test
+    fun `clearAllData wipes the database and posts a confirmation`() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val clear = FakeClearData()
+            val viewModel = SettingsViewModel(settingsRepository(), FakeGoogleAuth(), FakeUploadScheduler(), FakeImportRepository(), FakeDatabaseExporter(), clear)
+            collectUiState(viewModel)
+
+            viewModel.clearAllData()
+
+            assertEquals(1, clear.calls)
+            assertEquals("Данные очищены", viewModel.messages.first())
         }
 
     // endregion
@@ -271,6 +291,20 @@ class SettingsViewModelTest {
         override suspend fun importAll(): ImportResult {
             calls++
             return result
+        }
+    }
+
+    /** No-op [DatabaseExporter]: экспорт покрыт Robolectric-тестом настоящей реализации. */
+    private class FakeDatabaseExporter : DatabaseExporter {
+        override suspend fun export(target: android.net.Uri): ExportResult = ExportResult.Success
+    }
+
+    /** [ClearDataUseCase] со счётчиком вызовов. */
+    private class FakeClearData : ClearDataUseCase {
+        var calls: Int = 0
+            private set
+        override suspend fun invoke() {
+            calls++
         }
     }
 

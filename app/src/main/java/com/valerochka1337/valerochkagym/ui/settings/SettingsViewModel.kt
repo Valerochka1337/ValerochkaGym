@@ -2,8 +2,12 @@ package com.valerochka1337.valerochkagym.ui.settings
 
 import android.app.Activity
 import android.content.IntentSender
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.valerochka1337.valerochkagym.data.backup.ClearDataUseCase
+import com.valerochka1337.valerochkagym.data.backup.DatabaseExporter
+import com.valerochka1337.valerochkagym.data.backup.ExportResult
 import com.valerochka1337.valerochkagym.data.google.AuthorizeOutcome
 import com.valerochka1337.valerochkagym.data.google.GoogleAuth
 import com.valerochka1337.valerochkagym.data.google.ImportResult
@@ -55,6 +59,8 @@ class SettingsViewModel @Inject constructor(
     private val googleAuth: GoogleAuth,
     private val uploadScheduler: UploadScheduler,
     private val importRepository: WorkoutImportRepository,
+    private val databaseExporter: DatabaseExporter,
+    private val clearDataUseCase: ClearDataUseCase,
 ) : ViewModel() {
 
     private val authBusy = MutableStateFlow(false)
@@ -196,6 +202,25 @@ class SettingsViewModel @Inject constructor(
     /** Автостарт таймера отдыха после отметки подхода. */
     fun toggleRestAutostart(enabled: Boolean) {
         viewModelScope.launch { settingsRepository.setRestAutostart(enabled) }
+    }
+
+    /** Копирует базу в выбранный пользователем документ (SAF) и сообщает итог снэкбаром. */
+    fun exportDatabase(target: Uri) {
+        viewModelScope.launch {
+            val message = when (val result = databaseExporter.export(target)) {
+                ExportResult.Success -> "База данных экспортирована"
+                is ExportResult.Failure -> result.reason
+            }
+            _messages.send(message)
+        }
+    }
+
+    /** Стирает историю тренировок (каталог пересевается); настройки не трогаются. */
+    fun clearAllData() {
+        viewModelScope.launch {
+            clearDataUseCase()
+            _messages.send("Данные очищены")
+        }
     }
 
     /**

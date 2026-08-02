@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.preferencesDataStore
 import androidx.room.Room
 import androidx.work.WorkManager
+import com.valerochka1337.valerochkagym.data.backup.DatabaseExporter
 import com.valerochka1337.valerochkagym.data.db.GymDatabase
 import com.valerochka1337.valerochkagym.data.db.GymDatabaseCallback
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseDao
@@ -56,7 +57,7 @@ object DataModule {
         @ApplicationContext context: Context,
         callback: GymDatabaseCallback,
     ): GymDatabase =
-        Room.databaseBuilder(context, GymDatabase::class.java, "gym.db")
+        Room.databaseBuilder(context, GymDatabase::class.java, DatabaseExporter.DATABASE_NAME)
             .addCallback(callback)
             .addMigrations(GymDatabase.MIGRATION_1_2, GymDatabase.MIGRATION_2_3)
             .build()

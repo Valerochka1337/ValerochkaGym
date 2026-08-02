@@ -30,12 +30,17 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.rounded.AccountCircle
 import androidx.compose.material.icons.rounded.CloudUpload
+import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Link
 import androidx.compose.material.icons.rounded.Palette
+import androidx.compose.material.icons.rounded.PlayCircle
+import androidx.compose.material.icons.rounded.Storage
 import androidx.compose.material.icons.rounded.TableChart
 import androidx.compose.material.icons.rounded.Timer
+import androidx.compose.material.icons.rounded.TouchApp
 import androidx.compose.material.icons.rounded.Vibration
 import androidx.compose.material.icons.automirrored.rounded.VolumeUp
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -72,8 +77,13 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.ui.platform.LocalContext
+import com.valerochka1337.valerochkagym.data.backup.DatabaseExporter
 import com.valerochka1337.valerochkagym.data.settings.GymSettings
 import com.valerochka1337.valerochkagym.ui.components.GlowBackground
+import com.valerochka1337.valerochkagym.ui.haptics.gymHaptics
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
 import com.valerochka1337.valerochkagym.ui.components.GymCard
 import com.valerochka1337.valerochkagym.ui.components.PillButton
 import com.valerochka1337.valerochkagym.ui.theme.AccentColor
@@ -147,12 +157,21 @@ fun SettingsScreen(
                         RestTimerCard(
                             settings = settings,
                             onChangeRest = viewModel::changeDefaultRest,
+                            onToggleAutostart = viewModel::toggleRestAutostart,
                             onToggleSound = viewModel::toggleSound,
                             onToggleVibration = viewModel::toggleVibration,
+                        )
+                        InterfaceCard(
+                            hapticsEnabled = settings.hapticsEnabled,
+                            onToggleHaptics = viewModel::toggleHaptics,
                         )
                         AccentCard(
                             selected = settings.accent,
                             onSelect = viewModel::setAccent,
+                        )
+                        DataCard(
+                            onExport = viewModel::exportDatabase,
+                            onClear = viewModel::clearAllData,
                         )
                     }
                 }
@@ -299,6 +318,7 @@ private fun SpreadsheetCard(
 private fun RestTimerCard(
     settings: GymSettings,
     onChangeRest: (Int) -> Unit,
+    onToggleAutostart: (Boolean) -> Unit,
     onToggleSound: (Boolean) -> Unit,
     onToggleVibration: (Boolean) -> Unit,
 ) {
@@ -335,16 +355,142 @@ private fun RestTimerCard(
         }
         Spacer(Modifier.height(8.dp))
         ToggleRow(
-            label = "Звук",
+            label = "Автостарт после подхода",
+            icon = Icons.Rounded.PlayCircle,
+            checked = settings.restAutostart,
+            onCheckedChange = onToggleAutostart,
+        )
+        // Подписи уточняют, что звук и вибрация — про уведомление окончания отдыха,
+        // а не про весь интерфейс (общий виброотклик живёт в карточке «Интерфейс»).
+        ToggleRow(
+            label = "Звук по окончании",
             icon = Icons.AutoMirrored.Rounded.VolumeUp,
             checked = settings.soundEnabled,
             onCheckedChange = onToggleSound,
         )
         ToggleRow(
-            label = "Вибрация",
+            label = "Вибрация уведомления",
             icon = Icons.Rounded.Vibration,
             checked = settings.vibrationEnabled,
             onCheckedChange = onToggleVibration,
+        )
+    }
+}
+
+@Composable
+private fun InterfaceCard(
+    hapticsEnabled: Boolean,
+    onToggleHaptics: (Boolean) -> Unit,
+) {
+    SectionCard(title = "Интерфейс", icon = Icons.Rounded.TouchApp) {
+        ToggleRow(
+            label = "Виброотклик",
+            icon = Icons.Rounded.Vibration,
+            checked = hapticsEnabled,
+            onCheckedChange = onToggleHaptics,
+        )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            text = "Лёгкая отдача на нажатия: выполнение подхода, шаги веса, выбор вкладок.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@Composable
+private fun DataCard(
+    onExport: (android.net.Uri) -> Unit,
+    onClear: () -> Unit,
+) {
+    var showClearDialog by rememberSaveable { mutableStateOf(false) }
+    val haptics = gymHaptics()
+
+    val exportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/octet-stream"),
+    ) { uri -> uri?.let(onExport) }
+
+    SectionCard(title = "Данные", icon = Icons.Rounded.Storage) {
+        Text(
+            text = "Экспорт — копия локальной базы (SQLite): история, программы и упражнения.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(12.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            OutlinedButton(onClick = {
+                val today = LocalDate.now().format(DateTimeFormatter.BASIC_ISO_DATE)
+                exportLauncher.launch(DatabaseExporter.suggestedFileName(today))
+            }) {
+                Icon(
+                    imageVector = Icons.Rounded.Download,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(Modifier.width(8.dp))
+                Text("Экспорт базы")
+            }
+            TextButton(onClick = { showClearDialog = true }) {
+                Text("Очистить данные", color = MaterialTheme.colorScheme.error)
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+        AboutRow()
+    }
+
+    if (showClearDialog) {
+        AlertDialog(
+            onDismissRequest = { showClearDialog = false },
+            title = { Text("Очистить данные?") },
+            text = {
+                Text(
+                    "История тренировок, программы и свои упражнения будут удалены без " +
+                        "возможности восстановления. Встроенный каталог упражнений и настройки останутся.",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    haptics.reject()
+                    showClearDialog = false
+                    onClear()
+                }) {
+                    Text("Удалить", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearDialog = false }) {
+                    Text("Отмена")
+                }
+            },
+        )
+    }
+}
+
+/** «О приложении»: имя и версия из PackageManager — без включения buildConfig. */
+@Composable
+private fun AboutRow() {
+    val context = LocalContext.current
+    val versionName = remember {
+        context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "—"
+    }
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = "ValerochkaGym",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            text = "v$versionName",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }
@@ -503,8 +649,12 @@ private fun StepperButton(
     description: String,
     onClick: () -> Unit,
 ) {
+    val haptics = gymHaptics()
     IconButton(
-        onClick = onClick,
+        onClick = {
+            haptics.step()
+            onClick()
+        },
         modifier = Modifier
             .size(44.dp)
             .semantics { contentDescription = description },
