@@ -19,7 +19,7 @@
 [X] Стадия 13: Автостарт таймера отдыха (rest_autostart, гейт в CompleteSetUseCase)
 [X] Стадия 14: Экран настроек — автостарт, «Интерфейс» (виброотклик), «Данные»: экспорт БД (SAF+checkpoint), очистка с confirm, «О приложении»
 [X] Стадия 15: Release-конфигурация (R8+shrink включены, keep-правила kotlinx-serialization, v1.1.0 versionCode 2; release-APK 4.9 МБ, подпись остаётся за владельцем)
-[ ] Стадия 16: Документация, CHANGELOG и финальная проверка
+[X] Стадия 16: Документация, CHANGELOG и финальная проверка (2026-08-02: README+design-system обновлены, ARCHITECTURE/CLAUDE/CHANGELOG созданы; 434 теста, debug и release зелёные)
 
 ## Заметки
 
