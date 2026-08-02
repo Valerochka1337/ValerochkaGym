@@ -1,17 +1,21 @@
 package com.valerochka1337.valerochkagym.ui.analysis.charts
 
+import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.text.TextStyle
@@ -19,6 +23,7 @@ import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.valerochka1337.valerochkagym.ui.theme.GymMotion
 import kotlin.math.abs
 
 /** Точка линейного графика: [xMillis] — реальное время, поэтому паузы видны как разрывы шага. */
@@ -57,6 +62,15 @@ fun TrendLineChart(
     val labelStyle = chartLabelStyle()
     val textMeasurer = rememberTextMeasurer()
 
+    // Смена серии (период/упражнение) — линия «прочерчивается» слева направо: клип по ширине
+    // области данных. Сетка и подписи осей стоят, анимируются только данные.
+    val revealSpec = GymMotion.spatialDefault<Float>()
+    val reveal = remember { Animatable(0f) }
+    LaunchedEffect(points) {
+        reveal.snapTo(0f)
+        reveal.animateTo(1f, revealSpec)
+    }
+
     Canvas(
         modifier = modifier
             .fillMaxWidth()
@@ -78,9 +92,11 @@ fun TrendLineChart(
         val geometry = LineGeometry(size.width, size.height, points, density = this)
         drawGrid(geometry, colors, labelStyle, textMeasurer, valueFormatter)
         drawXLabels(geometry, points, labelStyle, textMeasurer)
-        drawSeries(geometry, points, colors)
-        if (showTrend && points.size >= 3) drawTrend(geometry, points, colors)
-        drawMarkers(geometry, points, colors, selectedIndex)
+        clipRect(right = geometry.plot.left + geometry.plot.width * reveal.value) {
+            drawSeries(geometry, points, colors)
+            if (showTrend && points.size >= 3) drawTrend(geometry, points, colors)
+            drawMarkers(geometry, points, colors, selectedIndex)
+        }
         drawCallouts(geometry, points, colors, labelStyle, textMeasurer, valueFormatter, selectedIndex)
     }
 }

@@ -36,6 +36,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedContentTransitionScope
+import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -43,6 +51,7 @@ import androidx.compose.runtime.LaunchedEffect
 import com.valerochka1337.valerochkagym.ui.components.CircleIconButton
 import com.valerochka1337.valerochkagym.ui.components.GlowBackground
 import com.valerochka1337.valerochkagym.ui.components.GymTopBar
+import com.valerochka1337.valerochkagym.ui.theme.GymMotion
 import java.time.LocalDate
 import java.time.ZoneOffset
 
@@ -104,12 +113,32 @@ fun CalendarScreen(
 
                 WeekdayHeader()
 
-                MonthGrid(
-                    cells = month.cells,
-                    onDayClick = viewModel::onDaySelected,
-                    onSwipeNext = viewModel::nextMonth,
-                    onSwipePrev = viewModel::prevMonth,
-                )
+                // Смена месяца — направленный слайд: вперёд сетка уезжает влево, назад — вправо,
+                // в ту же сторону, что и свайп. Высота (5 или 6 недель) переезжает той же пружиной.
+                val slideSpec = GymMotion.spatialDefault<IntOffset>()
+                val fadeSpec = GymMotion.effectsDefault<Float>()
+                val sizeSpec = GymMotion.spatialDefault<IntSize>()
+                AnimatedContent(
+                    targetState = month,
+                    transitionSpec = {
+                        val direction = if (targetState.yearMonth >= initialState.yearMonth) {
+                            AnimatedContentTransitionScope.SlideDirection.Start
+                        } else {
+                            AnimatedContentTransitionScope.SlideDirection.End
+                        }
+                        (slideIntoContainer(direction, slideSpec) + fadeIn(fadeSpec))
+                            .togetherWith(slideOutOfContainer(direction, slideSpec) + fadeOut(fadeSpec))
+                            .using(SizeTransform(clip = false) { _, _ -> sizeSpec })
+                    },
+                    label = "month-grid",
+                ) { shownMonth ->
+                    MonthGrid(
+                        cells = shownMonth.cells,
+                        onDayClick = viewModel::onDaySelected,
+                        onSwipeNext = viewModel::nextMonth,
+                        onSwipePrev = viewModel::prevMonth,
+                    )
+                }
             }
 
             SnackbarHost(

@@ -1,11 +1,14 @@
 package com.valerochka1337.valerochkagym.ui.analysis.charts
 
+import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -20,6 +23,7 @@ import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.valerochka1337.valerochkagym.ui.theme.GymMotion
 
 /**
  * Столбец графика. [partial] помечает незакрытый период (текущая неделя): он рисуется
@@ -55,6 +59,15 @@ fun ColumnChart(
     val labelStyle = chartLabelStyle()
     val textMeasurer = rememberTextMeasurer()
 
+    // Смена данных (период/метрика) — столбцы вырастают от базовой линии заново, а не скачком.
+    // Шкала и сетка при этом стоят: анимируется только длина столбца.
+    val revealSpec = GymMotion.spatialDefault<Float>()
+    val reveal = remember { Animatable(0f) }
+    LaunchedEffect(data) {
+        reveal.snapTo(0f)
+        reveal.animateTo(1f, revealSpec)
+    }
+
     Canvas(
         modifier = modifier
             .fillMaxWidth()
@@ -75,7 +88,7 @@ fun ColumnChart(
         if (data.isEmpty()) return@Canvas
         val geometry = ColumnGeometry(size.width, size.height, data, this)
         drawColumnGrid(geometry, colors, labelStyle, textMeasurer, valueFormatter)
-        drawColumns(geometry, data, colors, selectedIndex)
+        drawColumns(geometry, data, colors, selectedIndex, reveal.value)
         referenceValue?.let { drawReference(geometry, it, colors) }
         if (labelEveryColumn) {
             drawColumnLabels(geometry, data, labelStyle, textMeasurer)
@@ -152,11 +165,12 @@ private fun DrawScope.drawColumns(
     data: List<ColumnDatum>,
     colors: ChartColors,
     selectedIndex: Int?,
+    reveal: Float,
 ) {
     val corner = CornerRadius(ChartSpec.BarCorner.toPx(), ChartSpec.BarCorner.toPx())
     data.forEachIndexed { index, datum ->
         if (datum.value <= 0f) return@forEachIndexed
-        val top = geometry.y(datum.value)
+        val top = geometry.y(datum.value * reveal)
         val left = geometry.centerX(index) - geometry.barWidth / 2f
         val rect = Rect(left, top, left + geometry.barWidth, geometry.plot.bottom)
         val path = Path().apply {

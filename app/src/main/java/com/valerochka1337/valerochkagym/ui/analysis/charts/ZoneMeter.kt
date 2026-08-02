@@ -1,5 +1,6 @@
 package com.valerochka1337.valerochkagym.ui.analysis.charts
 
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -10,12 +11,14 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import com.valerochka1337.valerochkagym.ui.theme.GymMotion
 
 /** Диапазон шкалы измерителя: [from]..[to] в единицах значения, залитый [color]. */
 @Immutable
@@ -43,6 +46,12 @@ fun ZoneMeter(
     modifier: Modifier = Modifier,
 ) {
     val colors = rememberChartColors()
+    // Метка скользит к новому значению по пружине: зоны и подписи неподвижны.
+    val animatedValue by animateFloatAsState(
+        targetValue = value,
+        animationSpec = GymMotion.spatialDefault(),
+        label = "zone-meter-value",
+    )
     Column(modifier = modifier.fillMaxWidth()) {
         Canvas(
             modifier = Modifier
@@ -73,7 +82,7 @@ fun ZoneMeter(
                 )
             }
 
-            val markerX = ((value - min) / span).coerceIn(0f, 1f) * size.width
+            val markerX = ((animatedValue - min) / span).coerceIn(0f, 1f) * size.width
             val markerWidth = 4.dp.toPx()
             val ring = ChartSpec.MarkerRing.toPx()
             val markerLeft = (markerX - markerWidth / 2f).coerceIn(0f, size.width - markerWidth)
