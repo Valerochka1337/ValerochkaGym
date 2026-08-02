@@ -17,16 +17,18 @@ android {
         applicationId = "com.valerochka1337.valerochkagym"
         minSdk = 36
         targetSdk = 37
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "1.1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     buildTypes {
         release {
+            // R8: сжатие кода и ресурсов. Keep-правила — в src/main/keepRules/rules.keep
+            // (kotlinx-serialization DTO Google API; Hilt/Room/WorkManager несут consumer-rules).
             optimization {
-                enable = false
+                enable = true
             }
         }
     }

@@ -1,12 +1,33 @@
-# Add project specific R8 rules here.
-# AGP will combine all keep rule files in src/main/keepRules to pass to R8
+# R8-правила проекта. AGP объединяет все файлы из src/main/keepRules.
 #
-# For more details, see
-#   https://d.android.com/r/tools/r8/keep-rules
+# kotlinx-serialization: сериализаторы @Serializable DTO Google API (SheetsApi/CalendarApi)
+# ищутся рефлексией по companion-полю — R8 без правил его выбрасывает.
+# Набор правил — рекомендованный kotlinx.serialization (README, раздел Android/R8).
 
-# If your project uses WebView with JS, uncomment the following
-# and specify the fully qualified class name to the JavaScript interface
-# class:
-#-keepclassmembers class fqcn.of.javascript.interface.for.webview {
-#   public *;
-#}
+# Сериализаторы, объявленные в companion object.
+-if @kotlinx.serialization.Serializable class **
+-keepclassmembers class <1> {
+    static <1>$Companion Companion;
+}
+
+# serializer() у companion-объектов сериализуемых классов.
+-if @kotlinx.serialization.Serializable class ** {
+    static **$Companion Companion;
+}
+-keepclassmembers class <2>$Companion {
+    kotlinx.serialization.KSerializer serializer(...);
+}
+
+# INSTANCE.serializer() у сериализуемых object-ов.
+-keepclassmembers @kotlinx.serialization.Serializable class ** {
+    public static ** INSTANCE;
+}
+-if @kotlinx.serialization.Serializable class ** {
+    public static ** INSTANCE;
+}
+-keepclassmembers class <1> {
+    kotlinx.serialization.KSerializer serializer(...);
+}
+
+# Синтетический $serializer (генерируется плагином для @Serializable-классов).
+-keep,includedescriptorclasses class com.valerochka1337.valerochkagym.**$$serializer { *; }
