@@ -350,7 +350,7 @@ class ActiveWorkoutRepositoryTest : RoomDaoTest() {
         plannedSets: List<PlannedSet>,
         restSeconds: Int? = null,
     ) {
-        routineDao.insertRoutineExercise(
+        routineDao.insertRoutineExercises(listOf(
             RoutineExerciseEntity(
                 routineId = routineId,
                 exerciseId = exerciseId,
@@ -358,7 +358,7 @@ class ActiveWorkoutRepositoryTest : RoomDaoTest() {
                 restSeconds = restSeconds,
                 plannedSets = plannedSets,
             ),
-        )
+        ))
     }
 
     /** Seeds a finished workout whose completed sets become the "last time" prefill source. */

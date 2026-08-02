@@ -314,8 +314,6 @@ class ExerciseLibraryViewModelTest {
 
         override suspend fun getAllOnce(): List<ExerciseEntity> = items.value
 
-        override suspend fun getByIds(ids: List<Long>): List<ExerciseEntity> =
-            items.value.filter { it.id in ids }
     }
 
     /** In-memory [ExerciseMuscleDao]: карта мышц по упражнению, без Room. */

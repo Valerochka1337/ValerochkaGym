@@ -1,7 +1,7 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
     <!-- Dark-only base theme (Compose drives real theming). windowBackground matches
-         GymBlack so there is no white flash before the first Compose frame. -->
+         GymBlack (ui/theme/Color.kt) so there is no colour step before the first Compose frame. -->
     <style name="Theme.ValerochkaGym" parent="android:Theme.Material.NoActionBar">
-        <item name="android:windowBackground">#101413</item>
+        <item name="android:windowBackground">#0C0D0F</item>
     </style>
 </resources>

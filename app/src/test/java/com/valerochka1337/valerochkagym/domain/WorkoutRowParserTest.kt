@@ -36,7 +36,7 @@ class WorkoutRowParserTest {
         )
 
         val rows = listOf(WorkoutRowMapper.HEADER_ROW) + WorkoutRowMapper.rows(workout).map(::toStrings)
-        val parsed = WorkoutRowParser.parse(rows)
+        val parsed = WorkoutRowParser.parse(rows).workouts
 
         assertEquals(1, parsed.size)
         val pw = parsed.single()
@@ -75,10 +75,32 @@ class WorkoutRowParserTest {
                 exercise = "Присед", muscle = "Ноги", type = "Силовое", setIndex = "1", weight = "80"),
         )
 
-        val parsed = WorkoutRowParser.parse(rows)
+        val parsed = WorkoutRowParser.parse(rows).workouts
 
         assertEquals(1, parsed.size)
         assertEquals("w", parsed.single().id)
+    }
+
+    @Test
+    fun `rows with an id but broken time are counted as skipped not silently dropped`() {
+        val rows = listOf(
+            row(workoutId = "broken", date = "мусор", time = "??", name = "T",
+                exercise = "Присед", muscle = "Ноги", type = "Силовое", setIndex = "1", weight = "80"),
+            row(workoutId = "w", date = "2026-01-02", time = "10:00", name = "T",
+                exercise = "Присед", muscle = "Ноги", type = "Силовое", setIndex = "1", weight = "80"),
+        )
+
+        val parsed = WorkoutRowParser.parse(rows)
+
+        assertEquals(listOf("w"), parsed.workouts.map { it.id })
+        assertEquals(1, parsed.skippedRows)
+    }
+
+    @Test
+    fun `header and blank rows are not counted as skipped`() {
+        val rows = listOf(WorkoutRowMapper.HEADER_ROW, emptyList())
+
+        assertEquals(0, WorkoutRowParser.parse(rows).skippedRows)
     }
 
     @Test
@@ -89,7 +111,7 @@ class WorkoutRowParserTest {
                 weight = "", reps = "", duration = "600", speed = "10.5", incline = "5"),
         )
 
-        val s = WorkoutRowParser.parse(rows).single().exercises.single().sets.single()
+        val s = WorkoutRowParser.parse(rows).workouts.single().exercises.single().sets.single()
 
         assertNull(s.weightKg)
         assertNull(s.reps)
@@ -105,7 +127,7 @@ class WorkoutRowParserTest {
                 exercise = "Присед", muscle = "Ноги", type = "Силовое", setIndex = "1", weight = "100,5", reps = "5"),
         )
 
-        assertEquals(100.5, WorkoutRowParser.parse(rows).single().exercises.single().sets.single().weightKg!!, 0.0)
+        assertEquals(100.5, WorkoutRowParser.parse(rows).workouts.single().exercises.single().sets.single().weightKg!!, 0.0)
     }
 
     @Test
@@ -115,7 +137,7 @@ class WorkoutRowParserTest {
                 exercise = "Странное", muscle = "???", type = "???", setIndex = "1", weight = "10", reps = "1"),
         )
 
-        val ex = WorkoutRowParser.parse(rows).single().exercises.single()
+        val ex = WorkoutRowParser.parse(rows).workouts.single().exercises.single()
         assertEquals(MuscleGroup.FULL_BODY, ex.muscleGroup)
         assertEquals(ExerciseType.STRENGTH, ex.type)
     }
@@ -129,12 +151,12 @@ class WorkoutRowParserTest {
                 exercise = "Жим", muscle = "Грудь", type = "Силовое", setIndex = "1", weight = "60"),
         )
 
-        assertEquals(listOf("a", "b"), WorkoutRowParser.parse(rows).map { it.id })
+        assertEquals(listOf("a", "b"), WorkoutRowParser.parse(rows).workouts.map { it.id })
     }
 
     @Test
     fun `empty input yields no workouts`() {
-        assertTrue(WorkoutRowParser.parse(emptyList()).isEmpty())
+        assertTrue(WorkoutRowParser.parse(emptyList()).workouts.isEmpty())
     }
 
     // endregion

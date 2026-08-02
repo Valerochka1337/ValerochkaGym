@@ -15,6 +15,7 @@ import com.valerochka1337.valerochkagym.data.settings.SettingsRepository
 import com.valerochka1337.valerochkagym.domain.ParsedExercise
 import com.valerochka1337.valerochkagym.domain.ParsedWorkout
 import com.valerochka1337.valerochkagym.domain.WorkoutRowParser
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
 import retrofit2.HttpException
 import java.io.IOException
@@ -28,7 +29,8 @@ import javax.inject.Inject
  * ([reason] показывается пользователю).
  */
 sealed interface ImportResult {
-    data class Success(val imported: Int) : ImportResult
+    /** [skippedRows] — строк с id, которые не удалось разобрать (см. [ParsedRows.skippedRows]). */
+    data class Success(val imported: Int, val skippedRows: Int = 0) : ImportResult
     data object NothingToImport : ImportResult
     data class Failure(val reason: String) : ImportResult
 }
@@ -71,10 +73,17 @@ class WorkoutImportRepositoryImpl @Inject constructor(
             val values = api.getValues(bearer, spreadsheetId, WORKOUTS_RANGE).values
                 ?: return ImportResult.NothingToImport
             val parsed = WorkoutRowParser.parse(values)
-            if (parsed.isEmpty()) return ImportResult.NothingToImport
+            if (parsed.workouts.isEmpty()) {
+                // Пустой разбор при непустых пропусках — это битая таблица, а не «нечего импортировать».
+                return if (parsed.skippedRows > 0) {
+                    ImportResult.Failure("Не удалось разобрать строки таблицы: ${parsed.skippedRows}")
+                } else {
+                    ImportResult.NothingToImport
+                }
+            }
 
             val existing = workoutDao.getExistingWorkoutIds().toSet()
-            val fresh = parsed.filter { it.id !in existing }
+            val fresh = parsed.workouts.filter { it.id !in existing }
             if (fresh.isEmpty()) return ImportResult.NothingToImport
 
             // Один снимок каталога → матчинг по имени в памяти (без запроса на каждое упражнение);
@@ -82,11 +91,14 @@ class WorkoutImportRepositoryImpl @Inject constructor(
             // имена добавляются в карту, чтобы упражнение создавалось один раз на весь импорт.
             val byName = exerciseDao.getAllOnce().associateTo(mutableMapOf()) { it.name.lowercase() to it.id }
             fresh.forEach { insertWorkout(it, byName) }
-            ImportResult.Success(fresh.size)
+            ImportResult.Success(fresh.size, parsed.skippedRows)
         } catch (e: HttpException) {
-            ImportResult.Failure(classifyHttp(e.code()))
+            ImportResult.Failure(HttpErrorClassifier.message(e.code()))
         } catch (e: IOException) {
             ImportResult.Failure(GoogleErrorMessages.NO_NETWORK)
+        } catch (e: CancellationException) {
+            // Отмена корутины — не ошибка импорта: пробрасываем, иначе она осядет генерик-сообщением.
+            throw e
         } catch (e: Exception) {
             ImportResult.Failure("Не удалось импортировать историю")
         }
@@ -156,15 +168,6 @@ class WorkoutImportRepositoryImpl @Inject constructor(
         val id = exerciseDao.insert(entity)
         exerciseMuscleDao.upsertAll(entity.copy(id = id).muscleRows())
         return id
-    }
-
-    /** Те же формулировки, что при выгрузке (см. `SheetsRepositoryImpl.classifyHttp`). */
-    private fun classifyHttp(code: Int): String = when (code) {
-        401, 403 -> "Нет доступа к таблице — проверьте вход и права"
-        404 -> "Таблица не найдена — проверьте ссылку"
-        429 -> "Слишком много запросов (HTTP 429)"
-        in 500..599 -> "Ошибка сервера (HTTP $code)"
-        else -> "Ошибка запроса (HTTP $code)"
     }
 
     private companion object {

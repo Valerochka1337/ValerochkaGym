@@ -269,7 +269,7 @@ class RoutineUpdateUseCaseTest : RoomDaoTest() {
         plannedSets: List<PlannedSet>,
         restSeconds: Int? = null,
     ) {
-        routineDao.insertRoutineExercise(
+        routineDao.insertRoutineExercises(listOf(
             RoutineExerciseEntity(
                 routineId = routineId,
                 exerciseId = exerciseId,
@@ -277,7 +277,7 @@ class RoutineUpdateUseCaseTest : RoomDaoTest() {
                 restSeconds = restSeconds,
                 plannedSets = plannedSets,
             ),
-        )
+        ))
     }
 
     private fun workoutFull(routineId: Long?, exercises: List<WorkoutExerciseWithSets>): WorkoutFull =

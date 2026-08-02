@@ -20,7 +20,6 @@ import com.valerochka1337.valerochkagym.data.db.relation.RoutineWithCount
 import com.valerochka1337.valerochkagym.data.db.relation.RoutineWithExercises
 import com.valerochka1337.valerochkagym.data.db.relation.WorkoutExerciseWithSets
 import com.valerochka1337.valerochkagym.data.db.relation.WorkoutFull
-import com.valerochka1337.valerochkagym.data.db.relation.WorkoutVolume
 import com.valerochka1337.valerochkagym.data.settings.SettingsRepository
 import com.valerochka1337.valerochkagym.domain.ActiveWorkoutRepository
 import com.valerochka1337.valerochkagym.domain.CompleteSetUseCase
@@ -391,9 +390,7 @@ class ActiveWorkoutViewModelTest {
     private class FakeWorkoutDao(private val previousSets: List<WorkoutSetEntity>) : WorkoutDao {
         override suspend fun lastCompletedSetsForExercise(exerciseId: Long): List<WorkoutSetEntity> = previousSets
         override suspend fun insertWorkout(workout: WorkoutEntity) = Unit
-        override suspend fun updateWorkout(workout: WorkoutEntity) = Unit
         override suspend fun insertWorkoutExercise(workoutExercise: WorkoutExerciseEntity): Long = 0
-        override suspend fun updateWorkoutExercise(workoutExercise: WorkoutExerciseEntity) = Unit
         override suspend fun insertSet(set: WorkoutSetEntity): Long = 0
         override suspend fun insertSets(sets: List<WorkoutSetEntity>): List<Long> = emptyList()
         override suspend fun updateSet(set: WorkoutSetEntity) = Unit
@@ -405,7 +402,6 @@ class ActiveWorkoutViewModelTest {
         override fun observeActiveWorkout(): Flow<WorkoutFull?> = flowOf(null)
         override suspend fun getActiveWorkoutId(): String? = null
         override fun observeFinishedWorkouts(): Flow<List<WorkoutEntity>> = flowOf(emptyList())
-        override fun observeWorkoutVolumes(): Flow<List<WorkoutVolume>> = flowOf(emptyList())
         override fun observeCompletedSets(): Flow<List<AnalyticsSetRow>> = flowOf(emptyList())
         override suspend fun getWorkoutFull(id: String): WorkoutFull? = null
         override suspend fun maxCompletedWeight(exerciseId: Long, excludeWorkoutId: String): Double? = null
@@ -426,10 +422,7 @@ class ActiveWorkoutViewModelTest {
         override suspend fun getRoutineName(id: Long): String? = null
         override suspend fun upsertRoutine(routine: RoutineEntity): Long = 0
         override suspend fun deleteRoutine(id: Long) = Unit
-        override suspend fun insertRoutineExercise(routineExercise: RoutineExerciseEntity): Long = 0
         override suspend fun insertRoutineExercises(routineExercises: List<RoutineExerciseEntity>): List<Long> = emptyList()
-        override suspend fun updateRoutineExercise(routineExercise: RoutineExerciseEntity) = Unit
-        override suspend fun deleteRoutineExercise(id: Long) = Unit
         override suspend fun deleteRoutineExercises(routineId: Long) = Unit
     }
 

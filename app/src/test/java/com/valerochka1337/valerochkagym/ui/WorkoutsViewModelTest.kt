@@ -257,10 +257,7 @@ class WorkoutsViewModelTest {
             routines.value = routines.value.filterNot { it.routine.id == id }
         }
 
-        override suspend fun insertRoutineExercise(routineExercise: RoutineExerciseEntity): Long = 0
         override suspend fun insertRoutineExercises(routineExercises: List<RoutineExerciseEntity>): List<Long> = emptyList()
-        override suspend fun updateRoutineExercise(routineExercise: RoutineExerciseEntity) = Unit
-        override suspend fun deleteRoutineExercise(id: Long) = Unit
         override suspend fun deleteRoutineExercises(routineId: Long) = Unit
     }
 

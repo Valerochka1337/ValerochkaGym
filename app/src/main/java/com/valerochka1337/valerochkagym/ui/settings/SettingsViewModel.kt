@@ -151,7 +151,10 @@ class SettingsViewModel @Inject constructor(
     /** Разово тянет историю из только что сохранённой таблицы и уведомляет о результате. */
     private suspend fun importHistory() {
         val message = when (val result = importRepository.importAll()) {
-            is ImportResult.Success -> "Импортировано тренировок: ${result.imported}"
+            is ImportResult.Success -> buildString {
+                append("Импортировано тренировок: ${result.imported}")
+                if (result.skippedRows > 0) append(" (пропущено строк: ${result.skippedRows})")
+            }
             ImportResult.NothingToImport -> "Нечего импортировать"
             is ImportResult.Failure -> result.reason
         }

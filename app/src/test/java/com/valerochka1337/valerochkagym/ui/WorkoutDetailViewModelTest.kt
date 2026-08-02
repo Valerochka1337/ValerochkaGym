@@ -12,7 +12,6 @@ import com.valerochka1337.valerochkagym.data.db.entity.WorkoutSetEntity
 import com.valerochka1337.valerochkagym.data.db.relation.AnalyticsSetRow
 import com.valerochka1337.valerochkagym.data.db.relation.WorkoutExerciseWithSets
 import com.valerochka1337.valerochkagym.data.db.relation.WorkoutFull
-import com.valerochka1337.valerochkagym.data.db.relation.WorkoutVolume
 import com.valerochka1337.valerochkagym.domain.PreviousSetsUseCase
 import com.valerochka1337.valerochkagym.domain.WorkoutStatsUseCase
 import com.valerochka1337.valerochkagym.ui.history.WorkoutDetailViewModel
@@ -164,9 +163,7 @@ class WorkoutDetailViewModelTest {
         }
 
         override suspend fun insertWorkout(workout: WorkoutEntity) = Unit
-        override suspend fun updateWorkout(workout: WorkoutEntity) = Unit
         override suspend fun insertWorkoutExercise(workoutExercise: WorkoutExerciseEntity): Long = 0
-        override suspend fun updateWorkoutExercise(workoutExercise: WorkoutExerciseEntity) = Unit
         override suspend fun insertSet(set: WorkoutSetEntity): Long = 0
         override suspend fun insertSets(sets: List<WorkoutSetEntity>): List<Long> = emptyList()
         override suspend fun updateSet(set: WorkoutSetEntity) = Unit
@@ -178,7 +175,6 @@ class WorkoutDetailViewModelTest {
         override fun observeActiveWorkout(): Flow<WorkoutFull?> = flowOf(null)
         override suspend fun getActiveWorkoutId(): String? = null
         override fun observeFinishedWorkouts(): Flow<List<WorkoutEntity>> = flowOf(emptyList())
-        override fun observeWorkoutVolumes(): Flow<List<WorkoutVolume>> = flowOf(emptyList())
         override fun observeCompletedSets(): Flow<List<AnalyticsSetRow>> = flowOf(emptyList())
         override suspend fun lastCompletedSetsForExercise(exerciseId: Long): List<WorkoutSetEntity> = emptyList()
         override suspend fun maxCompletedWeight(exerciseId: Long, excludeWorkoutId: String): Double? = null

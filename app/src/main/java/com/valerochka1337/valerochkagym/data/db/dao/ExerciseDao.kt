@@ -33,7 +33,4 @@ interface ExerciseDao {
     /** Все упражнения одним снимком (для матчинга по имени при импорте). */
     @Query("SELECT * FROM exercises")
     suspend fun getAllOnce(): List<ExerciseEntity>
-
-    @Query("SELECT * FROM exercises WHERE id IN (:ids)")
-    suspend fun getByIds(ids: List<Long>): List<ExerciseEntity>
 }

@@ -14,7 +14,6 @@ import com.valerochka1337.valerochkagym.data.db.entity.WorkoutExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.WorkoutSetEntity
 import com.valerochka1337.valerochkagym.data.db.relation.AnalyticsSetRow
 import com.valerochka1337.valerochkagym.data.db.relation.WorkoutFull
-import com.valerochka1337.valerochkagym.data.db.relation.WorkoutVolume
 import com.valerochka1337.valerochkagym.data.google.SheetsRepository
 import com.valerochka1337.valerochkagym.data.google.UploadResult
 import kotlinx.coroutines.flow.Flow
@@ -131,9 +130,7 @@ class UploadWorkoutWorkerTest {
         }
 
         override suspend fun insertWorkout(workout: WorkoutEntity) = Unit
-        override suspend fun updateWorkout(workout: WorkoutEntity) = Unit
         override suspend fun insertWorkoutExercise(workoutExercise: WorkoutExerciseEntity): Long = 0
-        override suspend fun updateWorkoutExercise(workoutExercise: WorkoutExerciseEntity) = Unit
         override suspend fun insertSet(set: WorkoutSetEntity): Long = 0
         override suspend fun insertSets(sets: List<WorkoutSetEntity>): List<Long> = emptyList()
         override suspend fun updateSet(set: WorkoutSetEntity) = Unit
@@ -145,7 +142,6 @@ class UploadWorkoutWorkerTest {
         override fun observeActiveWorkout(): Flow<WorkoutFull?> = flowOf(null)
         override suspend fun getActiveWorkoutId(): String? = null
         override fun observeFinishedWorkouts(): Flow<List<WorkoutEntity>> = flowOf(emptyList())
-        override fun observeWorkoutVolumes(): Flow<List<WorkoutVolume>> = flowOf(emptyList())
         override fun observeCompletedSets(): Flow<List<AnalyticsSetRow>> = flowOf(emptyList())
         override suspend fun getWorkoutFull(id: String): WorkoutFull? = null
         override suspend fun lastCompletedSetsForExercise(exerciseId: Long): List<WorkoutSetEntity> = emptyList()

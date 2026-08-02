@@ -35,14 +35,14 @@ class ConvertersTest : RoomDaoTest() {
             PlannedSet(),
         )
 
-        routineDao.insertRoutineExercise(
+        routineDao.insertRoutineExercises(listOf(
             RoutineExerciseEntity(
                 routineId = routineId,
                 exerciseId = exerciseId,
                 position = 0,
                 plannedSets = plannedSets,
             ),
-        )
+        ))
 
         val stored = routineDao.getRoutineWithExercises(routineId)!!.exercises.single()
         assertEquals(plannedSets, stored.routineExercise.plannedSets)
@@ -53,14 +53,14 @@ class ConvertersTest : RoomDaoTest() {
         val routineId = routineDao.upsertRoutine(RoutineEntity(name = "Пусто"))
         val exerciseId = addExercise()
 
-        routineDao.insertRoutineExercise(
+        routineDao.insertRoutineExercises(listOf(
             RoutineExerciseEntity(
                 routineId = routineId,
                 exerciseId = exerciseId,
                 position = 0,
                 plannedSets = emptyList(),
             ),
-        )
+        ))
 
         val stored = routineDao.getRoutineWithExercises(routineId)!!.exercises.single()
         assertEquals(emptyList<PlannedSet>(), stored.routineExercise.plannedSets)

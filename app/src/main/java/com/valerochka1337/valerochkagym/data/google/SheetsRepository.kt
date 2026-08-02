@@ -128,18 +128,13 @@ class SheetsRepositoryImpl @Inject constructor(
         api.appendValues(bearer, spreadsheetId, APPEND_RANGE, AppendValuesDto(values))
     }
 
-    /**
-     * HTTP-классификация: 401/403 — нет доступа, 404 — таблицы нет (постоянные, пользователь
-     * должен вмешаться); 429 и 5xx — временные (повторить); прочие 4xx — постоянные с кодом.
-     */
-    private suspend fun classifyHttp(workoutId: String, code: Int): UploadResult = when (code) {
-        401, 403 -> permanent(workoutId, "Нет доступа к таблице — проверьте вход и права")
-        404 -> permanent(workoutId, "Таблица не найдена — проверьте ссылку")
-        429 -> UploadResult.TransientFailure("Слишком много запросов (HTTP 429)")
-        in 500..599 -> UploadResult.TransientFailure("Ошибка сервера (HTTP $code)")
-        in 400..499 -> permanent(workoutId, "Ошибка запроса (HTTP $code)")
-        else -> UploadResult.TransientFailure("Неожиданный ответ (HTTP $code)")
-    }
+    /** Разбор HTTP-кода — общий [HttpErrorClassifier]; постоянные ошибки метят тренировку FAILED. */
+    private suspend fun classifyHttp(workoutId: String, code: Int): UploadResult =
+        if (HttpErrorClassifier.isPermanent(code)) {
+            permanent(workoutId, HttpErrorClassifier.message(code))
+        } else {
+            UploadResult.TransientFailure(HttpErrorClassifier.message(code))
+        }
 
     /** Помечает тренировку упавшей и возвращает постоянную ошибку с тем же текстом. */
     private suspend fun permanent(workoutId: String, reason: String): UploadResult {

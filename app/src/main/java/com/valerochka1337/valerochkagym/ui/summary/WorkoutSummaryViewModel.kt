@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.valerochka1337.valerochkagym.data.db.dao.WorkoutDao
 import com.valerochka1337.valerochkagym.data.db.relation.WorkoutFull
+import com.valerochka1337.valerochkagym.data.sortedWorkoutFull
 import com.valerochka1337.valerochkagym.domain.PrResult
 import com.valerochka1337.valerochkagym.domain.PreviousSetsUseCase
 import com.valerochka1337.valerochkagym.domain.RoutineUpdateUseCase
@@ -74,7 +75,7 @@ class WorkoutSummaryViewModel @Inject constructor(
             return
         }
         viewModelScope.launch {
-            val full = workoutDao.getWorkoutFull(id)?.let(::sorted) ?: run {
+            val full = workoutDao.getWorkoutFull(id)?.let(::sortedWorkoutFull) ?: run {
                 _uiState.update { it.copy(loading = false) }
                 return@launch
             }
@@ -117,10 +118,3 @@ class WorkoutSummaryViewModel @Inject constructor(
         _uiState.update { it.copy(showUpdateRoutineDialog = false) }
     }
 }
-
-/** Доменная сортировка: упражнения по position, подходы по setIndex. */
-private fun sorted(full: WorkoutFull): WorkoutFull = full.copy(
-    exercises = full.exercises
-        .sortedBy { it.workoutExercise.position }
-        .map { exercise -> exercise.copy(sets = exercise.sets.sortedBy { it.setIndex }) },
-)

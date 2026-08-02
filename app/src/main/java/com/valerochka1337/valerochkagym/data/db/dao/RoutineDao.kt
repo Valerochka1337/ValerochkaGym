@@ -49,16 +49,7 @@ interface RoutineDao {
     suspend fun deleteRoutine(id: Long)
 
     @Insert
-    suspend fun insertRoutineExercise(routineExercise: RoutineExerciseEntity): Long
-
-    @Insert
     suspend fun insertRoutineExercises(routineExercises: List<RoutineExerciseEntity>): List<Long>
-
-    @Update
-    suspend fun updateRoutineExercise(routineExercise: RoutineExerciseEntity)
-
-    @Query("DELETE FROM routine_exercises WHERE id = :id")
-    suspend fun deleteRoutineExercise(id: Long)
 
     @Query("DELETE FROM routine_exercises WHERE routineId = :routineId")
     suspend fun deleteRoutineExercises(routineId: Long)

@@ -34,8 +34,8 @@ class RoutineDaoTest : RoomDaoTest() {
         runTest {
             val routineId = routineDao.upsertRoutine(RoutineEntity(name = "День ног"))
             val exerciseId = addExercise()
-            routineDao.insertRoutineExercise(
-                RoutineExerciseEntity(routineId = routineId, exerciseId = exerciseId, position = 0),
+            routineDao.insertRoutineExercises(
+                listOf(RoutineExerciseEntity(routineId = routineId, exerciseId = exerciseId, position = 0)),
             )
             workoutDao.insertWorkout(
                 WorkoutEntity(

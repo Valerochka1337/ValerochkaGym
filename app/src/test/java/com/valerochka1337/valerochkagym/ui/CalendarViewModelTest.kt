@@ -15,7 +15,6 @@ import com.valerochka1337.valerochkagym.data.db.relation.RoutineWithCount
 import com.valerochka1337.valerochkagym.data.db.relation.RoutineWithExercises
 import com.valerochka1337.valerochkagym.data.db.relation.ScheduledWithRoutine
 import com.valerochka1337.valerochkagym.data.db.relation.WorkoutFull
-import com.valerochka1337.valerochkagym.data.db.relation.WorkoutVolume
 import com.valerochka1337.valerochkagym.data.google.CalendarRepository
 import com.valerochka1337.valerochkagym.data.google.ScheduleResult
 import com.valerochka1337.valerochkagym.data.schedule.DayRule
@@ -271,9 +270,7 @@ class CalendarViewModelTest {
     private class FakeWorkoutDao(private val finished: List<WorkoutEntity>) : WorkoutDao {
         override fun observeFinishedWorkouts(): Flow<List<WorkoutEntity>> = MutableStateFlow(finished)
         override suspend fun insertWorkout(workout: WorkoutEntity) = Unit
-        override suspend fun updateWorkout(workout: WorkoutEntity) = Unit
         override suspend fun insertWorkoutExercise(workoutExercise: WorkoutExerciseEntity): Long = 0
-        override suspend fun updateWorkoutExercise(workoutExercise: WorkoutExerciseEntity) = Unit
         override suspend fun insertSet(set: WorkoutSetEntity): Long = 0
         override suspend fun insertSets(sets: List<WorkoutSetEntity>): List<Long> = emptyList()
         override suspend fun updateSet(set: WorkoutSetEntity) = Unit
@@ -284,7 +281,6 @@ class CalendarViewModelTest {
         override suspend fun setFinishedAt(id: String, finishedAt: Long) = Unit
         override fun observeActiveWorkout(): Flow<WorkoutFull?> = flowOf(null)
         override suspend fun getActiveWorkoutId(): String? = null
-        override fun observeWorkoutVolumes(): Flow<List<WorkoutVolume>> = flowOf(emptyList())
         override fun observeCompletedSets(): Flow<List<AnalyticsSetRow>> = flowOf(emptyList())
         override suspend fun getWorkoutFull(id: String): WorkoutFull? = null
         override suspend fun lastCompletedSetsForExercise(exerciseId: Long): List<WorkoutSetEntity> = emptyList()
@@ -299,7 +295,6 @@ class CalendarViewModelTest {
     }
 
     private class FakeScheduledWorkoutDao(private val all: List<ScheduledWithRoutine>) : ScheduledWorkoutDao {
-        override fun observeUpcoming(nowMillis: Long): Flow<List<ScheduledWithRoutine>> = flowOf(all)
         override fun observeAll(): Flow<List<ScheduledWithRoutine>> = MutableStateFlow(all)
         override suspend fun insert(scheduled: ScheduledWorkoutEntity): Long = 0
         override suspend fun delete(id: Long) = Unit
@@ -313,10 +308,7 @@ class CalendarViewModelTest {
         override suspend fun getRoutineName(id: Long): String? = list.find { it.routine.id == id }?.routine?.name
         override suspend fun upsertRoutine(routine: RoutineEntity): Long = 0
         override suspend fun deleteRoutine(id: Long) = Unit
-        override suspend fun insertRoutineExercise(routineExercise: RoutineExerciseEntity): Long = 0
         override suspend fun insertRoutineExercises(routineExercises: List<RoutineExerciseEntity>): List<Long> = emptyList()
-        override suspend fun updateRoutineExercise(routineExercise: RoutineExerciseEntity) = Unit
-        override suspend fun deleteRoutineExercise(id: Long) = Unit
         override suspend fun deleteRoutineExercises(routineId: Long) = Unit
     }
 

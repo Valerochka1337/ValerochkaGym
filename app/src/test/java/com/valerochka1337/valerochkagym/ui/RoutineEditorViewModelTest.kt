@@ -380,10 +380,7 @@ class RoutineEditorViewModelTest {
             routines.value = routines.value.filterNot { it.routine.id == id }
         }
 
-        override suspend fun insertRoutineExercise(routineExercise: RoutineExerciseEntity): Long = 0
         override suspend fun insertRoutineExercises(routineExercises: List<RoutineExerciseEntity>): List<Long> = emptyList()
-        override suspend fun updateRoutineExercise(routineExercise: RoutineExerciseEntity) = Unit
-        override suspend fun deleteRoutineExercise(id: Long) = Unit
         override suspend fun deleteRoutineExercises(routineId: Long) = Unit
     }
 
@@ -400,6 +397,5 @@ class RoutineEditorViewModelTest {
         override suspend fun count(): Int = items.size
         override suspend fun getById(id: Long): ExerciseEntity? = items.find { it.id == id }
         override suspend fun getAllOnce(): List<ExerciseEntity> = items
-        override suspend fun getByIds(ids: List<Long>): List<ExerciseEntity> = items.filter { it.id in ids }
     }
 }

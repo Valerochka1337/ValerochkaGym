@@ -34,14 +34,25 @@ data class ParsedSet(
 )
 
 /**
+ * Итог разбора листа: дерево тренировок плюс счётчик [skippedRows] — строк с `workout_id`,
+ * которые не удалось разобрать (битое время). Счётчик всплывает до пользователя: молчаливый
+ * пропуск превращал бы кривую таблицу в «нечего импортировать».
+ */
+data class ParsedRows(
+    val workouts: List<ParsedWorkout>,
+    val skippedRows: Int,
+)
+
+/**
  * Обратный к [WorkoutRowMapper]: собирает плоские строки листа `Workouts` (в порядке
  * [WorkoutRowMapper.HEADER_ROW]) в дерево тренировок.
  *
- * Пропускает строку-шапку, пустые строки и строки без `workout_id` или с нераспознанным
- * временем (`date`+`start_time`). Строки группируются по `workout_id` (порядок появления
- * сохраняется), внутри — по имени упражнения в порядке первого появления (это даёт `position`).
- * `startedAt`/`finishedAt` тренировки — минимум/максимум `completedAt` её подходов. Числа
- * парсятся мягко (запятая-десятичный разделитель допускается); пустая ячейка → `null`.
+ * Строка-шапка и пустые строки (без `workout_id`) игнорируются молча; строки с id, но с
+ * нераспознанным временем (`date`+`start_time`) считаются в [ParsedRows.skippedRows].
+ * Строки группируются по `workout_id` (порядок появления сохраняется), внутри — по имени
+ * упражнения в порядке первого появления (это даёт `position`). `startedAt`/`finishedAt`
+ * тренировки — минимум/максимум `completedAt` её подходов. Числа парсятся мягко
+ * (запятая-десятичный разделитель допускается); пустая ячейка → `null`.
  */
 object WorkoutRowParser {
 
@@ -61,8 +72,9 @@ object WorkoutRowParser {
     private const val COL_SPEED = 11
     private const val COL_INCLINE = 12
 
-    fun parse(rows: List<List<String>>): List<ParsedWorkout> {
+    fun parse(rows: List<List<String>>): ParsedRows {
         val zone = ZoneId.systemDefault()
+        var skippedRows = 0
 
         // Сырые подходы, сгруппированные по workout_id с сохранением порядка появления.
         data class RawSet(
@@ -83,7 +95,11 @@ object WorkoutRowParser {
         for (row in rows) {
             val id = row.cell(COL_WORKOUT_ID)
             if (id.isEmpty() || id == "workout_id") continue // пропуск шапки/пустых
-            val millis = parseMillis(row.cell(COL_DATE), row.cell(COL_START_TIME), zone) ?: continue
+            val millis = parseMillis(row.cell(COL_DATE), row.cell(COL_START_TIME), zone)
+            if (millis == null) {
+                skippedRows++
+                continue
+            }
 
             val (_, sets) = grouped.getOrPut(id) { row.cell(COL_WORKOUT_NAME) to mutableListOf() }
             sets.add(
@@ -102,7 +118,7 @@ object WorkoutRowParser {
             )
         }
 
-        return grouped.map { (id, value) ->
+        val workouts = grouped.map { (id, value) ->
             val (name, raws) = value
             val times = raws.map { it.completedAt }
             val exercises = LinkedHashMap<String, MutableList<RawSet>>()
@@ -135,6 +151,7 @@ object WorkoutRowParser {
                 },
             )
         }
+        return ParsedRows(workouts, skippedRows)
     }
 
     private fun List<String>.cell(index: Int): String = getOrNull(index)?.trim().orEmpty()
