@@ -82,15 +82,13 @@ data class NiceScale(
 ) {
     val ticks: List<Float>
         get() {
-            if (step <= 0f) return listOf(min, max)
-            val result = mutableListOf<Float>()
-            var value = min
-            // Допуск в полшага защищает от потери верхней метки на накопленной ошибке Float.
-            while (value <= max + step * 0.5f) {
-                result += value
-                value += step
-            }
-            return result
+            if (step <= 0f || !step.isFinite()) return listOf(min, max)
+            // Считаем по индексу, а не накоплением `value += step`: если шаг мельче точности
+            // Float на этом порядке величины, сложение не сдвигает значение и цикл никогда не
+            // заканчивается — список растёт до OutOfMemory. Плюс индекс не копит ошибку.
+            // Допуск в полшага защищает от потери верхней метки на той же ошибке.
+            val count = ((max - min) / step + 0.5f).toInt().coerceIn(0, MAX_TICKS)
+            return List(count + 1) { min + it * step }
         }
 
     /** Доля 0..1 значения [value] на шкале — готовая координата по вертикали. */
@@ -111,14 +109,24 @@ data class NiceScale(
             targetTicks: Int = 4,
             zeroBased: Boolean = true,
         ): NiceScale {
+            if (!rawMin.isFinite() || !rawMax.isFinite()) return NiceScale(0f, 1f, 0.5f)
             val low = if (zeroBased) minOf(0f, rawMin) else rawMin
-            val high = maxOf(rawMax, low + 1e-3f)
-            if (!high.isFinite() || abs(high - low) < 1e-6f) return NiceScale(0f, 1f, 0.5f)
-            val rawStep = (high - low) / targetTicks.coerceAtLeast(1)
-            val step = niceStep(rawStep)
-            val niceMin = floor(low / step) * step
-            val niceMax = ceil(high / step) * step
-            return NiceScale(niceMin, niceMax, step)
+            val high = maxOf(rawMax, low)
+            // Плоские данные — одна точка или несколько одинаковых значений. Строить шкалу
+            // по «волосяному» диапазону нельзя: шаг выходит мельче точности Float на этом
+            // порядке величины, и ось получается из одинаковых подписей. Разворачиваем шкалу
+            // вокруг самого значения — линия ложится в середину графика.
+            if (high - low <= abs(high) * FLAT_SPAN) {
+                val pad = maxOf(abs(high) * FLAT_PAD, 1f)
+                return nice(if (zeroBased) 0f else high - pad, high + pad, targetTicks)
+            }
+            return nice(low, high, targetTicks)
+        }
+
+        /** Границы, округлённые вниз и вверх до «человеческого» шага. */
+        private fun nice(low: Float, high: Float, targetTicks: Int): NiceScale {
+            val step = niceStep((high - low) / targetTicks.coerceAtLeast(1))
+            return NiceScale(floor(low / step) * step, ceil(high / step) * step, step)
         }
 
         /** Ближайший «человеческий» шаг: 1, 2, 2.5 или 5 на соответствующем порядке величины. */
@@ -135,6 +143,15 @@ data class NiceScale(
             }
             return nice * magnitude
         }
+
+        /** Больше меток ни на одном графике не читается, а на вырожденных данных это страховка. */
+        private const val MAX_TICKS = 64
+
+        /** Разброс, ниже которого данные считаются одинаковыми — сотые доли процента значения. */
+        private const val FLAT_SPAN = 1e-4f
+
+        /** На сколько разворачивать шкалу вокруг одинаковых значений. */
+        private const val FLAT_PAD = 0.05f
     }
 }
 

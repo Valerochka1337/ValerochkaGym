@@ -196,7 +196,7 @@ private fun BalanceRow(balance: BalanceRatio) {
     val (leftLabel, rightLabel) = balance.id.sideLabels()
     // ±1 по шкале log2 = перекос вдвое: дальше растягивать нечего, всё за этим — «сильный перекос».
     val limit = 1f
-    val position = balance.ratio?.let { log2(it.toFloat()).coerceIn(-limit, limit) } ?: -limit
+    val position = balanceMarkerPosition(balance.ratio, limit)
     val targetLow = log2(balance.targetLow.toFloat()).coerceIn(-limit, limit)
     val targetHigh = log2(balance.targetHigh.toFloat()).coerceIn(-limit, limit)
 
@@ -267,3 +267,14 @@ private fun BalanceRow(balance: BalanceRatio) {
         }
     }
 }
+
+/**
+ * Положение метки перекоса на шкале ±[limit] (log2 от отношения): минус — влево, плюс — вправо.
+ *
+ * Отношение `null` означает, что знаменатель нулевой, а числитель — нет: тяги не было вовсе,
+ * жим есть. Это предельный перекос **вправо**, к подписи «больше жима». Пустое отношение легко
+ * принять за «нет данных» и увести метку влево — тогда карточка утверждает ровно обратное тому,
+ * что произошло на тренировках.
+ */
+internal fun balanceMarkerPosition(ratio: Double?, limit: Float): Float =
+    if (ratio == null) limit else log2(ratio.toFloat()).coerceIn(-limit, limit)

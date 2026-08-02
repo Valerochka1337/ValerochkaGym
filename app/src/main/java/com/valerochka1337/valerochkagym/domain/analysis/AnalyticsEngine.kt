@@ -52,8 +52,7 @@ class AnalyticsEngine @Inject constructor() {
 
         val sets = input.sets.filter { it.completedAt >= periodStartMillis }
         val workouts = input.workouts.filter { it.finishedAt != null && it.startedAt >= periodStartMillis }
-        // SCRATCH: temporarily disabled to verify the fix
-        // if (sets.isEmpty() && workouts.isEmpty()) return AnalyticsReport.empty(period)
+        if (sets.isEmpty() && workouts.isEmpty()) return AnalyticsReport.empty(period)
 
         val hardSets = hardSets(sets)
         val weeks = periodWeeks(period, firstActivityMillis(input), today, input.zone)

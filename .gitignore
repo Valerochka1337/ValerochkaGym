@@ -15,3 +15,7 @@
 local.properties
 .superpowers/
 /.idea/
+
+# локальные файлы инструментов и кэш Kotlin-компилятора
+/.claude/
+/.kotlin/
