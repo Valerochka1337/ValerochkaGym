@@ -53,6 +53,7 @@ import com.valerochka1337.valerochkagym.ui.components.GymCard
 import com.valerochka1337.valerochkagym.ui.components.GymCardShape
 import com.valerochka1337.valerochkagym.ui.components.GymTopBar
 import com.valerochka1337.valerochkagym.ui.components.PillButton
+import com.valerochka1337.valerochkagym.ui.haptics.gymHaptics
 import com.valerochka1337.valerochkagym.ui.theme.GymMotion
 
 /**
@@ -130,10 +131,14 @@ fun WorkoutsScreen(
                             verticalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
                             items(routines, key = { it.id }) { routine ->
+                                val haptics = gymHaptics()
                                 RoutineCard(
                                     routine = routine,
                                     selected = routine.id == state.selectedRoutineId,
-                                    onClick = { viewModel.onRoutineSelected(routine.id) },
+                                    onClick = {
+                                        haptics.tap()
+                                        viewModel.onRoutineSelected(routine.id)
+                                    },
                                     onEdit = { onEditRoutine(routine.id) },
                                     onDuplicate = { viewModel.duplicate(routine.id) },
                                     onDelete = { pendingDeleteId = routine.id },

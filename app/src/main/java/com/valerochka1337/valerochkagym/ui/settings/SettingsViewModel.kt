@@ -188,6 +188,11 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch { settingsRepository.setVibrationEnabled(enabled) }
     }
 
+    /** Тактильный отклик интерфейса (GymHaptics); вибрация уведомления таймера — отдельно. */
+    fun toggleHaptics(enabled: Boolean) {
+        viewModelScope.launch { settingsRepository.setHapticsEnabled(enabled) }
+    }
+
     /**
      * Меняет акцент приложения. Иконку в лаунчере переключать отсюда не нужно: за ней следит
      * [com.valerochka1337.valerochkagym.data.appicon.AppIconManager], подписанный на настройку.

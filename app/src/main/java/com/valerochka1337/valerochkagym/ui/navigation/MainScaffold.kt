@@ -52,6 +52,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.valerochka1337.valerochkagym.R
 import com.valerochka1337.valerochkagym.ui.common.formatRestClock
+import com.valerochka1337.valerochkagym.ui.haptics.gymHaptics
 import com.valerochka1337.valerochkagym.ui.theme.GymMotion
 
 /** A root tab shown in the bottom [NavigationBar]. */
@@ -137,12 +138,16 @@ fun MainScaffold(
                         containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
                         windowInsets = WindowInsets(0, 0, 0, 0),
                     ) {
+                        val haptics = gymHaptics()
                         tabs.forEach { tab ->
                             val selected =
                                 currentDestination?.hierarchy?.any { it.route == tab.route } == true
                             NavigationBarItem(
                                 selected = selected,
-                                onClick = { navController.navigateToTab(tab.route) },
+                                onClick = {
+                                    if (!selected) haptics.tap()
+                                    navController.navigateToTab(tab.route)
+                                },
                                 icon = {
                                     Icon(
                                         imageVector = ImageVector.vectorResource(tab.icon),

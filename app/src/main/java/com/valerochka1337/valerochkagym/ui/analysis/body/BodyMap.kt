@@ -41,6 +41,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.valerochka1337.valerochkagym.data.db.entity.Muscle
+import com.valerochka1337.valerochkagym.ui.haptics.gymHaptics
 import com.valerochka1337.valerochkagym.ui.theme.ChartPalette
 import com.valerochka1337.valerochkagym.ui.theme.GymMotion
 import kotlin.math.min
@@ -142,6 +143,7 @@ fun BodyMap(
     onMuscleClick: ((Muscle?) -> Unit)? = null,
 ) {
     val parsed = remember(view) { ParsedBody.of(view) }
+    val haptics = gymHaptics()
     val body = MaterialTheme.colorScheme.surfaceContainerHighest
     val surface = MaterialTheme.colorScheme.surfaceContainerHigh
     val outline = MaterialTheme.colorScheme.outline
@@ -158,7 +160,10 @@ fun BodyMap(
                 } else {
                     Modifier.pointerInput(parsed) {
                         detectTapGestures { offset ->
-                            onMuscleClick(parsed.muscleAt(offset, size.width.toFloat(), size.height.toFloat()))
+                            val muscle = parsed.muscleAt(offset, size.width.toFloat(), size.height.toFloat())
+                            // Отбиваем только попадание в мышцу: тап мимо — осознанный сброс без отклика.
+                            if (muscle != null) haptics.tap()
+                            onMuscleClick(muscle)
                         }
                     }
                 },

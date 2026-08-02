@@ -146,6 +146,19 @@ class SettingsViewModelTest {
         assertFalse(viewModel.uiState.value.settings?.vibrationEnabled ?: true)
     }
 
+    @Test
+    fun `toggleHaptics persists the flag independently of the timer vibration`() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val viewModel = SettingsViewModel(settingsRepository(), FakeGoogleAuth(), FakeUploadScheduler(), FakeImportRepository())
+            collectUiState(viewModel)
+
+            viewModel.toggleHaptics(false)
+
+            assertFalse(viewModel.uiState.value.settings?.hapticsEnabled ?: true)
+            // Вибрация уведомления таймера — отдельная настройка, не трогается.
+            assertTrue(viewModel.uiState.value.settings?.vibrationEnabled ?: false)
+        }
+
     // endregion
 
     // region accent

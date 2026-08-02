@@ -26,6 +26,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -40,6 +41,7 @@ import com.valerochka1337.valerochkagym.ui.components.ExerciseAvatar
 import com.valerochka1337.valerochkagym.ui.components.GlowBackground
 import com.valerochka1337.valerochkagym.ui.components.GymCard
 import com.valerochka1337.valerochkagym.ui.components.PillButton
+import com.valerochka1337.valerochkagym.ui.haptics.gymHaptics
 import com.valerochka1337.valerochkagym.ui.theme.GymMotion
 import java.math.BigDecimal
 
@@ -55,6 +57,12 @@ fun WorkoutSummaryScreen(
     viewModel: WorkoutSummaryViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+
+    // Один success-отклик на появление рекордов — вместе с их «впрыгивающими» карточками.
+    val haptics = gymHaptics()
+    LaunchedEffect(state.prs.isNotEmpty()) {
+        if (state.prs.isNotEmpty()) haptics.success()
+    }
 
     GlowBackground(modifier = modifier) {
         if (state.loading) return@GlowBackground

@@ -78,6 +78,7 @@ import com.valerochka1337.valerochkagym.ui.components.GymCard
 import com.valerochka1337.valerochkagym.service.RestTimerState
 import com.valerochka1337.valerochkagym.ui.components.NumberField
 import com.valerochka1337.valerochkagym.ui.components.PillButton
+import com.valerochka1337.valerochkagym.ui.haptics.gymHaptics
 import com.valerochka1337.valerochkagym.ui.theme.GymMotion
 
 /** Крупный шаг веса (обычный тап), кг. */
@@ -259,12 +260,14 @@ private fun ActiveWorkoutContent(
         }
     }
 
+    val haptics = gymHaptics()
     if (showFinishDialog) {
         ConfirmDialog(
             title = "Завершить тренировку?",
             text = "Пустые невыполненные подходы будут отброшены, тренировка попадёт в историю.",
             confirmText = "Завершить",
             onConfirm = {
+                haptics.success()
                 showFinishDialog = false
                 onFinish()
             },
@@ -279,6 +282,7 @@ private fun ActiveWorkoutContent(
             confirmText = "Удалить",
             destructive = true,
             onConfirm = {
+                haptics.reject()
                 showDiscardDialog = false
                 onDiscard()
             },
@@ -336,12 +340,19 @@ private fun RestTimerPill(
                 .height(56.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            RestPillSide(symbol = "−15с", contentDescription = "убавить отдых") { onAddRestSeconds(-REST_TIMER_STEP) }
+            val haptics = gymHaptics()
+            RestPillSide(symbol = "−15с", contentDescription = "убавить отдых") {
+                haptics.step()
+                onAddRestSeconds(-REST_TIMER_STEP)
+            }
             Row(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxHeight()
-                    .clickable(role = Role.Button, onClick = onSkipRest)
+                    .clickable(role = Role.Button, onClick = {
+                        haptics.tap()
+                        onSkipRest()
+                    })
                     .semantics { contentDescription = "Пропустить отдых" },
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically,
@@ -353,7 +364,10 @@ private fun RestTimerPill(
                     color = MaterialTheme.colorScheme.onPrimary,
                 )
             }
-            RestPillSide(symbol = "+15с", contentDescription = "прибавить отдых") { onAddRestSeconds(REST_TIMER_STEP) }
+            RestPillSide(symbol = "+15с", contentDescription = "прибавить отдых") {
+                haptics.step()
+                onAddRestSeconds(REST_TIMER_STEP)
+            }
         }
     }
 }
@@ -476,11 +490,17 @@ private fun ExerciseSection(
                     actions = actions,
                 )
 
-                set.isCompleted -> CompletedSetPill(
-                    set = set,
-                    type = type,
-                    onClick = { actions.uncomplete(set.id) },
-                )
+                set.isCompleted -> {
+                    val haptics = gymHaptics()
+                    CompletedSetPill(
+                        set = set,
+                        type = type,
+                        onClick = {
+                            haptics.toggle(on = false)
+                            actions.uncomplete(set.id)
+                        },
+                    )
+                }
 
                 else -> FutureSetPill(set = set, type = type)
             }
@@ -587,9 +607,13 @@ private fun CurrentSetCard(
 
         Spacer(Modifier.height(14.dp))
 
+        val haptics = gymHaptics()
         PillButton(
             text = "Подход выполнен",
-            onClick = { actions.complete(set.id) },
+            onClick = {
+                haptics.confirm()
+                actions.complete(set.id)
+            },
             leadingIcon = Icons.Default.Check,
             modifier = Modifier.fillMaxWidth(),
         )
@@ -646,6 +670,9 @@ private fun StepButton(
     onClick: () -> Unit,
     onLongClick: (() -> Unit)?,
 ) {
+    // Тактильный шаг на каждом ±: long-press (точная подстройка) отбивается мягче — это
+    // единственное, что отличает его от обычного тапа до того, как изменится число.
+    val haptics = gymHaptics()
     Box(
         modifier = Modifier
             .size(48.dp)
@@ -655,8 +682,16 @@ private fun StepButton(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = ripple(),
                 role = Role.Button,
-                onClick = onClick,
-                onLongClick = onLongClick,
+                onClick = {
+                    haptics.step()
+                    onClick()
+                },
+                onLongClick = onLongClick?.let { fine ->
+                    {
+                        haptics.stepFrequent()
+                        fine()
+                    }
+                },
             )
             .semantics { this.contentDescription = contentDescription },
         contentAlignment = Alignment.Center,
