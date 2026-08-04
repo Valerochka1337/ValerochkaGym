@@ -6,8 +6,6 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
@@ -107,29 +105,24 @@ fun MainScaffold(
 
     Scaffold(
         bottomBar = {
-            Column {
-                AnimatedVisibility(
-                    visible = showResumeBanner,
-                    enter = expandVertically(GymMotion.spatialDefault()) + fadeIn(GymMotion.effectsDefault()),
-                    exit = shrinkVertically(GymMotion.spatialDefault()) + fadeOut(GymMotion.effectsDefault()),
-                ) {
-                    // Во время exit-анимации состояние уже null — держим последнее ненулевое,
-                    // чтобы содержимое плашки не схлопывалось мгновенно.
-                    var lastBanner by remember { mutableStateOf(banner) }
-                    banner?.let { lastBanner = it }
-                    lastBanner?.let { state ->
-                        ResumeWorkoutBanner(
-                            state = state,
-                            onClick = { navController.navigate(GymRoutes.ACTIVE_WORKOUT) },
-                        )
+            if (showBottomBar) {
+                Column {
+                    AnimatedVisibility(
+                        visible = showResumeBanner,
+                        enter = expandVertically(GymMotion.spatialDefault()) +
+                            fadeIn(GymMotion.effectsDefault()),
+                        exit = shrinkVertically(GymMotion.spatialDefault()) +
+                            fadeOut(GymMotion.effectsDefault()),
+                    ) {
+                        var lastBanner by remember { mutableStateOf(banner) }
+                        banner?.let { lastBanner = it }
+                        lastBanner?.let { state ->
+                            ResumeWorkoutBanner(
+                                state = state,
+                                onClick = { navController.navigate(GymRoutes.ACTIVE_WORKOUT) },
+                            )
+                        }
                     }
-                }
-                AnimatedVisibility(
-                    visible = showBottomBar,
-                    enter = slideInVertically(GymMotion.spatialDefault()) { it } + fadeIn(GymMotion.effectsDefault()),
-                    exit = slideOutVertically(GymMotion.spatialDefault()) { it } + fadeOut(GymMotion.effectsDefault()),
-                ) {
-                    // Плавающий навбар: отступает от боковых и нижнего краёв, скруглён.
                     NavigationBar(
                         modifier = Modifier
                             .navigationBarsPadding()
