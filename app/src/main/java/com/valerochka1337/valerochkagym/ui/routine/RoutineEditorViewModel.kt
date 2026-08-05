@@ -134,18 +134,19 @@ class RoutineEditorViewModel @Inject constructor(
         }
     }
 
-    fun moveUp(index: Int) = swap(index, index - 1)
-
-    fun moveDown(index: Int) = swap(index, index + 1)
-
-    private fun swap(from: Int, to: Int) {
+    /** Синхронно переставляет упражнение для drag-and-drop и действий TalkBack. */
+    fun moveExercise(fromIndex: Int, toIndex: Int) {
         _uiState.update { state ->
-            if (from !in state.exercises.indices || to !in state.exercises.indices) return@update state
+            if (
+                fromIndex !in state.exercises.indices ||
+                toIndex !in state.exercises.indices ||
+                fromIndex == toIndex
+            ) {
+                return@update state
+            }
             state.copy(
                 exercises = state.exercises.toMutableList().apply {
-                    val tmp = this[from]
-                    this[from] = this[to]
-                    this[to] = tmp
+                    add(toIndex, removeAt(fromIndex))
                 },
             )
         }

@@ -39,6 +39,16 @@ fun formatTonnage(kg: Double): String =
 fun formatMinutes(minutes: Int): String =
     if (minutes >= 60) "${minutes / 60} ч ${"%02d".format(minutes % 60)} мин" else "$minutes мин"
 
+/** Дата последней тренировки в естественной форме для подписи под средней длительностью. */
+fun formatLastSessionCaption(daysSinceLast: Int): String {
+    val days = daysSinceLast.coerceAtLeast(0)
+    return when (days) {
+        0 -> "последняя — сегодня"
+        1 -> "последняя — вчера"
+        else -> "последняя — $days дн. назад"
+    }
+}
+
 fun formatDate(millis: Long, zone: ZoneId): String =
     DATE_FORMATTER.format(Instant.ofEpochMilli(millis).atZone(zone))
 
@@ -85,8 +95,8 @@ fun BalanceId.title(): String = when (this) {
 
 /** Что означает перекос влево и вправо — без этого diverging-график не прочитать. */
 fun BalanceId.sideLabels(): Pair<String, String> = when (this) {
-    BalanceId.PUSH_PULL -> "больше тяги" to "больше жима"
-    BalanceId.ANTERIOR_POSTERIOR -> "больше зада" to "больше переда"
-    BalanceId.UPPER_LOWER -> "больше низа" to "больше верха"
-    BalanceId.QUAD_HAMSTRING -> "больше квадрицепса" to "больше бицепса бедра"
+    BalanceId.PUSH_PULL -> "больше жима" to "больше тяги"
+    BalanceId.ANTERIOR_POSTERIOR -> "больше переда" to "больше зада"
+    BalanceId.UPPER_LOWER -> "больше верха" to "больше низа"
+    BalanceId.QUAD_HAMSTRING -> "больше бицепса бедра" to "больше квадрицепса"
 }

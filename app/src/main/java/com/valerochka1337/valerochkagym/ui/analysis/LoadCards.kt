@@ -16,10 +16,11 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.valerochka1337.valerochkagym.domain.analysis.BalanceRatio
 import com.valerochka1337.valerochkagym.domain.analysis.WorkloadRatio
@@ -30,6 +31,7 @@ import com.valerochka1337.valerochkagym.ui.analysis.charts.MeterZone
 import com.valerochka1337.valerochkagym.ui.analysis.charts.ZoneMeter
 import com.valerochka1337.valerochkagym.ui.analysis.charts.rememberChartColors
 import com.valerochka1337.valerochkagym.ui.theme.ChartPalette
+import kotlin.math.abs
 import kotlin.math.log2
 
 /**
@@ -165,8 +167,9 @@ internal fun WorkloadCard(
  * Баланс объёма между антагонистами.
  *
  * Шкала логарифмическая и симметричная относительно 1:1 — на линейной «1.5 к одному» и «один к
- * 1.5» выглядели бы по-разному, хотя это одинаковый по силе перекос в разные стороны. Зелёная
- * полоса — целевой коридор; для «верх/низ» правильного значения не существует, поэтому там
+ * 1.5» выглядели бы по-разному, хотя это одинаковый по силе перекос в разные стороны. Целевой
+ * коридор остаётся видимым под точкой: она показывает сторону и серьёзность перекоса, не
+ * перекрывая его полосой. Для «верх/низ» правильного значения не существует, поэтому там
  * отмечаются только крайности.
  */
 @Composable
@@ -179,7 +182,7 @@ internal fun BalanceCard(
 
     AnalysisCard(
         title = "Баланс объёма",
-        subtitle = "Соотношение эффективных подходов. Центр — 1:1, зелёная полоса — целевой коридор",
+        subtitle = "Зелёная зона — целевой коридор вокруг 1:1. Красная точка — когда одна сторона пуста или разница больше 10 подходов",
         icon = Icons.Rounded.Balance,
         modifier = modifier,
     ) {
@@ -190,15 +193,43 @@ internal fun BalanceCard(
     }
 }
 
+internal enum class BalanceIndicator {
+    BALANCED,
+    IMBALANCED,
+    SEVERE,
+}
+
+/** Нулевая сторона всегда критична, даже когда абсолютная разница ещё не превысила порог. */
+internal fun balanceIndicator(balance: BalanceRatio): BalanceIndicator = when {
+    balance.inTarget -> BalanceIndicator.BALANCED
+    balance.ratio == null || balance.ratio <= 0.0 -> BalanceIndicator.SEVERE
+    abs(balance.leftSets - balance.rightSets) > SEVERE_BALANCE_GAP -> BalanceIndicator.SEVERE
+    else -> BalanceIndicator.IMBALANCED
+}
+
+private fun BalanceIndicator.color() = when (this) {
+    BalanceIndicator.BALANCED -> ChartPalette.Optimal
+    BalanceIndicator.IMBALANCED -> ChartPalette.Maintenance
+    BalanceIndicator.SEVERE -> ChartPalette.TooLittle
+}
+
 @Composable
 private fun BalanceRow(balance: BalanceRatio) {
     val colors = rememberChartColors()
+    val indicator = balanceIndicator(balance)
+    val indicatorColor = indicator.color()
     val (leftLabel, rightLabel) = balance.id.sideLabels()
     // ±1 по шкале log2 = перекос вдвое: дальше растягивать нечего, всё за этим — «сильный перекос».
     val limit = 1f
     val position = balanceMarkerPosition(balance.ratio, limit)
-    val targetLow = log2(balance.targetLow.toFloat()).coerceIn(-limit, limit)
-    val targetHigh = log2(balance.targetHigh.toFloat()).coerceIn(-limit, limit)
+    val targetStart = minOf(
+        balanceMarkerPosition(balance.targetLow, limit),
+        balanceMarkerPosition(balance.targetHigh, limit),
+    )
+    val targetEnd = maxOf(
+        balanceMarkerPosition(balance.targetLow, limit),
+        balanceMarkerPosition(balance.targetHigh, limit),
+    )
 
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -212,69 +243,84 @@ private fun BalanceRow(balance: BalanceRatio) {
                 text = balance.ratio?.let { formatRatio(it) } ?: "—",
                 style = MaterialTheme.typography.labelLarge,
                 fontWeight = FontWeight.SemiBold,
-                color = if (balance.inTarget) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                color = indicatorColor,
                 maxLines = 1,
                 softWrap = false,
             )
         }
         Spacer(Modifier.height(6.dp))
-        Canvas(modifier = Modifier.fillMaxWidth().height(22.dp)) {
-            val trackHeight = 10.dp.toPx()
-            val top = (size.height - trackHeight) / 2f
-            val center = size.width / 2f
-            fun x(value: Float) = center + value / (limit * 2f) * size.width
+        Canvas(modifier = Modifier.fillMaxWidth().height(28.dp)) {
+            val trackWidth = 6.dp.toPx()
+            val centerY = size.height / 2f
+            val centerX = size.width / 2f
+            fun x(value: Float) = centerX + value / (limit * 2f) * size.width
 
-            drawRoundRect(
+            drawLine(
                 color = colors.track,
-                topLeft = Offset(0f, top),
-                size = Size(size.width, trackHeight),
-                cornerRadius = CornerRadius(trackHeight / 2f, trackHeight / 2f),
+                start = Offset(0f, centerY),
+                end = Offset(size.width, centerY),
+                strokeWidth = trackWidth,
+                cap = StrokeCap.Round,
             )
-            drawRect(
-                color = colors.mark.copy(alpha = 0.2f),
-                topLeft = Offset(x(targetLow), top),
-                size = Size((x(targetHigh) - x(targetLow)).coerceAtLeast(2.dp.toPx()), trackHeight),
+            drawLine(
+                color = ChartPalette.Optimal.copy(alpha = 0.35f),
+                start = Offset(x(targetStart), centerY),
+                end = Offset(x(targetEnd), centerY),
+                strokeWidth = trackWidth,
+                cap = StrokeCap.Butt,
             )
             drawLine(
                 color = colors.grid,
-                start = Offset(center, top - 3.dp.toPx()),
-                end = Offset(center, top + trackHeight + 3.dp.toPx()),
+                start = Offset(centerX, centerY - 8.dp.toPx()),
+                end = Offset(centerX, centerY + 8.dp.toPx()),
                 strokeWidth = ChartSpec.GridWidth.toPx(),
             )
-            val barLeft = minOf(center, x(position))
-            val barWidth = kotlin.math.abs(x(position) - center).coerceAtLeast(3.dp.toPx())
-            drawRoundRect(
-                color = if (balance.inTarget) ChartPalette.Optimal else ChartPalette.Maintenance,
-                topLeft = Offset(barLeft, top - 2.dp.toPx()),
-                size = Size(barWidth, trackHeight + 4.dp.toPx()),
-                cornerRadius = CornerRadius(ChartSpec.BarCorner.toPx(), ChartSpec.BarCorner.toPx()),
+            val marker = Offset(x(position), centerY)
+            drawCircle(
+                color = colors.surface,
+                radius = ChartSpec.MarkerRadius.toPx() + ChartSpec.MarkerRing.toPx(),
+                center = marker,
+            )
+            drawCircle(
+                color = indicatorColor,
+                radius = ChartSpec.MarkerRadius.toPx(),
+                center = marker,
             )
         }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-        ) {
+        Row(modifier = Modifier.fillMaxWidth()) {
             Text(
                 text = "← $leftLabel",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
             )
             Text(
                 text = "$rightLabel →",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.End,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
             )
         }
     }
 }
 
+private const val SEVERE_BALANCE_GAP = 10.0
+
 /**
- * Положение метки перекоса на шкале ±[limit] (log2 от отношения): минус — влево, плюс — вправо.
+ * Положение метки перекоса на шкале ±[limit] (log2 от отношения): слева — числитель
+ * отношения, справа — знаменатель. Поэтому подписи и дробь в заголовке всегда идут в одном
+ * порядке.
  *
  * Отношение `null` означает, что знаменатель нулевой, а числитель — нет: тяги не было вовсе,
- * жим есть. Это предельный перекос **вправо**, к подписи «больше жима». Пустое отношение легко
- * принять за «нет данных» и увести метку влево — тогда карточка утверждает ровно обратное тому,
- * что произошло на тренировках.
+ * жим есть. Это предельный перекос **влево**, к подписи «больше жима».
  */
-internal fun balanceMarkerPosition(ratio: Double?, limit: Float): Float =
-    if (ratio == null) limit else log2(ratio.toFloat()).coerceIn(-limit, limit)
+internal fun balanceMarkerPosition(ratio: Double?, limit: Float): Float = when {
+    ratio == null -> -limit
+    ratio <= 0.0 -> limit
+    else -> (-log2(ratio.toFloat())).coerceIn(-limit, limit)
+}

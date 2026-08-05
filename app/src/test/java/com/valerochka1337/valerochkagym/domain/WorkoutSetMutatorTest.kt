@@ -133,6 +133,7 @@ class WorkoutSetMutatorTest {
         override suspend fun deleteSet(setId: Long) = unused()
         override suspend fun addExercise(workoutId: String, exerciseId: Long): Long = unused()
         override suspend fun deleteExercise(workoutExerciseId: Long) = unused()
+        override suspend fun reorderExercises(workoutId: String, orderedWorkoutExerciseIds: List<Long>) = unused()
         override suspend fun finish(workoutId: String) = unused()
         override suspend fun discard(workoutId: String) = unused()
 

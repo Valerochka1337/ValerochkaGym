@@ -40,8 +40,14 @@ class GymHaptics internal constructor(
     /** Дискретный шаг значения: кнопки ± веса/повторов/отдыха. */
     fun step() = perform(HapticFeedbackType.SegmentTick)
 
-    /** Частый мелкий шаг (long-press точная подстройка) — тише обычного шага. */
+    /** Частый мелкий шаг (long-press или crossing позиции при переносе) — тише обычного шага. */
     fun stepFrequent() = perform(HapticFeedbackType.SegmentFrequentTick)
+
+    /** Захват упражнения для перетаскивания. */
+    fun dragStart() = perform(HapticFeedbackType.GestureThresholdActivate)
+
+    /** Отпускание упражнения после перетаскивания. */
+    fun dragEnd() = perform(HapticFeedbackType.GestureEnd)
 
     /** Долгое нажатие распознано (меню, альтернативный шаг). */
     fun longPress() = perform(HapticFeedbackType.LongPress)

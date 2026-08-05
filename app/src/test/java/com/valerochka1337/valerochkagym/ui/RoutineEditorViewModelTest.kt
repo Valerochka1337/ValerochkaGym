@@ -135,49 +135,34 @@ class RoutineEditorViewModelTest {
         }
 
     @Test
-    fun `moveUp swaps the exercise with the previous one`() =
+    fun `moveExercise moves an arbitrary exercise and keeps its card data`() =
         runTest(mainDispatcherRule.testDispatcher.scheduler) {
             val viewModel = RoutineEditorViewModel(SavedStateHandle(), FakeRoutineDao(), FakeExerciseDao())
             viewModel.addExercise(exercise(id = 1, name = "Первое"))
             viewModel.addExercise(exercise(id = 2, name = "Второе"))
+            viewModel.addExercise(exercise(id = 3, name = "Третье"))
+            viewModel.setRest(2, 75)
+            viewModel.updatePlannedSet(2, 0, PlannedSet(weightKg = 42.5, reps = 12))
 
-            viewModel.moveUp(1)
+            viewModel.moveExercise(2, 0)
 
-            assertEquals(listOf("Второе", "Первое"), viewModel.uiState.value.exercises.map { it.exerciseName })
+            val exercises = viewModel.uiState.value.exercises
+            assertEquals(listOf("Третье", "Первое", "Второе"), exercises.map { it.exerciseName })
+            assertEquals(75, exercises.first().restSeconds)
+            assertEquals(PlannedSet(weightKg = 42.5, reps = 12), exercises.first().plannedSets.first())
         }
 
     @Test
-    fun `moveDown swaps the exercise with the next one`() =
+    fun `moveExercise ignores indexes outside the exercise list`() =
         runTest(mainDispatcherRule.testDispatcher.scheduler) {
             val viewModel = RoutineEditorViewModel(SavedStateHandle(), FakeRoutineDao(), FakeExerciseDao())
             viewModel.addExercise(exercise(id = 1, name = "Первое"))
             viewModel.addExercise(exercise(id = 2, name = "Второе"))
 
-            viewModel.moveDown(0)
-
-            assertEquals(listOf("Второе", "Первое"), viewModel.uiState.value.exercises.map { it.exerciseName })
-        }
-
-    @Test
-    fun `moveUp on the first exercise is a no-op`() =
-        runTest(mainDispatcherRule.testDispatcher.scheduler) {
-            val viewModel = RoutineEditorViewModel(SavedStateHandle(), FakeRoutineDao(), FakeExerciseDao())
-            viewModel.addExercise(exercise(id = 1, name = "Первое"))
-            viewModel.addExercise(exercise(id = 2, name = "Второе"))
-
-            viewModel.moveUp(0)
-
-            assertEquals(listOf("Первое", "Второе"), viewModel.uiState.value.exercises.map { it.exerciseName })
-        }
-
-    @Test
-    fun `moveDown on the last exercise is a no-op`() =
-        runTest(mainDispatcherRule.testDispatcher.scheduler) {
-            val viewModel = RoutineEditorViewModel(SavedStateHandle(), FakeRoutineDao(), FakeExerciseDao())
-            viewModel.addExercise(exercise(id = 1, name = "Первое"))
-            viewModel.addExercise(exercise(id = 2, name = "Второе"))
-
-            viewModel.moveDown(1)
+            viewModel.moveExercise(0, -1)
+            viewModel.moveExercise(0, 2)
+            viewModel.moveExercise(-1, 0)
+            viewModel.moveExercise(2, 0)
 
             assertEquals(listOf("Первое", "Второе"), viewModel.uiState.value.exercises.map { it.exerciseName })
         }
@@ -259,6 +244,7 @@ class RoutineEditorViewModelTest {
             viewModel.setName("  План  ")
             viewModel.addExercise(exercise(id = 1, name = "Первое"))
             viewModel.addExercise(exercise(id = 2, name = "Второе"))
+            viewModel.moveExercise(1, 0)
 
             viewModel.save()
 
@@ -269,7 +255,7 @@ class RoutineEditorViewModelTest {
             // against that returned id, not against `routineId ?: 0`, which would slip through as 0.
             assertEquals(1L, routineDao.lastReplacedRoutineId)
             assertEquals(listOf(1L), routineDao.lastReplacedExercises.map { it.routineId }.distinct())
-            assertEquals(listOf(1L, 2L), routineDao.lastReplacedExercises.map { it.exerciseId })
+            assertEquals(listOf(2L, 1L), routineDao.lastReplacedExercises.map { it.exerciseId })
             assertEquals(listOf(0, 1), routineDao.lastReplacedExercises.map { it.position })
         }
 

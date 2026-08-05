@@ -274,6 +274,7 @@ class CalendarViewModelTest {
         override suspend fun insertSet(set: WorkoutSetEntity): Long = 0
         override suspend fun insertSets(sets: List<WorkoutSetEntity>): List<Long> = emptyList()
         override suspend fun updateSet(set: WorkoutSetEntity) = Unit
+        override suspend fun updateWorkoutExercises(exercises: List<WorkoutExerciseEntity>) = Unit
         override suspend fun setSetCompleted(setId: Long, completed: Boolean, completedAt: Long?) = Unit
         override suspend fun getSet(setId: Long): WorkoutSetEntity? = null
         override suspend fun getSetsForWorkoutExercise(workoutExerciseId: Long): List<WorkoutSetEntity> = emptyList()
@@ -365,6 +366,7 @@ class CalendarViewModelTest {
         override suspend fun deleteSet(setId: Long) = Unit
         override suspend fun addExercise(workoutId: String, exerciseId: Long): Long = 0
         override suspend fun deleteExercise(workoutExerciseId: Long) = Unit
+        override suspend fun reorderExercises(workoutId: String, orderedWorkoutExerciseIds: List<Long>) = Unit
         override suspend fun finish(workoutId: String) = Unit
         override suspend fun discard(workoutId: String) = Unit
     }

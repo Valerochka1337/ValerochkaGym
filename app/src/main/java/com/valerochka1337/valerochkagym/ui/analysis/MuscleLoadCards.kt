@@ -63,7 +63,7 @@ internal fun MuscleHeatmapCard(
 
     AnalysisCard(
         title = "Карта нагрузки",
-        subtitle = "Эффективных подходов на мышцу в неделю, в среднем за ${state.period.displayName().lowercase()}",
+        subtitle = "Рабочий подход даёт мышце 1, ½ или 0 подходов — по её вовлечению",
         icon = Icons.Rounded.Accessibility,
         modifier = modifier,
     ) {
@@ -76,10 +76,36 @@ internal fun MuscleHeatmapCard(
 
         Spacer(Modifier.height(12.dp))
         HeatLegend()
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(14.dp))
+        EffectiveSetsExplanation()
+        Spacer(Modifier.height(14.dp))
         SelectedMuscleDetails(
             state.selectedMuscleLoad,
             modifier = Modifier.animateContentSize(GymMotion.spatialDefault()),
+        )
+    }
+}
+
+/** Правила, по которым рабочий подход превращается в вклад в конкретную мышцу. */
+@Composable
+private fun EffectiveSetsExplanation() {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(
+            text = "Как считаем",
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        Text(
+            text = "Это не оценка качества подхода: кардио и разминка легче 60% лучшего веса " +
+                "упражнения не попадают в расчёт.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            text = "На одну мышцу: вовлечение 60%+ — 1 подход; 25–59% — ½; ниже 25% — 0.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }

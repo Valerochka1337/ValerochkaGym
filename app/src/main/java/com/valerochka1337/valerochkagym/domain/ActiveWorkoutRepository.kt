@@ -45,6 +45,12 @@ interface ActiveWorkoutRepository {
     suspend fun deleteExercise(workoutExerciseId: Long)
 
     /**
+     * Сохраняет полный порядок упражнений активной тренировки. [orderedWorkoutExerciseIds] должен
+     * содержать ровно уникальный набор строк [workoutId]; позиции будут перенумерованы с нуля.
+     */
+    suspend fun reorderExercises(workoutId: String, orderedWorkoutExerciseIds: List<Long>)
+
+    /**
      * Завершает тренировку: удаляет пустые невыполненные подходы, затем упражнения без подходов,
      * затем проставляет finishedAt.
      */

@@ -168,6 +168,20 @@ class ActiveWorkoutViewModelTest {
         }
 
     @Test
+    fun `reordering exercises forwards the final order for the active workout`() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val harness = harness(active = workoutFull(setId = 10L))
+            collectUiState(harness.viewModel)
+
+            harness.viewModel.reorderExercises(listOf(30L, WORKOUT_EXERCISE_ID, 10L))
+
+            assertEquals(
+                listOf("w1" to listOf(30L, WORKOUT_EXERCISE_ID, 10L)),
+                harness.repository.reorderedExercises,
+            )
+        }
+
+    @Test
     fun `adding an exercise without an active workout is a no-op`() =
         runTest(mainDispatcherRule.testDispatcher.scheduler) {
             val harness = harness(active = null)
@@ -176,6 +190,17 @@ class ActiveWorkoutViewModelTest {
             harness.viewModel.addExerciseById(7L)
 
             assertTrue(harness.repository.addedExercises.isEmpty())
+        }
+
+    @Test
+    fun `reordering exercises without an active workout is a no-op`() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val harness = harness(active = null)
+            collectUiState(harness.viewModel)
+
+            harness.viewModel.reorderExercises(listOf(WORKOUT_EXERCISE_ID))
+
+            assertTrue(harness.repository.reorderedExercises.isEmpty())
         }
 
     // endregion
@@ -333,6 +358,7 @@ class ActiveWorkoutViewModelTest {
         val deletedSets = mutableListOf<Long>()
         val addedExercises = mutableListOf<Pair<String, Long>>()
         val deletedExercises = mutableListOf<Long>()
+        val reorderedExercises = mutableListOf<Pair<String, List<Long>>>()
         val finishedIds = mutableListOf<String>()
         val discardedIds = mutableListOf<String>()
 
@@ -373,6 +399,10 @@ class ActiveWorkoutViewModelTest {
             deletedExercises += workoutExerciseId
         }
 
+        override suspend fun reorderExercises(workoutId: String, orderedWorkoutExerciseIds: List<Long>) {
+            reorderedExercises += workoutId to orderedWorkoutExerciseIds
+        }
+
         override suspend fun finish(workoutId: String) {
             finishedIds += workoutId
             active.value = null
@@ -395,6 +425,7 @@ class ActiveWorkoutViewModelTest {
         override suspend fun insertSet(set: WorkoutSetEntity): Long = 0
         override suspend fun insertSets(sets: List<WorkoutSetEntity>): List<Long> = emptyList()
         override suspend fun updateSet(set: WorkoutSetEntity) = Unit
+        override suspend fun updateWorkoutExercises(exercises: List<WorkoutExerciseEntity>) = Unit
         override suspend fun setSetCompleted(setId: Long, completed: Boolean, completedAt: Long?) = Unit
         override suspend fun getSet(setId: Long): WorkoutSetEntity? = null
         override suspend fun getSetsForWorkoutExercise(workoutExerciseId: Long): List<WorkoutSetEntity> = emptyList()

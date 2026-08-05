@@ -1,6 +1,7 @@
 package com.valerochka1337.valerochkagym.ui.routine
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,16 +16,14 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -32,21 +31,30 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.compose.runtime.LaunchedEffect
 import com.valerochka1337.valerochkagym.data.db.PlannedSet
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
 import com.valerochka1337.valerochkagym.domain.displayName
 import com.valerochka1337.valerochkagym.ui.components.ExerciseAvatar
+import com.valerochka1337.valerochkagym.ui.components.DragHandle
 import com.valerochka1337.valerochkagym.ui.components.GlowBackground
 import com.valerochka1337.valerochkagym.ui.components.GymCard
+import com.valerochka1337.valerochkagym.ui.components.GymCardShape
 import com.valerochka1337.valerochkagym.ui.components.NumberField
+import com.valerochka1337.valerochkagym.ui.haptics.gymHaptics
+import com.valerochka1337.valerochkagym.ui.theme.GymMotion
+import sh.calvin.reorderable.ReorderableItem
+import sh.calvin.reorderable.rememberReorderableLazyListState
 
 /**
  * Полноэкранный редактор программы: имя, список упражнений с подходами и отдыхом.
@@ -61,6 +69,15 @@ fun RoutineEditorScreen(
     viewModel: RoutineEditorViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val haptics = gymHaptics()
+    val lazyListState = rememberLazyListState()
+    val reorderableLazyListState = rememberReorderableLazyListState(lazyListState) { from, to ->
+        if (from.index in state.exercises.indices && to.index in state.exercises.indices) {
+            // Reorderable expects the backing list to change before this callback returns.
+            viewModel.moveExercise(from.index, to.index)
+            haptics.stepFrequent()
+        }
+    }
 
     LaunchedEffect(Unit) {
         viewModel.saved.collect { onBack() }
@@ -87,13 +104,14 @@ fun RoutineEditorScreen(
                     .padding(horizontal = 24.dp),
                 singleLine = true,
                 label = { Text("Название программы") },
-                shape = RoundedCornerShape(16.dp),
+                shape = MaterialTheme.shapes.medium,
             )
 
             Spacer(Modifier.height(12.dp))
 
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
+                state = lazyListState,
                 contentPadding = PaddingValues(
                     start = 24.dp,
                     end = 24.dp,
@@ -108,19 +126,59 @@ fun RoutineEditorScreen(
                     // и правильная привязка локального состояния полей ввода к своей карточке.
                     key = { _, exercise -> exercise.exerciseId },
                 ) { index, exercise ->
-                    ExerciseCard(
-                        modifier = Modifier.animateItem(),
-                        exercise = exercise,
-                        isFirst = index == 0,
-                        isLast = index == state.exercises.lastIndex,
-                        onMoveUp = { viewModel.moveUp(index) },
-                        onMoveDown = { viewModel.moveDown(index) },
-                        onRemove = { viewModel.removeExercise(index) },
-                        onRestChange = { viewModel.setRest(index, it) },
-                        onAddSet = { viewModel.addPlannedSet(index) },
-                        onRemoveSet = { setIndex -> viewModel.removePlannedSet(index, setIndex) },
-                        onSetChange = { setIndex, set -> viewModel.updatePlannedSet(index, setIndex, set) },
-                    )
+                    ReorderableItem(
+                        state = reorderableLazyListState,
+                        key = exercise.exerciseId,
+                    ) { isDragging ->
+                        val reorderableItemScope = this
+                        val moveActions = buildList {
+                            if (index > 0) {
+                                add(
+                                    CustomAccessibilityAction("Переместить выше") {
+                                        viewModel.moveExercise(index, index - 1)
+                                        true
+                                    },
+                                )
+                            }
+                            if (index < state.exercises.lastIndex) {
+                                add(
+                                    CustomAccessibilityAction("Переместить ниже") {
+                                        viewModel.moveExercise(index, index + 1)
+                                        true
+                                    },
+                                )
+                            }
+                        }
+                        ExerciseCard(
+                            modifier = Modifier
+                                .animateItem(placementSpec = GymMotion.spatialDefault())
+                                .then(
+                                    if (isDragging) {
+                                        Modifier.border(
+                                            width = 1.dp,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            shape = GymCardShape,
+                                        )
+                                    } else {
+                                        Modifier
+                                    },
+                                )
+                                .semantics { customActions = moveActions },
+                            exercise = exercise,
+                            dragHandle = {
+                                DragHandle(
+                                    reorderableItemScope = reorderableItemScope,
+                                    onDragStarted = haptics::dragStart,
+                                    onDragStopped = haptics::dragEnd,
+                                )
+                            },
+                            onRemove = { viewModel.removeExercise(index) },
+                            onRestChange = { viewModel.setRest(index, it) },
+                            onAddSet = { viewModel.addPlannedSet(index) },
+                            onRemoveSet = { setIndex -> viewModel.removePlannedSet(index, setIndex) },
+                            onSetChange = { setIndex, set -> viewModel.updatePlannedSet(index, setIndex, set) },
+                        )
+                    }
                 }
 
                 item {
@@ -174,10 +232,7 @@ private fun EditorHeader(
 @Composable
 private fun ExerciseCard(
     exercise: EditorExercise,
-    isFirst: Boolean,
-    isLast: Boolean,
-    onMoveUp: () -> Unit,
-    onMoveDown: () -> Unit,
+    dragHandle: @Composable () -> Unit,
     onRemove: () -> Unit,
     onRestChange: (Int?) -> Unit,
     onAddSet: () -> Unit,
@@ -205,12 +260,7 @@ private fun ExerciseCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            IconButton(onClick = onMoveUp, enabled = !isFirst) {
-                Icon(Icons.Default.KeyboardArrowUp, contentDescription = "Выше")
-            }
-            IconButton(onClick = onMoveDown, enabled = !isLast) {
-                Icon(Icons.Default.KeyboardArrowDown, contentDescription = "Ниже")
-            }
+            dragHandle()
             IconButton(onClick = onRemove) {
                 Icon(
                     Icons.Default.Delete,

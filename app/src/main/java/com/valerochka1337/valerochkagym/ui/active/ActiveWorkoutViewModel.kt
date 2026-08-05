@@ -179,6 +179,14 @@ class ActiveWorkoutViewModel @Inject constructor(
         viewModelScope.launch { repository.deleteExercise(workoutExerciseId) }
     }
 
+    /** Сохраняет итоговый порядок упражнений после отпускания drag-handle. */
+    fun reorderExercises(orderedWorkoutExerciseIds: List<Long>) {
+        val workoutId = activeWorkout.value?.workout?.id ?: return
+        viewModelScope.launch {
+            repository.reorderExercises(workoutId, orderedWorkoutExerciseIds)
+        }
+    }
+
     fun finish() {
         val workoutId = activeWorkout.value?.workout?.id ?: return
         viewModelScope.launch {

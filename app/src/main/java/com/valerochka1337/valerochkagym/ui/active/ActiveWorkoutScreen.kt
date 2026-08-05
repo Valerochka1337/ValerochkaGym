@@ -12,6 +12,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -30,6 +31,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -60,7 +62,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -72,14 +76,18 @@ import com.valerochka1337.valerochkagym.data.db.entity.WorkoutSetEntity
 import com.valerochka1337.valerochkagym.data.db.relation.WorkoutExerciseWithSets
 import com.valerochka1337.valerochkagym.ui.common.formatRestClock
 import com.valerochka1337.valerochkagym.ui.components.ExerciseAvatar
+import com.valerochka1337.valerochkagym.ui.components.DragHandle
 import com.valerochka1337.valerochkagym.ui.components.FadeInContent
 import com.valerochka1337.valerochkagym.ui.components.GlowBackground
 import com.valerochka1337.valerochkagym.ui.components.GymCard
+import com.valerochka1337.valerochkagym.ui.components.GymCardShape
 import com.valerochka1337.valerochkagym.service.RestTimerState
 import com.valerochka1337.valerochkagym.ui.components.NumberField
 import com.valerochka1337.valerochkagym.ui.components.PillButton
 import com.valerochka1337.valerochkagym.ui.haptics.gymHaptics
 import com.valerochka1337.valerochkagym.ui.theme.GymMotion
+import sh.calvin.reorderable.ReorderableItem
+import sh.calvin.reorderable.rememberReorderableLazyListState
 
 /** Крупный шаг веса (обычный тап), кг. */
 private const val WEIGHT_STEP = 2.5
@@ -151,6 +159,7 @@ fun ActiveWorkoutScreen(
                     restTimer = viewModel.restTimer,
                     setActions = setActions,
                     onDeleteExercise = viewModel::deleteExercise,
+                    onReorderExercises = viewModel::reorderExercises,
                     onAddExercise = onAddExercise,
                     onFinish = viewModel::finish,
                     onDiscard = viewModel::discard,
@@ -191,6 +200,7 @@ private fun ActiveWorkoutContent(
     restTimer: StateFlow<RestTimerState?>,
     setActions: SetActions,
     onDeleteExercise: (Long) -> Unit,
+    onReorderExercises: (List<Long>) -> Unit,
     onAddExercise: () -> Unit,
     onFinish: () -> Unit,
     onDiscard: () -> Unit,
@@ -198,7 +208,61 @@ private fun ActiveWorkoutContent(
     onSkipRest: () -> Unit,
 ) {
     val workout = state.workout ?: return
-    val exercises = workout.exercises
+    val roomExercises = workout.exercises
+    val roomOrder = roomExercises.map { it.workoutExercise.id }
+    var localOrder by remember(workout.workout.id) { mutableStateOf(roomOrder) }
+    var draggingExerciseId by remember(workout.workout.id) { mutableStateOf<Long?>(null) }
+    var pendingPersistedOrder by remember(workout.workout.id) { mutableStateOf<List<Long>?>(null) }
+    val haptics = gymHaptics()
+
+    // Room обновляет дерево после каждого изменения подхода. Пока идёт drag или ждём его единую
+    // запись в БД, сохраняем локальный порядок и лишь подмешиваем появившиеся/исчезнувшие id.
+    LaunchedEffect(roomOrder, draggingExerciseId, pendingPersistedOrder) {
+        val pending = pendingPersistedOrder
+        when {
+            pending != null && roomOrder.filter { it in pending } == pending -> {
+                pendingPersistedOrder = null
+                localOrder = mergeExerciseOrder(pending, roomOrder)
+            }
+
+            draggingExerciseId != null || pending != null -> {
+                localOrder = mergeExerciseOrder(localOrder, roomOrder)
+            }
+
+            else -> localOrder = roomOrder
+        }
+    }
+
+    val exercisesById = roomExercises.associateBy { it.workoutExercise.id }
+    val exercises = localOrder.mapNotNull(exercisesById::get)
+    val lazyListState = rememberLazyListState()
+    val reorderableLazyListState = rememberReorderableLazyListState(lazyListState) { from, to ->
+        if (
+            from.index in localOrder.indices &&
+            to.index in localOrder.indices &&
+            from.index != to.index
+        ) {
+            // Reorderable ждёт синхронного обновления backing list, иначе dragged item моргает.
+            localOrder = localOrder.toMutableList().apply { add(to.index, removeAt(from.index)) }
+            haptics.stepFrequent()
+        }
+    }
+
+    fun moveByAccessibilityAction(fromIndex: Int, toIndex: Int) {
+        if (
+            fromIndex !in localOrder.indices ||
+            toIndex !in localOrder.indices ||
+            fromIndex == toIndex
+        ) {
+            return
+        }
+        val reordered = localOrder.toMutableList().apply { add(toIndex, removeAt(fromIndex)) }
+        localOrder = reordered
+        pendingPersistedOrder = reordered
+        haptics.stepFrequent()
+        onReorderExercises(reordered)
+    }
+
     val currentIndex = exercises.indexOfFirst { exercise -> exercise.sets.any { !it.isCompleted } }
     val currentNumber = if (currentIndex >= 0) currentIndex + 1 else exercises.size
 
@@ -216,16 +280,73 @@ private fun ActiveWorkoutContent(
 
         LazyColumn(
             modifier = Modifier.weight(1f),
+            state = lazyListState,
             contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             items(exercises, key = { it.workoutExercise.id }) { exercise ->
-                ExerciseSection(
-                    exercise = exercise,
-                    previous = state.previousByExercise[exercise.exercise.id].orEmpty(),
-                    actions = setActions,
-                    onDeleteExercise = { pendingDeleteExerciseId = exercise.workoutExercise.id },
-                )
+                val index = exercises.indexOf(exercise)
+                ReorderableItem(
+                    state = reorderableLazyListState,
+                    key = exercise.workoutExercise.id,
+                ) { isDragging ->
+                    val reorderableItemScope = this
+                    val moveActions = buildList {
+                        if (index > 0) {
+                            add(
+                                CustomAccessibilityAction("Переместить выше") {
+                                    moveByAccessibilityAction(index, index - 1)
+                                    true
+                                },
+                            )
+                        }
+                        if (index < exercises.lastIndex) {
+                            add(
+                                CustomAccessibilityAction("Переместить ниже") {
+                                    moveByAccessibilityAction(index, index + 1)
+                                    true
+                                },
+                            )
+                        }
+                    }
+                    ExerciseSection(
+                        modifier = Modifier
+                            .animateItem(placementSpec = GymMotion.spatialDefault())
+                            .then(
+                                if (isDragging) {
+                                    Modifier.border(
+                                        width = 1.dp,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        shape = GymCardShape,
+                                    )
+                                } else {
+                                    Modifier
+                                },
+                            )
+                            .semantics { customActions = moveActions },
+                        exercise = exercise,
+                        previous = state.previousByExercise[exercise.exercise.id].orEmpty(),
+                        actions = setActions,
+                        dragHandle = {
+                            DragHandle(
+                                reorderableItemScope = reorderableItemScope,
+                                onDragStarted = {
+                                    draggingExerciseId = exercise.workoutExercise.id
+                                    haptics.dragStart()
+                                },
+                                onDragStopped = {
+                                    haptics.dragEnd()
+                                    draggingExerciseId = null
+                                    if (localOrder != roomOrder) {
+                                        pendingPersistedOrder = localOrder
+                                        onReorderExercises(localOrder)
+                                    }
+                                },
+                            )
+                        },
+                        onDeleteExercise = { pendingDeleteExerciseId = exercise.workoutExercise.id },
+                    )
+                }
             }
 
             item {
@@ -260,7 +381,6 @@ private fun ActiveWorkoutContent(
         }
     }
 
-    val haptics = gymHaptics()
     if (showFinishDialog) {
         ConfirmDialog(
             title = "Завершить тренировку?",
@@ -306,6 +426,12 @@ private fun ActiveWorkoutContent(
             onDismiss = { pendingDeleteExerciseId = null },
         )
     }
+}
+
+/** Сохраняет пользовательский порядок известных id и добавляет новые строки в порядок Room. */
+private fun mergeExerciseOrder(localOrder: List<Long>, roomOrder: List<Long>): List<Long> {
+    val roomIds = roomOrder.toSet()
+    return localOrder.filter { it in roomIds } + roomOrder.filterNot { it in localOrder }
 }
 
 /**
@@ -442,14 +568,16 @@ private fun ExerciseSection(
     exercise: WorkoutExerciseWithSets,
     previous: String,
     actions: SetActions,
+    dragHandle: @Composable () -> Unit,
     onDeleteExercise: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val type = exercise.exercise.type
     val currentSet = exercise.sets.firstOrNull { !it.isCompleted }
 
     // Когда текущий подход схлопывается в пилюлю, высота секции меняется плавно (expressive-спек).
     Column(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .animateContentSize(GymMotion.spatialDefault()),
     ) {
@@ -471,6 +599,7 @@ private fun ExerciseSection(
                     )
                 }
             }
+            dragHandle()
             IconButton(onClick = onDeleteExercise) {
                 Icon(
                     Icons.Default.Delete,

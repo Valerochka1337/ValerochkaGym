@@ -136,6 +136,26 @@ class ActiveWorkoutRepositoryImpl @Inject constructor(
     override suspend fun deleteExercise(workoutExerciseId: Long) =
         workoutDao.deleteWorkoutExercise(workoutExerciseId)
 
+    override suspend fun reorderExercises(
+        workoutId: String,
+        orderedWorkoutExerciseIds: List<Long>,
+    ) = database.withTransaction {
+        val existing = workoutDao.getWorkoutExercises(workoutId)
+        val existingIds = existing.map { it.id }
+        require(
+            orderedWorkoutExerciseIds.size == existingIds.size &&
+                orderedWorkoutExerciseIds.toSet().size == orderedWorkoutExerciseIds.size &&
+                orderedWorkoutExerciseIds.toSet() == existingIds.toSet(),
+        ) { "The supplied exercise ids must be the complete unique set for workout $workoutId" }
+
+        val byId = existing.associateBy { it.id }
+        workoutDao.updateWorkoutExercises(
+            orderedWorkoutExerciseIds.mapIndexed { position, id ->
+                requireNotNull(byId[id]).copy(position = position)
+            },
+        )
+    }
+
     override suspend fun finish(workoutId: String) = database.withTransaction {
         val full = workoutDao.getWorkoutFull(workoutId) ?: return@withTransaction
         // Идемпотентность: повторный тап «Завершить» не должен перезаписывать метку времени.

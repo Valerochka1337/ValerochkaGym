@@ -61,6 +61,8 @@ class GymHapticsTest {
             haptics.toggle(on = false)
             haptics.step()
             haptics.stepFrequent()
+            haptics.dragStart()
+            haptics.dragEnd()
             haptics.longPress()
         }
 
@@ -74,6 +76,8 @@ class GymHapticsTest {
                 HapticFeedbackType.ToggleOff,
                 HapticFeedbackType.SegmentTick,
                 HapticFeedbackType.SegmentFrequentTick,
+                HapticFeedbackType.GestureThresholdActivate,
+                HapticFeedbackType.GestureEnd,
                 HapticFeedbackType.LongPress,
             ),
             recorder.performed,
@@ -86,6 +90,8 @@ class GymHapticsTest {
             haptics.tap()
             haptics.confirm()
             haptics.step()
+            haptics.dragStart()
+            haptics.dragEnd()
         }
 
         assertTrue(recorder.performed.isEmpty())

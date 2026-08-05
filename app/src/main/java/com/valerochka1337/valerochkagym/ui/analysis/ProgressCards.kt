@@ -69,7 +69,7 @@ internal fun SummaryCard(
             StatTile(
                 label = "Средняя тренировка",
                 value = formatMinutes(report.avgSessionMinutes),
-                caption = report.daysSinceLast?.let { "последняя $it дн. назад" },
+                caption = report.daysSinceLast?.let(::formatLastSessionCaption),
                 modifier = Modifier.weight(1f),
             )
         }

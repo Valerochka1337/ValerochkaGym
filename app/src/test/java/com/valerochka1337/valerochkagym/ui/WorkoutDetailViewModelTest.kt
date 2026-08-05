@@ -167,6 +167,7 @@ class WorkoutDetailViewModelTest {
         override suspend fun insertSet(set: WorkoutSetEntity): Long = 0
         override suspend fun insertSets(sets: List<WorkoutSetEntity>): List<Long> = emptyList()
         override suspend fun updateSet(set: WorkoutSetEntity) = Unit
+        override suspend fun updateWorkoutExercises(exercises: List<WorkoutExerciseEntity>) = Unit
         override suspend fun setSetCompleted(setId: Long, completed: Boolean, completedAt: Long?) = Unit
         override suspend fun getSet(setId: Long): WorkoutSetEntity? = null
         override suspend fun getSetsForWorkoutExercise(workoutExerciseId: Long): List<WorkoutSetEntity> = emptyList()

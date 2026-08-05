@@ -20,6 +20,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Before
 import org.junit.Test
 
@@ -239,6 +240,66 @@ class ActiveWorkoutRepositoryTest : RoomDaoTest() {
 
         assertTrue(workoutDao.getWorkoutExercises(workoutId).isEmpty())
         assertEquals(0, tableCount("workout_sets"))
+    }
+
+    @Test
+    fun `reorderExercises atomically renumbers the complete exercise order`() = runTest {
+        val squat = addExercise("Присед")
+        val bench = addExercise("Жим")
+        val row = addExercise("Тяга")
+        val workoutId = repository.startEmpty()
+        val squatId = repository.addExercise(workoutId, squat)
+        val benchId = repository.addExercise(workoutId, bench)
+        val rowId = repository.addExercise(workoutId, row)
+
+        repository.reorderExercises(workoutId, listOf(rowId, squatId, benchId))
+
+        val reordered = workoutDao.getWorkoutExercises(workoutId)
+        assertEquals(listOf(rowId, squatId, benchId), reordered.map { it.id })
+        assertEquals(listOf(0, 1, 2), reordered.map { it.position })
+    }
+
+    @Test
+    fun `reorderExercises is reflected by the reactively sorted active workout`() = runTest {
+        val squat = addExercise("Присед")
+        val bench = addExercise("Жим")
+        val workoutId = repository.startEmpty()
+        val squatId = repository.addExercise(workoutId, squat)
+        val benchId = repository.addExercise(workoutId, bench)
+
+        repository.reorderExercises(workoutId, listOf(benchId, squatId))
+
+        val active = repository.observeActive().first()!!
+        assertEquals(listOf(benchId, squatId), active.exercises.map { it.workoutExercise.id })
+        assertEquals(listOf(0, 1), active.exercises.map { it.workoutExercise.position })
+    }
+
+    @Test
+    fun `reorderExercises rejects a non-unique or incomplete id set without changing positions`() = runTest {
+        val squat = addExercise("Присед")
+        val bench = addExercise("Жим")
+        val row = addExercise("Тяга")
+        val workoutId = repository.startEmpty()
+        val squatId = repository.addExercise(workoutId, squat)
+        val benchId = repository.addExercise(workoutId, bench)
+        val rowId = repository.addExercise(workoutId, row)
+
+        try {
+            repository.reorderExercises(workoutId, listOf(squatId, benchId))
+            fail("Incomplete ids must be rejected")
+        } catch (_: IllegalArgumentException) {
+            // Expected: the supplied ids do not cover all workout exercises.
+        }
+        try {
+            repository.reorderExercises(workoutId, listOf(squatId, squatId, rowId))
+            fail("Duplicate ids must be rejected")
+        } catch (_: IllegalArgumentException) {
+            // Expected: every workout exercise id must occur exactly once.
+        }
+
+        val unchanged = workoutDao.getWorkoutExercises(workoutId)
+        assertEquals(listOf(squatId, benchId, rowId), unchanged.map { it.id })
+        assertEquals(listOf(0, 1, 2), unchanged.map { it.position })
     }
 
     @Test
