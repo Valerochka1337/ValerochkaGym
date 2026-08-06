@@ -10,6 +10,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.MonitorWeight
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -27,6 +29,8 @@ import com.valerochka1337.valerochkagym.R
 import com.valerochka1337.valerochkagym.domain.analysis.AnalysisPeriod
 import com.valerochka1337.valerochkagym.ui.components.GlowBackground
 import com.valerochka1337.valerochkagym.ui.components.GymTopBar
+import com.valerochka1337.valerochkagym.ui.components.PillButton
+import com.valerochka1337.valerochkagym.ui.haptics.gymHaptics
 
 /**
  * Вкладка «Анализы»: тепловая карта нагрузки по мышцам, недельный объём, прогресс силы по
@@ -41,14 +45,30 @@ import com.valerochka1337.valerochkagym.ui.components.GymTopBar
 @Composable
 fun AnalysisScreen(
     onOpenSettings: () -> Unit,
+    onOpenMeasurements: () -> Unit,
     modifier: Modifier = Modifier,
     viewModel: AnalysisViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val haptics = gymHaptics()
 
     GlowBackground(modifier = modifier) {
         Column(modifier = Modifier.fillMaxSize()) {
-            GymTopBar(title = "Анализы", onOpenSettings = onOpenSettings)
+            GymTopBar(
+                title = "Анализы",
+                onOpenSettings = onOpenSettings,
+                actions = {
+                    PillButton(
+                        text = "Замеры",
+                        leadingIcon = Icons.Rounded.MonitorWeight,
+                        compact = true,
+                        onClick = {
+                            haptics.tap()
+                            onOpenMeasurements()
+                        },
+                    )
+                },
+            )
 
             if (!state.report.hasData) {
                 if (!state.loading) EmptyState(modifier = Modifier.weight(1f))

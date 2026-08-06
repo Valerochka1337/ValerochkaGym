@@ -16,6 +16,7 @@ import com.valerochka1337.valerochkagym.data.google.spreadsheetIdFrom
 import com.valerochka1337.valerochkagym.data.settings.GymSettings
 import com.valerochka1337.valerochkagym.data.settings.SettingsRepository
 import com.valerochka1337.valerochkagym.ui.theme.AccentColor
+import com.valerochka1337.valerochkagym.worker.MeasurementUploadScheduler
 import com.valerochka1337.valerochkagym.worker.UploadScheduler
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.channels.Channel
@@ -34,6 +35,13 @@ private const val MIN_REST_SECONDS = 15
 
 /** Сообщение об ошибке настройки OAuth-доступа. */
 private const val AUTH_ERROR_MESSAGE = "Не удалось настроить доступ — попробуйте ещё раз"
+
+/** Совместимый с прямыми unit-тестами no-op; Hilt всегда внедряет реальный планировщик. */
+private object NoOpMeasurementUploadScheduler : MeasurementUploadScheduler {
+    override fun schedule(measurementId: String) = Unit
+    override suspend fun retry(measurementId: String) = Unit
+    override suspend fun scheduleAllPending(): Int = 0
+}
 
 /**
  * Состояние экрана настроек. [settings] == null — ещё не загружено (не мигаем пустой формой).
@@ -61,6 +69,7 @@ class SettingsViewModel @Inject constructor(
     private val importRepository: WorkoutImportRepository,
     private val databaseExporter: DatabaseExporter,
     private val clearDataUseCase: ClearDataUseCase,
+    private val measurementUploadScheduler: MeasurementUploadScheduler = NoOpMeasurementUploadScheduler,
 ) : ViewModel() {
 
     private val authBusy = MutableStateFlow(false)
@@ -168,12 +177,13 @@ class SettingsViewModel @Inject constructor(
     }
 
     /**
-     * Ставит в очередь выгрузку всех завершённых, ещё не выгруженных тренировок (PENDING/FAILED):
-     * каждой сбрасывает статус в PENDING и запускает воркер. Показывает, сколько поставлено в очередь.
+     * Ставит в очередь все невыгруженные тренировки и замеры (PENDING/FAILED), каждой записи
+     * сбрасывая статус в PENDING. Замеры отправляются отдельным воркером, поэтому их UUID не
+     * смешиваются с очередью тренировок.
      */
     fun exportAll() {
         viewModelScope.launch {
-            val count = uploadScheduler.scheduleAllPending()
+            val count = uploadScheduler.scheduleAllPending() + measurementUploadScheduler.scheduleAllPending()
             _messages.send("Поставлено в очередь: $count")
         }
     }

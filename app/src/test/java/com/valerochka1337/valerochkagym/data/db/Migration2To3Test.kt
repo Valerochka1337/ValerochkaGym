@@ -19,10 +19,11 @@ import org.robolectric.annotation.Config
  * Проверяет апгрейд v2 → v3 (появление `exercise_muscles`) на файловой базе, собранной по точному
  * DDL версии 2 (см. `schemas/2.json`).
  *
- * Главная проверка — не «таблица появилась», а то, что после миграции базу открывает **сам Room**:
- * при открытии он сверяет фактическую схему с ожидаемой v3 и падает на любом расхождении в типах,
- * ключах или индексах. Это ловит расхождение [GymDatabase.MIGRATION_2_3] с сгенерированной схемой,
- * которое отдельными `SELECT`-ами не увидеть.
+ * Главная проверка — не «таблица появилась», а то, что после цепочки миграций базу открывает
+ * **сам Room**: он сверяет фактическую схему с текущей ожидаемой версией и падает на любом
+ * расхождении в типах, ключах или индексах. Это ловит расхождение
+ * [GymDatabase.MIGRATION_2_3] с сгенерированной схемой, которое отдельными `SELECT`-ами не
+ * увидеть.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(application = android.app.Application::class)
@@ -104,9 +105,13 @@ class Migration2To3Test {
             )
         }
 
-        // Room сам прогонит миграцию и сверит получившуюся схему с ожидаемой v3.
+        // Room сам прогонит всю цепочку до текущей версии и сверит итоговую схему.
         val database = Room.databaseBuilder(context, GymDatabase::class.java, dbName)
-            .addMigrations(GymDatabase.MIGRATION_1_2, GymDatabase.MIGRATION_2_3)
+            .addMigrations(
+                GymDatabase.MIGRATION_1_2,
+                GymDatabase.MIGRATION_2_3,
+                GymDatabase.MIGRATION_3_4,
+            )
             .allowMainThreadQueries()
             .build()
 

@@ -25,6 +25,8 @@ import com.valerochka1337.valerochkagym.ui.calendar.CalendarScreen
 import com.valerochka1337.valerochkagym.ui.calendar.ScheduleEditorScreen
 import com.valerochka1337.valerochkagym.ui.history.WorkoutDetailScreen
 import com.valerochka1337.valerochkagym.ui.library.ExerciseLibraryScreen
+import com.valerochka1337.valerochkagym.ui.measurements.MeasurementEditorScreen
+import com.valerochka1337.valerochkagym.ui.measurements.MeasurementsScreen
 import com.valerochka1337.valerochkagym.ui.routine.RoutineEditorScreen
 import com.valerochka1337.valerochkagym.ui.routine.RoutineEditorViewModel
 import com.valerochka1337.valerochkagym.ui.settings.SettingsScreen
@@ -40,6 +42,7 @@ object GymRoutes {
     const val WORKOUTS = "workouts"
     const val CALENDAR = "calendar"
     const val ANALYSIS = "analysis"
+    const val MEASUREMENTS = "measurements"
     const val SETTINGS = "settings"
     const val LIBRARY = "library"
     const val ACTIVE_WORKOUT = "active_workout"
@@ -47,6 +50,7 @@ object GymRoutes {
 
     const val ROUTINE_ID_ARG = "routineId"
     const val WORKOUT_ID_ARG = "workoutId"
+    const val MEASUREMENT_ID_ARG = "measurementId"
 
     /** Ключ savedStateHandle, через который библиотека-пикер возвращает выбранное упражнение. */
     const val SELECTED_EXERCISE_ID = "selected_exercise_id"
@@ -54,11 +58,14 @@ object GymRoutes {
     const val ROUTINE_EDITOR = "routine_editor?$ROUTINE_ID_ARG={$ROUTINE_ID_ARG}"
     const val WORKOUT_SUMMARY = "workout_summary/{$WORKOUT_ID_ARG}"
     const val WORKOUT_DETAIL = "workout_detail/{$WORKOUT_ID_ARG}"
+    const val MEASUREMENT_EDITOR = "measurement_editor?$MEASUREMENT_ID_ARG={$MEASUREMENT_ID_ARG}"
 
     fun routineEditor(routineId: String? = null) =
         if (routineId != null) "routine_editor?$ROUTINE_ID_ARG=$routineId" else "routine_editor"
     fun workoutSummary(workoutId: String) = "workout_summary/$workoutId"
     fun workoutDetail(workoutId: String) = "workout_detail/$workoutId"
+    fun measurementEditor(measurementId: String? = null) =
+        if (measurementId == null) "measurement_editor" else "measurement_editor?$MEASUREMENT_ID_ARG=$measurementId"
 }
 
 /** The tab root that the app opens on and that back navigation returns to. */
@@ -82,7 +89,11 @@ private fun tabIndex(route: String?): Int = when (route) {
  * НЕ должен уезжать/затухать — иначе сквозь всплывающую панель мелькает пустой скаффолд.
  */
 private fun isModalRoute(route: String?): Boolean = when (route) {
-    GymRoutes.ACTIVE_WORKOUT, GymRoutes.ROUTINE_EDITOR, GymRoutes.WORKOUT_SUMMARY, GymRoutes.SCHEDULE_EDITOR -> true
+    GymRoutes.ACTIVE_WORKOUT,
+    GymRoutes.ROUTINE_EDITOR,
+    GymRoutes.WORKOUT_SUMMARY,
+    GymRoutes.SCHEDULE_EDITOR,
+    GymRoutes.MEASUREMENT_EDITOR -> true
     else -> false
 }
 
@@ -152,7 +163,17 @@ fun GymNavGraph(
             )
         }
         composable(GymRoutes.ANALYSIS) {
-            AnalysisScreen(onOpenSettings = { navController.navigate(GymRoutes.SETTINGS) })
+            AnalysisScreen(
+                onOpenSettings = { navController.navigate(GymRoutes.SETTINGS) },
+                onOpenMeasurements = { navController.navigate(GymRoutes.MEASUREMENTS) },
+            )
+        }
+        composable(GymRoutes.MEASUREMENTS) {
+            MeasurementsScreen(
+                onBack = { navController.popBackStack() },
+                onCreateMeasurement = { navController.navigate(GymRoutes.measurementEditor()) },
+                onEditMeasurement = { id -> navController.navigate(GymRoutes.measurementEditor(id)) },
+            )
         }
         composable(GymRoutes.SETTINGS) {
             SettingsScreen(onBack = { navController.popBackStack() })
@@ -253,6 +274,22 @@ fun GymNavGraph(
             popExitTransition = { slideOutOfContainer(SlideDirection.Down, NavSlideSpec) },
         ) {
             ScheduleEditorScreen(onBack = { navController.popBackStack() })
+        }
+
+        composable(
+            route = GymRoutes.MEASUREMENT_EDITOR,
+            arguments = listOf(
+                navArgument(GymRoutes.MEASUREMENT_ID_ARG) {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+            ),
+            // Редактор замера — полноэкранная форма, как редакторы программы и расписания.
+            enterTransition = { slideIntoContainer(SlideDirection.Up, NavSlideSpec) },
+            popExitTransition = { slideOutOfContainer(SlideDirection.Down, NavSlideSpec) },
+        ) {
+            MeasurementEditorScreen(onBack = { navController.popBackStack() })
         }
     }
 }

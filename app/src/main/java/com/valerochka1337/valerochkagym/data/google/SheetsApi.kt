@@ -1,5 +1,6 @@
 package com.valerochka1337.valerochkagym.data.google
 
+import kotlinx.serialization.EncodeDefault
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -11,7 +12,7 @@ import retrofit2.http.Path
 import retrofit2.http.Query
 
 /**
- * Минимальный клиент Google Sheets API v4 для выгрузки тренировок. Токен передаётся явным
+ * Минимальный клиент Google Sheets API v4 для выгрузки тренировок и замеров. Токен передаётся явным
  * заголовком `Authorization` в каждом методе (а не через OkHttp-интерсептор), потому что
  * получение access-токена — suspend-операция ([GoogleAuth.getAccessToken]), которую нельзя
  * выполнить внутри синхронного интерсептора.
@@ -21,7 +22,10 @@ import retrofit2.http.Query
  */
 interface SheetsApi {
 
-    /** Свойства листов таблицы (нужны только `title`) — чтобы понять, есть ли лист «Workouts». */
+    /**
+     * Свойства листов таблицы. [SheetPropertiesDto.index] нужен, чтобы новый лист `Measurements`
+     * оказался непосредственно после `Workouts`, а не случайно в конце пользовательской таблицы.
+     */
     @GET("v4/spreadsheets/{spreadsheetId}")
     suspend fun getSpreadsheet(
         @Header("Authorization") bearer: String,
@@ -37,7 +41,7 @@ interface SheetsApi {
         @Body body: BatchUpdateRequestDto,
     ): JsonElement
 
-    /** Значения диапазона (для идемпотентности читаем колонку A листа «Workouts»). */
+/** Значения диапазона (для идемпотентности читаем колонку A листа целевой записи). */
     @GET("v4/spreadsheets/{spreadsheetId}/values/{range}")
     suspend fun getValues(
         @Header("Authorization") bearer: String,
@@ -70,6 +74,10 @@ data class SheetDto(
 @Serializable
 data class SheetPropertiesDto(
     val title: String,
+    // `encodeDefaults = true` is used globally for Google DTOs. Omit a missing index rather than
+    // sending `null`, so adding the existing Workouts sheet keeps the API's default placement.
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val index: Int? = null,
 )
 
 @Serializable
@@ -89,7 +97,7 @@ data class AddSheetDto(
 
 /**
  * Ответ `values.get`. Ключ `values` отсутствует у пустого диапазона, поэтому поле nullable.
- * Значения читаем как строки — колонка A (`workout_id`) всегда строковая.
+ * Значения читаем как строки — UUID в колонке A всегда строковый.
  */
 @Serializable
 data class ValueRangeDto(
@@ -98,8 +106,8 @@ data class ValueRangeDto(
 
 /**
  * Тело `values.append`. [values] собирается вручную ([JsonArray] из [JsonArray]) из
- * [com.valerochka1337.valerochkagym.domain.WorkoutRowMapper.rows], чтобы числа уходили числами,
- * а `null` — пустой строкой (см. `SheetsRepositoryImpl.cellToJson`).
+ * row mapper-ов тренировок и замеров, чтобы числа уходили числами, а `null` — пустой строкой
+ * (см. `SheetsRepositoryImpl.cellToJson`).
  */
 @Serializable
 data class AppendValuesDto(

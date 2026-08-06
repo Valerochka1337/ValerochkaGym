@@ -120,6 +120,8 @@ class UploadWorkoutWorkerTest {
             uploadedIds += workoutId
             return result
         }
+
+        override suspend fun uploadMeasurement(measurementId: String): UploadResult = result
     }
 
     private class FakeWorkoutDao : WorkoutDao {

@@ -5,11 +5,13 @@ import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import com.valerochka1337.valerochkagym.data.db.dao.BodyMeasurementDao
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseDao
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseMuscleDao
 import com.valerochka1337.valerochkagym.data.db.dao.RoutineDao
 import com.valerochka1337.valerochkagym.data.db.dao.ScheduledWorkoutDao
 import com.valerochka1337.valerochkagym.data.db.dao.WorkoutDao
+import com.valerochka1337.valerochkagym.data.db.entity.BodyMeasurementEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseMuscleEntity
 import com.valerochka1337.valerochkagym.data.db.entity.RoutineEntity
@@ -21,6 +23,7 @@ import com.valerochka1337.valerochkagym.data.db.entity.WorkoutSetEntity
 
 @Database(
     entities = [
+        BodyMeasurementEntity::class,
         ExerciseEntity::class,
         ExerciseMuscleEntity::class,
         RoutineEntity::class,
@@ -30,11 +33,12 @@ import com.valerochka1337.valerochkagym.data.db.entity.WorkoutSetEntity
         WorkoutExerciseEntity::class,
         WorkoutSetEntity::class,
     ],
-    version = 3,
+    version = 4,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
 abstract class GymDatabase : RoomDatabase() {
+    abstract fun bodyMeasurementDao(): BodyMeasurementDao
     abstract fun exerciseDao(): ExerciseDao
     abstract fun exerciseMuscleDao(): ExerciseMuscleDao
     abstract fun routineDao(): RoutineDao
@@ -71,6 +75,35 @@ abstract class GymDatabase : RoomDatabase() {
                 db.execSQL(
                     "CREATE INDEX IF NOT EXISTS `index_exercise_muscles_exerciseId` " +
                         "ON `exercise_muscles` (`exerciseId`)",
+                )
+            }
+        }
+
+        /**
+         * v3 → v4: отдельная таблица замеров тела. Пустые показатели хранятся как NULL, а не
+         * как нули: это сохраняет честные разрывы в трендах и при экспорте в Sheets.
+         *
+         * DDL повторяет `schemas/.../4.json`; миграционный тест открывает получившуюся базу
+         * через Room и тем самым проверяет типы, первичный ключ и оба индекса.
+         */
+        val MIGRATION_3_4: Migration = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `body_measurements` (" +
+                        "`id` TEXT NOT NULL, `measuredAt` INTEGER NOT NULL, " +
+                        "`weightKg` REAL, `skeletalMuscleMassKg` REAL, " +
+                        "`bodyFatPercentage` REAL, `visceralFatLevel` INTEGER, " +
+                        "`waistHipRatio` REAL, `waistCm` REAL, `chestCm` REAL, " +
+                        "`hipsCm` REAL, `rightRelaxedArmCm` REAL, `rightThighCm` REAL, " +
+                        "`uploadStatus` TEXT NOT NULL, `uploadError` TEXT, PRIMARY KEY(`id`))",
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_body_measurements_measuredAt` " +
+                        "ON `body_measurements` (`measuredAt`)",
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_body_measurements_uploadStatus` " +
+                        "ON `body_measurements` (`uploadStatus`)",
                 )
             }
         }

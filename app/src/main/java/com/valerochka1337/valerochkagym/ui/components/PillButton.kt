@@ -29,6 +29,8 @@ import androidx.compose.ui.unit.dp
 /**
  * Fully-rounded pill button — the app's primary action. Flat solid [primary] fill with a
  * dark [onPrimary] label. Add [Modifier.fillMaxWidth] via [modifier] to span the full width.
+ * [compact] is reserved for dense top-bar actions such as «Замеры»; normal primary actions stay
+ * at the 56dp touch target used throughout forms and screens.
  */
 @Composable
 fun PillButton(
@@ -37,11 +39,12 @@ fun PillButton(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     leadingIcon: ImageVector? = null,
+    compact: Boolean = false,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     Row(
         modifier = modifier
-            .heightIn(min = 56.dp)
+            .heightIn(min = if (compact) 40.dp else 56.dp)
             .clip(CircleShape)
             .alpha(if (enabled) 1f else 0.5f)
             .background(MaterialTheme.colorScheme.primary)
@@ -52,7 +55,10 @@ fun PillButton(
                 role = Role.Button,
                 onClick = onClick,
             )
-            .padding(horizontal = 24.dp, vertical = 16.dp),
+            .padding(
+                horizontal = if (compact) 16.dp else 24.dp,
+                vertical = if (compact) 10.dp else 16.dp,
+            ),
         horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -66,7 +72,7 @@ fun PillButton(
             }
             Text(
                 text = text,
-                style = MaterialTheme.typography.titleMedium,
+                style = if (compact) MaterialTheme.typography.labelLarge else MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
             )
         }

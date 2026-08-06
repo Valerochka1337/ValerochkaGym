@@ -19,6 +19,7 @@ import com.valerochka1337.valerochkagym.ui.settings.SettingsViewModel
 import com.valerochka1337.valerochkagym.ui.theme.AccentColor
 import com.valerochka1337.valerochkagym.util.MainDispatcherRule
 import com.valerochka1337.valerochkagym.worker.UploadScheduler
+import com.valerochka1337.valerochkagym.worker.MeasurementUploadScheduler
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -49,6 +50,28 @@ class SettingsViewModelTest {
     private val validSpreadsheetId = "1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms"
 
     // region rest stepper
+
+    @Test
+    fun `export all schedules both workouts and measurements`() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val workouts = FakeUploadScheduler(pendingCount = 2)
+            val measurements = FakeMeasurementUploadScheduler(pendingCount = 3)
+            val viewModel = SettingsViewModel(
+                settingsRepository(),
+                FakeGoogleAuth(),
+                workouts,
+                FakeImportRepository(),
+                FakeDatabaseExporter(),
+                FakeClearData(),
+                measurementUploadScheduler = measurements,
+            )
+
+            viewModel.exportAll()
+
+            assertEquals("Поставлено в очередь: 5", viewModel.messages.first())
+            assertEquals(1, workouts.allCalls)
+            assertEquals(1, measurements.allCalls)
+        }
 
     @Test
     fun `changeDefaultRest adds the step`() = runTest(mainDispatcherRule.testDispatcher.scheduler) {
@@ -309,10 +332,26 @@ class SettingsViewModelTest {
     }
 
     /** No-op [UploadScheduler]: these tests never invoke the export path. */
-    private class FakeUploadScheduler : UploadScheduler {
+    private class FakeUploadScheduler(private val pendingCount: Int = 0) : UploadScheduler {
+        var allCalls: Int = 0
+            private set
         override fun schedule(workoutId: String) = Unit
         override suspend fun retry(workoutId: String) = Unit
-        override suspend fun scheduleAllPending(): Int = 0
+        override suspend fun scheduleAllPending(): Int {
+            allCalls++
+            return pendingCount
+        }
+    }
+
+    private class FakeMeasurementUploadScheduler(private val pendingCount: Int = 0) : MeasurementUploadScheduler {
+        var allCalls: Int = 0
+            private set
+        override fun schedule(measurementId: String) = Unit
+        override suspend fun retry(measurementId: String) = Unit
+        override suspend fun scheduleAllPending(): Int {
+            allCalls++
+            return pendingCount
+        }
     }
 
     /** No-op [GoogleAuth]: rest/spreadsheet/toggle paths never touch Google, so defaults suffice. */

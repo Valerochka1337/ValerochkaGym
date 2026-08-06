@@ -8,6 +8,7 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleGroup
+import com.valerochka1337.valerochkagym.data.db.entity.BodyMeasurementEntity
 import com.valerochka1337.valerochkagym.data.db.entity.UploadStatus
 import com.valerochka1337.valerochkagym.data.google.AuthorizeOutcome
 import com.valerochka1337.valerochkagym.data.google.GoogleAuth
@@ -23,10 +24,13 @@ import com.valerochka1337.valerochkagym.data.google.SpreadsheetDto
 import com.valerochka1337.valerochkagym.data.google.ValueRangeDto
 import com.valerochka1337.valerochkagym.data.settings.SettingsRepository
 import com.valerochka1337.valerochkagym.domain.WorkoutRowMapper
+import com.valerochka1337.valerochkagym.domain.measurements.BodyMeasurementRowMapper
 import android.app.Activity
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
@@ -112,6 +116,65 @@ class SheetsRepositoryTest : RoomDaoTest() {
         assertEquals(UploadResult.Success, result)
         assertTrue(api.appended.isEmpty())
         assertEquals(UploadStatus.UPLOADED, uploadStatus())
+    }
+
+    // endregion
+
+    // region measurements
+
+    @Test
+    fun `measurement export creates Measurements directly after Workouts and appends its header`() = runTest {
+        seedMeasurement()
+        val api = FakeSheetsApi(sheets = mutableListOf("Readme", WORKOUTS_SHEET, "Archive"))
+
+        val result = repository(api).uploadMeasurement(MEASUREMENT_ID)
+
+        assertEquals(UploadResult.Success, result)
+        assertEquals(listOf("Readme", WORKOUTS_SHEET, MEASUREMENTS_SHEET, "Archive"), api.sheets)
+        assertEquals(2, api.addedSheets.single().index)
+        assertEquals(MEASUREMENT_APPEND_RANGE, api.appendRanges.single())
+        val batch = api.appended.single()
+        assertEquals(BodyMeasurementRowMapper.HEADER_ROW, batch.first())
+        assertEquals(MEASUREMENT_ID, batch[1].first())
+        assertEquals("17.5", batch[1][6]) // weight × body-fat percent
+        assertEquals(UploadStatus.UPLOADED, measurementUploadStatus())
+    }
+
+    @Test
+    fun `already appended measurement id is idempotent and does not append again`() = runTest {
+        seedMeasurement()
+        val api = FakeSheetsApi(
+            sheets = mutableListOf(WORKOUTS_SHEET, MEASUREMENTS_SHEET),
+            measurementColumnA = mutableListOf("measurement_id", MEASUREMENT_ID),
+        )
+
+        val result = repository(api).uploadMeasurement(MEASUREMENT_ID)
+
+        assertEquals(UploadResult.Success, result)
+        assertTrue(api.appended.isEmpty())
+        assertEquals(UploadStatus.UPLOADED, measurementUploadStatus())
+    }
+
+    @Test
+    fun `permanent Sheets error marks a measurement failed`() = runTest {
+        seedMeasurement()
+        val api = FakeSheetsApi(sheets = mutableListOf(WORKOUTS_SHEET, MEASUREMENTS_SHEET), failGetValues = httpException(401))
+
+        val result = repository(api).uploadMeasurement(MEASUREMENT_ID)
+
+        assertEquals(UploadResult.PermanentFailure("Нет доступа к таблице — проверьте вход и права"), result)
+        assertEquals(UploadStatus.FAILED, measurementUploadStatus())
+    }
+
+    @Test
+    fun `sheet properties omit an absent index and serialize an explicit position`() {
+        val json = Json { encodeDefaults = true }
+
+        assertEquals("{\"title\":\"Workouts\"}", json.encodeToString(SheetPropertiesDto(WORKOUTS_SHEET)))
+        assertEquals(
+            "{\"title\":\"Measurements\",\"index\":2}",
+            json.encodeToString(SheetPropertiesDto(MEASUREMENTS_SHEET, index = 2)),
+        )
     }
 
     // endregion
@@ -296,10 +359,13 @@ class SheetsRepositoryTest : RoomDaoTest() {
         api: FakeSheetsApi,
         auth: GoogleAuth = FakeGoogleAuth(TokenResult.Success("token")),
         settings: SettingsRepository = settingsRepository(spreadsheetId = SPREADSHEET_ID),
-    ): SheetsRepositoryImpl = SheetsRepositoryImpl(api, auth, settings, db.workoutDao())
+    ): SheetsRepositoryImpl = SheetsRepositoryImpl(api, auth, settings, db.workoutDao(), db.bodyMeasurementDao())
 
     private suspend fun uploadStatus(id: String = WORKOUT_ID): UploadStatus =
         workoutFull(id).workout.uploadStatus
+
+    private suspend fun measurementUploadStatus(id: String = MEASUREMENT_ID): UploadStatus =
+        db.bodyMeasurementDao().getById(id)!!.uploadStatus
 
     private suspend fun seedFinishedWorkout(
         id: String = WORKOUT_ID,
@@ -316,6 +382,21 @@ class SheetsRepositoryTest : RoomDaoTest() {
             insertSet(we, setIndex = completedSets + i, weightKg = 200.0, reps = 3, isCompleted = false)
         }
         return id
+    }
+
+    private suspend fun seedMeasurement(id: String = MEASUREMENT_ID) {
+        db.bodyMeasurementDao().insert(
+            BodyMeasurementEntity(
+                id = id,
+                measuredAt = 1_700_000_000_000,
+                weightKg = 70.0,
+                skeletalMuscleMassKg = 28.0,
+                bodyFatPercentage = 25.0,
+                visceralFatLevel = 8,
+                waistCm = 72.0,
+                hipsCm = 96.0,
+            ),
+        )
     }
 
     private suspend fun insertExercise(): Long =
@@ -344,6 +425,7 @@ class SheetsRepositoryTest : RoomDaoTest() {
     private class FakeSheetsApi(
         val sheets: MutableList<String> = mutableListOf(),
         private val columnA: MutableList<String> = mutableListOf(),
+        private val measurementColumnA: MutableList<String> = mutableListOf(),
         private val failGetSpreadsheet: Exception? = null,
         private val failBatchUpdate: Exception? = null,
         private val failGetValues: Exception? = null,
@@ -352,12 +434,14 @@ class SheetsRepositoryTest : RoomDaoTest() {
     ) : SheetsApi {
 
         val appended: MutableList<List<List<String>>> = mutableListOf()
+        val appendRanges = mutableListOf<String>()
+        val addedSheets = mutableListOf<SheetPropertiesDto>()
         var batchUpdateCount: Int = 0
             private set
 
         override suspend fun getSpreadsheet(bearer: String, spreadsheetId: String, fields: String): SpreadsheetDto {
             failGetSpreadsheet?.let { throw it }
-            return SpreadsheetDto(sheets.map { SheetDto(SheetPropertiesDto(it)) })
+            return SpreadsheetDto(sheets.mapIndexed { index, title -> SheetDto(SheetPropertiesDto(title, index)) })
         }
 
         override suspend fun batchUpdate(
@@ -366,19 +450,21 @@ class SheetsRepositoryTest : RoomDaoTest() {
             body: BatchUpdateRequestDto,
         ): JsonElement {
             batchUpdateCount++
-            val title = body.requests.first().addSheet.properties.title
+            val properties = body.requests.first().addSheet.properties
+            val title = properties.title
             if (simulateAddSheetRace) {
-                if (!sheets.contains(title)) sheets.add(title)
+                addSheet(properties)
                 throw httpException(400)
             }
             failBatchUpdate?.let { throw it }
-            if (!sheets.contains(title)) sheets.add(title)
+            addSheet(properties)
             return JsonNull
         }
 
         override suspend fun getValues(bearer: String, spreadsheetId: String, range: String): ValueRangeDto {
             failGetValues?.let { throw it }
-            return ValueRangeDto(values = if (columnA.isEmpty()) null else columnA.map { listOf(it) })
+            val values = if (range.startsWith("Measurements!")) measurementColumnA else columnA
+            return ValueRangeDto(values = if (values.isEmpty()) null else values.map { listOf(it) })
         }
 
         override suspend fun appendValues(
@@ -390,8 +476,16 @@ class SheetsRepositoryTest : RoomDaoTest() {
             insertDataOption: String,
         ): JsonElement {
             failAppend?.let { throw it }
+            appendRanges += range
             appended.add(body.values.map { row -> (row as JsonArray).map { (it as JsonPrimitive).content } })
             return JsonNull
+        }
+
+        private fun addSheet(properties: SheetPropertiesDto) {
+            if (sheets.contains(properties.title)) return
+            val index = properties.index?.coerceIn(0, sheets.size) ?: sheets.size
+            sheets.add(index, properties.title)
+            addedSheets += properties
         }
 
         private fun httpException(code: Int): HttpException =
@@ -423,7 +517,10 @@ class SheetsRepositoryTest : RoomDaoTest() {
 
     private companion object {
         const val WORKOUT_ID = "w-1"
+        const val MEASUREMENT_ID = "m-1"
         const val SPREADSHEET_ID = "1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms"
         const val WORKOUTS_SHEET = "Workouts"
+        const val MEASUREMENTS_SHEET = "Measurements"
+        const val MEASUREMENT_APPEND_RANGE = "Measurements!A:N"
     }
 }

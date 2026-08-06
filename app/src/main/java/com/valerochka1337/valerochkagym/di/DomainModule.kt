@@ -6,7 +6,9 @@ import com.valerochka1337.valerochkagym.data.backup.ClearDataUseCaseImpl
 import com.valerochka1337.valerochkagym.data.backup.DatabaseExporter
 import com.valerochka1337.valerochkagym.data.backup.DatabaseExporterImpl
 import com.valerochka1337.valerochkagym.domain.ActiveWorkoutRepository
+import com.valerochka1337.valerochkagym.worker.MeasurementUploadScheduler
 import com.valerochka1337.valerochkagym.worker.UploadScheduler
+import com.valerochka1337.valerochkagym.worker.WorkManagerMeasurementUploadScheduler
 import com.valerochka1337.valerochkagym.worker.WorkManagerUploadScheduler
 import dagger.Binds
 import dagger.Module
@@ -27,6 +29,12 @@ abstract class DomainModule {
     @Binds
     @Singleton
     abstract fun bindUploadScheduler(impl: WorkManagerUploadScheduler): UploadScheduler
+
+    @Binds
+    @Singleton
+    abstract fun bindMeasurementUploadScheduler(
+        impl: WorkManagerMeasurementUploadScheduler,
+    ): MeasurementUploadScheduler
 
     @Binds
     @Singleton

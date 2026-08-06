@@ -9,6 +9,7 @@ import androidx.work.WorkManager
 import com.valerochka1337.valerochkagym.data.backup.DatabaseExporter
 import com.valerochka1337.valerochkagym.data.db.GymDatabase
 import com.valerochka1337.valerochkagym.data.db.GymDatabaseCallback
+import com.valerochka1337.valerochkagym.data.db.dao.BodyMeasurementDao
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseDao
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseMuscleDao
 import com.valerochka1337.valerochkagym.data.db.dao.RoutineDao
@@ -59,8 +60,15 @@ object DataModule {
     ): GymDatabase =
         Room.databaseBuilder(context, GymDatabase::class.java, DatabaseExporter.DATABASE_NAME)
             .addCallback(callback)
-            .addMigrations(GymDatabase.MIGRATION_1_2, GymDatabase.MIGRATION_2_3)
+            .addMigrations(
+                GymDatabase.MIGRATION_1_2,
+                GymDatabase.MIGRATION_2_3,
+                GymDatabase.MIGRATION_3_4,
+            )
             .build()
+
+    @Provides
+    fun provideBodyMeasurementDao(database: GymDatabase): BodyMeasurementDao = database.bodyMeasurementDao()
 
     @Provides
     fun provideExerciseDao(database: GymDatabase): ExerciseDao = database.exerciseDao()

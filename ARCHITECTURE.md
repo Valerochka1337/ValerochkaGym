@@ -14,7 +14,7 @@ domain/    use case'ы и чистая логика (CompleteSetUseCase, Workout
 data/      Room (db/), Google-интеграция (google/), настройки (settings/),
            резервные операции (backup/), иконка лаунчера (appicon/)
 service/   WorkoutSessionService (foreground) + RestTimerEngine
-worker/    UploadWorkoutWorker + UploadScheduler (WorkManager)
+worker/    UploadWorkoutWorker + UploadScheduler, UploadMeasurementWorker + MeasurementUploadScheduler (WorkManager)
 di/        Hilt-модули (Data, Domain, Google, Network) и квалификаторы
            (@ApplicationScope, @ComputeDispatcher)
 ```
@@ -38,8 +38,10 @@ di/        Hilt-модули (Data, Domain, Google, Network) и квалифик
 
 ## База данных
 
-Room v3, схемы коммитятся в `app/schemas/`, миграции только рукописные
-(`MIGRATION_1_2`, `MIGRATION_2_3`) — `fallbackToDestructiveMigration` запрещён.
+Room v4, схемы коммитятся в `app/schemas/`, миграции только рукописные
+(`MIGRATION_1_2`, `MIGRATION_2_3`, `MIGRATION_3_4`) — `fallbackToDestructiveMigration` запрещён.
+Замеры тела лежат отдельно в `body_measurements`: все показатели nullable (пропуск не равен нулю),
+а масса жира и WHR при отсутствии явного InBody-значения вычисляются из сохранённых показателей.
 Посев встроенного каталога упражнений идемпотентен и живёт в `onOpen`
 (`GymDatabaseCallback`); карты мышц досеиваются `ExerciseMuscleSeeder`-ом.
 Экспорт базы (`DatabaseExporter`) делает `wal_checkpoint(TRUNCATE)` и копирует `gym.db`
@@ -60,6 +62,8 @@ Room v3, схемы коммитятся в `app/schemas/`, миграции т�
 - **UploadWorkoutWorker** — выгрузка тренировки в Google Sheets: уникальная работа
   `upload_<id>` (REPLACE), сеть обязательна, экспоненциальный backoff, 5 попыток; на последней
   транзиентной ошибке статус становится FAILED с причиной для UI.
+- **UploadMeasurementWorker** — та же политика для одного замера (`upload_measurement_<id>`).
+  Экспорт замеров append-only: локальные правки и удаление не переписывают уже добавленную строку.
 
 ## Google-интеграция
 
@@ -70,7 +74,9 @@ Room v3, схемы коммитятся в `app/schemas/`, миграции т�
 (429/5xx/сеть — ретрай), формулировки одинаковы для выгрузки и импорта. Импорт истории
 (`WorkoutImportRepository`) дедупит по `workout_id`, матчит упражнения по имени
 (Unicode-aware lowercase), создаёт недостающие вместе с картой мышц и считает
-нераспознанные строки (`skippedRows` всплывает в снэкбар).
+нераспознанные строки (`skippedRows` всплывает в снэкбар). Лист `Measurements` создаётся после
+`Workouts`, если его ещё нет; UUID `measurement_id` в первой колонке гарантирует идемпотентность
+повторных append-запросов.
 
 ## Осознанные решения
 
