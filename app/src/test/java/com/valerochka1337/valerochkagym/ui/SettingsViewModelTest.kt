@@ -14,6 +14,7 @@ import com.valerochka1337.valerochkagym.data.google.GoogleAuth
 import com.valerochka1337.valerochkagym.data.google.ImportResult
 import com.valerochka1337.valerochkagym.data.google.TokenResult
 import com.valerochka1337.valerochkagym.data.google.WorkoutImportRepository
+import com.valerochka1337.valerochkagym.data.settings.OpenRouterKeyStore
 import com.valerochka1337.valerochkagym.data.settings.SettingsRepository
 import com.valerochka1337.valerochkagym.ui.settings.SettingsViewModel
 import com.valerochka1337.valerochkagym.ui.theme.AccentColor
@@ -146,6 +147,38 @@ class SettingsViewModelTest {
 
             assertFalse(viewModel.uiState.value.spreadsheetError)
             assertEquals(validSpreadsheetId, viewModel.uiState.value.settings?.spreadsheetId)
+        }
+
+    // endregion
+
+    // region OpenRouter key
+
+    @Test
+    fun `OpenRouter key state is exposed without exposing the saved key`() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val keyStore = FakeOpenRouterKeyStore()
+            val viewModel = SettingsViewModel(
+                settingsRepository(),
+                FakeGoogleAuth(),
+                FakeUploadScheduler(),
+                FakeImportRepository(),
+                FakeDatabaseExporter(),
+                FakeClearData(),
+                openRouterKeyStore = keyStore,
+            )
+            collectUiState(viewModel)
+
+            viewModel.setOpenRouterKey("  sk-or-v1-secret  ")
+
+            assertTrue(viewModel.uiState.value.openRouterKeyConfigured)
+            assertEquals("sk-or-v1-secret", keyStore.savedKey)
+            assertEquals("Ключ OpenRouter сохранён", viewModel.messages.first())
+
+            viewModel.clearOpenRouterKey()
+
+            assertFalse(viewModel.uiState.value.openRouterKeyConfigured)
+            assertNull(keyStore.savedKey)
+            assertEquals("Ключ OpenRouter удалён", viewModel.messages.first())
         }
 
     // endregion
@@ -351,6 +384,27 @@ class SettingsViewModelTest {
         override suspend fun scheduleAllPending(): Int {
             allCalls++
             return pendingCount
+        }
+    }
+
+    private class FakeOpenRouterKeyStore : OpenRouterKeyStore {
+        private val configured = MutableStateFlow(false)
+
+        var savedKey: String? = null
+            private set
+
+        override val isConfigured: Flow<Boolean> = configured
+
+        override suspend fun save(value: String) {
+            savedKey = value
+            configured.value = true
+        }
+
+        override suspend fun read(): String? = savedKey
+
+        override suspend fun clear() {
+            savedKey = null
+            configured.value = false
         }
     }
 

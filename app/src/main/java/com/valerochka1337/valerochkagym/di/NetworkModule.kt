@@ -2,6 +2,7 @@ package com.valerochka1337.valerochkagym.di
 
 import com.valerochka1337.valerochkagym.data.google.CalendarApi
 import com.valerochka1337.valerochkagym.data.google.SheetsApi
+import com.valerochka1337.valerochkagym.data.ai.OpenRouterApi
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -26,6 +27,7 @@ object NetworkModule {
 
     private const val SHEETS_BASE_URL = "https://sheets.googleapis.com/"
     private const val CALENDAR_BASE_URL = "https://www.googleapis.com/"
+    private const val OPEN_ROUTER_BASE_URL = "https://openrouter.ai/"
 
     @Provides
     @Singleton
@@ -65,4 +67,19 @@ object NetworkModule {
     @Singleton
     fun provideCalendarApi(@Named("calendar") retrofit: Retrofit): CalendarApi =
         retrofit.create(CalendarApi::class.java)
+
+    @Provides
+    @Singleton
+    @Named("openrouter")
+    fun provideOpenRouterRetrofit(client: OkHttpClient, json: Json): Retrofit =
+        Retrofit.Builder()
+            .baseUrl(OPEN_ROUTER_BASE_URL)
+            .client(client)
+            .addConverterFactory(json.asConverterFactory("application/json".toMediaType()))
+            .build()
+
+    @Provides
+    @Singleton
+    fun provideOpenRouterApi(@Named("openrouter") retrofit: Retrofit): OpenRouterApi =
+        retrofit.create(OpenRouterApi::class.java)
 }

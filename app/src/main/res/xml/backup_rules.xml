@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?><!--
-    Бэкап включён целиком (устройства до API 31): в gym.db и DataStore нет токенов — авторизация
-    живёт в Credential Manager, а email и ID таблицы не секрет. Полный бэкап переживает
-    переустановку приложения вместе с историей тренировок.
+    Бэкап включён почти целиком (устройства до API 31). OpenRouter API key хранится отдельно,
+    зашифрован Android Keystore и намеренно не переносится на другое устройство.
 -->
-<full-backup-content />
+<full-backup-content>
+    <exclude domain="file" path="datastore/openrouter_secrets.preferences_pb" />
+</full-backup-content>

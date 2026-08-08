@@ -2,14 +2,18 @@ package com.valerochka1337.valerochkagym.ui
 
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseDao
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseMuscleDao
+import com.valerochka1337.valerochkagym.data.ai.ExerciseAiGenerationResult
+import com.valerochka1337.valerochkagym.data.ai.ExerciseAiGenerator
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseMuscleEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
 import com.valerochka1337.valerochkagym.data.db.entity.Muscle
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleGroup
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleLoad
+import com.valerochka1337.valerochkagym.data.settings.OpenRouterKeyStore
 import com.valerochka1337.valerochkagym.ui.library.ExerciseLibraryViewModel
 import com.valerochka1337.valerochkagym.util.MainDispatcherRule
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -190,7 +194,7 @@ class ExerciseLibraryViewModelTest {
             val muscleDao = FakeExerciseMuscleDao()
             val viewModel = ExerciseLibraryViewModel(dao, muscleDao)
 
-            viewModel.openCreate()
+            viewModel.openManualCreate()
             viewModel.saveEditor(
                 name = "  Тяга сумо  ",
                 type = ExerciseType.STRENGTH,
@@ -218,7 +222,7 @@ class ExerciseLibraryViewModelTest {
             val dao = FakeExerciseDao()
             val viewModel = ExerciseLibraryViewModel(dao, FakeExerciseMuscleDao())
 
-            viewModel.openCreate()
+            viewModel.openManualCreate()
             viewModel.saveEditor("   ", ExerciseType.STRENGTH, listOf(MuscleLoad(Muscle.CHEST, 100)))
             viewModel.saveEditor("Жим", ExerciseType.STRENGTH, emptyList())
 
@@ -252,6 +256,133 @@ class ExerciseLibraryViewModelTest {
                 mapOf(Muscle.CHEST to 100, Muscle.TRICEPS to 65),
                 muscleDao.rows[1L]?.associate { it.muscle to it.contribution },
             )
+        }
+
+    @Test
+    fun `ai generation opens a prefilled editor without saving an exercise`() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val dao = FakeExerciseDao()
+            val viewModel = ExerciseLibraryViewModel(
+                exerciseDao = dao,
+                exerciseMuscleDao = FakeExerciseMuscleDao(),
+                exerciseAiGenerator = FakeExerciseAiGenerator(
+                    ExerciseAiGenerationResult.New(
+                        name = "Тяга сумо",
+                        type = ExerciseType.STRENGTH,
+                        loads = listOf(MuscleLoad(Muscle.GLUTES, 100), MuscleLoad(Muscle.LOWER_BACK, 70)),
+                    ),
+                ),
+                openRouterKeyStore = FakeOpenRouterKeyStore(configured = true),
+            )
+            mainDispatcherRule.testDispatcher.scheduler.advanceUntilIdle()
+
+            viewModel.openCreate()
+            viewModel.onAiDescriptionChange("Тяга штанги широким хватом сумо")
+            viewModel.generateAiExercise()
+            mainDispatcherRule.testDispatcher.scheduler.advanceUntilIdle()
+
+            assertNull(viewModel.aiCreation.value)
+            assertEquals(0, dao.insertCount)
+            val editor = viewModel.editor.value!!
+            assertEquals("Тяга сумо", editor.name)
+            assertEquals(ExerciseType.STRENGTH, editor.type)
+            assertEquals(mapOf(Muscle.GLUTES to 100, Muscle.LOWER_BACK to 70), editor.loads)
+            assertFalse(editor.wasFoundByAi)
+        }
+
+    @Test
+    fun `ai generation opens the current editor for an existing exercise`() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val dao = FakeExerciseDao(catalogue())
+            val muscleDao = FakeExerciseMuscleDao().apply {
+                rows[1L] = mutableListOf(ExerciseMuscleEntity(1L, Muscle.CHEST, 100))
+            }
+            val viewModel = ExerciseLibraryViewModel(
+                exerciseDao = dao,
+                exerciseMuscleDao = muscleDao,
+                exerciseAiGenerator = FakeExerciseAiGenerator(ExerciseAiGenerationResult.Existing(1L)),
+                openRouterKeyStore = FakeOpenRouterKeyStore(configured = true),
+            )
+            mainDispatcherRule.testDispatcher.scheduler.advanceUntilIdle()
+
+            viewModel.openCreate()
+            viewModel.onAiDescriptionChange("Жим лёжа")
+            viewModel.generateAiExercise()
+            mainDispatcherRule.testDispatcher.scheduler.advanceUntilIdle()
+
+            val editor = viewModel.editor.value!!
+            assertEquals(1L, editor.exerciseId)
+            assertEquals("Жим штанги лёжа", editor.name)
+            assertEquals(mapOf(Muscle.CHEST to 100), editor.loads)
+            assertFalse(editor.editableName)
+            assertTrue(editor.wasFoundByAi)
+        }
+
+    @Test
+    fun `ai generation failure keeps the description available for retry`() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val viewModel = ExerciseLibraryViewModel(
+                exerciseDao = FakeExerciseDao(),
+                exerciseMuscleDao = FakeExerciseMuscleDao(),
+                exerciseAiGenerator = FakeExerciseAiGenerator(
+                    ExerciseAiGenerationResult.Failure("Лимит бесплатной модели исчерпан — попробуйте позже"),
+                ),
+                openRouterKeyStore = FakeOpenRouterKeyStore(configured = true),
+            )
+            mainDispatcherRule.testDispatcher.scheduler.advanceUntilIdle()
+
+            viewModel.openCreate()
+            viewModel.onAiDescriptionChange("Упражнение")
+            viewModel.generateAiExercise()
+            mainDispatcherRule.testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals("Упражнение", viewModel.aiCreation.value?.description)
+            assertEquals("Лимит бесплатной модели исчерпан — попробуйте позже", viewModel.aiCreation.value?.error)
+            assertNull(viewModel.editor.value)
+        }
+
+    @Test
+    fun `manual creation remains available without an OpenRouter key`() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val viewModel = ExerciseLibraryViewModel(FakeExerciseDao(), FakeExerciseMuscleDao())
+
+            viewModel.openCreate()
+            viewModel.openManualCreate()
+
+            assertNull(viewModel.aiCreation.value)
+            assertNotNull(viewModel.editor.value)
+        }
+
+    @Test
+    fun `dismissing AI creation cancels a pending result`() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val generator = PendingExerciseAiGenerator()
+            val viewModel = ExerciseLibraryViewModel(
+                exerciseDao = FakeExerciseDao(),
+                exerciseMuscleDao = FakeExerciseMuscleDao(),
+                exerciseAiGenerator = generator,
+                openRouterKeyStore = FakeOpenRouterKeyStore(configured = true),
+            )
+            mainDispatcherRule.testDispatcher.scheduler.advanceUntilIdle()
+
+            viewModel.openCreate()
+            viewModel.onAiDescriptionChange("Упражнение")
+            viewModel.generateAiExercise()
+            mainDispatcherRule.testDispatcher.scheduler.advanceUntilIdle()
+            assertTrue(generator.started.isCompleted)
+
+            viewModel.closeAiCreation()
+            generator.result.complete(
+                ExerciseAiGenerationResult.New(
+                    name = "Не должно открыться",
+                    type = ExerciseType.STRENGTH,
+                    loads = listOf(MuscleLoad(Muscle.CHEST, 100)),
+                ),
+            )
+            mainDispatcherRule.testDispatcher.scheduler.advanceUntilIdle()
+
+            assertNull(viewModel.aiCreation.value)
+            assertNull(viewModel.editor.value)
         }
 
     // endregion
@@ -339,6 +470,38 @@ class ExerciseLibraryViewModelTest {
 
         override suspend fun deleteForExercise(exerciseId: Long) {
             rows.remove(exerciseId)
+        }
+    }
+
+    private class FakeExerciseAiGenerator(
+        private val result: ExerciseAiGenerationResult,
+    ) : ExerciseAiGenerator {
+        override suspend fun generate(description: String): ExerciseAiGenerationResult = result
+    }
+
+    private class PendingExerciseAiGenerator : ExerciseAiGenerator {
+        val started = CompletableDeferred<Unit>()
+        val result = CompletableDeferred<ExerciseAiGenerationResult>()
+
+        override suspend fun generate(description: String): ExerciseAiGenerationResult {
+            started.complete(Unit)
+            return result.await()
+        }
+    }
+
+    private class FakeOpenRouterKeyStore(configured: Boolean) : OpenRouterKeyStore {
+        private val configuredFlow = MutableStateFlow(configured)
+
+        override val isConfigured: Flow<Boolean> = configuredFlow
+
+        override suspend fun save(value: String) {
+            configuredFlow.value = value.isNotBlank()
+        }
+
+        override suspend fun read(): String? = if (configuredFlow.value) "test-key" else null
+
+        override suspend fun clear() {
+            configuredFlow.value = false
         }
     }
 }

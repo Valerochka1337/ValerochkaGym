@@ -46,6 +46,7 @@ import com.valerochka1337.valerochkagym.ui.components.FadeInContent
 import com.valerochka1337.valerochkagym.ui.components.GlowBackground
 import com.valerochka1337.valerochkagym.ui.components.GymCard
 import com.valerochka1337.valerochkagym.ui.components.GymFilterChip
+import com.valerochka1337.valerochkagym.ui.haptics.gymHaptics
 
 /**
  * The exercise library: search field, muscle-group filter chips and a list of
@@ -58,12 +59,15 @@ import com.valerochka1337.valerochkagym.ui.components.GymFilterChip
 @Composable
 fun ExerciseLibraryScreen(
     onBack: () -> Unit,
+    onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier,
     onExerciseSelected: ((ExerciseEntity) -> Unit)? = null,
     viewModel: ExerciseLibraryViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val editor by viewModel.editor.collectAsStateWithLifecycle()
+    val aiCreation by viewModel.aiCreation.collectAsStateWithLifecycle()
+    val haptics = gymHaptics()
 
     GlowBackground(modifier = modifier) {
         Box(modifier = Modifier.fillMaxSize()) {
@@ -119,7 +123,10 @@ fun ExerciseLibraryScreen(
             }
 
             FloatingActionButton(
-                onClick = viewModel::openCreate,
+                onClick = {
+                    haptics.tap()
+                    viewModel.openCreate()
+                },
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
                     .padding(24.dp),
@@ -136,6 +143,26 @@ fun ExerciseLibraryScreen(
             initial = initial,
             onDismiss = viewModel::closeEditor,
             onSave = viewModel::saveEditor,
+        )
+    }
+
+    aiCreation?.let { creation ->
+        AiExerciseCreationSheet(
+            state = creation,
+            onDescriptionChange = viewModel::onAiDescriptionChange,
+            onGenerate = {
+                haptics.tap()
+                viewModel.generateAiExercise()
+            },
+            onCreateManually = {
+                haptics.tap()
+                viewModel.openManualCreate()
+            },
+            onOpenSettings = {
+                viewModel.closeAiCreation()
+                onOpenSettings()
+            },
+            onDismiss = viewModel::closeAiCreation,
         )
     }
 }

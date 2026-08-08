@@ -1,9 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?><!--
-    Бэкап и перенос включены целиком (API 31+): в gym.db и DataStore нет токенов — авторизация
-    живёт в Credential Manager, а email и ID таблицы не секрет. Полный бэкап переживает
-    переустановку приложения вместе с историей тренировок.
+    Бэкап и перенос включены почти целиком (API 31+). Секрет OpenRouter исключён: ключ Keystore
+    привязан к устройству, поэтому после переноса его безопаснее ввести заново.
 -->
 <data-extraction-rules>
-    <cloud-backup />
-    <device-transfer />
+    <cloud-backup>
+        <exclude domain="file" path="datastore/openrouter_secrets.preferences_pb" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="file" path="datastore/openrouter_secrets.preferences_pb" />
+    </device-transfer>
 </data-extraction-rules>

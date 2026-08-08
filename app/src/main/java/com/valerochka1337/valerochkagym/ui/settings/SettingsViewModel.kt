@@ -14,6 +14,7 @@ import com.valerochka1337.valerochkagym.data.google.ImportResult
 import com.valerochka1337.valerochkagym.data.google.WorkoutImportRepository
 import com.valerochka1337.valerochkagym.data.google.spreadsheetIdFrom
 import com.valerochka1337.valerochkagym.data.settings.GymSettings
+import com.valerochka1337.valerochkagym.data.settings.OpenRouterKeyStore
 import com.valerochka1337.valerochkagym.data.settings.SettingsRepository
 import com.valerochka1337.valerochkagym.ui.theme.AccentColor
 import com.valerochka1337.valerochkagym.worker.MeasurementUploadScheduler
@@ -43,16 +44,29 @@ private object NoOpMeasurementUploadScheduler : MeasurementUploadScheduler {
     override suspend fun scheduleAllPending(): Int = 0
 }
 
+/** Совместимая с прямыми unit-тестами заглушка для ключа OpenRouter. */
+private object NoOpOpenRouterKeyStore : OpenRouterKeyStore {
+    override val isConfigured = MutableStateFlow(false)
+
+    override suspend fun save(value: String) = Unit
+
+    override suspend fun read(): String? = null
+
+    override suspend fun clear() = Unit
+}
+
 /**
  * Состояние экрана настроек. [settings] == null — ещё не загружено (не мигаем пустой формой).
  * [authBusy] — идёт вход/выход через Google. [spreadsheetError] — последний ввод ссылки/ID не
- * распознан. [authError] — не удалось войти или настроить доступ (показываем и сбрасываем при
- * повторной попытке).
+ * распознан. [openRouterKeyConfigured] сообщает только факт наличия ключа — его значение никогда
+ * не попадает в UI. [authError] — не удалось войти или настроить доступ (показываем и сбрасываем
+ * при повторной попытке).
  */
 data class SettingsUiState(
     val settings: GymSettings? = null,
     val authBusy: Boolean = false,
     val spreadsheetError: Boolean = false,
+    val openRouterKeyConfigured: Boolean = false,
     val authError: String? = null,
 )
 
@@ -70,6 +84,7 @@ class SettingsViewModel @Inject constructor(
     private val databaseExporter: DatabaseExporter,
     private val clearDataUseCase: ClearDataUseCase,
     private val measurementUploadScheduler: MeasurementUploadScheduler = NoOpMeasurementUploadScheduler,
+    private val openRouterKeyStore: OpenRouterKeyStore = NoOpOpenRouterKeyStore,
 ) : ViewModel() {
 
     private val authBusy = MutableStateFlow(false)
@@ -82,11 +97,13 @@ class SettingsViewModel @Inject constructor(
             authBusy,
             spreadsheetError,
             authError,
-        ) { settings, busy, sheetError, authError ->
+            openRouterKeyStore.isConfigured,
+        ) { settings, busy, sheetError, authError, keyConfigured ->
             SettingsUiState(
                 settings = settings,
                 authBusy = busy,
                 spreadsheetError = sheetError,
+                openRouterKeyConfigured = keyConfigured,
                 authError = authError,
             )
         }.stateIn(
@@ -160,6 +177,35 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             settingsRepository.setSpreadsheetId(id)
             importHistory()
+        }
+    }
+
+    /** Сохраняет ключ OpenRouter в отдельном зашифрованном хранилище; в UI его не возвращаем. */
+    fun setOpenRouterKey(raw: String) {
+        val key = raw.trim()
+        if (key.isEmpty()) {
+            viewModelScope.launch { _messages.send("Введите ключ OpenRouter") }
+            return
+        }
+        viewModelScope.launch {
+            try {
+                openRouterKeyStore.save(key)
+                _messages.send("Ключ OpenRouter сохранён")
+            } catch (_: Exception) {
+                _messages.send("Не удалось сохранить ключ OpenRouter")
+            }
+        }
+    }
+
+    /** Удаляет ключ с устройства, не затрагивая остальные настройки. */
+    fun clearOpenRouterKey() {
+        viewModelScope.launch {
+            try {
+                openRouterKeyStore.clear()
+                _messages.send("Ключ OpenRouter удалён")
+            } catch (_: Exception) {
+                _messages.send("Не удалось удалить ключ OpenRouter")
+            }
         }
     }
 

@@ -16,6 +16,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -26,6 +27,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -101,6 +103,11 @@ internal fun ExerciseEditorSheet(
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onSurface,
             )
+
+            if (initial.wasFoundByAi) {
+                Spacer(Modifier.height(12.dp))
+                FoundExistingExerciseNotice()
+            }
 
             Spacer(Modifier.height(16.dp))
             OutlinedTextField(
@@ -215,7 +222,11 @@ internal fun ExerciseEditorSheet(
             Spacer(Modifier.height(20.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 PillButton(
-                    text = if (initial.exerciseId == null) "Создать" else "Сохранить",
+                    text = when {
+                        initial.exerciseId == null -> "Создать"
+                        initial.wasFoundByAi -> "Изменить найденное"
+                        else -> "Сохранить"
+                    },
                     onClick = {
                         onSave(
                             name,
@@ -228,6 +239,41 @@ internal fun ExerciseEditorSheet(
                 )
                 Spacer(Modifier.width(8.dp))
                 TextButton(onClick = onDismiss) { Text("Отмена") }
+            }
+        }
+    }
+}
+
+/** Поясняет, что ИИ открыл существующую запись, а не подготовил новую. */
+@Composable
+private fun FoundExistingExerciseNotice() {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.primaryContainer,
+        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+    ) {
+        Row(
+            modifier = Modifier.padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.Info,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+            )
+            Spacer(Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Упражнение найдено в библиотеке",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = "ИИ не создал новую запись. После сохранения изменится существующее упражнение.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
             }
         }
     }

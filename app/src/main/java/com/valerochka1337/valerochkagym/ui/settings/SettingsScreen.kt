@@ -29,8 +29,10 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.rounded.AccountCircle
+import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.CloudUpload
 import androidx.compose.material.icons.rounded.Download
+import androidx.compose.material.icons.rounded.Key
 import androidx.compose.material.icons.rounded.Link
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.PlayCircle
@@ -73,6 +75,8 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -153,6 +157,11 @@ fun SettingsScreen(
                             error = state.spreadsheetError,
                             onSave = viewModel::setSpreadsheetInput,
                             onExportAll = viewModel::exportAll,
+                        )
+                        OpenRouterCard(
+                            keyConfigured = state.openRouterKeyConfigured,
+                            onSave = viewModel::setOpenRouterKey,
+                            onClear = viewModel::clearOpenRouterKey,
                         )
                         RestTimerCard(
                             settings = settings,
@@ -309,6 +318,74 @@ private fun SpreadsheetCard(
                 )
                 Spacer(Modifier.width(8.dp))
                 Text("Выгрузить всё")
+            }
+        }
+    }
+}
+
+/** Настройка AI-генерации: поле всегда пустое, чтобы ключ нельзя было прочитать из интерфейса. */
+@Composable
+private fun OpenRouterCard(
+    keyConfigured: Boolean,
+    onSave: (String) -> Unit,
+    onClear: () -> Unit,
+) {
+    SectionCard(title = "OpenRouter", icon = Icons.Rounded.AutoAwesome) {
+        var input by rememberSaveable { mutableStateOf("") }
+        Text(
+            text = if (keyConfigured) {
+                "Ключ сохранён на этом устройстве"
+            } else {
+                "Добавьте API key, чтобы создавать упражнения по описанию"
+            },
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(12.dp))
+        OutlinedTextField(
+            value = input,
+            onValueChange = { input = it },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+            label = { Text("OpenRouter API key") },
+            leadingIcon = {
+                Icon(
+                    imageVector = Icons.Rounded.Key,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            },
+            visualTransformation = PasswordVisualTransformation(),
+            keyboardOptions = KeyboardOptions(
+                keyboardType = KeyboardType.Password,
+                imeAction = ImeAction.Done,
+            ),
+            keyboardActions = KeyboardActions(onDone = { onSave(input) }),
+            supportingText = {
+                Text("Ключ шифруется и не переносится в резервных копиях")
+            },
+        )
+        Spacer(Modifier.height(12.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            OutlinedButton(
+                onClick = { onSave(input) },
+                enabled = input.trim().isNotEmpty(),
+            ) {
+                Text(if (keyConfigured) "Заменить ключ" else "Сохранить ключ")
+            }
+            if (keyConfigured) {
+                TextButton(
+                    onClick = {
+                        input = ""
+                        onClear()
+                    },
+                ) {
+                    Text("Удалить")
+                }
             }
         }
     }

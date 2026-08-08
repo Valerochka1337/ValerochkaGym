@@ -182,6 +182,7 @@ fun GymNavGraph(
         composable(GymRoutes.LIBRARY) {
             ExerciseLibraryScreen(
                 onBack = { navController.popBackStack() },
+                onOpenSettings = { navController.navigate(GymRoutes.SETTINGS) },
                 // Открыта из редактора программы: возвращаем выбранное упражнение назад.
                 onExerciseSelected = { exercise ->
                     navController.previousBackStackEntry?.savedStateHandle
