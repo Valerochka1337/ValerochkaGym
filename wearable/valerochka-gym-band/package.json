@@ -1,0 +1,17 @@
+{
+  "name": "valerochka-gym-band",
+  "version": "0.1.0",
+  "description": "Vela Quick App companion for ValerochkaGym and Xiaomi Smart Band 10",
+  "engines": {
+    "node": ">=8.10"
+  },
+  "scripts": {
+    "start": "aiot start --watch",
+    "build": "aiot build",
+    "release": "aiot release"
+  },
+  "devDependencies": {
+    "@aiot-toolkit/jsc": "^1.0.3",
+    "aiot-toolkit": "^2.0.5"
+  }
+}

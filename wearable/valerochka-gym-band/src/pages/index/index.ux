@@ -1,0 +1,528 @@
+<template>
+  <div class="page">
+    <div class="status-row">
+      <text class="status-dot">{{connectionDot}}</text>
+      <text class="connection">{{connectionLabel}}</text>
+      <input class="refresh" type="button" value="↻" onclick="requestState" />
+    </div>
+
+    <div class="exercise-card">
+      <text class="workout">{{workoutName}}</text>
+      <text class="exercise">{{exerciseName}}</text>
+      <text class="set">{{setLabel}}</text>
+    </div>
+
+    <div class="focus-card {{phaseClass}}">
+      <text class="phase">{{focusLabel}}</text>
+      <text class="focus-value {{phaseClass}}">{{focusValue}}</text>
+      <text class="focus-caption">{{focusCaption}}</text>
+    </div>
+
+    <div class="metrics-card">
+      <div class="metric-line">
+        <text class="metric-symbol">♥</text>
+        <text class="metric-value">{{heartRateLabel}}</text>
+        <text class="metric-label">BPM</text>
+      </div>
+      <div class="metric-line">
+        <text class="metric-symbol">◎</text>
+        <text class="target-value">{{targetHeartRateLabel}}</text>
+        <text class="metric-label">ЦЕЛЬ</text>
+      </div>
+    </div>
+
+    <input class="action action-primary" type="button" value="{{mainActionLabel}}" onclick="runMainAction" />
+    <div class="rest-controls" if="{{isRest}}">
+      <input class="action action-secondary" type="button" value="−15" onclick="removeRest" />
+      <input class="action action-secondary" type="button" value="+15" onclick="addRest" />
+    </div>
+  </div>
+</template>
+
+<script>
+import interconnect from '@system.interconnect'
+
+const PROTOCOL_VERSION = 1
+const REST_PHASE = 'rest'
+const WORK_PHASE = 'work'
+const connector = interconnect.instance()
+
+function isFiniteNumber(value) {
+  return typeof value === 'number' && isFinite(value)
+}
+
+function textOrFallback(value, fallback) {
+  if (typeof value !== 'string') {
+    return fallback
+  }
+
+  const normalized = value.trim()
+  return normalized ? normalized : fallback
+}
+
+function formatSet(setNumber, totalSets) {
+  if (!isFiniteNumber(setNumber)) {
+    return 'ПОДХОД —'
+  }
+
+  return isFiniteNumber(totalSets)
+    ? 'ПОДХОД ' + setNumber + '/' + totalSets
+    : 'ПОДХОД ' + setNumber
+}
+
+function formatClock(totalSeconds) {
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = totalSeconds % 60
+  return minutes + ':' + (seconds < 10 ? '0' : '') + seconds
+}
+
+function formatTarget(minimum, maximum) {
+  if (isFiniteNumber(minimum) && isFiniteNumber(maximum)) {
+    return minimum + '–' + maximum
+  }
+
+  if (isFiniteNumber(maximum)) {
+    return '≤ ' + maximum
+  }
+
+  return '—'
+}
+
+function payloadFrom(event) {
+  const raw = event && event.data !== undefined ? event.data : event
+
+  if (typeof raw === 'string') {
+    try {
+      return JSON.parse(raw)
+    } catch (error) {
+      return null
+    }
+  }
+
+  return raw && typeof raw === 'object' ? raw : null
+}
+
+export default {
+  private: {
+    connectionLabel: 'ОЖИДАНИЕ',
+    connectionDot: '○',
+    phase: WORK_PHASE,
+    phaseClass: 'work',
+    isRest: false,
+    focusLabel: 'ПОДХОД',
+    focusValue: '—',
+    focusCaption: 'ожидание тренировки',
+    workoutName: 'Тренировка',
+    exerciseName: 'Нет активного упражнения',
+    setLabel: 'ПОДХОД —',
+    setValue: '—',
+    heartRateLabel: '—',
+    targetHeartRateLabel: '100–120',
+    mainActionLabel: '✓ ГОТОВО',
+    restEndsAtMillis: 0,
+    restMode: 'timer',
+    targetHeartRateMinBpm: 100,
+    targetHeartRateMaxBpm: 120,
+    lastSequence: -1,
+    lastHeartRateAtMillis: 0,
+    timerHandle: null
+  },
+
+  onInit() {
+    this.bindConnector()
+    this.startClock()
+  },
+
+  onDestroy() {
+    if (this.timerHandle !== null) {
+      clearInterval(this.timerHandle)
+      this.timerHandle = null
+    }
+  },
+
+  bindConnector() {
+    connector.onopen = () => {
+      this.connectionLabel = 'СВЯЗЬ ЕСТЬ'
+      this.connectionDot = '●'
+      this.send({
+        v: PROTOCOL_VERSION,
+        type: 'ready',
+        source: 'watch'
+      })
+    }
+
+    connector.onclose = (event) => {
+      this.markDisconnected(event && event.code)
+    }
+
+    connector.onerror = (event) => {
+      this.markDisconnected(event && event.code)
+    }
+
+    connector.onmessage = (event) => {
+      this.handleMessage(payloadFrom(event))
+    }
+  },
+
+  startClock() {
+    this.timerHandle = setInterval(() => {
+      this.refreshFocusDisplay()
+    }, 1000)
+  },
+
+  handleMessage(message) {
+    if (!message || message.v !== PROTOCOL_VERSION || typeof message.type !== 'string') {
+      return
+    }
+
+    if (message.type === 'state') {
+      this.applyState(message)
+      return
+    }
+
+    if (message.type === 'heart_rate') {
+      this.applyHeartRate(message)
+      return
+    }
+
+    if (message.type === 'ping') {
+      this.send({
+        v: PROTOCOL_VERSION,
+        type: 'pong',
+        source: 'watch'
+      })
+    }
+  },
+
+  applyState(state) {
+    if (isFiniteNumber(state.sequence) && state.sequence <= this.lastSequence) {
+      return
+    }
+
+    if (isFiniteNumber(state.sequence)) {
+      this.lastSequence = state.sequence
+    }
+
+    this.connectionLabel = 'СВЯЗЬ ЕСТЬ'
+    this.connectionDot = '●'
+    this.phase = state.phase === REST_PHASE ? REST_PHASE : WORK_PHASE
+    this.phaseClass = this.phase === REST_PHASE ? 'rest' : 'work'
+    this.isRest = this.phase === REST_PHASE
+    this.mainActionLabel = this.isRest ? '▶ ДАЛЬШЕ' : '✓ ГОТОВО'
+    this.workoutName = textOrFallback(state.workoutName, 'Тренировка')
+    this.exerciseName = textOrFallback(state.exerciseName, 'Нет активного упражнения')
+    this.setLabel = formatSet(state.setNumber, state.setsInExercise)
+    this.setValue = textOrFallback(state.setValue, this.setLabel)
+    this.restEndsAtMillis = isFiniteNumber(state.restEndsAtMillis) ? state.restEndsAtMillis : 0
+    this.restMode = state.restMode === 'heart_rate' ? 'heart_rate' : 'timer'
+
+    if (isFiniteNumber(state.targetHeartRateMinBpm)) {
+      this.targetHeartRateMinBpm = state.targetHeartRateMinBpm
+    }
+
+    if (isFiniteNumber(state.targetHeartRateMaxBpm)) {
+      this.targetHeartRateMaxBpm = state.targetHeartRateMaxBpm
+    } else if (isFiniteNumber(state.targetHeartRateBpm)) {
+      this.targetHeartRateMaxBpm = state.targetHeartRateBpm
+    }
+
+    this.targetHeartRateLabel = formatTarget(
+      this.targetHeartRateMinBpm,
+      this.targetHeartRateMaxBpm
+    )
+    if ('heartRateBpm' in state || 'heartRateUpdatedAtMillis' in state) {
+      this.applyHeartRate(state)
+    }
+    this.refreshFocusDisplay()
+  },
+
+  applyHeartRate(message) {
+    const timestamp = isFiniteNumber(message.heartRateUpdatedAtMillis)
+      ? message.heartRateUpdatedAtMillis
+      : Date.now()
+
+    if (timestamp < this.lastHeartRateAtMillis) {
+      return
+    }
+
+    this.lastHeartRateAtMillis = timestamp
+    this.heartRateLabel = isFiniteNumber(message.heartRateBpm) && message.heartRateBpm > 0
+      ? String(Math.round(message.heartRateBpm))
+      : '—'
+  },
+
+  refreshFocusDisplay() {
+    if (this.phase === WORK_PHASE) {
+      this.focusLabel = 'ПОДХОД'
+      this.focusValue = this.setValue
+      this.focusCaption = this.setLabel
+      return
+    }
+
+    this.focusLabel = 'ОТДЫХ'
+    if (this.restMode === 'heart_rate') {
+      this.focusValue = '♥'
+      this.focusCaption = 'ждём цель пульса'
+      return
+    }
+
+    if (!isFiniteNumber(this.restEndsAtMillis) || this.restEndsAtMillis <= 0) {
+      this.focusValue = '—'
+      this.focusCaption = 'ожидание таймера'
+      return
+    }
+
+    const remainingSeconds = Math.max(0, Math.ceil((this.restEndsAtMillis - Date.now()) / 1000))
+    if (remainingSeconds === 0) {
+      this.focusValue = 'ГОТОВО'
+      this.focusCaption = 'можно продолжать'
+      return
+    }
+
+    this.focusValue = formatClock(remainingSeconds)
+    this.focusCaption = 'до конца отдыха'
+  },
+
+  addRest() {
+    this.sendCommand('add_rest_seconds', { seconds: 15 })
+  },
+
+  removeRest() {
+    this.sendCommand('add_rest_seconds', { seconds: -15 })
+  },
+
+  runMainAction() {
+    this.sendCommand(this.phase === WORK_PHASE ? 'complete_set' : 'skip_rest')
+  },
+
+  requestState() {
+    this.send({
+      v: PROTOCOL_VERSION,
+      type: 'request_state',
+      source: 'watch'
+    })
+  },
+
+  sendCommand(command, details) {
+    const message = {
+      v: PROTOCOL_VERSION,
+      type: 'command',
+      id: 'watch-' + Date.now(),
+      command: command
+    }
+
+    if (details && typeof details === 'object') {
+      Object.keys(details).forEach((key) => {
+        message[key] = details[key]
+      })
+    }
+
+    this.send(message)
+  },
+
+  send(message) {
+    try {
+      connector.send({
+        data: message,
+        success: () => {},
+        fail: (event) => {
+          this.markDisconnected(event && event.code)
+        }
+      })
+    } catch (error) {
+      this.markDisconnected()
+    }
+  },
+
+  markDisconnected(code) {
+    this.connectionDot = '○'
+    if (code === 1001) {
+      this.connectionLabel = 'НЕТ VALGYM'
+    } else if (code === 204) {
+      this.connectionLabel = 'ТАЙМ-АУТ'
+    } else if (isFiniteNumber(code)) {
+      this.connectionLabel = 'ОШИБКА'
+    } else {
+      this.connectionLabel = 'НЕТ СВЯЗИ'
+    }
+  }
+}
+</script>
+
+<style>
+.page {
+  flex-direction: column;
+  height: 248px;
+  padding-top: 6px;
+  padding-right: 6px;
+  padding-bottom: 6px;
+  padding-left: 6px;
+  background-color: #101312;
+}
+
+.status-row {
+  height: 15px;
+  flex-direction: row;
+  align-items: center;
+}
+
+.status-dot {
+  color: #3ddc84;
+  font-size: 8px;
+}
+
+.connection {
+  flex: 1;
+  margin-left: 4px;
+  color: #aeb5af;
+  font-size: 6px;
+  font-weight: bold;
+}
+
+.refresh {
+  width: 18px;
+  height: 14px;
+  border-radius: 7px;
+  background-color: #252c27;
+  color: #ffffff;
+  font-size: 8px;
+  font-weight: bold;
+}
+
+.exercise-card {
+  height: 45px;
+  padding-top: 5px;
+  padding-right: 8px;
+  padding-bottom: 4px;
+  padding-left: 8px;
+  border-radius: 12px;
+  background-color: #181d1a;
+  flex-direction: column;
+}
+
+.workout {
+  color: #aeb5af;
+  font-size: 6px;
+  text-overflow: ellipsis;
+}
+
+.exercise {
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: bold;
+  lines: 2;
+  text-overflow: ellipsis;
+}
+
+.set {
+  color: #3ddc84;
+  font-size: 7px;
+  font-weight: bold;
+}
+
+.focus-card {
+  height: 49px;
+  margin-top: 4px;
+  border-radius: 15px;
+  background-color: #1d2520;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  transition-property: height;
+  transition-duration: 180ms;
+  transition-timing-function: ease;
+}
+
+.focus-card.rest {
+  height: 56px;
+}
+
+.phase {
+  color: #3ddc84;
+  font-size: 7px;
+  font-weight: bold;
+}
+
+.focus-value {
+  color: #ffffff;
+  font-size: 21px;
+  font-weight: bold;
+}
+
+.focus-value.rest {
+  font-size: 24px;
+}
+
+.focus-caption {
+  color: #aeb5af;
+  font-size: 7px;
+}
+
+.metrics-card {
+  height: 31px;
+  margin-top: 4px;
+  padding-top: 2px;
+  padding-left: 8px;
+  border-radius: 11px;
+  background-color: #181d1a;
+  flex-direction: column;
+}
+
+.metric-line {
+  height: 14px;
+  flex-direction: row;
+  align-items: center;
+}
+
+.metric-symbol {
+  width: 10px;
+  color: #3ddc84;
+  font-size: 8px;
+  font-weight: bold;
+}
+
+.metric-value {
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: bold;
+}
+
+.target-value {
+  color: #ffffff;
+  font-size: 9px;
+  font-weight: bold;
+}
+
+.metric-label {
+  margin-left: 4px;
+  color: #aeb5af;
+  font-size: 6px;
+}
+
+.action {
+  height: 23px;
+  border-radius: 12px;
+  font-size: 8px;
+  font-weight: bold;
+}
+
+.action-primary {
+  width: 90px;
+  margin-top: 4px;
+  background-color: #3ddc84;
+  color: #101312;
+}
+
+.rest-controls {
+  height: 23px;
+  margin-top: 4px;
+  flex-direction: row;
+  justify-content: space-between;
+}
+
+.action-secondary {
+  width: 43px;
+  background-color: #252c27;
+  color: #ffffff;
+}
+</style>

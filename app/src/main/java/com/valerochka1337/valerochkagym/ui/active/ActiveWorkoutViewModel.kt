@@ -9,6 +9,10 @@ import com.valerochka1337.valerochkagym.domain.PreviousSetsUseCase
 import com.valerochka1337.valerochkagym.domain.WorkoutSetMutator
 import com.valerochka1337.valerochkagym.service.RestTimerEngine
 import com.valerochka1337.valerochkagym.service.RestTimerState
+import com.valerochka1337.valerochkagym.service.heartrate.HeartRateConnectionState
+import com.valerochka1337.valerochkagym.service.heartrate.HeartRateDevice
+import com.valerochka1337.valerochkagym.service.heartrate.HeartRateMonitor
+import com.valerochka1337.valerochkagym.service.heartrate.HeartRateReading
 import com.valerochka1337.valerochkagym.worker.UploadScheduler
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.channels.Channel
@@ -63,10 +67,15 @@ class ActiveWorkoutViewModel @Inject constructor(
     private val completeSetUseCase: CompleteSetUseCase,
     private val restTimerEngine: RestTimerEngine,
     private val uploadScheduler: UploadScheduler,
+    private val heartRateMonitor: HeartRateMonitor,
 ) : ViewModel() {
 
     /** Состояние таймера отдыха (null = неактивен) — пилюля на экране подписана прямо на движок. */
     val restTimer: StateFlow<RestTimerState?> = restTimerEngine.state
+
+    /** Live-канал не хранится в Room: он принадлежит только текущей тренировке. */
+    val heartRateState: StateFlow<HeartRateConnectionState> = heartRateMonitor.state
+    val heartRateReading: StateFlow<HeartRateReading?> = heartRateMonitor.reading
 
     private val loaded = MutableStateFlow(false)
     private val previousSummaries = MutableStateFlow<Map<Long, String>>(emptyMap())
@@ -156,6 +165,13 @@ class ActiveWorkoutViewModel @Inject constructor(
 
     /** Пропустить отдых (тап по центру пилюли). */
     fun skipRest() = restTimerEngine.skip()
+
+    /** Начать пользовательский сценарий подключения BLE Heart Rate Service. */
+    fun scanHeartRate() = heartRateMonitor.scan()
+
+    fun connectHeartRate(device: HeartRateDevice) = heartRateMonitor.connect(device)
+
+    fun cancelHeartRateSelection() = heartRateMonitor.stop()
 
     fun uncompleteSet(setId: Long) {
         viewModelScope.launch { repository.toggleSetCompleted(setId, false) }

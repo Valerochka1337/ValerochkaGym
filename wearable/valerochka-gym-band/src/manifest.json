@@ -1,0 +1,35 @@
+{
+  "package": "com.valerochka1337.valerochkagym",
+  "name": "ValGym",
+  "versionName": "0.1.0",
+  "versionCode": 1,
+  "minPlatformVersion": 1200,
+  "icon": "/common/logo.png",
+  "simulationVersion": "default",
+  "deviceTypeList": [
+    "watch"
+  ],
+  "features": [
+    {
+      "name": "system.router"
+    },
+    {
+      "name": "system.configuration"
+    },
+    {
+      "name": "system.interconnect"
+    }
+  ],
+  "config": {
+    "logLevel": "log",
+    "designWidth": 106
+  },
+  "router": {
+    "entry": "pages/index",
+    "pages": {
+      "pages/index": {
+        "component": "index"
+      }
+    }
+  }
+}

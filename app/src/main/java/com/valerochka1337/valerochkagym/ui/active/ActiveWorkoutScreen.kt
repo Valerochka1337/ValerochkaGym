@@ -1,9 +1,13 @@
 package com.valerochka1337.valerochkagym.ui.active
 
 import android.app.Activity
+import android.Manifest
 import android.content.Context
 import android.content.ContextWrapper
+import android.content.pm.PackageManager
 import android.view.WindowManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Animatable
@@ -39,11 +43,14 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.ripple
@@ -67,7 +74,9 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.flow.StateFlow
@@ -82,6 +91,9 @@ import com.valerochka1337.valerochkagym.ui.components.GlowBackground
 import com.valerochka1337.valerochkagym.ui.components.GymCard
 import com.valerochka1337.valerochkagym.ui.components.GymCardShape
 import com.valerochka1337.valerochkagym.service.RestTimerState
+import com.valerochka1337.valerochkagym.service.heartrate.HeartRateConnectionState
+import com.valerochka1337.valerochkagym.service.heartrate.HeartRateDevice
+import com.valerochka1337.valerochkagym.service.heartrate.HeartRateReading
 import com.valerochka1337.valerochkagym.ui.components.NumberField
 import com.valerochka1337.valerochkagym.ui.components.PillButton
 import com.valerochka1337.valerochkagym.ui.haptics.gymHaptics
@@ -118,6 +130,35 @@ fun ActiveWorkoutScreen(
     viewModel: ActiveWorkoutViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val nearbyDevicesPermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions(),
+    ) {
+        // Даже при отказе запускаем монитор: он переведёт плитку в PermissionRequired с понятным
+        // объяснением, а не оставит кнопку в неопределённом исходном состоянии.
+        viewModel.scanHeartRate()
+    }
+
+    fun startHeartRateSearch() {
+        val hasScan = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.BLUETOOTH_SCAN,
+        ) == PackageManager.PERMISSION_GRANTED
+        val hasConnect = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.BLUETOOTH_CONNECT,
+        ) == PackageManager.PERMISSION_GRANTED
+        if (hasScan && hasConnect) {
+            viewModel.scanHeartRate()
+        } else {
+            nearbyDevicesPermission.launch(
+                arrayOf(
+                    Manifest.permission.BLUETOOTH_SCAN,
+                    Manifest.permission.BLUETOOTH_CONNECT,
+                ),
+            )
+        }
+    }
 
     LaunchedEffect(Unit) {
         viewModel.events.collect { event ->
@@ -157,6 +198,8 @@ fun ActiveWorkoutScreen(
                     state = state,
                     elapsedSeconds = viewModel.elapsedSeconds,
                     restTimer = viewModel.restTimer,
+                    heartRateState = viewModel.heartRateState,
+                    heartRateReading = viewModel.heartRateReading,
                     setActions = setActions,
                     onDeleteExercise = viewModel::deleteExercise,
                     onReorderExercises = viewModel::reorderExercises,
@@ -165,6 +208,9 @@ fun ActiveWorkoutScreen(
                     onDiscard = viewModel::discard,
                     onAddRestSeconds = viewModel::addRestSeconds,
                     onSkipRest = viewModel::skipRest,
+                    onScanHeartRate = ::startHeartRateSearch,
+                    onConnectHeartRate = viewModel::connectHeartRate,
+                    onCancelHeartRateSelection = viewModel::cancelHeartRateSelection,
                 )
             }
 
@@ -198,6 +244,8 @@ private fun ActiveWorkoutContent(
     state: ActiveWorkoutUiState,
     elapsedSeconds: StateFlow<Long>,
     restTimer: StateFlow<RestTimerState?>,
+    heartRateState: StateFlow<HeartRateConnectionState>,
+    heartRateReading: StateFlow<HeartRateReading?>,
     setActions: SetActions,
     onDeleteExercise: (Long) -> Unit,
     onReorderExercises: (List<Long>) -> Unit,
@@ -206,6 +254,9 @@ private fun ActiveWorkoutContent(
     onDiscard: () -> Unit,
     onAddRestSeconds: (Int) -> Unit,
     onSkipRest: () -> Unit,
+    onScanHeartRate: () -> Unit,
+    onConnectHeartRate: (HeartRateDevice) -> Unit,
+    onCancelHeartRateSelection: () -> Unit,
 ) {
     val workout = state.workout ?: return
     val roomExercises = workout.exercises
@@ -276,6 +327,11 @@ private fun ActiveWorkoutContent(
             elapsedSeconds = elapsedSeconds,
             currentNumber = currentNumber,
             total = exercises.size,
+            heartRateState = heartRateState,
+            heartRateReading = heartRateReading,
+            onScanHeartRate = onScanHeartRate,
+            onConnectHeartRate = onConnectHeartRate,
+            onCancelHeartRateSelection = onCancelHeartRateSelection,
         )
 
         LazyColumn(
@@ -434,6 +490,104 @@ private fun mergeExerciseOrder(localOrder: List<Long>, roomOrder: List<Long>): L
     return localOrder.filter { it in roomIds } + roomOrder.filterNot { it in localOrder }
 }
 
+/** Кликабельный live-пульс: занимает одну строку с названием тренировки. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun HeartRateBubble(
+    state: StateFlow<HeartRateConnectionState>,
+    reading: StateFlow<HeartRateReading?>,
+    onScan: () -> Unit,
+    onSelectDevice: (HeartRateDevice) -> Unit,
+    onDismissSelection: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val connectionState by state.collectAsStateWithLifecycle()
+    val liveReading by reading.collectAsStateWithLifecycle()
+    val haptics = gymHaptics()
+    val bpm = liveReading?.bpm
+    val description = bpm?.let { "Пульс $it ударов в минуту. Нажмите, чтобы сменить датчик" }
+        ?: "Подключить пульсометр"
+
+    GymCard(
+        modifier = modifier
+            .animateContentSize(GymMotion.spatialFast())
+            .semantics { contentDescription = description },
+        shape = CircleShape,
+        onClick = {
+            haptics.tap()
+            onScan()
+        },
+        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 7.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                imageVector = Icons.Default.Favorite,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(20.dp),
+            )
+            Spacer(Modifier.width(5.dp))
+            Text(
+                text = bpm?.toString() ?: "—",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = if (bpm != null) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+            )
+        }
+    }
+
+    val selection = connectionState as? HeartRateConnectionState.Selection
+    if (selection != null) {
+        ModalBottomSheet(onDismissRequest = onDismissSelection) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp)
+                    .padding(bottom = 32.dp),
+            ) {
+                Text(
+                    text = "Выберите пульсометр",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    text = "Найдено несколько источников Heart Rate. Выберите тот, который сейчас передаёт пульс.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(12.dp))
+                selection.devices.forEach { device ->
+                    TextButton(
+                        onClick = {
+                            haptics.tap()
+                            onSelectDevice(device)
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            Text(
+                                text = device.label,
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.onSurface,
+                            )
+                            Text(
+                                text = "Сигнал ${device.rssi} dBm",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 /**
  * Пилюля таймера отдыха внизу экрана. Видна только пока идёт отдых ([restTimer] != null);
  * появление/исчезновение анимируется выездом снизу с затуханием. Слева «−15с», по центру
@@ -528,6 +682,11 @@ private fun ActiveWorkoutHeader(
     elapsedSeconds: StateFlow<Long>,
     currentNumber: Int,
     total: Int,
+    heartRateState: StateFlow<HeartRateConnectionState>,
+    heartRateReading: StateFlow<HeartRateReading?>,
+    onScanHeartRate: () -> Unit,
+    onConnectHeartRate: (HeartRateDevice) -> Unit,
+    onCancelHeartRateSelection: () -> Unit,
 ) {
     // Собираем таймер только здесь, чтобы посекундный тик не рекомпозил список подходов.
     val elapsed by elapsedSeconds.collectAsStateWithLifecycle()
@@ -536,12 +695,25 @@ private fun ActiveWorkoutHeader(
             .fillMaxWidth()
             .padding(start = 24.dp, end = 24.dp, top = 16.dp, bottom = 8.dp),
     ) {
-        Text(
-            text = name,
-            style = MaterialTheme.typography.headlineSmall,
-            fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.onBackground,
-        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = name,
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onBackground,
+                modifier = Modifier.weight(1f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(Modifier.width(12.dp))
+            HeartRateBubble(
+                state = heartRateState,
+                reading = heartRateReading,
+                onScan = onScanHeartRate,
+                onSelectDevice = onConnectHeartRate,
+                onDismissSelection = onCancelHeartRateSelection,
+            )
+        }
         Spacer(Modifier.height(4.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(

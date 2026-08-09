@@ -27,6 +27,10 @@ import com.valerochka1337.valerochkagym.domain.PreviousSetsUseCase
 import com.valerochka1337.valerochkagym.domain.RestDurationResolver
 import com.valerochka1337.valerochkagym.domain.WorkoutSetMutator
 import com.valerochka1337.valerochkagym.service.RestTimerEngine
+import com.valerochka1337.valerochkagym.service.heartrate.HeartRateConnectionState
+import com.valerochka1337.valerochkagym.service.heartrate.HeartRateDevice
+import com.valerochka1337.valerochkagym.service.heartrate.HeartRateMonitor
+import com.valerochka1337.valerochkagym.service.heartrate.HeartRateReading
 import com.valerochka1337.valerochkagym.ui.active.ActiveWorkoutEvent
 import com.valerochka1337.valerochkagym.ui.active.ActiveWorkoutViewModel
 import com.valerochka1337.valerochkagym.util.MainDispatcherRule
@@ -34,6 +38,7 @@ import com.valerochka1337.valerochkagym.worker.UploadScheduler
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
@@ -144,6 +149,21 @@ class ActiveWorkoutViewModelTest {
             harness.viewModel.skipRest()
             runCurrent()
             assertNull(harness.viewModel.restTimer.value)
+        }
+
+    @Test
+    fun `heart rate actions delegate to the monitor without persisting a reading`() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val harness = harness(active = workoutFull(setId = 10L))
+            val device = HeartRateDevice(address = "AA:BB:CC:DD:EE:FF", name = "Band 10", rssi = -50)
+
+            harness.viewModel.scanHeartRate()
+            harness.viewModel.connectHeartRate(device)
+            harness.heartRateMonitor.emit(128)
+
+            assertEquals(1, harness.heartRateMonitor.scanCalls)
+            assertEquals(device, harness.heartRateMonitor.connectedTo)
+            assertEquals(128, harness.viewModel.heartRateReading.value?.bpm)
         }
 
     // endregion
@@ -257,6 +277,7 @@ class ActiveWorkoutViewModelTest {
         val repository: FakeActiveWorkoutRepository,
         val uploadScheduler: FakeUploadScheduler,
         val restTimerEngine: RestTimerEngine,
+        val heartRateMonitor: FakeHeartRateMonitor,
     )
 
     private fun TestScope.harness(
@@ -269,6 +290,7 @@ class ActiveWorkoutViewModelTest {
         val settingsRepository = SettingsRepository(
             FakeDataStore(mutablePreferencesOf(intPreferencesKey("default_rest_seconds") to DEFAULT_REST_SECONDS)),
         )
+        val heartRateMonitor = FakeHeartRateMonitor()
         val viewModel = ActiveWorkoutViewModel(
             repository = repository,
             previousSetsUseCase = PreviousSetsUseCase(FakeWorkoutDao(previousSets)),
@@ -281,8 +303,9 @@ class ActiveWorkoutViewModelTest {
             ),
             restTimerEngine = restTimerEngine,
             uploadScheduler = uploadScheduler,
+            heartRateMonitor = heartRateMonitor,
         )
-        return Harness(viewModel, repository, uploadScheduler, restTimerEngine)
+        return Harness(viewModel, repository, uploadScheduler, restTimerEngine, heartRateMonitor)
     }
 
     private fun TestScope.collectUiState(viewModel: ActiveWorkoutViewModel) {
@@ -465,6 +488,46 @@ class ActiveWorkoutViewModelTest {
         }
         override suspend fun retry(workoutId: String) = Unit
         override suspend fun scheduleAllPending(): Int = 0
+    }
+
+    private class FakeHeartRateMonitor : HeartRateMonitor {
+        private val mutableState = MutableStateFlow<HeartRateConnectionState>(
+            HeartRateConnectionState.Idle,
+        )
+        private val mutableReading = MutableStateFlow<HeartRateReading?>(null)
+
+        override val state: StateFlow<HeartRateConnectionState> = mutableState
+        override val reading: StateFlow<HeartRateReading?> = mutableReading
+
+        var scanCalls = 0
+        var connectedTo: HeartRateDevice? = null
+
+        override fun scan() {
+            scanCalls += 1
+            mutableState.value = HeartRateConnectionState.Searching
+        }
+
+        override fun connect(device: HeartRateDevice) {
+            connectedTo = device
+            mutableState.value = HeartRateConnectionState.Connected(device)
+        }
+
+        override fun stop() {
+            mutableReading.value = null
+            mutableState.value = HeartRateConnectionState.Idle
+        }
+
+        override fun reportError(message: String) {
+            mutableReading.value = null
+            mutableState.value = HeartRateConnectionState.Error(message)
+        }
+
+        fun emit(bpm: Int) {
+            val reading = HeartRateReading(bpm = bpm, updatedAtMillis = 1L)
+            mutableReading.value = reading
+            val device = connectedTo ?: return
+            mutableState.value = HeartRateConnectionState.Live(device, reading)
+        }
     }
 
     /** Minimal in-memory [DataStore] so a real [SettingsRepository] can read the default rest. */

@@ -5,6 +5,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.RemoteInput
+import android.Manifest
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -15,6 +16,7 @@ import android.media.RingtoneManager
 import android.os.Bundle
 import android.os.VibrationEffect
 import android.os.VibratorManager
+import androidx.core.content.ContextCompat
 import androidx.compose.ui.graphics.toArgb
 import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
@@ -31,6 +33,10 @@ import com.valerochka1337.valerochkagym.domain.currentFocus
 import com.valerochka1337.valerochkagym.domain.formatSet
 import com.valerochka1337.valerochkagym.domain.lastCompletedFocus
 import com.valerochka1337.valerochkagym.domain.parseQuickSetEdit
+import com.valerochka1337.valerochkagym.service.wear.XiaomiWearWorkoutBridge
+import com.valerochka1337.valerochkagym.service.wear.XiaomiWearWorkoutBridge.WatchCommand
+import com.valerochka1337.valerochkagym.service.heartrate.HeartRateConnectionState
+import com.valerochka1337.valerochkagym.service.heartrate.HeartRateMonitor
 import com.valerochka1337.valerochkagym.ui.navigation.GymRoutes
 import com.valerochka1337.valerochkagym.ui.theme.AccentColor
 import dagger.hilt.android.AndroidEntryPoint
@@ -80,6 +86,10 @@ class WorkoutSessionService : LifecycleService() {
 
     @Inject lateinit var completeSetUseCase: CompleteSetUseCase
 
+    @Inject lateinit var xiaomiWearWorkoutBridge: XiaomiWearWorkoutBridge
+
+    @Inject lateinit var heartRateMonitor: HeartRateMonitor
+
     private val notificationManager: NotificationManager by lazy {
         getSystemService(NotificationManager::class.java)
     }
@@ -87,6 +97,8 @@ class WorkoutSessionService : LifecycleService() {
     private var currentWorkout: WorkoutFull? = null
     private var currentRest: RestTimerState? = null
     private var accent: AccentColor = AccentColor.DEFAULT
+    private var usesConnectedDeviceForegroundType = false
+    private var connectedDeviceForegroundPromotionFailed = false
 
     // Защита от преждевременного stopSelf: гасим сервис только увидев, что тренировка исчезла
     // ПОСЛЕ того как хотя бы раз её наблюдали.
@@ -127,6 +139,9 @@ class WorkoutSessionService : LifecycleService() {
             },
             RECEIVER_NOT_EXPORTED,
         )
+        observeWearCommands()
+        xiaomiWearWorkoutBridge.start()
+        observeHeartRate()
         observeState()
     }
 
@@ -145,6 +160,8 @@ class WorkoutSessionService : LifecycleService() {
     }
 
     override fun onDestroy() {
+        heartRateMonitor.stop()
+        xiaomiWearWorkoutBridge.stop()
         unregisterReceiver(actionReceiver)
         super.onDestroy()
     }
@@ -164,11 +181,14 @@ class WorkoutSessionService : LifecycleService() {
                 currentRest = rest
                 accent = accentValue
                 if (workout == null) {
+                    xiaomiWearWorkoutBridge.publish(workout = null, rest = null)
+                    heartRateMonitor.stop()
                     if (sawWorkout) stopSelf()
                     return@collect
                 }
                 sawWorkout = true
                 currentWorkout = workout
+                xiaomiWearWorkoutBridge.publish(workout, rest)
                 // Обновляем и во время отдыха: там подписан только что закрытый подход, а его
                 // правят кнопкой «Изменить» прямо из этого уведомления.
                 updateForegroundNotification()
@@ -178,6 +198,74 @@ class WorkoutSessionService : LifecycleService() {
             restTimerEngine.finished.collect { onRestFinished() }
         }
     }
+
+    /** Команды RPK проходят через те же движки, что и действия системного уведомления. */
+    private fun observeWearCommands() {
+        lifecycleScope.launch {
+            xiaomiWearWorkoutBridge.commands.collect { command ->
+                when (command) {
+                    is WatchCommand.AddRestSeconds -> restTimerEngine.addSeconds(command.seconds)
+                    WatchCommand.SkipRest -> restTimerEngine.skip()
+                    WatchCommand.CompleteSet -> completeCurrentSet()
+                }
+            }
+        }
+    }
+
+    /** Live HR не сохраняем: пока сервис сессии жив, он только зеркалит свежий пакет на RPK. */
+    private fun observeHeartRate() {
+        lifecycleScope.launch {
+            heartRateMonitor.reading.collect { reading ->
+                xiaomiWearWorkoutBridge.publishHeartRate(reading)
+            }
+        }
+        lifecycleScope.launch {
+            heartRateMonitor.state.collect { state ->
+                if (
+                    state !is HeartRateConnectionState.Idle &&
+                    state !is HeartRateConnectionState.PermissionRequired
+                ) {
+                    promoteForConnectedDeviceIfAllowed()
+                }
+            }
+        }
+    }
+
+    /**
+     * Сначала сервис стартует как workout special-use. После выданных Nearby devices-разрешений
+     * расширяем тип FGS до connectedDevice, пока GATT/scan живёт вместе с тренировкой.
+     */
+    private fun promoteForConnectedDeviceIfAllowed() {
+        if (
+            usesConnectedDeviceForegroundType ||
+            connectedDeviceForegroundPromotionFailed ||
+            !hasBluetoothPermissions()
+        ) {
+            return
+        }
+        try {
+            startForeground(
+                SESSION_NOTIFICATION_ID,
+                buildNotification(),
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE or
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE,
+            )
+            usesConnectedDeviceForegroundType = true
+        } catch (_: RuntimeException) {
+            // Отдельные прошивки отклоняют повторную смену FGS type, хотя разрешения уже выданы.
+            // Не даём этому убить весь процесс тренировки: останавливаем GATT и показываем ошибку.
+            connectedDeviceForegroundPromotionFailed = true
+            heartRateMonitor.reportError(
+                "Android не разрешил фоновое Bluetooth-подключение. Перезапустите тренировку и попробуйте ещё раз.",
+            )
+        }
+    }
+
+    private fun hasBluetoothPermissions(): Boolean =
+        ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN) ==
+            android.content.pm.PackageManager.PERMISSION_GRANTED &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) ==
+            android.content.pm.PackageManager.PERMISSION_GRANTED
 
     private fun updateForegroundNotification() {
         notificationManager.notify(SESSION_NOTIFICATION_ID, buildNotification())
@@ -328,6 +416,8 @@ class WorkoutSessionService : LifecycleService() {
         val notification = Notification.Builder(this, REST_DONE_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_rest_timer)
             .setContentTitle(REST_DONE_TITLE)
+            // Mi Fitness не всегда ретранслирует уведомления без непустимой основной строки.
+            // Оставляем нейтральную строку вместо прежнего призыва «Пора продолжать».
             .setContentText(REST_DONE_TEXT)
             .setContentIntent(openActiveWorkoutIntent())
             .setColor(accent.primary.toArgb())
@@ -472,7 +562,7 @@ class WorkoutSessionService : LifecycleService() {
         private const val ALL_SETS_DONE_TEXT = "Все подходы выполнены"
         private const val REST_TITLE = "Отдых"
         private const val REST_DONE_TITLE = "Отдых окончен"
-        private const val REST_DONE_TEXT = "Пора продолжать"
+        private const val REST_DONE_TEXT = "Таймер завершён"
     }
 }
 
