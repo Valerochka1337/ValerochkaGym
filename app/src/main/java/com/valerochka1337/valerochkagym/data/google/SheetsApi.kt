@@ -1,6 +1,7 @@
 package com.valerochka1337.valerochkagym.data.google
 
 import kotlinx.serialization.EncodeDefault
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -10,6 +11,7 @@ import retrofit2.http.Header
 import retrofit2.http.POST
 import retrofit2.http.Path
 import retrofit2.http.Query
+import retrofit2.http.PUT
 
 /**
  * Минимальный клиент Google Sheets API v4 для выгрузки тренировок и замеров. Токен передаётся явным
@@ -59,6 +61,16 @@ interface SheetsApi {
         @Query("valueInputOption") valueInputOption: String = "RAW",
         @Query("insertDataOption") insertDataOption: String = "INSERT_ROWS",
     ): JsonElement
+
+    /** Rewrites a known small range; used only to add app-owned measurement headers. */
+    @PUT("v4/spreadsheets/{spreadsheetId}/values/{range}")
+    suspend fun updateValues(
+        @Header("Authorization") bearer: String,
+        @Path("spreadsheetId") spreadsheetId: String,
+        @Path("range") range: String,
+        @Body body: UpdateValuesDto,
+        @Query("valueInputOption") valueInputOption: String = "RAW",
+    ): JsonElement
 }
 
 @Serializable
@@ -78,6 +90,8 @@ data class SheetPropertiesDto(
     // sending `null`, so adding the existing Workouts sheet keeps the API's default placement.
     @EncodeDefault(EncodeDefault.Mode.NEVER)
     val index: Int? = null,
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    @SerialName("sheetId") val sheetId: Int? = null,
 )
 
 @Serializable
@@ -87,12 +101,30 @@ data class BatchUpdateRequestDto(
 
 @Serializable
 data class BatchRequestDto(
-    val addSheet: AddSheetDto,
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val addSheet: AddSheetDto? = null,
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val insertDimension: InsertDimensionDto? = null,
 )
 
 @Serializable
 data class AddSheetDto(
     val properties: SheetPropertiesDto,
+)
+
+/** Inserts columns without overwriting a user-maintained range to the right of the app table. */
+@Serializable
+data class InsertDimensionDto(
+    val range: DimensionRangeDto,
+    @SerialName("inheritFromBefore") val inheritFromBefore: Boolean = true,
+)
+
+@Serializable
+data class DimensionRangeDto(
+    @SerialName("sheetId") val sheetId: Int,
+    val dimension: String,
+    @SerialName("startIndex") val startIndex: Int,
+    @SerialName("endIndex") val endIndex: Int,
 )
 
 /**
@@ -111,5 +143,11 @@ data class ValueRangeDto(
  */
 @Serializable
 data class AppendValuesDto(
+    val values: JsonArray,
+)
+
+/** Body for values.update; separate name keeps append and header migration intent explicit. */
+@Serializable
+data class UpdateValuesDto(
     val values: JsonArray,
 )

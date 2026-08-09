@@ -12,6 +12,7 @@ import com.valerochka1337.valerochkagym.data.db.entity.RoutineEntity
 import com.valerochka1337.valerochkagym.data.db.entity.RoutineExerciseEntity
 import com.valerochka1337.valerochkagym.ui.navigation.GymRoutes
 import dagger.hilt.android.lifecycle.HiltViewModel
+import java.util.UUID
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -26,6 +27,8 @@ private const val DEFAULT_STRENGTH_SETS = 3
 
 /** Одно упражнение в редакторе программы. */
 data class EditorExercise(
+    /** Стабильный id строки только для редактора: одно упражнение может повторяться в программе. */
+    val editorId: String = UUID.randomUUID().toString(),
     val exerciseId: Long,
     val exerciseName: String,
     val exerciseType: ExerciseType,

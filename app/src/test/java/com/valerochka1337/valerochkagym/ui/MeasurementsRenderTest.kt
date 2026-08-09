@@ -4,7 +4,9 @@ import android.app.Application
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.performClick
 import com.valerochka1337.valerochkagym.data.db.dao.BodyMeasurementDao
 import com.valerochka1337.valerochkagym.data.db.entity.BodyMeasurementEntity
 import com.valerochka1337.valerochkagym.data.db.entity.UploadStatus
@@ -28,7 +30,7 @@ import org.robolectric.annotation.GraphicsMode
 /** Рендер-смоук пустого и заполненного экрана замеров; снимки лежат рядом с analysis-render. */
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
-@Config(application = Application::class, qualifiers = "w420dp-h4000dp-xhdpi")
+@Config(application = Application::class, qualifiers = "w420dp-h8000dp-xhdpi")
 class MeasurementsRenderTest {
 
     @get:Rule
@@ -50,7 +52,36 @@ class MeasurementsRenderTest {
                     weightKg = 70.0,
                     skeletalMuscleMassKg = 28.0,
                     bodyFatPercentage = 25.0,
+                    bodyFatMassKg = 17.5,
                     visceralFatLevel = 8,
+                    inBodyScore = 74,
+                    totalBodyWaterLiters = 38.1,
+                    proteinKg = 9.2,
+                    mineralsKg = 3.6,
+                    bodyMassIndex = 22.4,
+                    fatFreeMassKg = 52.5,
+                    basalMetabolicRateKcal = 1450,
+                    recommendedCalorieIntakeKcal = 2300,
+                    leftArmLeanMassKg = 2.2,
+                    leftArmLeanPercentage = 98.0,
+                    rightArmLeanMassKg = 2.1,
+                    rightArmLeanPercentage = 96.0,
+                    trunkLeanMassKg = 23.0,
+                    trunkLeanPercentage = 102.0,
+                    leftLegLeanMassKg = 8.1,
+                    leftLegLeanPercentage = 101.0,
+                    rightLegLeanMassKg = 8.0,
+                    rightLegLeanPercentage = 100.0,
+                    leftArmFatMassKg = 1.1,
+                    leftArmFatPercentage = 88.0,
+                    rightArmFatMassKg = 1.0,
+                    rightArmFatPercentage = 86.0,
+                    trunkFatMassKg = 8.0,
+                    trunkFatPercentage = 94.0,
+                    leftLegFatMassKg = 2.8,
+                    leftLegFatPercentage = 90.0,
+                    rightLegFatMassKg = 2.7,
+                    rightLegFatPercentage = 88.0,
                     waistCm = 72.0,
                     chestCm = 95.0,
                     hipsCm = 96.0,
@@ -74,6 +105,36 @@ class MeasurementsRenderTest {
             ),
             "measurements-filled.png",
         )
+    }
+
+    @Test
+    fun `complete measurements menu renders local rows and delete action`() {
+        val viewModel = MeasurementsViewModel(
+            FakeBodyMeasurementDao(
+                listOf(
+                    BodyMeasurementEntity(id = "one", measuredAt = System.currentTimeMillis(), weightKg = 70.0),
+                ),
+            ),
+            FakeMeasurementUploadScheduler(),
+            Dispatchers.Unconfined,
+        )
+        composeRule.setContent {
+            GymTheme {
+                MeasurementsScreen(
+                    onBack = {},
+                    onCreateMeasurement = {},
+                    onEditMeasurement = {},
+                    viewModel = viewModel,
+                )
+            }
+        }
+        composeRule.waitForIdle()
+
+        composeRule.onNodeWithContentDescription("Все замеры").performClick()
+        composeRule.waitForIdle()
+
+        val bitmap = composeRule.onRoot().captureToImage().asAndroidBitmap()
+        assertTrue(bitmap.width > 0 && bitmap.height > 0)
     }
 
     private fun render(measurements: List<BodyMeasurementEntity>, fileName: String) {

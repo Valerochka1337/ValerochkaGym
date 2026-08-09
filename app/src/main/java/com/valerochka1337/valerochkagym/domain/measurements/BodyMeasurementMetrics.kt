@@ -12,9 +12,10 @@ enum class MeasurementPeriod(val months: Long?) {
     ALL(null),
 }
 
-/** Три независимых графика на экране; в одном всегда только одна единица измерения. */
+/** Независимые графики на экране; в одном всегда только одна единица измерения. */
 enum class MeasurementChartGroup {
     COMPOSITION,
+    INBODY,
     CIRCUMFERENCES,
     RISK,
 }
@@ -34,6 +35,14 @@ enum class BodyMeasurementMetric(
     SKELETAL_MUSCLE_MASS("Скелетные мышцы", "кг", MeasurementChartGroup.COMPOSITION),
     BODY_FAT_PERCENTAGE("Жир", "%", MeasurementChartGroup.COMPOSITION),
     BODY_FAT_MASS("Жировая масса", "кг", MeasurementChartGroup.COMPOSITION),
+    TOTAL_BODY_WATER("Вода в организме", "л", MeasurementChartGroup.COMPOSITION),
+    PROTEIN("Белок", "кг", MeasurementChartGroup.COMPOSITION),
+    MINERALS("Минералы", "кг", MeasurementChartGroup.COMPOSITION),
+    FAT_FREE_MASS("Безжировая масса", "кг", MeasurementChartGroup.COMPOSITION),
+    INBODY_SCORE("Оценка InBody", "балл", MeasurementChartGroup.INBODY),
+    BODY_MASS_INDEX("ИМТ", "", MeasurementChartGroup.INBODY),
+    BASAL_METABOLIC_RATE("Основной обмен", "ккал", MeasurementChartGroup.INBODY),
+    RECOMMENDED_CALORIE_INTAKE("Рекомендуемые калории", "ккал", MeasurementChartGroup.INBODY),
     WAIST("Талия", "см", MeasurementChartGroup.CIRCUMFERENCES),
     CHEST("Грудь", "см", MeasurementChartGroup.CIRCUMFERENCES),
     HIPS("Бёдра", "см", MeasurementChartGroup.CIRCUMFERENCES),
@@ -47,7 +56,16 @@ enum class BodyMeasurementMetric(
         WEIGHT -> measurement.weightKg
         SKELETAL_MUSCLE_MASS -> measurement.skeletalMuscleMassKg
         BODY_FAT_PERCENTAGE -> measurement.bodyFatPercentage
-        BODY_FAT_MASS -> calculateBodyFatMassKg(measurement.weightKg, measurement.bodyFatPercentage)
+        BODY_FAT_MASS -> measurement.bodyFatMassKg
+            ?: calculateBodyFatMassKg(measurement.weightKg, measurement.bodyFatPercentage)
+        TOTAL_BODY_WATER -> measurement.totalBodyWaterLiters
+        PROTEIN -> measurement.proteinKg
+        MINERALS -> measurement.mineralsKg
+        FAT_FREE_MASS -> measurement.fatFreeMassKg
+        INBODY_SCORE -> measurement.inBodyScore?.toDouble()
+        BODY_MASS_INDEX -> measurement.bodyMassIndex
+        BASAL_METABOLIC_RATE -> measurement.basalMetabolicRateKcal?.toDouble()
+        RECOMMENDED_CALORIE_INTAKE -> measurement.recommendedCalorieIntakeKcal?.toDouble()
         WAIST -> measurement.waistCm
         CHEST -> measurement.chestCm
         HIPS -> measurement.hipsCm

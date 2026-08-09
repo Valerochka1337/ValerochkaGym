@@ -2,8 +2,14 @@ package com.valerochka1337.valerochkagym.data.ai
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonObject
 import retrofit2.http.Body
 import retrofit2.http.Header
 import retrofit2.http.POST
@@ -32,8 +38,38 @@ data class OpenRouterChatRequest(
 @Serializable
 data class OpenRouterMessage(
     val role: String,
-    val content: String,
-)
+    /** OpenRouter accepts either a text primitive or a multimodal array of parts. */
+    val content: JsonElement,
+) {
+    companion object {
+        fun text(role: String, text: String): OpenRouterMessage =
+            OpenRouterMessage(role = role, content = JsonPrimitive(text))
+
+        fun textAndImage(
+            role: String,
+            text: String,
+            imageDataUrl: String,
+        ): OpenRouterMessage = OpenRouterMessage(
+            role = role,
+            content = multimodalContent(text, imageDataUrl),
+        )
+
+        private fun multimodalContent(text: String, imageDataUrl: String): JsonArray = buildJsonArray {
+            add(
+                buildJsonObject {
+                    put("type", "text")
+                    put("text", text)
+                },
+            )
+            add(
+                buildJsonObject {
+                    put("type", "image_url")
+                    putJsonObject("image_url") { put("url", imageDataUrl) }
+                },
+            )
+        }
+    }
+}
 
 @Serializable
 data class OpenRouterResponseFormat(

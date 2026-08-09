@@ -77,10 +77,10 @@ class OpenRouterExerciseAiGenerator @Inject constructor(
         val request = OpenRouterChatRequest(
             model = EXERCISE_MODEL,
             messages = listOf(
-                OpenRouterMessage(role = "system", content = SYSTEM_PROMPT),
-                OpenRouterMessage(
+                OpenRouterMessage.text(role = "system", text = SYSTEM_PROMPT),
+                OpenRouterMessage.text(
                     role = "user",
-                    content = """
+                    text = """
                         <exercise_catalog_json>
                         ${snapshot.serializedCatalog}
                         </exercise_catalog_json>

@@ -30,6 +30,17 @@
             android:exported="false"
             android:theme="@style/Theme.ValerochkaGym" />
 
+        <!-- Temporary URI for TakePicture. The InBody image stays in cache only while it is read. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.inbody-import"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/inbody_import_paths" />
+        </provider>
+
         <!-- Иконки под акценты. Включён ровно один; переключает AppIconManager по настройке.
              Порядок и имена связаны с AccentColor.aliasName — менять только вместе. -->
         <activity-alias

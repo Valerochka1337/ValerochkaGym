@@ -110,7 +110,10 @@ class SheetsRepositoryImpl @Inject constructor(
             // Workouts может ещё не существовать, если человек начинает приложение с замеров.
             // Создаём его первым, чтобы Measurements гарантированно встал сразу после него.
             ensureWorkoutsSheet(bearer, spreadsheetId)
-            ensureMeasurementsSheet(bearer, spreadsheetId)
+            val measurementsSheet = ensureMeasurementsSheet(bearer, spreadsheetId)
+            ensureMeasurementsHeader(bearer, spreadsheetId, measurementsSheet)?.let { error ->
+                return permanentMeasurement(measurementId, error)
+            }
             val measurementIdColumn = readIdColumn(bearer, spreadsheetId, MEASUREMENT_ID_RANGE)
             if (measurementIdColumn.any { it.firstOrNull() == measurementId }) {
                 bodyMeasurementDao.setUploadStatus(measurementId, UploadStatus.UPLOADED, null)
@@ -150,9 +153,13 @@ class SheetsRepositoryImpl @Inject constructor(
     }
 
     /** Создаёт `Measurements` непосредственно после `Workouts`, не меняя уже существующие листы. */
-    private suspend fun ensureMeasurementsSheet(bearer: String, spreadsheetId: String) {
+    private suspend fun ensureMeasurementsSheet(
+        bearer: String,
+        spreadsheetId: String,
+    ): SheetPropertiesDto {
         val spreadsheet = api.getSpreadsheet(bearer, spreadsheetId)
-        if (spreadsheet.sheets.any { it.properties.title == MEASUREMENTS_SHEET }) return
+        spreadsheet.sheets.firstOrNull { it.properties.title == MEASUREMENTS_SHEET }
+            ?.let { return it.properties }
 
         // После ensureWorkoutsSheet этот лист обязан быть; fallback на конец делает метод
         // безопасным для нестандартного/частично обновлённого ответа API.
@@ -167,15 +174,70 @@ class SheetsRepositoryImpl @Inject constructor(
                 BatchUpdateRequestDto(
                     requests = listOf(
                         BatchRequestDto(
-                            AddSheetDto(SheetPropertiesDto(MEASUREMENTS_SHEET, indexAfterWorkouts)),
+                            addSheet = AddSheetDto(SheetPropertiesDto(MEASUREMENTS_SHEET, indexAfterWorkouts)),
                         ),
                     ),
                 ),
             )
         } catch (e: HttpException) {
-            if (e.code() == ADD_SHEET_CONFLICT && measurementsSheetExists(bearer, spreadsheetId)) return
+            if (e.code() == ADD_SHEET_CONFLICT && measurementsSheetExists(bearer, spreadsheetId)) {
+                return api.getSpreadsheet(bearer, spreadsheetId).sheets
+                    .first { it.properties.title == MEASUREMENTS_SHEET }
+                    .properties
+            }
             throw e
         }
+        return api.getSpreadsheet(bearer, spreadsheetId).sheets
+            .first { it.properties.title == MEASUREMENTS_SHEET }
+            .properties
+    }
+
+    /**
+     * v1 of `Measurements` had A:N. Add the v5 report columns only to a known app-managed
+     * legacy header, inserting columns first so any user content to the right is shifted intact.
+     * Historical data rows intentionally keep empty cells in the new fields.
+     */
+    private suspend fun ensureMeasurementsHeader(
+        bearer: String,
+        spreadsheetId: String,
+        sheet: SheetPropertiesDto,
+    ): String? {
+        val header = api.getValues(bearer, spreadsheetId, MEASUREMENT_HEADER_RANGE)
+            .values
+            ?.firstOrNull()
+            .orEmpty()
+        if (header.isEmpty() || header == BodyMeasurementRowMapper.HEADER_ROW) return null
+        val legacy = BodyMeasurementRowMapper.HEADER_ROW.take(LEGACY_MEASUREMENT_COLUMN_COUNT)
+        if (header.take(LEGACY_MEASUREMENT_COLUMN_COUNT) != legacy) {
+            return "Заголовок листа Measurements изменён вручную — не удалось безопасно расширить его"
+        }
+        val sheetId = sheet.sheetId
+            ?: return "Не удалось определить лист Measurements для обновления заголовка"
+        api.batchUpdate(
+            bearer,
+            spreadsheetId,
+            BatchUpdateRequestDto(
+                requests = listOf(
+                    BatchRequestDto(
+                        insertDimension = InsertDimensionDto(
+                            range = DimensionRangeDto(
+                                sheetId = sheetId,
+                                dimension = "COLUMNS",
+                                startIndex = LEGACY_MEASUREMENT_COLUMN_COUNT,
+                                endIndex = BodyMeasurementRowMapper.HEADER_ROW.size,
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        api.updateValues(
+            bearer = bearer,
+            spreadsheetId = spreadsheetId,
+            range = MEASUREMENT_EXTENSION_HEADER_RANGE,
+            body = UpdateValuesDto(jsonRows(listOf(BodyMeasurementRowMapper.HEADER_ROW.drop(LEGACY_MEASUREMENT_COLUMN_COUNT)))),
+        )
+        return null
     }
 
     private suspend fun workoutsSheetExists(bearer: String, spreadsheetId: String): Boolean =
@@ -197,16 +259,17 @@ class SheetsRepositoryImpl @Inject constructor(
         range: String,
         rows: List<List<Any?>>,
     ) {
-        val values: JsonArray = buildJsonArray {
-            rows.forEach { row ->
-                add(
-                    buildJsonArray {
-                        row.forEach { cell -> add(cellToJson(cell)) }
-                    },
-                )
-            }
+        api.appendValues(bearer, spreadsheetId, range, AppendValuesDto(jsonRows(rows)))
+    }
+
+    private fun jsonRows(rows: List<List<Any?>>): JsonArray = buildJsonArray {
+        rows.forEach { row ->
+            add(
+                buildJsonArray {
+                    row.forEach { cell -> add(cellToJson(cell)) }
+                },
+            )
         }
-        api.appendValues(bearer, spreadsheetId, range, AppendValuesDto(values))
     }
 
     private suspend fun classifyWorkoutHttp(workoutId: String, code: Int): UploadResult =
@@ -250,9 +313,12 @@ class SheetsRepositoryImpl @Inject constructor(
         const val WORKOUT_ID_RANGE = "Workouts!A:A"
         const val MEASUREMENT_ID_RANGE = "Measurements!A:A"
 
-        /** Обе таблицы сейчас имеют 14 колонок A–N. */
+        /** Workouts остаётся A:N, полный отчёт InBody занимает A:AP. */
         const val WORKOUT_APPEND_RANGE = "Workouts!A:N"
-        const val MEASUREMENT_APPEND_RANGE = "Measurements!A:N"
+        const val MEASUREMENT_APPEND_RANGE = "Measurements!A:AP"
+        const val MEASUREMENT_HEADER_RANGE = "Measurements!1:1"
+        const val MEASUREMENT_EXTENSION_HEADER_RANGE = "Measurements!O1:AP1"
+        const val LEGACY_MEASUREMENT_COLUMN_COUNT = 14
 
         val EMPTY_CELL = JsonPrimitive("")
     }

@@ -1,9 +1,17 @@
 package com.valerochka1337.valerochkagym.ui
 
+import android.app.Application
+import android.net.Uri
 import androidx.lifecycle.SavedStateHandle
+import com.valerochka1337.valerochkagym.data.ai.InBodyReportAiReader
+import com.valerochka1337.valerochkagym.data.ai.InBodyReportAiResult
+import com.valerochka1337.valerochkagym.data.ai.InBodyReportDraft
 import com.valerochka1337.valerochkagym.data.db.dao.BodyMeasurementDao
 import com.valerochka1337.valerochkagym.data.db.entity.BodyMeasurementEntity
 import com.valerochka1337.valerochkagym.data.db.entity.UploadStatus
+import com.valerochka1337.valerochkagym.data.settings.OpenRouterKeyStore
+import com.valerochka1337.valerochkagym.domain.measurements.InBodySegment
+import com.valerochka1337.valerochkagym.domain.measurements.InBodySegmentValues
 import com.valerochka1337.valerochkagym.domain.measurements.effectiveWaistHipRatio
 import com.valerochka1337.valerochkagym.ui.measurements.MeasurementEditorViewModel
 import com.valerochka1337.valerochkagym.ui.navigation.GymRoutes
@@ -12,6 +20,7 @@ import com.valerochka1337.valerochkagym.worker.MeasurementUploadScheduler
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -19,8 +28,17 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
+import java.time.Instant
+import java.time.LocalDate
+import java.time.LocalTime
+import java.time.ZoneId
 
 @OptIn(ExperimentalCoroutinesApi::class)
+@RunWith(RobolectricTestRunner::class)
+@Config(application = Application::class)
 class MeasurementEditorViewModelTest {
 
     @get:Rule
@@ -46,6 +64,173 @@ class MeasurementEditorViewModelTest {
             assertEquals(0.75, stored.effectiveWaistHipRatio()!!, 1e-6)
             assertEquals(UploadStatus.PENDING, stored.uploadStatus)
             assertEquals(listOf(stored.id), scheduler.scheduled)
+        }
+
+    @Test
+    fun `successful InBody scan fills only its draft and preserves manual circumferences`() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val dao = FakeBodyMeasurementDao()
+            val reader = FakeInBodyReportAiReader(
+                InBodyReportAiResult.Success(
+                    InBodyReportDraft(
+                        measuredDate = LocalDate.of(2026, 7, 24),
+                        measuredTime = LocalTime.of(18, 6),
+                        weightKg = 59.5,
+                        bodyFatMassKg = 14.8,
+                        inBodyScore = 74,
+                        segments = mapOf(
+                            InBodySegment.LEFT_ARM to InBodySegmentValues(leanMassKg = 1.99, fatPercentage = 88.8),
+                        ),
+                    ),
+                ),
+            )
+            val viewModel = MeasurementEditorViewModel(
+                SavedStateHandle(),
+                dao,
+                FakeMeasurementUploadScheduler(),
+                reader,
+                FakeOpenRouterKeyStore(configured = true),
+            )
+            testScheduler.advanceUntilIdle()
+            viewModel.setWaistCm("72")
+            viewModel.setChestCm("95")
+            viewModel.setHipsCm("96")
+            viewModel.setProteinKg("8.7")
+
+            viewModel.scanInBody(Uri.parse("content://picker/inbody.jpg"))
+            testScheduler.advanceUntilIdle()
+
+            val state = viewModel.uiState.value
+            assertFalse(state.isScanningInBody)
+            assertNull(state.inBodyScanError)
+            assertEquals("59.5", state.weightKg)
+            assertEquals("14.8", state.bodyFatMassKg)
+            assertEquals("74", state.inBodyScore)
+            assertEquals("1.99", state.segments.getValue(InBodySegment.LEFT_ARM).leanMassKg)
+            assertEquals("72", state.waistCm)
+            assertEquals("95", state.chestCm)
+            assertEquals("96", state.hipsCm)
+            assertEquals("8.7", state.proteinKg)
+            assertEquals(
+                LocalDate.of(2026, 7, 24),
+                Instant.ofEpochMilli(state.measuredAt).atZone(ZoneId.systemDefault()).toLocalDate(),
+            )
+        }
+
+    @Test
+    fun `failed InBody scan preserves draft and allows another attempt`() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val reader = FakeInBodyReportAiReader(
+                InBodyReportAiResult.Failure("Не удалось прочитать лист"),
+                InBodyReportAiResult.Success(InBodyReportDraft(weightKg = 60.0)),
+            )
+            val viewModel = MeasurementEditorViewModel(
+                SavedStateHandle(),
+                FakeBodyMeasurementDao(),
+                FakeMeasurementUploadScheduler(),
+                reader,
+                FakeOpenRouterKeyStore(configured = true),
+            )
+            testScheduler.advanceUntilIdle()
+            viewModel.setWeightKg("70")
+            viewModel.setWaistCm("72")
+
+            viewModel.scanInBody(Uri.parse("content://picker/first.jpg"))
+            testScheduler.advanceUntilIdle()
+
+            assertFalse(viewModel.uiState.value.isScanningInBody)
+            assertEquals("Не удалось прочитать лист", viewModel.uiState.value.inBodyScanError)
+            assertEquals("70", viewModel.uiState.value.weightKg)
+            assertEquals("72", viewModel.uiState.value.waistCm)
+
+            viewModel.scanInBody(Uri.parse("content://picker/second.jpg"))
+            testScheduler.advanceUntilIdle()
+
+            assertEquals("60.0", viewModel.uiState.value.weightKg)
+            assertNull(viewModel.uiState.value.inBodyScanError)
+            assertEquals(2, reader.uris.size)
+        }
+
+    @Test
+    fun `saving a scanned report schedules one measurement upload`() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val dao = FakeBodyMeasurementDao()
+            val scheduler = FakeMeasurementUploadScheduler()
+            val viewModel = MeasurementEditorViewModel(
+                SavedStateHandle(),
+                dao,
+                scheduler,
+                FakeInBodyReportAiReader(
+                    InBodyReportAiResult.Success(
+                        InBodyReportDraft(
+                            weightKg = 59.5,
+                            bodyFatMassKg = 14.8,
+                            segments = mapOf(
+                                InBodySegment.RIGHT_LEG to InBodySegmentValues(
+                                    leanMassKg = 7.39,
+                                    leanPercentage = 107.5,
+                                    fatMassKg = 2.4,
+                                    fatPercentage = 85.6,
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+                FakeOpenRouterKeyStore(configured = true),
+            )
+            testScheduler.advanceUntilIdle()
+
+            viewModel.scanInBody(Uri.parse("content://picker/inbody.jpg"))
+            testScheduler.advanceUntilIdle()
+            viewModel.save()
+            testScheduler.advanceUntilIdle()
+
+            val stored = dao.inserted.single()
+            assertEquals(14.8, stored.bodyFatMassKg!!, 1e-6)
+            assertEquals(7.39, stored.rightLegLeanMassKg!!, 1e-6)
+            assertEquals(85.6, stored.rightLegFatPercentage!!, 1e-6)
+            assertEquals(listOf(stored.id), scheduler.scheduled)
+        }
+
+    @Test
+    fun `saving an AI report with a full-report value stores it locally`() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val dao = FakeBodyMeasurementDao()
+            val viewModel = MeasurementEditorViewModel(
+                SavedStateHandle(),
+                dao,
+                FakeMeasurementUploadScheduler(),
+                FakeInBodyReportAiReader(InBodyReportAiResult.Success(InBodyReportDraft(inBodyScore = 74))),
+                FakeOpenRouterKeyStore(configured = true),
+            )
+            testScheduler.advanceUntilIdle()
+
+            viewModel.scanInBody(Uri.parse("content://picker/inbody.jpg"))
+            testScheduler.advanceUntilIdle()
+            assertTrue(viewModel.uiState.value.canSave)
+
+            viewModel.save()
+            testScheduler.advanceUntilIdle()
+
+            assertEquals(74, dao.inserted.single().inBodyScore)
+        }
+
+    @Test
+    fun `failed measurement persistence keeps the draft and exposes a retryable error`() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val viewModel = MeasurementEditorViewModel(
+                SavedStateHandle(),
+                FakeBodyMeasurementDao(failOnInsert = true),
+                FakeMeasurementUploadScheduler(),
+            )
+            viewModel.setInBodyScore("74")
+
+            viewModel.save()
+            testScheduler.advanceUntilIdle()
+
+            assertFalse(viewModel.uiState.value.isSaving)
+            assertEquals("Не удалось сохранить замер — попробуйте ещё раз", viewModel.uiState.value.saveError)
+            assertEquals("74", viewModel.uiState.value.inBodyScore)
         }
 
     @Test
@@ -88,13 +273,34 @@ class MeasurementEditorViewModelTest {
             assertFalse(dao.rows.value.any { it.id == "m1" })
         }
 
-    private class FakeBodyMeasurementDao(vararg initial: BodyMeasurementEntity) : BodyMeasurementDao {
+    private class FakeInBodyReportAiReader(vararg initial: InBodyReportAiResult) : InBodyReportAiReader {
+        private val results = ArrayDeque(initial.toList())
+        val uris = mutableListOf<Uri>()
+
+        override suspend fun read(uri: Uri): InBodyReportAiResult {
+            uris += uri
+            return results.removeFirst()
+        }
+    }
+
+    private class FakeOpenRouterKeyStore(private val configured: Boolean) : OpenRouterKeyStore {
+        override val isConfigured: Flow<Boolean> = flowOf(configured)
+        override suspend fun save(value: String) = Unit
+        override suspend fun read(): String? = if (configured) "key" else null
+        override suspend fun clear() = Unit
+    }
+
+    private class FakeBodyMeasurementDao(
+        vararg initial: BodyMeasurementEntity,
+        private val failOnInsert: Boolean = false,
+    ) : BodyMeasurementDao {
         val rows = MutableStateFlow(initial.toList())
         val inserted = mutableListOf<BodyMeasurementEntity>()
         val updated = mutableListOf<BodyMeasurementEntity>()
         val deleted = mutableListOf<String>()
 
         override suspend fun insert(measurement: BodyMeasurementEntity) {
+            if (failOnInsert) error("Room write failed")
             inserted += measurement
             rows.value = rows.value + measurement
         }

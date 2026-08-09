@@ -22,6 +22,7 @@ import com.valerochka1337.valerochkagym.data.google.SheetDto
 import com.valerochka1337.valerochkagym.data.google.SheetPropertiesDto
 import com.valerochka1337.valerochkagym.data.google.SpreadsheetDto
 import com.valerochka1337.valerochkagym.data.google.ValueRangeDto
+import com.valerochka1337.valerochkagym.data.google.UpdateValuesDto
 import com.valerochka1337.valerochkagym.data.settings.SettingsRepository
 import com.valerochka1337.valerochkagym.domain.WorkoutRowMapper
 import com.valerochka1337.valerochkagym.domain.measurements.BodyMeasurementRowMapper
@@ -137,6 +138,30 @@ class SheetsRepositoryTest : RoomDaoTest() {
         assertEquals(BodyMeasurementRowMapper.HEADER_ROW, batch.first())
         assertEquals(MEASUREMENT_ID, batch[1].first())
         assertEquals("17.5", batch[1][6]) // weight × body-fat percent
+        assertEquals(UploadStatus.UPLOADED, measurementUploadStatus())
+    }
+
+    @Test
+    fun `legacy Measurements header receives InBody columns after N without rewriting its rows`() = runTest {
+        seedMeasurement()
+        val legacyHeader = BodyMeasurementRowMapper.HEADER_ROW.take(14)
+        val api = FakeSheetsApi(
+            sheets = mutableListOf(WORKOUTS_SHEET, MEASUREMENTS_SHEET),
+            measurementColumnA = mutableListOf("measurement_id", "older-measurement"),
+            measurementHeader = legacyHeader.toMutableList(),
+        )
+
+        val result = repository(api).uploadMeasurement(MEASUREMENT_ID)
+
+        assertEquals(UploadResult.Success, result)
+        val inserted = api.insertedDimensions.single()
+        assertEquals("COLUMNS", inserted.range.dimension)
+        assertEquals(14, inserted.range.startIndex)
+        assertEquals(BodyMeasurementRowMapper.HEADER_ROW.size, inserted.range.endIndex)
+        assertEquals(listOf(listOf(BodyMeasurementRowMapper.HEADER_ROW.drop(14))), api.headerUpdates)
+        assertEquals(MEASUREMENT_APPEND_RANGE, api.appendRanges.single())
+        assertEquals(1, api.appended.single().size)
+        assertEquals(MEASUREMENT_ID, api.appended.single().single().first())
         assertEquals(UploadStatus.UPLOADED, measurementUploadStatus())
     }
 
@@ -426,6 +451,7 @@ class SheetsRepositoryTest : RoomDaoTest() {
         val sheets: MutableList<String> = mutableListOf(),
         private val columnA: MutableList<String> = mutableListOf(),
         private val measurementColumnA: MutableList<String> = mutableListOf(),
+        private val measurementHeader: MutableList<String> = mutableListOf(),
         private val failGetSpreadsheet: Exception? = null,
         private val failBatchUpdate: Exception? = null,
         private val failGetValues: Exception? = null,
@@ -436,12 +462,16 @@ class SheetsRepositoryTest : RoomDaoTest() {
         val appended: MutableList<List<List<String>>> = mutableListOf()
         val appendRanges = mutableListOf<String>()
         val addedSheets = mutableListOf<SheetPropertiesDto>()
+        val insertedDimensions = mutableListOf<com.valerochka1337.valerochkagym.data.google.InsertDimensionDto>()
+        val headerUpdates = mutableListOf<List<List<String>>>()
         var batchUpdateCount: Int = 0
             private set
 
         override suspend fun getSpreadsheet(bearer: String, spreadsheetId: String, fields: String): SpreadsheetDto {
             failGetSpreadsheet?.let { throw it }
-            return SpreadsheetDto(sheets.mapIndexed { index, title -> SheetDto(SheetPropertiesDto(title, index)) })
+            return SpreadsheetDto(sheets.mapIndexed { index, title ->
+                SheetDto(SheetPropertiesDto(title = title, index = index, sheetId = index))
+            })
         }
 
         override suspend fun batchUpdate(
@@ -450,19 +480,31 @@ class SheetsRepositoryTest : RoomDaoTest() {
             body: BatchUpdateRequestDto,
         ): JsonElement {
             batchUpdateCount++
-            val properties = body.requests.first().addSheet.properties
-            val title = properties.title
-            if (simulateAddSheetRace) {
-                addSheet(properties)
+            val addSheet = body.requests.firstOrNull()?.addSheet
+            if (addSheet != null && simulateAddSheetRace) {
+                addSheet(addSheet.properties)
                 throw httpException(400)
             }
             failBatchUpdate?.let { throw it }
-            addSheet(properties)
+            body.requests.forEach { request ->
+                request.addSheet?.let { addSheet(it.properties) }
+                request.insertDimension?.let { insertedDimensions += it }
+            }
             return JsonNull
         }
 
         override suspend fun getValues(bearer: String, spreadsheetId: String, range: String): ValueRangeDto {
             failGetValues?.let { throw it }
+            if (range == "Measurements!1:1") {
+                val header = measurementHeader.ifEmpty {
+                    if (measurementColumnA.firstOrNull() == "measurement_id") {
+                        BodyMeasurementRowMapper.HEADER_ROW
+                    } else {
+                        emptyList()
+                    }
+                }
+                return ValueRangeDto(values = header.takeIf { it.isNotEmpty() }?.let(::listOf))
+            }
             val values = if (range.startsWith("Measurements!")) measurementColumnA else columnA
             return ValueRangeDto(values = if (values.isEmpty()) null else values.map { listOf(it) })
         }
@@ -478,6 +520,21 @@ class SheetsRepositoryTest : RoomDaoTest() {
             failAppend?.let { throw it }
             appendRanges += range
             appended.add(body.values.map { row -> (row as JsonArray).map { (it as JsonPrimitive).content } })
+            return JsonNull
+        }
+
+        override suspend fun updateValues(
+            bearer: String,
+            spreadsheetId: String,
+            range: String,
+            body: UpdateValuesDto,
+            valueInputOption: String,
+        ): JsonElement {
+            val rows = body.values.map { row -> (row as JsonArray).map { (it as JsonPrimitive).content } }
+            headerUpdates += rows
+            if (range == "Measurements!O1:AP1" && rows.singleOrNull() != null) {
+                measurementHeader += rows.single()
+            }
             return JsonNull
         }
 
@@ -521,6 +578,6 @@ class SheetsRepositoryTest : RoomDaoTest() {
         const val SPREADSHEET_ID = "1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms"
         const val WORKOUTS_SHEET = "Workouts"
         const val MEASUREMENTS_SHEET = "Measurements"
-        const val MEASUREMENT_APPEND_RANGE = "Measurements!A:N"
+        const val MEASUREMENT_APPEND_RANGE = "Measurements!A:AP"
     }
 }

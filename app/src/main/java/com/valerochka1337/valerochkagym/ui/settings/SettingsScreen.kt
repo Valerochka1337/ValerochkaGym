@@ -334,9 +334,9 @@ private fun OpenRouterCard(
         var input by rememberSaveable { mutableStateOf("") }
         Text(
             text = if (keyConfigured) {
-                "Ключ сохранён на этом устройстве"
+                "Ключ сохранён на этом устройстве. Он используется для упражнений и сканирования листов InBody."
             } else {
-                "Добавьте API key, чтобы создавать упражнения по описанию"
+                "Добавьте API key, чтобы создавать упражнения по описанию и сканировать листы InBody"
             },
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -362,7 +362,7 @@ private fun OpenRouterCard(
             ),
             keyboardActions = KeyboardActions(onDone = { onSave(input) }),
             supportingText = {
-                Text("Ключ шифруется и не переносится в резервных копиях")
+                Text("Ключ шифруется и не переносится в резервных копиях; фото InBody отправляется в OpenRouter только на время распознавания и не сохраняется")
             },
         )
         Spacer(Modifier.height(12.dp))

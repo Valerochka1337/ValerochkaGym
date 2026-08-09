@@ -67,6 +67,7 @@ object DataModule {
                 GymDatabase.MIGRATION_1_2,
                 GymDatabase.MIGRATION_2_3,
                 GymDatabase.MIGRATION_3_4,
+                GymDatabase.MIGRATION_4_5,
             )
             .build()
 

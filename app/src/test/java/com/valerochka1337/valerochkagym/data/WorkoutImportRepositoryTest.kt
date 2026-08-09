@@ -192,6 +192,7 @@ class WorkoutImportRepositoryTest : RoomDaoTest() {
             return ValueRangeDto(values = values.ifEmpty { null })
         }
         override suspend fun appendValues(bearer: String, spreadsheetId: String, range: String, body: com.valerochka1337.valerochkagym.data.google.AppendValuesDto, valueInputOption: String, insertDataOption: String): JsonElement = JsonNull
+        override suspend fun updateValues(bearer: String, spreadsheetId: String, range: String, body: com.valerochka1337.valerochkagym.data.google.UpdateValuesDto, valueInputOption: String): JsonElement = JsonNull
     }
 
     private class FakeGoogleAuth(private val token: TokenResult) : GoogleAuth {

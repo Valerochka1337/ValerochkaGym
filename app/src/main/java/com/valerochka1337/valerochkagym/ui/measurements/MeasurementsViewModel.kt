@@ -27,9 +27,12 @@ import javax.inject.Inject
 data class MeasurementsUiState(
     val loading: Boolean = true,
     val period: MeasurementPeriod = MeasurementPeriod.MONTHS_3,
+    /** Полный локальный журнал: нужен для меню «Все замеры» вне выбранного периода графиков. */
+    val allMeasurements: List<BodyMeasurementEntity>? = null,
     val measurements: List<BodyMeasurementEntity>? = null,
     val summary: List<MeasurementMetricComparison> = emptyList(),
     val compositionMetric: BodyMeasurementMetric = BodyMeasurementMetric.WEIGHT,
+    val inBodyMetric: BodyMeasurementMetric = BodyMeasurementMetric.INBODY_SCORE,
     val circumferenceMetric: BodyMeasurementMetric = BodyMeasurementMetric.WAIST,
     val riskMetric: BodyMeasurementMetric = BodyMeasurementMetric.WAIST_HIP_RATIO,
     val selectedMeasurementId: String? = null,
@@ -40,7 +43,7 @@ data class MeasurementsUiState(
         get() = measurements?.firstOrNull { it.id == selectedMeasurementId }
             ?: measurements?.maxByOrNull { it.measuredAt }
 
-    val hasMeasurements: Boolean get() = !measurements.isNullOrEmpty()
+    val hasMeasurements: Boolean get() = !allMeasurements.isNullOrEmpty()
 }
 
 /**
@@ -58,6 +61,7 @@ class MeasurementsViewModel @Inject constructor(
     private val zone = ZoneId.systemDefault()
     private val period = MutableStateFlow(MeasurementPeriod.MONTHS_3)
     private val compositionMetric = MutableStateFlow(BodyMeasurementMetric.WEIGHT)
+    private val inBodyMetric = MutableStateFlow(BodyMeasurementMetric.INBODY_SCORE)
     private val circumferenceMetric = MutableStateFlow(BodyMeasurementMetric.WAIST)
     private val riskMetric = MutableStateFlow(BodyMeasurementMetric.WAIST_HIP_RATIO)
     private val selectedMeasurementId = MutableStateFlow<String?>(null)
@@ -65,11 +69,20 @@ class MeasurementsViewModel @Inject constructor(
     private val selection = combine(
         period,
         compositionMetric,
+        inBodyMetric,
         circumferenceMetric,
         riskMetric,
-        selectedMeasurementId,
-    ) { selectedPeriod, composition, circumference, risk, selectedId ->
-        Selection(selectedPeriod, composition, circumference, risk, selectedId)
+    ) { selectedPeriod, composition, inBody, circumference, risk ->
+        SelectedMetrics(selectedPeriod, composition, inBody, circumference, risk)
+    }.combine(selectedMeasurementId) { metrics, selectedId ->
+        Selection(
+            period = metrics.period,
+            compositionMetric = metrics.compositionMetric,
+            inBodyMetric = metrics.inBodyMetric,
+            circumferenceMetric = metrics.circumferenceMetric,
+            riskMetric = metrics.riskMetric,
+            measurementId = selectedId,
+        )
     }
 
     val uiState: StateFlow<MeasurementsUiState> = combine(
@@ -85,9 +98,11 @@ class MeasurementsViewModel @Inject constructor(
         MeasurementsUiState(
             loading = false,
             period = selected.period,
+            allMeasurements = all,
             measurements = measurements,
             summary = latestMetricComparisons(measurements),
             compositionMetric = selected.compositionMetric,
+            inBodyMetric = selected.inBodyMetric,
             circumferenceMetric = selected.circumferenceMetric,
             riskMetric = selected.riskMetric,
             selectedMeasurementId = selected.measurementId,
@@ -112,6 +127,11 @@ class MeasurementsViewModel @Inject constructor(
         selectedMeasurementId.value = null
     }
 
+    fun onInBodyMetricSelected(value: BodyMeasurementMetric) {
+        inBodyMetric.value = value
+        selectedMeasurementId.value = null
+    }
+
     fun onCircumferenceMetricSelected(value: BodyMeasurementMetric) {
         circumferenceMetric.value = value
         selectedMeasurementId.value = null
@@ -131,9 +151,24 @@ class MeasurementsViewModel @Inject constructor(
         viewModelScope.launch { uploadScheduler.retry(measurementId) }
     }
 
+    /** Удаляет только локальную запись; append-only строка в Google Sheets остаётся исторической. */
+    fun deleteMeasurement(measurementId: String) {
+        if (selectedMeasurementId.value == measurementId) selectedMeasurementId.value = null
+        viewModelScope.launch { bodyMeasurementDao.delete(measurementId) }
+    }
+
+    private data class SelectedMetrics(
+        val period: MeasurementPeriod,
+        val compositionMetric: BodyMeasurementMetric,
+        val inBodyMetric: BodyMeasurementMetric,
+        val circumferenceMetric: BodyMeasurementMetric,
+        val riskMetric: BodyMeasurementMetric,
+    )
+
     private data class Selection(
         val period: MeasurementPeriod,
         val compositionMetric: BodyMeasurementMetric,
+        val inBodyMetric: BodyMeasurementMetric,
         val circumferenceMetric: BodyMeasurementMetric,
         val riskMetric: BodyMeasurementMetric,
         val measurementId: String?,

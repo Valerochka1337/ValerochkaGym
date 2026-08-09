@@ -123,6 +123,20 @@ class RoutineEditorViewModelTest {
         }
 
     @Test
+    fun `adding the same exercise twice gives each editor row a unique key`() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val viewModel = RoutineEditorViewModel(SavedStateHandle(), FakeRoutineDao(), FakeExerciseDao())
+            val squat = exercise(id = 44, name = "Приседания", type = ExerciseType.STRENGTH)
+
+            viewModel.addExercise(squat)
+            viewModel.addExercise(squat)
+
+            val rows = viewModel.uiState.value.exercises
+            assertEquals(listOf(44L, 44L), rows.map { it.exerciseId })
+            assertEquals(rows.size, rows.map { it.editorId }.toSet().size)
+        }
+
+    @Test
     fun `removeExercise drops the exercise at the index`() =
         runTest(mainDispatcherRule.testDispatcher.scheduler) {
             val viewModel = RoutineEditorViewModel(SavedStateHandle(), FakeRoutineDao(), FakeExerciseDao())

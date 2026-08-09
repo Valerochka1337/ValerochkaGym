@@ -32,8 +32,12 @@ import com.valerochka1337.valerochkagym.ui.analysis.RecordsCard
 import com.valerochka1337.valerochkagym.ui.analysis.SummaryCard
 import com.valerochka1337.valerochkagym.ui.analysis.WeeklyVolumeCard
 import com.valerochka1337.valerochkagym.domain.analysis.VolumeZone
+import com.valerochka1337.valerochkagym.domain.measurements.InBodySegment
+import com.valerochka1337.valerochkagym.domain.measurements.InBodySegmentValues
 import com.valerochka1337.valerochkagym.ui.analysis.body.BodyMapFlip
 import com.valerochka1337.valerochkagym.ui.analysis.body.BodyView
+import com.valerochka1337.valerochkagym.ui.analysis.body.InBodySegmentMapFlip
+import com.valerochka1337.valerochkagym.ui.analysis.body.InBodySegmentMapMode
 import com.valerochka1337.valerochkagym.ui.theme.ChartPalette
 import com.valerochka1337.valerochkagym.ui.theme.GymTheme
 import org.junit.Assert.assertTrue
@@ -125,6 +129,30 @@ class AnalysisRenderTest {
         val bitmap = composeRule.onRoot().captureToImage().asAndroidBitmap()
         assertTrue(bitmap.width > 0 && bitmap.height > 0)
         save(bitmap, "analysis-body-back.png")
+    }
+
+    @Test
+    fun `InBody segment maps render for muscles and fat`() {
+        val values = mapOf(
+            InBodySegment.LEFT_ARM to InBodySegmentValues(leanMassKg = 1.99, leanPercentage = 91.7, fatMassKg = 1.0, fatPercentage = 88.8),
+            InBodySegment.RIGHT_ARM to InBodySegmentValues(leanMassKg = 2.07, leanPercentage = 95.1, fatMassKg = 1.0, fatPercentage = 86.3),
+            InBodySegment.TRUNK to InBodySegmentValues(leanMassKg = 19.1, leanPercentage = 91.4, fatMassKg = 7.1, fatPercentage = 92.9),
+            InBodySegment.LEFT_LEG to InBodySegmentValues(leanMassKg = 7.43, leanPercentage = 108.0, fatMassKg = 2.4, fatPercentage = 85.7),
+            InBodySegment.RIGHT_LEG to InBodySegmentValues(leanMassKg = 7.39, leanPercentage = 107.5, fatMassKg = 2.4, fatPercentage = 85.6),
+        )
+        composeRule.setContent {
+            GymTheme {
+                Column(modifier = Modifier.width(420.dp).padding(16.dp)) {
+                    InBodySegmentMapFlip(values = values, mode = InBodySegmentMapMode.LEAN)
+                    InBodySegmentMapFlip(values = values, mode = InBodySegmentMapMode.FAT)
+                }
+            }
+        }
+        composeRule.waitForIdle()
+
+        val bitmap = composeRule.onRoot().captureToImage().asAndroidBitmap()
+        assertTrue(bitmap.width > 0 && bitmap.height > 0)
+        save(bitmap, "inbody-segment-maps.png")
     }
 
     @Test

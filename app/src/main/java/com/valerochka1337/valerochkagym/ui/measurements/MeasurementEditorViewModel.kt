@@ -1,37 +1,80 @@
 package com.valerochka1337.valerochkagym.ui.measurements
 
+import android.net.Uri
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.valerochka1337.valerochkagym.data.ai.InBodyReportAiReader
+import com.valerochka1337.valerochkagym.data.ai.InBodyReportAiResult
+import com.valerochka1337.valerochkagym.data.ai.InBodyReportDraft
 import com.valerochka1337.valerochkagym.data.db.dao.BodyMeasurementDao
 import com.valerochka1337.valerochkagym.data.db.entity.BodyMeasurementEntity
 import com.valerochka1337.valerochkagym.data.db.entity.UploadStatus
+import com.valerochka1337.valerochkagym.data.settings.OpenRouterKeyStore
+import com.valerochka1337.valerochkagym.domain.measurements.InBodySegment
+import com.valerochka1337.valerochkagym.domain.measurements.InBodySegmentValues
 import com.valerochka1337.valerochkagym.domain.measurements.calculateWaistHipRatio
+import com.valerochka1337.valerochkagym.domain.measurements.inBodySegmentValues
 import com.valerochka1337.valerochkagym.ui.navigation.GymRoutes
 import com.valerochka1337.valerochkagym.worker.MeasurementUploadScheduler
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.io.File
 import java.time.Instant
 import java.time.ZoneId
 import java.util.UUID
 import javax.inject.Inject
 
+/** String representation of the four editable values printed for a single InBody segment. */
+data class InBodySegmentInput(
+    val leanMassKg: String = "",
+    val leanPercentage: String = "",
+    val fatMassKg: String = "",
+    val fatPercentage: String = "",
+) {
+    val parsedValues: InBodySegmentValues
+        get() = InBodySegmentValues(
+            leanMassKg = decimalOrNull(leanMassKg),
+            leanPercentage = decimalOrNull(leanPercentage),
+            fatMassKg = decimalOrNull(fatMassKg),
+            fatPercentage = decimalOrNull(fatPercentage),
+        )
+}
+
 /** Черновик формы замера; строки позволяют спокойно вводить промежуточные значения вроде `1.`. */
 data class MeasurementEditorUiState(
     val isNew: Boolean = true,
     val isLoading: Boolean = false,
+    val isScanningInBody: Boolean = false,
+    val isSaving: Boolean = false,
+    val isOpenRouterConfigured: Boolean = false,
+    val inBodyScanError: String? = null,
+    val saveError: String? = null,
     val measuredAt: Long = System.currentTimeMillis(),
     val weightKg: String = "",
     val skeletalMuscleMassKg: String = "",
     val bodyFatPercentage: String = "",
+    val bodyFatMassKg: String = "",
     val visceralFatLevel: String = "",
     val waistHipRatio: String = "",
+    val inBodyScore: String = "",
+    val totalBodyWaterLiters: String = "",
+    val proteinKg: String = "",
+    val mineralsKg: String = "",
+    val bodyMassIndex: String = "",
+    val fatFreeMassKg: String = "",
+    val basalMetabolicRateKcal: String = "",
+    val recommendedCalorieIntakeKcal: String = "",
+    val segments: Map<InBodySegment, InBodySegmentInput> = defaultSegmentInputs(),
     val waistCm: String = "",
     val chestCm: String = "",
     val hipsCm: String = "",
@@ -41,7 +84,16 @@ data class MeasurementEditorUiState(
     val parsedWeightKg: Double? get() = decimalOrNull(weightKg)
     val parsedSkeletalMuscleMassKg: Double? get() = decimalOrNull(skeletalMuscleMassKg)
     val parsedBodyFatPercentage: Double? get() = decimalOrNull(bodyFatPercentage)
+    val parsedBodyFatMassKg: Double? get() = decimalOrNull(bodyFatMassKg)
     val parsedVisceralFatLevel: Int? get() = integerOrNull(visceralFatLevel)
+    val parsedInBodyScore: Int? get() = integerOrNull(inBodyScore)
+    val parsedTotalBodyWaterLiters: Double? get() = decimalOrNull(totalBodyWaterLiters)
+    val parsedProteinKg: Double? get() = decimalOrNull(proteinKg)
+    val parsedMineralsKg: Double? get() = decimalOrNull(mineralsKg)
+    val parsedBodyMassIndex: Double? get() = decimalOrNull(bodyMassIndex)
+    val parsedFatFreeMassKg: Double? get() = decimalOrNull(fatFreeMassKg)
+    val parsedBasalMetabolicRateKcal: Int? get() = integerOrNull(basalMetabolicRateKcal)
+    val parsedRecommendedCalorieIntakeKcal: Int? get() = integerOrNull(recommendedCalorieIntakeKcal)
     val parsedWaistCm: Double? get() = decimalOrNull(waistCm)
     val parsedChestCm: Double? get() = decimalOrNull(chestCm)
     val parsedHipsCm: Double? get() = decimalOrNull(hipsCm)
@@ -58,14 +110,25 @@ data class MeasurementEditorUiState(
             parsedWeightKg,
             parsedSkeletalMuscleMassKg,
             parsedBodyFatPercentage,
+            parsedBodyFatMassKg,
             parsedVisceralFatLevel,
             effectiveWaistHipRatio,
+            parsedInBodyScore,
+            parsedTotalBodyWaterLiters,
+            parsedProteinKg,
+            parsedMineralsKg,
+            parsedBodyMassIndex,
+            parsedFatFreeMassKg,
+            parsedBasalMetabolicRateKcal,
+            parsedRecommendedCalorieIntakeKcal,
             parsedWaistCm,
             parsedChestCm,
             parsedHipsCm,
             parsedRightRelaxedArmCm,
             parsedRightThighCm,
-        ).isNotEmpty()
+        ).isNotEmpty() || segments.values.any { it.parsedValues.hasAnyValue }
+
+    val isBusy: Boolean get() = isScanningInBody || isSaving
 }
 
 /**
@@ -78,6 +141,8 @@ class MeasurementEditorViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val bodyMeasurementDao: BodyMeasurementDao,
     private val uploadScheduler: MeasurementUploadScheduler,
+    private val inBodyReportAiReader: InBodyReportAiReader = NoOpInBodyReportAiReader,
+    private val openRouterKeyStore: OpenRouterKeyStore = NoOpOpenRouterKeyStore,
 ) : ViewModel() {
 
     private val measurementId: String? = savedStateHandle.get(GymRoutes.MEASUREMENT_ID_ARG)
@@ -94,6 +159,11 @@ class MeasurementEditorViewModel @Inject constructor(
     val finished = _finished.receiveAsFlow()
 
     init {
+        viewModelScope.launch {
+            openRouterKeyStore.isConfigured.collect { isConfigured ->
+                _uiState.update { it.copy(isOpenRouterConfigured = isConfigured) }
+            }
+        }
         measurementId?.let { id -> viewModelScope.launch { load(id) } }
     }
 
@@ -101,28 +171,20 @@ class MeasurementEditorViewModel @Inject constructor(
         val measurement = bodyMeasurementDao.getById(id)
         existingMeasurement = measurement
         _uiState.value = if (measurement == null) {
-            MeasurementEditorUiState(isNew = false, isLoading = false)
-        } else {
             MeasurementEditorUiState(
                 isNew = false,
-                measuredAt = measurement.measuredAt,
-                weightKg = measurement.weightKg.toInput(),
-                skeletalMuscleMassKg = measurement.skeletalMuscleMassKg.toInput(),
-                bodyFatPercentage = measurement.bodyFatPercentage.toInput(),
-                visceralFatLevel = measurement.visceralFatLevel?.toString().orEmpty(),
-                waistHipRatio = measurement.waistHipRatio.toInput(),
-                waistCm = measurement.waistCm.toInput(),
-                chestCm = measurement.chestCm.toInput(),
-                hipsCm = measurement.hipsCm.toInput(),
-                rightRelaxedArmCm = measurement.rightRelaxedArmCm.toInput(),
-                rightThighCm = measurement.rightThighCm.toInput(),
+                isLoading = false,
+                isOpenRouterConfigured = _uiState.value.isOpenRouterConfigured,
             )
+        } else {
+            measurement.toEditorState(isOpenRouterConfigured = _uiState.value.isOpenRouterConfigured)
         }
     }
 
     /** Меняет только календарную дату, сохраняя время ввода для отдельной колонки экспорта. */
     fun setDateFromUtcMillis(utcMidnightMillis: Long) {
         _uiState.update { state ->
+            if (state.isBusy) return@update state
             val pickedDate = Instant.ofEpochMilli(utcMidnightMillis).atZone(java.time.ZoneOffset.UTC).toLocalDate()
             val currentTime = Instant.ofEpochMilli(state.measuredAt).atZone(zone).toLocalTime()
             val measuredAt = pickedDate.atTime(currentTime).atZone(zone).toInstant().toEpochMilli()
@@ -133,32 +195,125 @@ class MeasurementEditorViewModel @Inject constructor(
     fun setWeightKg(value: String) = update { copy(weightKg = value) }
     fun setSkeletalMuscleMassKg(value: String) = update { copy(skeletalMuscleMassKg = value) }
     fun setBodyFatPercentage(value: String) = update { copy(bodyFatPercentage = value) }
+    fun setBodyFatMassKg(value: String) = update { copy(bodyFatMassKg = value) }
     fun setVisceralFatLevel(value: String) = update { copy(visceralFatLevel = value) }
     fun setWaistHipRatio(value: String) = update { copy(waistHipRatio = value) }
+    fun setInBodyScore(value: String) = update { copy(inBodyScore = value) }
+    fun setTotalBodyWaterLiters(value: String) = update { copy(totalBodyWaterLiters = value) }
+    fun setProteinKg(value: String) = update { copy(proteinKg = value) }
+    fun setMineralsKg(value: String) = update { copy(mineralsKg = value) }
+    fun setBodyMassIndex(value: String) = update { copy(bodyMassIndex = value) }
+    fun setFatFreeMassKg(value: String) = update { copy(fatFreeMassKg = value) }
+    fun setBasalMetabolicRateKcal(value: String) = update { copy(basalMetabolicRateKcal = value) }
+    fun setRecommendedCalorieIntakeKcal(value: String) = update { copy(recommendedCalorieIntakeKcal = value) }
     fun setWaistCm(value: String) = update { copy(waistCm = value) }
     fun setChestCm(value: String) = update { copy(chestCm = value) }
     fun setHipsCm(value: String) = update { copy(hipsCm = value) }
     fun setRightRelaxedArmCm(value: String) = update { copy(rightRelaxedArmCm = value) }
     fun setRightThighCm(value: String) = update { copy(rightThighCm = value) }
 
+    fun setSegmentLeanMassKg(segment: InBodySegment, value: String) = updateSegment(segment) {
+        copy(leanMassKg = value)
+    }
+
+    fun setSegmentLeanPercentage(segment: InBodySegment, value: String) = updateSegment(segment) {
+        copy(leanPercentage = value)
+    }
+
+    fun setSegmentFatMassKg(segment: InBodySegment, value: String) = updateSegment(segment) {
+        copy(fatMassKg = value)
+    }
+
+    fun setSegmentFatPercentage(segment: InBodySegment, value: String) = updateSegment(segment) {
+        copy(fatPercentage = value)
+    }
+
+    /**
+     * Replaces only report fields after a valid response. Manual circumferences are deliberately
+     * left untouched, and the draft stays editable until [save]. A camera cache file is deleted
+     * in the same coroutine only after its bytes have been consumed by the reader.
+     */
+    fun scanInBody(uri: Uri, temporaryCameraFile: File? = null) {
+        val state = _uiState.value
+        if (state.isLoading || state.isBusy) return
+        if (!state.isOpenRouterConfigured) {
+            _uiState.update { it.copy(inBodyScanError = MISSING_KEY_MESSAGE) }
+            temporaryCameraFile?.delete()
+            return
+        }
+        _uiState.update { it.copy(isScanningInBody = true, inBodyScanError = null, saveError = null) }
+        viewModelScope.launch {
+            try {
+                when (val result = inBodyReportAiReader.read(uri)) {
+                    is InBodyReportAiResult.Success -> _uiState.update { current ->
+                        current.applyInBodyDraft(result.draft).copy(isScanningInBody = false, inBodyScanError = null)
+                    }
+
+                    is InBodyReportAiResult.Failure -> _uiState.update { current ->
+                        current.copy(isScanningInBody = false, inBodyScanError = result.message)
+                    }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                _uiState.update { current ->
+                    current.copy(isScanningInBody = false, inBodyScanError = GENERIC_SCAN_FAILURE_MESSAGE)
+                }
+            } finally {
+                temporaryCameraFile?.delete()
+            }
+        }
+    }
+
     fun save() {
         val state = _uiState.value
-        if (state.isLoading || !state.canSave) return
+        if (state.isLoading || state.isBusy || !state.canSave) return
+        _uiState.update { it.copy(isSaving = true, saveError = null) }
         viewModelScope.launch {
             val old = existingMeasurement
             val alreadyUploaded = old?.uploadStatus == UploadStatus.UPLOADED
             val id = old?.id ?: UUID.randomUUID().toString()
+            val segments = state.segments
             val entity = BodyMeasurementEntity(
                 id = id,
                 measuredAt = state.measuredAt,
                 weightKg = state.parsedWeightKg,
                 skeletalMuscleMassKg = state.parsedSkeletalMuscleMassKg,
                 bodyFatPercentage = state.parsedBodyFatPercentage,
+                bodyFatMassKg = state.parsedBodyFatMassKg,
                 visceralFatLevel = state.parsedVisceralFatLevel,
                 // Храним только явно введённый WHR из InBody. Автоматический WHR — производная
                 // двух сохранённых обхватов; так при следующей правке талии/бёдер он пересчитается,
                 // а не останется устаревшим числом, выглядящим как ручное значение.
                 waistHipRatio = decimalOrNull(state.waistHipRatio),
+                inBodyScore = state.parsedInBodyScore,
+                totalBodyWaterLiters = state.parsedTotalBodyWaterLiters,
+                proteinKg = state.parsedProteinKg,
+                mineralsKg = state.parsedMineralsKg,
+                bodyMassIndex = state.parsedBodyMassIndex,
+                fatFreeMassKg = state.parsedFatFreeMassKg,
+                basalMetabolicRateKcal = state.parsedBasalMetabolicRateKcal,
+                recommendedCalorieIntakeKcal = state.parsedRecommendedCalorieIntakeKcal,
+                leftArmLeanMassKg = segments.valuesFor(InBodySegment.LEFT_ARM).leanMassKg,
+                leftArmLeanPercentage = segments.valuesFor(InBodySegment.LEFT_ARM).leanPercentage,
+                rightArmLeanMassKg = segments.valuesFor(InBodySegment.RIGHT_ARM).leanMassKg,
+                rightArmLeanPercentage = segments.valuesFor(InBodySegment.RIGHT_ARM).leanPercentage,
+                trunkLeanMassKg = segments.valuesFor(InBodySegment.TRUNK).leanMassKg,
+                trunkLeanPercentage = segments.valuesFor(InBodySegment.TRUNK).leanPercentage,
+                leftLegLeanMassKg = segments.valuesFor(InBodySegment.LEFT_LEG).leanMassKg,
+                leftLegLeanPercentage = segments.valuesFor(InBodySegment.LEFT_LEG).leanPercentage,
+                rightLegLeanMassKg = segments.valuesFor(InBodySegment.RIGHT_LEG).leanMassKg,
+                rightLegLeanPercentage = segments.valuesFor(InBodySegment.RIGHT_LEG).leanPercentage,
+                leftArmFatMassKg = segments.valuesFor(InBodySegment.LEFT_ARM).fatMassKg,
+                leftArmFatPercentage = segments.valuesFor(InBodySegment.LEFT_ARM).fatPercentage,
+                rightArmFatMassKg = segments.valuesFor(InBodySegment.RIGHT_ARM).fatMassKg,
+                rightArmFatPercentage = segments.valuesFor(InBodySegment.RIGHT_ARM).fatPercentage,
+                trunkFatMassKg = segments.valuesFor(InBodySegment.TRUNK).fatMassKg,
+                trunkFatPercentage = segments.valuesFor(InBodySegment.TRUNK).fatPercentage,
+                leftLegFatMassKg = segments.valuesFor(InBodySegment.LEFT_LEG).fatMassKg,
+                leftLegFatPercentage = segments.valuesFor(InBodySegment.LEFT_LEG).fatPercentage,
+                rightLegFatMassKg = segments.valuesFor(InBodySegment.RIGHT_LEG).fatMassKg,
+                rightLegFatPercentage = segments.valuesFor(InBodySegment.RIGHT_LEG).fatPercentage,
                 waistCm = state.parsedWaistCm,
                 chestCm = state.parsedChestCm,
                 hipsCm = state.parsedHipsCm,
@@ -167,14 +322,24 @@ class MeasurementEditorViewModel @Inject constructor(
                 uploadStatus = if (alreadyUploaded) UploadStatus.UPLOADED else UploadStatus.PENDING,
                 uploadError = null,
             )
-            if (old == null) bodyMeasurementDao.insert(entity) else bodyMeasurementDao.update(entity)
+            try {
+                if (old == null) bodyMeasurementDao.insert(entity) else bodyMeasurementDao.update(entity)
+            } catch (e: CancellationException) {
+                _uiState.update { it.copy(isSaving = false) }
+                throw e
+            } catch (_: Exception) {
+                _uiState.update { it.copy(isSaving = false, saveError = GENERIC_SAVE_FAILURE_MESSAGE) }
+                return@launch
+            }
             existingMeasurement = entity
             if (!alreadyUploaded) uploadScheduler.schedule(id)
+            _uiState.update { it.copy(isSaving = false) }
             _finished.send(Unit)
         }
     }
 
     fun delete() {
+        if (_uiState.value.isBusy) return
         val id = existingMeasurement?.id ?: return
         viewModelScope.launch {
             // Удаляем только локальную запись. Уже append-нутая строка Sheets исторически остаётся.
@@ -184,9 +349,118 @@ class MeasurementEditorViewModel @Inject constructor(
     }
 
     private inline fun update(transform: MeasurementEditorUiState.() -> MeasurementEditorUiState) {
-        _uiState.update(transform)
+        _uiState.update { state ->
+            if (state.isBusy) state else state.transform().copy(saveError = null)
+        }
+    }
+
+    private fun updateSegment(
+        segment: InBodySegment,
+        transform: InBodySegmentInput.() -> InBodySegmentInput,
+    ) = update {
+        copy(segments = segments + (segment to transform(segments.inputFor(segment))))
+    }
+
+    private companion object {
+        const val MISSING_KEY_MESSAGE = "Укажите ключ OpenRouter в настройках"
+        const val GENERIC_SCAN_FAILURE_MESSAGE = "Не удалось распознать лист InBody — попробуйте ещё раз"
+        const val GENERIC_SAVE_FAILURE_MESSAGE = "Не удалось сохранить замер — попробуйте ещё раз"
+
+        object NoOpInBodyReportAiReader : InBodyReportAiReader {
+            override suspend fun read(uri: Uri): InBodyReportAiResult =
+                InBodyReportAiResult.Failure(MISSING_KEY_MESSAGE)
+        }
+
+        object NoOpOpenRouterKeyStore : OpenRouterKeyStore {
+            override val isConfigured: Flow<Boolean> = flowOf(false)
+            override suspend fun save(value: String) = Unit
+            override suspend fun read(): String? = null
+            override suspend fun clear() = Unit
+        }
     }
 }
+
+private fun defaultSegmentInputs(): Map<InBodySegment, InBodySegmentInput> =
+    InBodySegment.entries.associateWith { InBodySegmentInput() }
+
+private fun Map<InBodySegment, InBodySegmentInput>.inputFor(segment: InBodySegment): InBodySegmentInput =
+    get(segment) ?: InBodySegmentInput()
+
+private fun Map<InBodySegment, InBodySegmentInput>.valuesFor(segment: InBodySegment): InBodySegmentValues =
+    inputFor(segment).parsedValues
+
+private fun MeasurementEditorUiState.applyInBodyDraft(draft: InBodyReportDraft): MeasurementEditorUiState {
+    val currentDateTime = Instant.ofEpochMilli(measuredAt).atZone(ZoneId.systemDefault()).toLocalDateTime()
+    val importedMeasuredAt = (draft.measuredDate ?: currentDateTime.toLocalDate())
+        .atTime(draft.measuredTime ?: currentDateTime.toLocalTime())
+        .atZone(ZoneId.systemDefault())
+        .toInstant()
+        .toEpochMilli()
+    return copy(
+        measuredAt = importedMeasuredAt,
+        weightKg = draft.weightKg.toInputOr(weightKg),
+        skeletalMuscleMassKg = draft.skeletalMuscleMassKg.toInputOr(skeletalMuscleMassKg),
+        bodyFatPercentage = draft.bodyFatPercentage.toInputOr(bodyFatPercentage),
+        bodyFatMassKg = draft.bodyFatMassKg.toInputOr(bodyFatMassKg),
+        visceralFatLevel = draft.visceralFatLevel?.toString() ?: visceralFatLevel,
+        waistHipRatio = draft.waistHipRatio.toInputOr(waistHipRatio),
+        inBodyScore = draft.inBodyScore?.toString() ?: inBodyScore,
+        totalBodyWaterLiters = draft.totalBodyWaterLiters.toInputOr(totalBodyWaterLiters),
+        proteinKg = draft.proteinKg.toInputOr(proteinKg),
+        mineralsKg = draft.mineralsKg.toInputOr(mineralsKg),
+        bodyMassIndex = draft.bodyMassIndex.toInputOr(bodyMassIndex),
+        fatFreeMassKg = draft.fatFreeMassKg.toInputOr(fatFreeMassKg),
+        basalMetabolicRateKcal = draft.basalMetabolicRateKcal?.toString() ?: basalMetabolicRateKcal,
+        recommendedCalorieIntakeKcal = draft.recommendedCalorieIntakeKcal?.toString()
+            ?: recommendedCalorieIntakeKcal,
+        segments = InBodySegment.entries.associateWith { segment ->
+            segments.inputFor(segment).merge(draft.segments[segment])
+        },
+    )
+}
+
+private fun BodyMeasurementEntity.toEditorState(isOpenRouterConfigured: Boolean): MeasurementEditorUiState =
+    MeasurementEditorUiState(
+        isNew = false,
+        isLoading = false,
+        isOpenRouterConfigured = isOpenRouterConfigured,
+        measuredAt = measuredAt,
+        weightKg = weightKg.toInput(),
+        skeletalMuscleMassKg = skeletalMuscleMassKg.toInput(),
+        bodyFatPercentage = bodyFatPercentage.toInput(),
+        bodyFatMassKg = bodyFatMassKg.toInput(),
+        visceralFatLevel = visceralFatLevel?.toString().orEmpty(),
+        waistHipRatio = waistHipRatio.toInput(),
+        inBodyScore = inBodyScore?.toString().orEmpty(),
+        totalBodyWaterLiters = totalBodyWaterLiters.toInput(),
+        proteinKg = proteinKg.toInput(),
+        mineralsKg = mineralsKg.toInput(),
+        bodyMassIndex = bodyMassIndex.toInput(),
+        fatFreeMassKg = fatFreeMassKg.toInput(),
+        basalMetabolicRateKcal = basalMetabolicRateKcal?.toString().orEmpty(),
+        recommendedCalorieIntakeKcal = recommendedCalorieIntakeKcal?.toString().orEmpty(),
+        segments = InBodySegment.entries.associateWith { segment -> inBodySegmentValues(segment).toInput() },
+        waistCm = waistCm.toInput(),
+        chestCm = chestCm.toInput(),
+        hipsCm = hipsCm.toInput(),
+        rightRelaxedArmCm = rightRelaxedArmCm.toInput(),
+        rightThighCm = rightThighCm.toInput(),
+    )
+
+private fun InBodySegmentValues?.toInput(): InBodySegmentInput = InBodySegmentInput(
+    leanMassKg = this?.leanMassKg.toInput(),
+    leanPercentage = this?.leanPercentage.toInput(),
+    fatMassKg = this?.fatMassKg.toInput(),
+    fatPercentage = this?.fatPercentage.toInput(),
+)
+
+/** Неочитанное поле повторного сканирования не должно стирать уже проверенное значение формы. */
+private fun InBodySegmentInput.merge(values: InBodySegmentValues?): InBodySegmentInput = copy(
+    leanMassKg = values?.leanMassKg.toInputOr(leanMassKg),
+    leanPercentage = values?.leanPercentage.toInputOr(leanPercentage),
+    fatMassKg = values?.fatMassKg.toInputOr(fatMassKg),
+    fatPercentage = values?.fatPercentage.toInputOr(fatPercentage),
+)
 
 private fun decimalOrNull(value: String): Double? =
     value.toDoubleOrNull()?.takeIf { it.isFinite() && it >= 0.0 }
@@ -194,3 +468,5 @@ private fun decimalOrNull(value: String): Double? =
 private fun integerOrNull(value: String): Int? = value.toIntOrNull()?.takeIf { it >= 0 }
 
 private fun Double?.toInput(): String = this?.toString().orEmpty()
+
+private fun Double?.toInputOr(previous: String): String = this?.toString() ?: previous

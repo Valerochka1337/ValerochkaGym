@@ -46,12 +46,14 @@ class OpenRouterExerciseAiGeneratorTest {
         assertEquals(0.1, request.temperature!!, 0.0)
         assertTrue(request.provider.requireParameters)
         assertTrue(request.responseFormat.jsonSchema.strict)
-        assertTrue(request.messages.first().content.contains("РОВНО ОДИН JSON-ОБЪЕКТ"))
-        assertTrue(request.messages.first().content.contains("Если есть сомнение, выбери kind=\"new\""))
-        assertTrue(request.messages.last().content.contains("Жим штанги лёжа"))
-        assertTrue(request.messages.last().content.contains("\"contribution\":100"))
-        assertTrue(request.messages.last().content.contains("<user_description_json>"))
-        assertTrue(request.messages.last().content.contains("Тяну гантель одной рукой"))
+        val systemContent = (request.messages.first().content as JsonPrimitive).content
+        val userContent = (request.messages.last().content as JsonPrimitive).content
+        assertTrue(systemContent.contains("РОВНО ОДИН JSON-ОБЪЕКТ"))
+        assertTrue(systemContent.contains("Если есть сомнение, выбери kind=\"new\""))
+        assertTrue(userContent.contains("Жим штанги лёжа"))
+        assertTrue(userContent.contains("\"contribution\":100"))
+        assertTrue(userContent.contains("<user_description_json>"))
+        assertTrue(userContent.contains("Тяну гантель одной рукой"))
     }
 
     @Test

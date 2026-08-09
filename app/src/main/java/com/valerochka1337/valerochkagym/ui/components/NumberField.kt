@@ -30,6 +30,7 @@ fun NumberField(
     label: String? = null,
     placeholder: String? = null,
     decimal: Boolean = false,
+    enabled: Boolean = true,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val focused by interactionSource.collectIsFocusedAsState()
@@ -46,6 +47,7 @@ fun NumberField(
             onValueChange(filtered)
         },
         modifier = modifier,
+        enabled = enabled,
         singleLine = true,
         interactionSource = interactionSource,
         label = label?.let { { Text(it, maxLines = 1, softWrap = false) } },

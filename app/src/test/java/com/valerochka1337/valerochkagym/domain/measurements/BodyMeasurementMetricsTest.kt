@@ -19,6 +19,22 @@ class BodyMeasurementMetricsTest {
     }
 
     @Test
+    fun `reported InBody fat mass has priority over the manual calculation`() {
+        val measurement = BodyMeasurementEntity(
+            id = "inbody",
+            measuredAt = 1_000,
+            weightKg = 70.0,
+            bodyFatPercentage = 25.0,
+            bodyFatMassKg = 14.8,
+            inBodyScore = 74,
+        )
+
+        assertEquals(14.8, BodyMeasurementMetric.BODY_FAT_MASS.value(measurement)!!, 1e-6)
+        assertEquals(74.0, BodyMeasurementMetric.INBODY_SCORE.value(measurement)!!, 1e-6)
+        assertEquals(MeasurementChartGroup.INBODY, BodyMeasurementMetric.INBODY_SCORE.group)
+    }
+
+    @Test
     fun `whr calculates from waist and hips when it is not entered`() {
         val measurement = measurement(waistCm = 72.0, hipsCm = 96.0)
 

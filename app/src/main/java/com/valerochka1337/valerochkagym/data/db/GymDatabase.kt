@@ -33,7 +33,7 @@ import com.valerochka1337.valerochkagym.data.db.entity.WorkoutSetEntity
         WorkoutExerciseEntity::class,
         WorkoutSetEntity::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -105,6 +105,46 @@ abstract class GymDatabase : RoomDatabase() {
                     "CREATE INDEX IF NOT EXISTS `index_body_measurements_uploadStatus` " +
                         "ON `body_measurements` (`uploadStatus`)",
                 )
+            }
+        }
+
+        /**
+         * v4 → v5: полный отчёт InBody. Все дополнительные значения nullable: старые ручные
+         * замеры остаются валидными, а отсутствующая строка отчёта не маскируется нулём.
+         */
+        val MIGRATION_4_5: Migration = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                listOf(
+                    "ALTER TABLE body_measurements ADD COLUMN bodyFatMassKg REAL",
+                    "ALTER TABLE body_measurements ADD COLUMN inBodyScore INTEGER",
+                    "ALTER TABLE body_measurements ADD COLUMN totalBodyWaterLiters REAL",
+                    "ALTER TABLE body_measurements ADD COLUMN proteinKg REAL",
+                    "ALTER TABLE body_measurements ADD COLUMN mineralsKg REAL",
+                    "ALTER TABLE body_measurements ADD COLUMN bodyMassIndex REAL",
+                    "ALTER TABLE body_measurements ADD COLUMN fatFreeMassKg REAL",
+                    "ALTER TABLE body_measurements ADD COLUMN basalMetabolicRateKcal INTEGER",
+                    "ALTER TABLE body_measurements ADD COLUMN recommendedCalorieIntakeKcal INTEGER",
+                    "ALTER TABLE body_measurements ADD COLUMN leftArmLeanMassKg REAL",
+                    "ALTER TABLE body_measurements ADD COLUMN leftArmLeanPercentage REAL",
+                    "ALTER TABLE body_measurements ADD COLUMN rightArmLeanMassKg REAL",
+                    "ALTER TABLE body_measurements ADD COLUMN rightArmLeanPercentage REAL",
+                    "ALTER TABLE body_measurements ADD COLUMN trunkLeanMassKg REAL",
+                    "ALTER TABLE body_measurements ADD COLUMN trunkLeanPercentage REAL",
+                    "ALTER TABLE body_measurements ADD COLUMN leftLegLeanMassKg REAL",
+                    "ALTER TABLE body_measurements ADD COLUMN leftLegLeanPercentage REAL",
+                    "ALTER TABLE body_measurements ADD COLUMN rightLegLeanMassKg REAL",
+                    "ALTER TABLE body_measurements ADD COLUMN rightLegLeanPercentage REAL",
+                    "ALTER TABLE body_measurements ADD COLUMN leftArmFatMassKg REAL",
+                    "ALTER TABLE body_measurements ADD COLUMN leftArmFatPercentage REAL",
+                    "ALTER TABLE body_measurements ADD COLUMN rightArmFatMassKg REAL",
+                    "ALTER TABLE body_measurements ADD COLUMN rightArmFatPercentage REAL",
+                    "ALTER TABLE body_measurements ADD COLUMN trunkFatMassKg REAL",
+                    "ALTER TABLE body_measurements ADD COLUMN trunkFatPercentage REAL",
+                    "ALTER TABLE body_measurements ADD COLUMN leftLegFatMassKg REAL",
+                    "ALTER TABLE body_measurements ADD COLUMN leftLegFatPercentage REAL",
+                    "ALTER TABLE body_measurements ADD COLUMN rightLegFatMassKg REAL",
+                    "ALTER TABLE body_measurements ADD COLUMN rightLegFatPercentage REAL",
+                ).forEach(db::execSQL)
             }
         }
     }

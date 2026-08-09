@@ -290,7 +290,10 @@ fun GymNavGraph(
             enterTransition = { slideIntoContainer(SlideDirection.Up, NavSlideSpec) },
             popExitTransition = { slideOutOfContainer(SlideDirection.Down, NavSlideSpec) },
         ) {
-            MeasurementEditorScreen(onBack = { navController.popBackStack() })
+            MeasurementEditorScreen(
+                onBack = { navController.popBackStack() },
+                onOpenSettings = { navController.navigate(GymRoutes.SETTINGS) },
+            )
         }
     }
 }

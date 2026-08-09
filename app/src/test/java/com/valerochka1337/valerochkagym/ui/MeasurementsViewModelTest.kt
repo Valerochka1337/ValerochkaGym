@@ -42,6 +42,8 @@ class MeasurementsViewModelTest {
             collectUiState(viewModel)
 
             assertEquals(listOf("recent"), viewModel.uiState.value.measurements!!.map { it.id })
+            assertEquals(listOf("recent", "old"), viewModel.uiState.value.allMeasurements!!.map { it.id })
+            assertTrue(viewModel.uiState.value.hasMeasurements)
             assertEquals(70.0, viewModel.uiState.value.summary.single { it.metric == BodyMeasurementMetric.WEIGHT }.value, 1e-6)
 
             viewModel.onPeriodSelected(MeasurementPeriod.ALL)
@@ -84,6 +86,25 @@ class MeasurementsViewModelTest {
             testScheduler.advanceUntilIdle()
 
             assertEquals(listOf("m1"), scheduler.retried)
+        }
+
+    @Test
+    fun `deleting from the complete measurement list removes the local record`() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val dao = FakeBodyMeasurementDao(
+                listOf(
+                    BodyMeasurementEntity(id = "visible", measuredAt = System.currentTimeMillis(), weightKg = 70.0),
+                    BodyMeasurementEntity(id = "archived", measuredAt = 1_000L, inBodyScore = 74),
+                ),
+            )
+            val viewModel = MeasurementsViewModel(dao, FakeMeasurementUploadScheduler(), mainDispatcherRule.testDispatcher)
+            collectUiState(viewModel)
+
+            viewModel.deleteMeasurement("archived")
+            testScheduler.advanceUntilIdle()
+
+            assertEquals(listOf("visible"), viewModel.uiState.value.allMeasurements!!.map { it.id })
+            assertEquals(listOf("visible"), viewModel.uiState.value.measurements!!.map { it.id })
         }
 
     private suspend fun TestScope.collectUiState(viewModel: MeasurementsViewModel) {

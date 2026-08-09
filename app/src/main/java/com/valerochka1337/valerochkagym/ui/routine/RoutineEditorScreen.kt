@@ -122,13 +122,13 @@ fun RoutineEditorScreen(
             ) {
                 itemsIndexed(
                     state.exercises,
-                    // Ключ по упражнению (а не по позиции): корректная анимация reorder/удаления
-                    // и правильная привязка локального состояния полей ввода к своей карточке.
-                    key = { _, exercise -> exercise.exerciseId },
+                    // В программе одно и то же упражнение может встречаться несколько раз,
+                    // поэтому используем отдельный стабильный id строки, а не exerciseId.
+                    key = { _, exercise -> exercise.editorId },
                 ) { index, exercise ->
                     ReorderableItem(
                         state = reorderableLazyListState,
-                        key = exercise.exerciseId,
+                        key = exercise.editorId,
                     ) { isDragging ->
                         val reorderableItemScope = this
                         val moveActions = buildList {
