@@ -33,6 +33,10 @@ import javax.inject.Inject
 
 /** Шаг изменения отдыха по умолчанию и его нижняя граница (в секундах). */
 private const val MIN_REST_SECONDS = 15
+private const val MIN_HEART_RATE_REST_THRESHOLD_BPM = 40
+private const val MAX_HEART_RATE_REST_THRESHOLD_BPM = 220
+private const val MIN_HEART_RATE_REST_HOLD_SECONDS = 5
+private const val MAX_HEART_RATE_REST_HOLD_SECONDS = 60
 
 /** Сообщение об ошибке настройки OAuth-доступа. */
 private const val AUTH_ERROR_MESSAGE = "Не удалось настроить доступ — попробуйте ещё раз"
@@ -258,6 +262,30 @@ class SettingsViewModel @Inject constructor(
     /** Автостарт таймера отдыха после отметки подхода. */
     fun toggleRestAutostart(enabled: Boolean) {
         viewModelScope.launch { settingsRepository.setRestAutostart(enabled) }
+    }
+
+    fun toggleHeartRateRest(enabled: Boolean) {
+        viewModelScope.launch { settingsRepository.setHeartRateRestEnabled(enabled) }
+    }
+
+    fun changeHeartRateRestThreshold(delta: Int) {
+        val current = uiState.value.settings?.heartRateRestThresholdBpm ?: return
+        val next = (current + delta).coerceIn(
+            MIN_HEART_RATE_REST_THRESHOLD_BPM,
+            MAX_HEART_RATE_REST_THRESHOLD_BPM,
+        )
+        if (next == current) return
+        viewModelScope.launch { settingsRepository.setHeartRateRestThresholdBpm(next) }
+    }
+
+    fun changeHeartRateRestHoldSeconds(delta: Int) {
+        val current = uiState.value.settings?.heartRateRestHoldSeconds ?: return
+        val next = (current + delta).coerceIn(
+            MIN_HEART_RATE_REST_HOLD_SECONDS,
+            MAX_HEART_RATE_REST_HOLD_SECONDS,
+        )
+        if (next == current) return
+        viewModelScope.launch { settingsRepository.setHeartRateRestHoldSeconds(next) }
     }
 
     /** Копирует базу в выбранный пользователем документ (SAF) и сообщает итог снэкбаром. */

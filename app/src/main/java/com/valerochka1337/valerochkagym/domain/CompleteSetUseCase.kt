@@ -34,7 +34,15 @@ class CompleteSetUseCase @Inject constructor(
         val exerciseId = workout?.exercises
             ?.firstOrNull { exercise -> exercise.sets.any { it.id == setId } }
             ?.exercise?.id ?: return
-        if (!settingsRepository.settings.first().restAutostart) return
-        restTimerEngine.start(restDurationResolver(workout, exerciseId))
+        val settings = settingsRepository.settings.first()
+        if (!settings.restAutostart) return
+        if (settings.heartRateRestEnabled) {
+            restTimerEngine.startUntilHeartRateAtMost(
+                thresholdBpm = settings.heartRateRestThresholdBpm,
+                holdSeconds = settings.heartRateRestHoldSeconds,
+            )
+        } else {
+            restTimerEngine.start(restDurationResolver(workout, exerciseId))
+        }
     }
 }

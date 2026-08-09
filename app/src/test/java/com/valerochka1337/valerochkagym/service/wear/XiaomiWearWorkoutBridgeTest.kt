@@ -43,7 +43,7 @@ class XiaomiWearWorkoutBridgeTest {
         )
         bridge.publish(
             workout,
-            RestTimerState(totalSec = 90, remainingSec = 89, endsAtMillis = 10_000),
+            RestTimerState.Timed(totalSec = 90, remainingSec = 89, endsAtMillis = 10_000),
         )
 
         val first = payload(transport.sent.single())
@@ -57,13 +57,13 @@ class XiaomiWearWorkoutBridgeTest {
         // remainingSec меняется каждую секунду, но endsAt остаётся тем же: RPK считает его сам.
         bridge.publish(
             workout,
-            RestTimerState(totalSec = 90, remainingSec = 88, endsAtMillis = 10_000),
+            RestTimerState.Timed(totalSec = 90, remainingSec = 88, endsAtMillis = 10_000),
         )
         assertEquals(1, transport.sent.size)
 
         bridge.publish(
             workout,
-            RestTimerState(totalSec = 105, remainingSec = 103, endsAtMillis = 25_000),
+            RestTimerState.Timed(totalSec = 105, remainingSec = 103, endsAtMillis = 25_000),
         )
         assertEquals(2, transport.sent.size)
         val second = payload(transport.sent.last())
@@ -71,6 +71,24 @@ class XiaomiWearWorkoutBridgeTest {
         assertTrue(
             second["sequence"]!!.jsonPrimitive.long > first["sequence"]!!.jsonPrimitive.long,
         )
+    }
+
+    @Test
+    fun `heart rate rest keeps the existing protocol and omits a timer deadline`() = runTest {
+        val transport = FakeWearableTransport()
+        val bridge = XiaomiWearWorkoutBridge(transport)
+        bridge.start()
+        transport.connect()
+
+        bridge.publish(
+            workout(exercise("Жим лёжа", set(id = 1))),
+            RestTimerState.HeartRate(thresholdBpm = 110, holdSeconds = 10, startedAtMillis = 1_000),
+        )
+
+        val state = payload(transport.sent.single())
+        assertEquals("rest", state["phase"]?.jsonPrimitive?.content)
+        assertTrue(state["restEndsAtMillis"]!!.jsonPrimitive.isString.not())
+        assertEquals("timer", state["restMode"]?.jsonPrimitive?.content)
     }
 
     @Test

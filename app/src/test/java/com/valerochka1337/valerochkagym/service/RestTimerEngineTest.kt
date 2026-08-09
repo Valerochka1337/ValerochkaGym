@@ -44,16 +44,16 @@ class RestTimerEngineTest {
             val finished = collectFinished(engine)
 
             engine.start(3)
-            assertEquals(RestTimerState(3, remainingSec = 3, endsAtMillis = 3_000), engine.state.value)
+            assertEquals(RestTimerState.Timed(3, remainingSec = 3, endsAtMillis = 3_000), engine.state.value)
 
             advanceSeconds(1)
-            assertEquals(RestTimerState(3, remainingSec = 2, endsAtMillis = 3_000), engine.state.value)
+            assertEquals(RestTimerState.Timed(3, remainingSec = 2, endsAtMillis = 3_000), engine.state.value)
             advanceSeconds(1)
-            assertEquals(RestTimerState(3, remainingSec = 1, endsAtMillis = 3_000), engine.state.value)
+            assertEquals(RestTimerState.Timed(3, remainingSec = 1, endsAtMillis = 3_000), engine.state.value)
 
             advanceSeconds(1)
             // Final frame: remainingSec == 0 is observable, and finished fires exactly once.
-            assertEquals(RestTimerState(3, remainingSec = 0, endsAtMillis = 3_000), engine.state.value)
+            assertEquals(RestTimerState.Timed(3, remainingSec = 0, endsAtMillis = 3_000), engine.state.value)
             assertEquals(1, finished.size)
 
             // After FINAL_FRAME_MS the state auto-resets to null (inactive).
@@ -69,12 +69,12 @@ class RestTimerEngineTest {
 
         engine.start(10)
         advanceSeconds(3)
-        assertEquals(RestTimerState(10, remainingSec = 7, endsAtMillis = 10_000), engine.state.value)
+        assertEquals(RestTimerState.Timed(10, remainingSec = 7, endsAtMillis = 10_000), engine.state.value)
 
         engine.addSeconds(15)
         // Deadline moves 10s → 25s; remaining becomes 22 and total grows to max(10, 22) so it stays
         // >= remaining (the progress bar would otherwise overflow).
-        assertEquals(RestTimerState(22, remainingSec = 22, endsAtMillis = 25_000), engine.state.value)
+        assertEquals(RestTimerState.Timed(22, remainingSec = 22, endsAtMillis = 25_000), engine.state.value)
     }
 
     @Test
@@ -85,12 +85,12 @@ class RestTimerEngineTest {
 
             engine.start(10)
             advanceSeconds(5)
-            assertEquals(RestTimerState(10, remainingSec = 5, endsAtMillis = 10_000), engine.state.value)
+            assertEquals(RestTimerState.Timed(10, remainingSec = 5, endsAtMillis = 10_000), engine.state.value)
 
             engine.addSeconds(-999)
             // The deadline is pinned at "now" rather than sent far into the past, so remaining is 0
             // right away — but addSeconds never emits finished and the ticker keeps running.
-            assertEquals(RestTimerState(10, remainingSec = 0, endsAtMillis = 5_000), engine.state.value)
+            assertEquals(RestTimerState.Timed(10, remainingSec = 0, endsAtMillis = 5_000), engine.state.value)
             assertTrue(finished.isEmpty())
 
             // The next tick observes remainingSec == 0, emits finished once, then FINAL_FRAME_MS clears it.
@@ -108,12 +108,12 @@ class RestTimerEngineTest {
 
         engine.start(1)
         advanceSeconds(1)
-        assertEquals(RestTimerState(1, remainingSec = 0, endsAtMillis = 1_000), engine.state.value)
+        assertEquals(RestTimerState.Timed(1, remainingSec = 0, endsAtMillis = 1_000), engine.state.value)
         assertEquals(1, finished.size)
 
         engine.addSeconds(15)
         // remainingSec == 0 ⇒ addSeconds returns the state unchanged; the timer must not come back to life.
-        assertEquals(RestTimerState(1, remainingSec = 0, endsAtMillis = 1_000), engine.state.value)
+        assertEquals(RestTimerState.Timed(1, remainingSec = 0, endsAtMillis = 1_000), engine.state.value)
 
         advanceSeconds(1)
         assertNull(engine.state.value)
@@ -127,7 +127,7 @@ class RestTimerEngineTest {
 
         engine.start(60)
         advanceSeconds(5)
-        assertEquals(RestTimerState(60, remainingSec = 55, endsAtMillis = 60_000), engine.state.value)
+        assertEquals(RestTimerState.Timed(60, remainingSec = 55, endsAtMillis = 60_000), engine.state.value)
 
         engine.skip()
         assertNull(engine.state.value)
@@ -139,20 +139,72 @@ class RestTimerEngineTest {
     }
 
     @Test
+    fun `heart rate rest requires a continuous low reading for the configured duration`() = runTest {
+        val engine = engine()
+        val finished = collectFinished(engine)
+
+        engine.startUntilHeartRateAtMost(thresholdBpm = 110, holdSeconds = 10)
+        assertEquals(
+            RestTimerState.HeartRate(thresholdBpm = 110, holdSeconds = 10, startedAtMillis = 0),
+            engine.state.value,
+        )
+
+        // The reading at the moment of start and readings above the threshold do not start the hold.
+        engine.onHeartRate(bpm = 90, updatedAtMillis = 0)
+        engine.onHeartRate(bpm = 125, updatedAtMillis = 1)
+        assertTrue(engine.state.value is RestTimerState.HeartRate)
+        assertTrue(finished.isEmpty())
+
+        engine.onHeartRate(bpm = 110, updatedAtMillis = 2)
+        engine.onHeartRate(bpm = 100, updatedAtMillis = 10_001)
+        assertTrue(engine.state.value is RestTimerState.HeartRate)
+        assertTrue(finished.isEmpty())
+
+        // A high reading and a missing reading both restart the continuous hold.
+        engine.onHeartRate(bpm = 111, updatedAtMillis = 10_002)
+        engine.onHeartRate(bpm = 100, updatedAtMillis = 10_003)
+        engine.onHeartRateUnavailable()
+        engine.onHeartRate(bpm = 100, updatedAtMillis = 10_004)
+        engine.onHeartRate(bpm = 100, updatedAtMillis = 20_004)
+        assertNull(engine.state.value)
+        assertEquals(1, finished.size)
+
+        engine.onHeartRate(bpm = 80, updatedAtMillis = 20_005)
+        assertEquals(1, finished.size)
+    }
+
+    @Test
+    fun `heart rate rest ignores timer adjustments and manual skip does not finish it`() = runTest {
+        val engine = engine()
+        val finished = collectFinished(engine)
+
+        engine.startUntilHeartRateAtMost(thresholdBpm = 110, holdSeconds = 10)
+        engine.addSeconds(15)
+        assertEquals(
+            RestTimerState.HeartRate(thresholdBpm = 110, holdSeconds = 10, startedAtMillis = 0),
+            engine.state.value,
+        )
+
+        engine.skip()
+        assertNull(engine.state.value)
+        assertTrue(finished.isEmpty())
+    }
+
+    @Test
     fun `a second start restarts the timer and the stale ticker has no effect`() = runTest {
         val engine = engine()
         val finished = collectFinished(engine)
 
         engine.start(60)
         advanceSeconds(10)
-        assertEquals(RestTimerState(60, remainingSec = 50, endsAtMillis = 60_000), engine.state.value)
+        assertEquals(RestTimerState.Timed(60, remainingSec = 50, endsAtMillis = 60_000), engine.state.value)
 
         engine.start(30)
-        assertEquals(RestTimerState(30, remainingSec = 30, endsAtMillis = 40_000), engine.state.value)
+        assertEquals(RestTimerState.Timed(30, remainingSec = 30, endsAtMillis = 40_000), engine.state.value)
 
         // Only the fresh 30s ticker reaches zero; the old one never fires.
         advanceSeconds(30)
-        assertEquals(RestTimerState(30, remainingSec = 0, endsAtMillis = 40_000), engine.state.value)
+        assertEquals(RestTimerState.Timed(30, remainingSec = 0, endsAtMillis = 40_000), engine.state.value)
         assertEquals(1, finished.size)
     }
 
@@ -189,17 +241,17 @@ class RestTimerEngineTest {
 
         engine.start(1)
         advanceSeconds(1)
-        assertEquals(RestTimerState(1, remainingSec = 0, endsAtMillis = 1_000), engine.state.value)
+        assertEquals(RestTimerState.Timed(1, remainingSec = 0, endsAtMillis = 1_000), engine.state.value)
         assertEquals(1, finished.size)
 
         // Restart before FINAL_FRAME_MS elapses: the generation guard must stop the stale ticker from
         // resetting state to null after its delay.
         engine.start(45)
-        assertEquals(RestTimerState(45, remainingSec = 45, endsAtMillis = 46_000), engine.state.value)
+        assertEquals(RestTimerState.Timed(45, remainingSec = 45, endsAtMillis = 46_000), engine.state.value)
 
         advanceSeconds(1)
         // The stale ticker's reset window has passed, yet the new timer is untouched and ticking.
-        assertEquals(RestTimerState(45, remainingSec = 44, endsAtMillis = 46_000), engine.state.value)
+        assertEquals(RestTimerState.Timed(45, remainingSec = 44, endsAtMillis = 46_000), engine.state.value)
         assertEquals(1, finished.size)
     }
 
@@ -213,17 +265,17 @@ class RestTimerEngineTest {
         val finished = collectFinished(engine)
 
         engine.start(60)
-        assertEquals(RestTimerState(60, remainingSec = 60, endsAtMillis = 60_000), engine.state.value)
+        assertEquals(RestTimerState.Timed(60, remainingSec = 60, endsAtMillis = 60_000), engine.state.value)
 
         wallMillis = 45_000
         advanceSeconds(1)
-        assertEquals(15, engine.state.value?.remainingSec)
+        assertEquals(15, (engine.state.value as? RestTimerState.Timed)?.remainingSec)
         assertTrue(finished.isEmpty())
 
         // Stalled straight past the deadline: the first tick after the thaw finishes the rest.
         wallMillis = 61_000
         advanceSeconds(1)
-        assertEquals(0, engine.state.value?.remainingSec)
+        assertEquals(0, (engine.state.value as? RestTimerState.Timed)?.remainingSec)
         assertEquals(1, finished.size)
     }
 

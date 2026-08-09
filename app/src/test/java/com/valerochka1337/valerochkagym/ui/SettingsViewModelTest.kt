@@ -105,6 +105,37 @@ class SettingsViewModelTest {
             assertEquals(15, viewModel.uiState.value.settings?.defaultRestSeconds)
         }
 
+    @Test
+    fun `heart rate rest defaults to disabled with a threshold and hold duration`() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val viewModel = SettingsViewModel(settingsRepository(), FakeGoogleAuth(), FakeUploadScheduler(), FakeImportRepository(), FakeDatabaseExporter(), FakeClearData())
+            collectUiState(viewModel)
+
+            assertFalse(viewModel.uiState.value.settings?.heartRateRestEnabled ?: true)
+            assertEquals(110, viewModel.uiState.value.settings?.heartRateRestThresholdBpm)
+            assertEquals(10, viewModel.uiState.value.settings?.heartRateRestHoldSeconds)
+        }
+
+    @Test
+    fun `heart rate rest toggle and threshold stay within their bounds`() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val viewModel = SettingsViewModel(settingsRepository(), FakeGoogleAuth(), FakeUploadScheduler(), FakeImportRepository(), FakeDatabaseExporter(), FakeClearData())
+            collectUiState(viewModel)
+
+            viewModel.toggleHeartRateRest(true)
+            viewModel.changeHeartRateRestThreshold(1_000)
+            assertTrue(viewModel.uiState.value.settings?.heartRateRestEnabled ?: false)
+            assertEquals(220, viewModel.uiState.value.settings?.heartRateRestThresholdBpm)
+
+            viewModel.changeHeartRateRestThreshold(-1_000)
+            assertEquals(40, viewModel.uiState.value.settings?.heartRateRestThresholdBpm)
+
+            viewModel.changeHeartRateRestHoldSeconds(1_000)
+            assertEquals(60, viewModel.uiState.value.settings?.heartRateRestHoldSeconds)
+            viewModel.changeHeartRateRestHoldSeconds(-1_000)
+            assertEquals(5, viewModel.uiState.value.settings?.heartRateRestHoldSeconds)
+        }
+
     // endregion
 
     // region spreadsheet input

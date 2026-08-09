@@ -37,6 +37,7 @@ import com.valerochka1337.valerochkagym.service.wear.XiaomiWearWorkoutBridge
 import com.valerochka1337.valerochkagym.service.wear.XiaomiWearWorkoutBridge.WatchCommand
 import com.valerochka1337.valerochkagym.service.heartrate.HeartRateConnectionState
 import com.valerochka1337.valerochkagym.service.heartrate.HeartRateMonitor
+import com.valerochka1337.valerochkagym.service.heartrate.freshAt
 import com.valerochka1337.valerochkagym.ui.navigation.GymRoutes
 import com.valerochka1337.valerochkagym.ui.theme.AccentColor
 import dagger.hilt.android.AndroidEntryPoint
@@ -212,11 +213,17 @@ class WorkoutSessionService : LifecycleService() {
         }
     }
 
-    /** Live HR не сохраняем: пока сервис сессии жив, он только зеркалит свежий пакет на RPK. */
+/** Live HR не сохраняем: сервис зеркалит свежий пакет на RPK и завершает подходящий отдых. */
     private fun observeHeartRate() {
         lifecycleScope.launch {
             heartRateMonitor.reading.collect { reading ->
                 xiaomiWearWorkoutBridge.publishHeartRate(reading)
+                val fresh = reading.freshAt(System.currentTimeMillis())
+                if (fresh != null) {
+                    restTimerEngine.onHeartRate(fresh.bpm, fresh.updatedAtMillis)
+                } else {
+                    restTimerEngine.onHeartRateUnavailable()
+                }
             }
         }
         lifecycleScope.launch {
@@ -359,19 +366,29 @@ class WorkoutSessionService : LifecycleService() {
         val builder = baseBuilder()
             .setSmallIcon(R.drawable.ic_rest_timer)
             .setContentTitle(restTitle(workout?.currentFocus(), done))
-            // Система сама тикает отсчёт до дедлайна — и в шторке, и в чипе статус-бара.
-            // shortCriticalText здесь намеренно не ставим: он бы вытеснил живое время.
-            .setUsesChronometer(true)
-            .setChronometerCountDown(true)
-            .setWhen(rest.endsAtMillis)
-            .setShowWhen(true)
-            .setStyle(restProgressStyle(rest))
-            .addAction(action(R.drawable.ic_notif_plus, ADD_15_LABEL, ACTION_REST_ADD_15, REQUEST_ADD_15))
             .addAction(action(R.drawable.ic_notif_skip, SKIP_LABEL, ACTION_REST_SKIP, REQUEST_SKIP))
+
+        when (rest) {
+            is RestTimerState.Timed -> builder
+                // Система сама тикает отсчёт до дедлайна — и в шторке, и в чипе статус-бара.
+                // shortCriticalText здесь намеренно не ставим: он бы вытеснил живое время.
+                .setUsesChronometer(true)
+                .setChronometerCountDown(true)
+                .setWhen(rest.endsAtMillis)
+                .setShowWhen(true)
+                .setStyle(restProgressStyle(rest))
+                .addAction(action(R.drawable.ic_notif_plus, ADD_15_LABEL, ACTION_REST_ADD_15, REQUEST_ADD_15))
+
+            is RestTimerState.HeartRate -> builder.setContentText(
+                "Ожидание пульса ≤ ${rest.thresholdBpm} BPM",
+            )
+        }
 
         if (done != null) {
             val value = formatSet(done.set, done.type)
-            builder.setContentText(listOfNotNull(done.exerciseName, value).joinToString(" · "))
+            if (rest is RestTimerState.Timed) {
+                builder.setContentText(listOfNotNull(done.exerciseName, value).joinToString(" · "))
+            }
             builder.addAction(quickEditAction(done.type))
         }
         return builder.build()
@@ -398,7 +415,7 @@ class WorkoutSessionService : LifecycleService() {
     }
 
     /** Одна полоса, заполняющаяся по мере отдыха. */
-    private fun restProgressStyle(rest: RestTimerState): Notification.ProgressStyle =
+    private fun restProgressStyle(rest: RestTimerState.Timed): Notification.ProgressStyle =
         Notification.ProgressStyle()
             .setProgressTrackerIcon(Icon.createWithResource(this, R.drawable.ic_rest_timer))
             .addProgressSegment(
@@ -561,8 +578,8 @@ class WorkoutSessionService : LifecycleService() {
         private const val DEFAULT_WORKOUT_TITLE = "Тренировка"
         private const val ALL_SETS_DONE_TEXT = "Все подходы выполнены"
         private const val REST_TITLE = "Отдых"
-        private const val REST_DONE_TITLE = "Отдых окончен"
-        private const val REST_DONE_TEXT = "Таймер завершён"
+    private const val REST_DONE_TITLE = "Отдых завершён"
+    private const val REST_DONE_TEXT = "Иди работай"
     }
 }
 

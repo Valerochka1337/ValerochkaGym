@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -422,6 +423,7 @@ private fun ActiveWorkoutContent(
         ) {
             RestTimerPill(
                 restTimer = restTimer,
+                heartRateReading = heartRateReading,
                 onAddRestSeconds = onAddRestSeconds,
                 onSkipRest = onSkipRest,
             )
@@ -589,18 +591,18 @@ private fun HeartRateBubble(
 }
 
 /**
- * Пилюля таймера отдыха внизу экрана. Видна только пока идёт отдых ([restTimer] != null);
- * появление/исчезновение анимируется выездом снизу с затуханием. Слева «−15с», по центру
- * «⏱ M:SS» (тап = пропустить), справа «+15с». Собирает [restTimer] внутри себя, чтобы
- * посекундный тик не рекомпозил остальной экран.
+ * Пилюля отдыха внизу экрана. В таймерном режиме показывает «−15с / M:SS / +15с», а в режиме
+ * пульса — текущий BPM и порог; тап по центру всегда пропускает отдых.
  */
 @Composable
 private fun RestTimerPill(
     restTimer: StateFlow<RestTimerState?>,
+    heartRateReading: StateFlow<HeartRateReading?>,
     onAddRestSeconds: (Int) -> Unit,
     onSkipRest: () -> Unit,
 ) {
     val rest by restTimer.collectAsStateWithLifecycle()
+    val reading by heartRateReading.collectAsStateWithLifecycle()
     AnimatedVisibility(
         visible = rest != null,
         enter = slideInVertically(GymMotion.spatialDefault()) { it } + fadeIn(GymMotion.effectsDefault()),
@@ -621,34 +623,64 @@ private fun RestTimerPill(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             val haptics = gymHaptics()
-            RestPillSide(symbol = "−15с", contentDescription = "убавить отдых") {
-                haptics.step()
-                onAddRestSeconds(-REST_TIMER_STEP)
-            }
-            Row(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxHeight()
-                    .clickable(role = Role.Button, onClick = {
-                        haptics.tap()
-                        onSkipRest()
-                    })
-                    .semantics { contentDescription = "Пропустить отдых" },
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = "⏱ ${formatRestClock(state.remainingSec)}",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onPrimary,
-                )
-            }
-            RestPillSide(symbol = "+15с", contentDescription = "прибавить отдых") {
-                haptics.step()
-                onAddRestSeconds(REST_TIMER_STEP)
+            when (state) {
+                is RestTimerState.Timed -> {
+                    RestPillSide(symbol = "−15с", contentDescription = "убавить отдых") {
+                        haptics.step()
+                        onAddRestSeconds(-REST_TIMER_STEP)
+                    }
+                    SkipRestButton(onSkipRest) {
+                        Text(
+                            text = "⏱ ${formatRestClock(state.remainingSec)}",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onPrimary,
+                        )
+                    }
+                    RestPillSide(symbol = "+15с", contentDescription = "прибавить отдых") {
+                        haptics.step()
+                        onAddRestSeconds(REST_TIMER_STEP)
+                    }
+                }
+
+                is RestTimerState.HeartRate -> SkipRestButton(onSkipRest) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.Favorite,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.background,
+                            modifier = Modifier.size(14.dp),
+                        )
+                        Spacer(Modifier.width(5.dp))
+                        Text(
+                            text = "${reading?.bpm ?: "—"} · ≤ ${state.thresholdBpm} BPM",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onPrimary,
+                        )
+                    }
+                }
             }
         }
+    }
+}
+
+@Composable
+private fun RowScope.SkipRestButton(onSkipRest: () -> Unit, content: @Composable () -> Unit) {
+    val haptics = gymHaptics()
+    Row(
+        modifier = Modifier
+            .weight(1f)
+            .fillMaxHeight()
+            .clickable(role = Role.Button, onClick = {
+                haptics.tap()
+                onSkipRest()
+            })
+            .semantics { contentDescription = "Пропустить отдых" },
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        content()
     }
 }
 

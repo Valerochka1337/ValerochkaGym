@@ -49,6 +49,7 @@ import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.valerochka1337.valerochkagym.R
+import com.valerochka1337.valerochkagym.service.RestTimerState
 import com.valerochka1337.valerochkagym.ui.common.formatRestClock
 import com.valerochka1337.valerochkagym.ui.haptics.gymHaptics
 import com.valerochka1337.valerochkagym.ui.theme.GymMotion
@@ -164,7 +165,7 @@ fun MainScaffold(
 
 /**
  * Плашка идущей тренировки: та же информация и тот же язык, что в уведомлении в шторке —
- * во время отдыха живой отсчёт и полоса заполнения, между подходами упражнение и номер подхода.
+ * во время отдыха отсчёт либо ожидание пульса, между подходами упражнение и номер подхода.
  */
 @Composable
 private fun ResumeWorkoutBanner(state: SessionBannerState, onClick: () -> Unit) {
@@ -193,7 +194,7 @@ private fun ResumeWorkoutBanner(state: SessionBannerState, onClick: () -> Unit) 
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = if (rest != null) {
-                        "Отдых · ${formatRestClock(rest.remainingSec)}"
+                        restLabel(rest)
                     } else {
                         "Тренировка идёт"
                     },
@@ -219,7 +220,7 @@ private fun ResumeWorkoutBanner(state: SessionBannerState, onClick: () -> Unit) 
                 color = MaterialTheme.colorScheme.onPrimaryContainer,
             )
         }
-        if (rest != null && rest.totalSec > 0) {
+        if (rest is RestTimerState.Timed && rest.totalSec > 0) {
             Spacer(Modifier.height(12.dp))
             val elapsed = (rest.totalSec - rest.remainingSec).toFloat() / rest.totalSec
             LinearProgressIndicator(
@@ -235,6 +236,11 @@ private fun ResumeWorkoutBanner(state: SessionBannerState, onClick: () -> Unit) 
             )
         }
     }
+}
+
+private fun restLabel(rest: RestTimerState): String = when (rest) {
+    is RestTimerState.Timed -> "Отдых · ${formatRestClock(rest.remainingSec)}"
+    is RestTimerState.HeartRate -> "Отдых · пульс ≤ ${rest.thresholdBpm} BPM"
 }
 
 /** «Жим лёжа · 60×10» во время отдыха, «Жим лёжа · подход 3 из 4» между подходами. */

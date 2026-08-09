@@ -13,6 +13,7 @@ import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleGroup
 import com.valerochka1337.valerochkagym.data.settings.SettingsRepository
 import com.valerochka1337.valerochkagym.service.RestTimerEngine
+import com.valerochka1337.valerochkagym.service.RestTimerState
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -50,10 +51,10 @@ class CompleteSetUseCaseTest : RoomDaoTest() {
         useCase(setId)
 
         assertTrue(repository.getSet(setId)!!.isCompleted)
-        assertEquals(90, engine.state.value?.totalSec)
-        assertEquals(90, engine.state.value?.remainingSec)
+        assertEquals(90, (engine.state.value as? RestTimerState.Timed)?.totalSec)
+        assertEquals(90, (engine.state.value as? RestTimerState.Timed)?.remainingSec)
         // Дедлайн по стенным часам — его же уведомление отдаёт системе под обратный хронометр.
-        assertEquals(90_000L, engine.state.value?.endsAtMillis)
+        assertEquals(90_000L, (engine.state.value as? RestTimerState.Timed)?.endsAtMillis)
     }
 
     @Test
@@ -89,6 +90,36 @@ class CompleteSetUseCaseTest : RoomDaoTest() {
 
         assertTrue(repository.getSet(setId)!!.isCompleted)
         assertNull(engine.state.value)
+    }
+
+    @Test
+    fun `heart rate rest ignores the configured interval and snapshots its threshold`() = runTest {
+        val setId = seedActiveWorkout()
+        settingsRepository = SettingsRepository(
+            FakeDataStore(
+                mutablePreferencesOf(
+                    intPreferencesKey("default_rest_seconds") to 90,
+                    booleanPreferencesKey("heart_rate_rest_enabled") to true,
+                    intPreferencesKey("heart_rate_rest_threshold_bpm") to 110,
+                ),
+            ),
+        )
+        val engine = RestTimerEngine(backgroundScope) { 0L }
+        val useCase = CompleteSetUseCase(repository, restDurationResolver(), engine, settingsRepository)
+
+        useCase(setId)
+
+        assertEquals(
+            RestTimerState.HeartRate(thresholdBpm = 110, holdSeconds = 10, startedAtMillis = 0),
+            engine.state.value,
+        )
+
+        settingsRepository.setHeartRateRestEnabled(false)
+        settingsRepository.setHeartRateRestThresholdBpm(150)
+        assertEquals(
+            RestTimerState.HeartRate(thresholdBpm = 110, holdSeconds = 10, startedAtMillis = 0),
+            engine.state.value,
+        )
     }
 
     private fun restDurationResolver() = RestDurationResolver(db.routineDao(), settingsRepository)

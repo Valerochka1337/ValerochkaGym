@@ -10,6 +10,7 @@ import com.valerochka1337.valerochkagym.data.db.relation.WorkoutExerciseWithSets
 import com.valerochka1337.valerochkagym.data.db.relation.WorkoutFull
 import com.valerochka1337.valerochkagym.domain.ActiveWorkoutRepository
 import com.valerochka1337.valerochkagym.service.RestTimerEngine
+import com.valerochka1337.valerochkagym.service.RestTimerState
 import com.valerochka1337.valerochkagym.ui.navigation.MainScaffoldViewModel
 import com.valerochka1337.valerochkagym.util.MainDispatcherRule
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -70,7 +71,7 @@ class MainScaffoldViewModelTest {
             val banner = viewModel.banner.value!!
             // Во время отдыха показывается только что закрытый подход.
             assertEquals("80×8", banner.setSummary)
-            assertEquals(90, banner.rest?.totalSec)
+            assertEquals(90, (banner.rest as? RestTimerState.Timed)?.totalSec)
         }
 
     private fun TestScope.viewModel(

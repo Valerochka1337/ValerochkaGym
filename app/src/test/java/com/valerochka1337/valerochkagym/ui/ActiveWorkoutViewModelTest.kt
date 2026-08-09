@@ -27,6 +27,7 @@ import com.valerochka1337.valerochkagym.domain.PreviousSetsUseCase
 import com.valerochka1337.valerochkagym.domain.RestDurationResolver
 import com.valerochka1337.valerochkagym.domain.WorkoutSetMutator
 import com.valerochka1337.valerochkagym.service.RestTimerEngine
+import com.valerochka1337.valerochkagym.service.RestTimerState
 import com.valerochka1337.valerochkagym.service.heartrate.HeartRateConnectionState
 import com.valerochka1337.valerochkagym.service.heartrate.HeartRateDevice
 import com.valerochka1337.valerochkagym.service.heartrate.HeartRateMonitor
@@ -120,7 +121,25 @@ class ActiveWorkoutViewModelTest {
             runCurrent()
 
             assertEquals(listOf(10L to true), harness.repository.toggledSets)
-            assertEquals(DEFAULT_REST_SECONDS, harness.restTimerEngine.state.value?.totalSec)
+            assertEquals(
+                DEFAULT_REST_SECONDS,
+                (harness.restTimerEngine.state.value as? RestTimerState.Timed)?.totalSec,
+            )
+        }
+
+    @Test
+    fun `completing a set starts heart rate rest with the configured threshold`() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val harness = harness(active = workoutFull(setId = 10L), heartRateRestEnabled = true)
+            collectUiState(harness.viewModel)
+
+            harness.viewModel.completeSet(10L)
+            runCurrent()
+
+            assertEquals(
+                RestTimerState.HeartRate(thresholdBpm = 110, holdSeconds = 10, startedAtMillis = 0),
+                harness.restTimerEngine.state.value,
+            )
         }
 
     @Test
@@ -144,7 +163,10 @@ class ActiveWorkoutViewModelTest {
             runCurrent()
 
             harness.viewModel.addRestSeconds(15)
-            assertEquals(DEFAULT_REST_SECONDS + 15, harness.viewModel.restTimer.value?.totalSec)
+            assertEquals(
+                DEFAULT_REST_SECONDS + 15,
+                (harness.viewModel.restTimer.value as? RestTimerState.Timed)?.totalSec,
+            )
 
             harness.viewModel.skipRest()
             runCurrent()
@@ -283,12 +305,18 @@ class ActiveWorkoutViewModelTest {
     private fun TestScope.harness(
         active: WorkoutFull?,
         previousSets: List<WorkoutSetEntity> = emptyList(),
+        heartRateRestEnabled: Boolean = false,
     ): Harness {
         val repository = FakeActiveWorkoutRepository(active)
         val uploadScheduler = FakeUploadScheduler()
         val restTimerEngine = RestTimerEngine(backgroundScope) { testScheduler.currentTime }
         val settingsRepository = SettingsRepository(
-            FakeDataStore(mutablePreferencesOf(intPreferencesKey("default_rest_seconds") to DEFAULT_REST_SECONDS)),
+            FakeDataStore(
+                mutablePreferencesOf(
+                    intPreferencesKey("default_rest_seconds") to DEFAULT_REST_SECONDS,
+                    androidx.datastore.preferences.core.booleanPreferencesKey("heart_rate_rest_enabled") to heartRateRestEnabled,
+                ),
+            ),
         )
         val heartRateMonitor = FakeHeartRateMonitor()
         val viewModel = ActiveWorkoutViewModel(

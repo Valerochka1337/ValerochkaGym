@@ -32,6 +32,7 @@ import androidx.compose.material.icons.rounded.AccountCircle
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.CloudUpload
 import androidx.compose.material.icons.rounded.Download
+import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.Key
 import androidx.compose.material.icons.rounded.Link
 import androidx.compose.material.icons.rounded.Palette
@@ -95,6 +96,8 @@ import com.valerochka1337.valerochkagym.ui.theme.LauncherIconBackground
 
 /** Шаг степпера отдыха по умолчанию (секунды) — совпадает с шагом внутри [SettingsViewModel]. */
 private const val REST_STEP_SECONDS = 15
+private const val HEART_RATE_REST_THRESHOLD_STEP_BPM = 5
+private const val HEART_RATE_REST_HOLD_STEP_SECONDS = 5
 
 /**
  * Экран «Настройки»: аккаунт Google, целевая таблица Google Sheets и параметры таймера отдыха.
@@ -167,6 +170,9 @@ fun SettingsScreen(
                             settings = settings,
                             onChangeRest = viewModel::changeDefaultRest,
                             onToggleAutostart = viewModel::toggleRestAutostart,
+                            onToggleHeartRateRest = viewModel::toggleHeartRateRest,
+                            onChangeHeartRateRestThreshold = viewModel::changeHeartRateRestThreshold,
+                            onChangeHeartRateRestHoldSeconds = viewModel::changeHeartRateRestHoldSeconds,
                             onToggleSound = viewModel::toggleSound,
                             onToggleVibration = viewModel::toggleVibration,
                         )
@@ -396,6 +402,9 @@ private fun RestTimerCard(
     settings: GymSettings,
     onChangeRest: (Int) -> Unit,
     onToggleAutostart: (Boolean) -> Unit,
+    onToggleHeartRateRest: (Boolean) -> Unit,
+    onChangeHeartRateRestThreshold: (Int) -> Unit,
+    onChangeHeartRateRestHoldSeconds: (Int) -> Unit,
     onToggleSound: (Boolean) -> Unit,
     onToggleVibration: (Boolean) -> Unit,
 ) {
@@ -437,6 +446,74 @@ private fun RestTimerCard(
             checked = settings.restAutostart,
             onCheckedChange = onToggleAutostart,
         )
+        ToggleRow(
+            label = "Отдых по пульсу",
+            icon = Icons.Rounded.Favorite,
+            checked = settings.heartRateRestEnabled,
+            onCheckedChange = onToggleHeartRateRest,
+        )
+        if (settings.heartRateRestEnabled) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "Завершать при пульсе",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f),
+                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    StepperButton(symbol = "−", description = "уменьшить порог пульса") {
+                        onChangeHeartRateRestThreshold(-HEART_RATE_REST_THRESHOLD_STEP_BPM)
+                    }
+                    Text(
+                        text = "≤ ${settings.heartRateRestThresholdBpm} BPM",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        textAlign = TextAlign.Center,
+                        maxLines = 1,
+                        softWrap = false,
+                        modifier = Modifier.width(116.dp),
+                    )
+                    StepperButton(symbol = "+", description = "увеличить порог пульса") {
+                        onChangeHeartRateRestThreshold(HEART_RATE_REST_THRESHOLD_STEP_BPM)
+                    }
+                }
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "Удерживать ниже",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f),
+                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    StepperButton(symbol = "−", description = "уменьшить время удержания") {
+                        onChangeHeartRateRestHoldSeconds(-HEART_RATE_REST_HOLD_STEP_SECONDS)
+                    }
+                    Text(
+                        text = "${settings.heartRateRestHoldSeconds} с",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        textAlign = TextAlign.Center,
+                        maxLines = 1,
+                        softWrap = false,
+                        modifier = Modifier.width(116.dp),
+                    )
+                    StepperButton(symbol = "+", description = "увеличить время удержания") {
+                        onChangeHeartRateRestHoldSeconds(HEART_RATE_REST_HOLD_STEP_SECONDS)
+                    }
+                }
+            }
+        }
         // Подписи уточняют, что звук и вибрация — про уведомление окончания отдыха,
         // а не про весь интерфейс (общий виброотклик живёт в карточке «Интерфейс»).
         ToggleRow(

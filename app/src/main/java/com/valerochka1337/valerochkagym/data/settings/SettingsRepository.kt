@@ -25,10 +25,18 @@ data class GymSettings(
     val hapticsEnabled: Boolean = true,
     /** Автостарт таймера отдыха после отметки подхода; выключен — отдых только не запускается сам. */
     val restAutostart: Boolean = true,
+    /** Завершать автостартованный отдых по свежему пульсу вместо заданной длительности. */
+    val heartRateRestEnabled: Boolean = false,
+    /** Порог завершения отдыха по пульсу. */
+    val heartRateRestThresholdBpm: Int = DEFAULT_HEART_RATE_REST_THRESHOLD_BPM,
+    /** Сколько секунд пульс должен непрерывно держаться не выше порога. */
+    val heartRateRestHoldSeconds: Int = DEFAULT_HEART_RATE_REST_HOLD_SECONDS,
     val accent: AccentColor = AccentColor.DEFAULT,
 ) {
     companion object {
         const val DEFAULT_REST_SECONDS: Int = 120
+        const val DEFAULT_HEART_RATE_REST_THRESHOLD_BPM: Int = 110
+        const val DEFAULT_HEART_RATE_REST_HOLD_SECONDS: Int = 10
     }
 }
 
@@ -45,6 +53,9 @@ class SettingsRepository @Inject constructor(
         val VIBRATION_ENABLED = booleanPreferencesKey("vibration_enabled")
         val HAPTICS_ENABLED = booleanPreferencesKey("haptics_enabled")
         val REST_AUTOSTART = booleanPreferencesKey("rest_autostart")
+        val HEART_RATE_REST_ENABLED = booleanPreferencesKey("heart_rate_rest_enabled")
+        val HEART_RATE_REST_THRESHOLD_BPM = intPreferencesKey("heart_rate_rest_threshold_bpm")
+        val HEART_RATE_REST_HOLD_SECONDS = intPreferencesKey("heart_rate_rest_hold_seconds")
         val ACCENT_COLOR = stringPreferencesKey("accent_color")
     }
 
@@ -59,6 +70,17 @@ class SettingsRepository @Inject constructor(
             vibrationEnabled = prefs[Keys.VIBRATION_ENABLED] ?: true,
             hapticsEnabled = prefs[Keys.HAPTICS_ENABLED] ?: true,
             restAutostart = prefs[Keys.REST_AUTOSTART] ?: true,
+            heartRateRestEnabled = prefs[Keys.HEART_RATE_REST_ENABLED] ?: false,
+            heartRateRestThresholdBpm = (prefs[Keys.HEART_RATE_REST_THRESHOLD_BPM]
+                ?: GymSettings.DEFAULT_HEART_RATE_REST_THRESHOLD_BPM).coerceIn(
+                MIN_HEART_RATE_REST_THRESHOLD_BPM,
+                MAX_HEART_RATE_REST_THRESHOLD_BPM,
+            ),
+            heartRateRestHoldSeconds = (prefs[Keys.HEART_RATE_REST_HOLD_SECONDS]
+                ?: GymSettings.DEFAULT_HEART_RATE_REST_HOLD_SECONDS).coerceIn(
+                MIN_HEART_RATE_REST_HOLD_SECONDS,
+                MAX_HEART_RATE_REST_HOLD_SECONDS,
+            ),
             accent = AccentColor.fromId(prefs[Keys.ACCENT_COLOR]),
         )
     }
@@ -91,7 +113,32 @@ class SettingsRepository @Inject constructor(
         prefs[Keys.REST_AUTOSTART] = value
     }
 
+    suspend fun setHeartRateRestEnabled(value: Boolean) = dataStore.edit { prefs ->
+        prefs[Keys.HEART_RATE_REST_ENABLED] = value
+    }
+
+    suspend fun setHeartRateRestThresholdBpm(value: Int) = dataStore.edit { prefs ->
+        prefs[Keys.HEART_RATE_REST_THRESHOLD_BPM] = value.coerceIn(
+            MIN_HEART_RATE_REST_THRESHOLD_BPM,
+            MAX_HEART_RATE_REST_THRESHOLD_BPM,
+        )
+    }
+
+    suspend fun setHeartRateRestHoldSeconds(value: Int) = dataStore.edit { prefs ->
+        prefs[Keys.HEART_RATE_REST_HOLD_SECONDS] = value.coerceIn(
+            MIN_HEART_RATE_REST_HOLD_SECONDS,
+            MAX_HEART_RATE_REST_HOLD_SECONDS,
+        )
+    }
+
     suspend fun setAccent(value: AccentColor) = dataStore.edit { prefs ->
         prefs[Keys.ACCENT_COLOR] = value.id
+    }
+
+    private companion object {
+        const val MIN_HEART_RATE_REST_THRESHOLD_BPM = 40
+        const val MAX_HEART_RATE_REST_THRESHOLD_BPM = 220
+        const val MIN_HEART_RATE_REST_HOLD_SECONDS = 5
+        const val MAX_HEART_RATE_REST_HOLD_SECONDS = 60
     }
 }

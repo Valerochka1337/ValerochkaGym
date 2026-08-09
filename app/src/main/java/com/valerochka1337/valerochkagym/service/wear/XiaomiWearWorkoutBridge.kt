@@ -86,8 +86,9 @@ class XiaomiWearWorkoutBridge @Inject constructor(
 
     /**
      * Обновляет снимок активной тренировки. Тики обычного отдыха не отправляются: RPK сам считает
-     * оставшееся время по [RestTimerState.endsAtMillis], поэтому пакет уходит только при реальном
-     * изменении упражнения, фазы или дедлайна.
+     * оставшееся время по дедлайну таймерного режима, поэтому пакет уходит только при реальном
+     * изменении упражнения, фазы или дедлайна. Для отдыха по пульсу протокол намеренно не
+     * расширяется: браслет получает активный отдых без дедлайна.
      */
     fun publish(workout: WorkoutFull?, rest: RestTimerState?) {
         val state = workout?.toPhoneState(rest)
@@ -206,7 +207,7 @@ class XiaomiWearWorkoutBridge @Inject constructor(
             setNumber = focus?.setNumber,
             setsInExercise = focus?.setsInExercise,
             setValue = focus?.let { formatSet(it.set, it.type) },
-            restEndsAtMillis = rest?.endsAtMillis,
+            restEndsAtMillis = (rest as? RestTimerState.Timed)?.endsAtMillis,
             restMode = REST_MODE_TIMER,
             targetHeartRateMinBpm = DEFAULT_TARGET_HEART_RATE_MIN,
             targetHeartRateMaxBpm = DEFAULT_TARGET_HEART_RATE_MAX,
