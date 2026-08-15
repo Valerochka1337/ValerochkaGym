@@ -3,8 +3,10 @@ package com.valerochka1337.valerochkagym.ui.analysis.body
 import android.graphics.RectF
 import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -36,6 +38,8 @@ import androidx.compose.ui.unit.dp
 import com.valerochka1337.valerochkagym.data.db.entity.Muscle
 import com.valerochka1337.valerochkagym.domain.measurements.InBodySegment
 import com.valerochka1337.valerochkagym.domain.measurements.InBodySegmentValues
+import com.valerochka1337.valerochkagym.ui.analysis.LegendSwatch
+import com.valerochka1337.valerochkagym.ui.theme.ChartPalette
 import com.valerochka1337.valerochkagym.ui.theme.GymMotion
 import kotlin.math.min
 
@@ -49,10 +53,39 @@ enum class InBodySegmentMapMode {
     FAT,
 }
 
+/** Semantic colour step for a percentage printed in an InBody segment table. */
+internal enum class InBodyHeatZone {
+    NO_DATA,
+    RED,
+    AMBER,
+    GREEN,
+}
+
+internal fun InBodySegmentValues?.heatZoneFor(mode: InBodySegmentMapMode): InBodyHeatZone {
+    val percentage = when (mode) {
+        InBodySegmentMapMode.LEAN -> this?.leanPercentage
+        InBodySegmentMapMode.FAT -> this?.fatPercentage
+    }?.takeIf { it.isFinite() && it >= 0.0 } ?: return InBodyHeatZone.NO_DATA
+
+    return when (mode) {
+        InBodySegmentMapMode.LEAN -> when {
+            percentage < 90.0 -> InBodyHeatZone.RED
+            percentage < 100.0 -> InBodyHeatZone.AMBER
+            else -> InBodyHeatZone.GREEN
+        }
+
+        InBodySegmentMapMode.FAT -> when {
+            percentage <= 100.0 -> InBodyHeatZone.GREEN
+            percentage <= 160.0 -> InBodyHeatZone.AMBER
+            else -> InBodyHeatZone.RED
+        }
+    }
+}
+
 /**
  * Segmental InBody visualisation on top of the same front/back SVG body model used by analyses.
- * A flip changes visual left/right to the matching anatomical side; colour only reflects relative
- * intensity within this record, never a medical category or verdict.
+ * A flip changes visual left/right to the matching anatomical side. Colour reflects the percentage
+ * printed by InBody against fixed reference steps, never a medical diagnosis.
  */
 @Composable
 fun InBodySegmentMapFlip(
@@ -96,6 +129,36 @@ fun InBodySegmentMapFlip(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(bottom = 2.dp),
         )
+        Spacer(Modifier.height(10.dp))
+        InBodyHeatLegend(mode)
+    }
+}
+
+@Composable
+private fun InBodyHeatLegend(mode: InBodySegmentMapMode) {
+    val entries = when (mode) {
+        InBodySegmentMapMode.LEAN -> listOf(
+            InBodyHeatZone.NO_DATA to "нет %",
+            InBodyHeatZone.RED to "<90%",
+            InBodyHeatZone.AMBER to "90–99%",
+            InBodyHeatZone.GREEN to "≥100%",
+        )
+
+        InBodySegmentMapMode.FAT -> listOf(
+            InBodyHeatZone.NO_DATA to "нет %",
+            InBodyHeatZone.GREEN to "≤100%",
+            InBodyHeatZone.AMBER to "101–160%",
+            InBodyHeatZone.RED to ">160%",
+        )
+    }
+    FlowRow(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(14.dp, Alignment.CenterHorizontally),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        entries.forEach { (zone, label) ->
+            LegendSwatch(color = zone.color, label = label)
+        }
     }
 }
 
@@ -109,8 +172,6 @@ private fun InBodySegmentMap(
     val parsed = remember(view) { SegmentalParsedBody.of(view) }
     val body = MaterialTheme.colorScheme.surfaceContainerHighest
     val outline = MaterialTheme.colorScheme.outline
-    val primary = MaterialTheme.colorScheme.primary
-    val normalized = values.normalizedIntensity(mode)
     Canvas(
         modifier = modifier
             .aspectRatio(SEGMENT_BODY_ASPECT)
@@ -126,14 +187,8 @@ private fun InBodySegmentMap(
                 drawPath(parsed.silhouette, color = body)
                 drawPath(parsed.silhouette, color = outline.copy(alpha = 0.45f), style = Stroke(SEGMENT_OUTLINE_STROKE))
                 parsed.paths.forEach { shape ->
-                    val intensity = normalized[shape.segment] ?: 0f
-                    val hasValue = values[shape.segment].valueFor(mode) != null
-                    val color = if (hasValue) {
-                        primary.copy(alpha = MIN_DATA_ALPHA + (MAX_DATA_ALPHA - MIN_DATA_ALPHA) * intensity)
-                    } else {
-                        body
-                    }
-                    drawPath(shape.path, color = color)
+                    val zone = values[shape.segment].heatZoneFor(mode)
+                    drawPath(shape.path, color = zone.color)
                     drawPath(
                         shape.path,
                         color = body,
@@ -144,6 +199,14 @@ private fun InBodySegmentMap(
         }
     }
 }
+
+private val InBodyHeatZone.color
+    get() = when (this) {
+        InBodyHeatZone.NO_DATA -> ChartPalette.Empty
+        InBodyHeatZone.RED -> ChartPalette.HeatRed
+        InBodyHeatZone.AMBER -> ChartPalette.HeatAmber
+        InBodyHeatZone.GREEN -> ChartPalette.HeatGreen
+    }
 
 private data class SegmentPath(val segment: InBodySegment, val path: Path)
 
@@ -212,21 +275,5 @@ private class SegmentalParsedBody(
     }
 }
 
-private fun Map<InBodySegment, InBodySegmentValues>.normalizedIntensity(
-    mode: InBodySegmentMapMode,
-): Map<InBodySegment, Float> {
-    val source = InBodySegment.entries.associateWith { segment -> get(segment).valueFor(mode) }
-    val max = source.values.filterNotNull().maxOrNull()?.takeIf { it > 0.0 } ?: return emptyMap()
-    return source.mapValues { (_, value) -> ((value ?: 0.0) / max).toFloat().coerceIn(0f, 1f) }
-}
-
-private fun InBodySegmentValues?.valueFor(mode: InBodySegmentMapMode): Double? = when (mode) {
-    InBodySegmentMapMode.LEAN -> this?.leanPercentage ?: this?.leanMassKg
-    InBodySegmentMapMode.FAT -> this?.fatPercentage ?: this?.fatMassKg
-}
-
 private val InBodySegmentMapMode.displayName: String
     get() = if (this == InBodySegmentMapMode.LEAN) "Мышцы" else "Жир"
-
-private const val MIN_DATA_ALPHA = 0.24f
-private const val MAX_DATA_ALPHA = 0.92f

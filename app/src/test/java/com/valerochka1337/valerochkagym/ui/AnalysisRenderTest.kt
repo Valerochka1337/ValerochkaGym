@@ -9,6 +9,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onRoot
@@ -134,11 +135,36 @@ class AnalysisRenderTest {
     @Test
     fun `InBody segment maps render for muscles and fat`() {
         val values = mapOf(
-            InBodySegment.LEFT_ARM to InBodySegmentValues(leanMassKg = 1.99, leanPercentage = 91.7, fatMassKg = 1.0, fatPercentage = 88.8),
-            InBodySegment.RIGHT_ARM to InBodySegmentValues(leanMassKg = 2.07, leanPercentage = 95.1, fatMassKg = 1.0, fatPercentage = 86.3),
-            InBodySegment.TRUNK to InBodySegmentValues(leanMassKg = 19.1, leanPercentage = 91.4, fatMassKg = 7.1, fatPercentage = 92.9),
-            InBodySegment.LEFT_LEG to InBodySegmentValues(leanMassKg = 7.43, leanPercentage = 108.0, fatMassKg = 2.4, fatPercentage = 85.7),
-            InBodySegment.RIGHT_LEG to InBodySegmentValues(leanMassKg = 7.39, leanPercentage = 107.5, fatMassKg = 2.4, fatPercentage = 85.6),
+            InBodySegment.LEFT_ARM to InBodySegmentValues(
+                leanMassKg = 1.99,
+                leanPercentage = 85.0,
+                fatMassKg = 1.0,
+                fatPercentage = 88.8,
+            ),
+            InBodySegment.RIGHT_ARM to InBodySegmentValues(
+                leanMassKg = 2.07,
+                leanPercentage = 95.1,
+                fatMassKg = 1.0,
+                fatPercentage = 130.0,
+            ),
+            InBodySegment.TRUNK to InBodySegmentValues(
+                leanMassKg = 19.1,
+                leanPercentage = 100.0,
+                fatMassKg = 7.1,
+                fatPercentage = 180.0,
+            ),
+            InBodySegment.LEFT_LEG to InBodySegmentValues(
+                leanMassKg = 7.43,
+                leanPercentage = 108.0,
+                fatMassKg = 2.4,
+                fatPercentage = 100.0,
+            ),
+            InBodySegment.RIGHT_LEG to InBodySegmentValues(
+                leanMassKg = 7.39,
+                leanPercentage = 107.5,
+                fatMassKg = 2.4,
+                fatPercentage = 160.0,
+            ),
         )
         composeRule.setContent {
             GymTheme {
@@ -152,6 +178,18 @@ class AnalysisRenderTest {
 
         val bitmap = composeRule.onRoot().captureToImage().asAndroidBitmap()
         assertTrue(bitmap.width > 0 && bitmap.height > 0)
+        assertTrue(
+            "карта должна содержать красную ступень",
+            bitmap.containsColor(ChartPalette.HeatRed.toArgb()),
+        )
+        assertTrue(
+            "карта должна содержать янтарную ступень",
+            bitmap.containsColor(ChartPalette.HeatAmber.toArgb()),
+        )
+        assertTrue(
+            "карта должна содержать зелёную ступень",
+            bitmap.containsColor(ChartPalette.HeatGreen.toArgb()),
+        )
         save(bitmap, "inbody-segment-maps.png")
     }
 
@@ -288,6 +326,12 @@ class AnalysisRenderTest {
         FileOutputStream(File(dir, name)).use { stream ->
             bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, stream)
         }
+    }
+
+    private fun android.graphics.Bitmap.containsColor(expected: Int): Boolean {
+        val pixels = IntArray(width * height)
+        getPixels(pixels, 0, width, 0, 0, width, height)
+        return pixels.any { it == expected }
     }
 
     private companion object {

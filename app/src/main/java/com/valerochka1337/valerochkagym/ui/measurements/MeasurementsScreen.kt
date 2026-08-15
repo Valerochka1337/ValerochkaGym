@@ -694,7 +694,7 @@ private fun InBodySegmentalCard(measurement: BodyMeasurementEntity?) {
     var mode by remember(measurement.id) { mutableStateOf(InBodySegmentMapMode.LEAN) }
     AnalysisCard(
         title = "Сегментный анализ InBody",
-        subtitle = "Интенсивность на фигуре показывает только относительную величину данных этого замера.",
+        subtitle = "Цвет показывает процент от эталона InBody, а не сравнение частей тела между собой.",
         icon = Icons.Rounded.MonitorWeight,
     ) {
         ChipRow(
