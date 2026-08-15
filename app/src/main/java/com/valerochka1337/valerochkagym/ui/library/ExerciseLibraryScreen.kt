@@ -22,6 +22,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -62,6 +63,7 @@ fun ExerciseLibraryScreen(
     onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier,
     onExerciseSelected: ((ExerciseEntity) -> Unit)? = null,
+    onExerciseInfo: ((ExerciseEntity) -> Unit)? = null,
     viewModel: ExerciseLibraryViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -114,6 +116,12 @@ fun ExerciseLibraryScreen(
                                     onClick = onExerciseSelected
                                         ?.let { callback -> { callback(exercise) } }
                                         ?: { viewModel.openEdit(exercise) },
+                                    onInfo = onExerciseInfo?.let { callback ->
+                                        {
+                                            haptics.tap()
+                                            callback(exercise)
+                                        }
+                                    },
                                     modifier = Modifier.animateItem(),
                                 )
                             }
@@ -243,6 +251,7 @@ private fun GroupFilterRow(
 private fun ExerciseRow(
     exercise: ExerciseEntity,
     onClick: (() -> Unit)?,
+    onInfo: (() -> Unit)?,
     modifier: Modifier = Modifier,
 ) {
     GymCard(
@@ -270,6 +279,12 @@ private fun ExerciseRow(
             if (exercise.isCustom) {
                 Spacer(Modifier.width(12.dp))
                 CustomBadge()
+            }
+            if (onInfo != null) {
+                Spacer(Modifier.width(4.dp))
+                IconButton(onClick = onInfo) {
+                    Icon(Icons.Rounded.Info, contentDescription = "Открыть карточку упражнения")
+                }
             }
         }
     }

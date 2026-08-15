@@ -1,0 +1,377 @@
+package com.valerochka1337.valerochkagym.ui.exercise
+
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.ShowChart
+import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.EmojiEvents
+import androidx.compose.material.icons.rounded.History
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
+import com.valerochka1337.valerochkagym.data.db.entity.MuscleLoad
+import com.valerochka1337.valerochkagym.domain.ExerciseStatistics
+import com.valerochka1337.valerochkagym.domain.displayName
+import com.valerochka1337.valerochkagym.ui.analysis.formatDate
+import com.valerochka1337.valerochkagym.ui.analysis.formatDateWithYear
+import com.valerochka1337.valerochkagym.ui.analysis.charts.LinePoint
+import com.valerochka1337.valerochkagym.ui.analysis.charts.TrendLineChart
+import com.valerochka1337.valerochkagym.ui.analysis.body.BodyMapFlip
+import com.valerochka1337.valerochkagym.ui.components.CircleIconButton
+import com.valerochka1337.valerochkagym.ui.components.ExerciseAvatar
+import com.valerochka1337.valerochkagym.ui.components.GlowBackground
+import com.valerochka1337.valerochkagym.ui.components.GymCard
+import com.valerochka1337.valerochkagym.ui.haptics.gymHaptics
+import com.valerochka1337.valerochkagym.ui.library.ExerciseEditorSheet
+import com.valerochka1337.valerochkagym.ui.theme.ChartPalette
+import java.math.BigDecimal
+import java.time.ZoneId
+
+@Composable
+fun ExerciseDetailScreen(
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier,
+    viewModel: ExerciseDetailViewModel = hiltViewModel(),
+) {
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val editor by viewModel.editor.collectAsStateWithLifecycle()
+    val haptics = gymHaptics()
+
+    GlowBackground(modifier = modifier) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            ExerciseHeader(
+                canEdit = state.exercise != null,
+                onBack = onBack,
+                onEdit = {
+                    haptics.tap()
+                    viewModel.openEditor()
+                },
+            )
+            when {
+                state.loading -> Unit
+                state.exercise == null -> MissingExercise()
+                else -> ExerciseDetailContent(
+                    exercise = state.exercise!!,
+                    loads = state.loads,
+                    statistics = state.statistics,
+                )
+            }
+        }
+    }
+
+    editor?.let { initial ->
+        ExerciseEditorSheet(
+            initial = initial,
+            onDismiss = viewModel::closeEditor,
+            onSave = viewModel::saveEditor,
+        )
+    }
+}
+
+@Composable
+private fun ExerciseHeader(
+    canEdit: Boolean,
+    onBack: () -> Unit,
+    onEdit: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 8.dp, end = 16.dp, top = 12.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconButton(onClick = onBack) {
+            Icon(
+                Icons.AutoMirrored.Rounded.ArrowBack,
+                contentDescription = "Назад",
+                tint = MaterialTheme.colorScheme.onBackground,
+            )
+        }
+        Spacer(Modifier.width(4.dp))
+        Text(
+            text = "Упражнение",
+            style = MaterialTheme.typography.headlineSmall,
+            color = MaterialTheme.colorScheme.onBackground,
+            modifier = Modifier.weight(1f),
+        )
+        if (canEdit) {
+            CircleIconButton(
+                icon = Icons.Rounded.Edit,
+                contentDescription = "Редактировать упражнение",
+                onClick = onEdit,
+            )
+        }
+    }
+}
+
+@Composable
+internal fun ExerciseDetailContent(
+    exercise: ExerciseEntity,
+    loads: List<MuscleLoad>,
+    statistics: ExerciseStatistics?,
+) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = 4.dp, bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        item { ProfileCard(exercise) }
+        item { MusclesCard(loads) }
+        if (statistics != null) {
+            if (statistics.hasData) {
+                item { LastTimeCard(statistics) }
+                if (statistics.points.isNotEmpty()) item { ProgressCard(statistics) }
+                if (statistics.records.isNotEmpty()) item { RecordsCard(statistics) }
+            } else {
+                item { EmptyStatisticsCard() }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProfileCard(exercise: ExerciseEntity) {
+    GymCard(modifier = Modifier.fillMaxWidth()) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            ExerciseAvatar(exercise = exercise)
+            Spacer(Modifier.width(14.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = exercise.name,
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = "${exercise.muscleGroup.displayName()} · ${exercise.type.displayName()}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun MusclesCard(loads: List<MuscleLoad>) {
+    val base = MaterialTheme.colorScheme.surfaceContainerHighest
+    val accent = MaterialTheme.colorScheme.primary
+    GymCard(modifier = Modifier.fillMaxWidth()) {
+        Text(
+            text = "Вовлечение мышц",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        if (loads.isEmpty()) {
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = "Карта мышц пока не заполнена",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            return@GymCard
+        }
+        Spacer(Modifier.height(8.dp))
+        val byMuscle = loads.associate { it.muscle to it.contribution }
+        BodyMapFlip(
+            fillFor = { muscle ->
+                val load = byMuscle[muscle] ?: return@BodyMapFlip ChartPalette.Empty
+                lerp(base, accent, load / 100f)
+            },
+        )
+        Spacer(Modifier.height(8.dp))
+        loads.forEach { load ->
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = load.muscle.displayName(),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    text = "${load.contribution}%",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+            Spacer(Modifier.height(4.dp))
+            LinearProgressIndicator(
+                progress = { load.contribution / 100f },
+                modifier = Modifier.fillMaxWidth(),
+                color = MaterialTheme.colorScheme.primary,
+                trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+            )
+            Spacer(Modifier.height(10.dp))
+        }
+    }
+}
+
+@Composable
+private fun LastTimeCard(statistics: ExerciseStatistics) {
+    val date = statistics.lastPerformedAt ?: return
+    StatisticCardHeader(Icons.Rounded.History, "Прошлый раз") {
+        Text(
+            text = formatDateWithYear(date, ZoneId.systemDefault()),
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(6.dp))
+        Text(
+            text = statistics.lastSummary.ifBlank { "Выполненные подходы без числовых значений" },
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+    }
+}
+
+@Composable
+private fun ProgressCard(statistics: ExerciseStatistics) {
+    var selectedIndex by rememberSaveable(statistics.points) { mutableIntStateOf(statistics.points.lastIndex) }
+    val selected = statistics.points[selectedIndex.coerceIn(statistics.points.indices)]
+    StatisticCardHeader(Icons.AutoMirrored.Rounded.ShowChart, statistics.chartTitle) {
+        Text(
+            text = statistics.chartSubtitle,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(10.dp))
+        TrendLineChart(
+            points = statistics.points.map { point ->
+                LinePoint(
+                    xMillis = point.dateMillis,
+                    y = point.value.toFloat(),
+                    xLabel = formatDate(point.dateMillis, ZoneId.systemDefault()),
+                )
+            },
+            selectedIndex = selectedIndex,
+            onSelect = { index -> if (index != null) selectedIndex = index },
+            valueFormatter = { value -> "${number(value.toDouble())} ${statistics.chartUnit}" },
+        )
+        Spacer(Modifier.height(8.dp))
+        Text(
+            text = "${formatDateWithYear(selected.dateMillis, ZoneId.systemDefault())} · ${selected.summary}",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+    }
+}
+
+@Composable
+private fun RecordsCard(statistics: ExerciseStatistics) {
+    StatisticCardHeader(Icons.Rounded.EmojiEvents, "Рекорды") {
+        statistics.records.forEachIndexed { index, record ->
+            if (index > 0) Spacer(Modifier.height(12.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = record.title,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    record.details?.let { details ->
+                        Text(
+                            text = details,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                Text(
+                    text = record.value,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun EmptyStatisticsCard() {
+    GymCard(modifier = Modifier.fillMaxWidth()) {
+        Text(
+            text = "Статистика",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        Spacer(Modifier.height(6.dp))
+        Text(
+            text = "Завершите тренировку с этим упражнением — здесь появятся прошлый результат, график и рекорды.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@Composable
+private fun StatisticCardHeader(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    title: String,
+    content: @Composable () -> Unit,
+) {
+    GymCard(modifier = Modifier.fillMaxWidth()) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+            Spacer(Modifier.width(10.dp))
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+        }
+        Spacer(Modifier.height(10.dp))
+        content()
+    }
+}
+
+@Composable
+private fun MissingExercise() {
+    Column(
+        modifier = Modifier.fillMaxSize().padding(24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Text(
+            text = "Упражнение не найдено",
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+private fun number(value: Double): String =
+    BigDecimal.valueOf(value).setScale(1, java.math.RoundingMode.HALF_UP)
+        .stripTrailingZeros().toPlainString()

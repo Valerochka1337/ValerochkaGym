@@ -53,6 +53,7 @@ import java.math.BigDecimal
 @Composable
 fun WorkoutSummaryScreen(
     onDone: () -> Unit,
+    onExerciseClick: (Long) -> Unit,
     modifier: Modifier = Modifier,
     viewModel: WorkoutSummaryViewModel = hiltViewModel(),
 ) {
@@ -104,7 +105,13 @@ fun WorkoutSummaryScreen(
                         )
                     }
                     items(state.prs, key = { it.exerciseId }) { pr ->
-                        PrCard(pr)
+                        PrCard(
+                            pr = pr,
+                            onClick = {
+                                haptics.tap()
+                                onExerciseClick(pr.exerciseId)
+                            },
+                        )
                     }
                 }
 
@@ -120,6 +127,10 @@ fun WorkoutSummaryScreen(
                     items(state.exercises, key = { it.id }) { exercise ->
                         GymCard(
                             modifier = Modifier.fillMaxWidth().animateItem(),
+                            onClick = {
+                                haptics.tap()
+                                onExerciseClick(exercise.exerciseId)
+                            },
                             contentPadding = PaddingValues(horizontal = 18.dp, vertical = 14.dp),
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -226,7 +237,7 @@ private fun StatTile(
 }
 
 @Composable
-private fun PrCard(pr: PrResult) {
+private fun PrCard(pr: PrResult, onClick: () -> Unit) {
     // Каждая строка рекорда «впрыгивает» отдельно (expressive bouncy scale + затухание) —
     // акцент на достижении. Анимация запускается один раз при первом появлении карточки.
     val appear = remember { MutableTransitionState(false).apply { targetState = true } }
@@ -237,6 +248,7 @@ private fun PrCard(pr: PrResult) {
     ) {
         GymCard(
             modifier = Modifier.fillMaxWidth(),
+            onClick = onClick,
             contentPadding = PaddingValues(horizontal = 18.dp, vertical = 14.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {

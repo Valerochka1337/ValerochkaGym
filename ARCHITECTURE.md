@@ -7,10 +7,11 @@
 ## Слои
 
 ```
-ui/        экраны (Compose) + ViewModel'и; theme/ (цвет, форма, типографика, GymMotion),
-           haptics/ (GymHaptics), components/ (GymCard, PillButton, GymFilterChip, …)
+ui/        экраны (Compose) + ViewModel'и; exercise/ (карточка упражнения и статистика),
+           theme/ (цвет, форма, типографика, GymMotion), haptics/ (GymHaptics),
+           components/ (GymCard, PillButton, GymFilterChip, …)
 domain/    use case'ы и чистая логика (CompleteSetUseCase, WorkoutRowParser,
-           analysis/AnalyticsEngine — вся математика вкладки «Анализы»)
+           ExerciseStatisticsCalculator, analysis/AnalyticsEngine — математика аналитики)
 data/      Room (db/), Google-интеграция (google/), OpenRouter-генератор (ai/), настройки
            и зашифрованный ключ (settings/), резервные операции (backup/), иконка лаунчера (appicon/)
 service/   WorkoutSessionService (foreground) + RestTimerEngine
@@ -31,6 +32,12 @@ di/        Hilt-модули (Data, Domain, Google, Network) и квалифик
   её может обновить только подтверждение по факту в итогах тренировки.
 - **Тяжёлые вычисления** (пересчёт аналитики) уводятся с Main через
   `flowOn(@ComputeDispatcher)` — в тестах квалификатор подменяется тестовым диспетчером.
+- **Карточка упражнения.** Маршрут `exercise_detail/{exerciseId}` открывается из активной сессии,
+  редактора программы, истории, итогов, аналитики и по info-кнопке библиотечного пикера.
+  `ExerciseDetailViewModel` реактивно объединяет каталог, карту мышц и плоский поток завершённых
+  подходов `WorkoutDao.observeCompletedSets()`. `ExerciseStatisticsCalculator` на compute-диспетчере
+  группирует подходы по тренировкам: e1RM для силовых, суммарное время для timed и расчётную
+  дистанцию для cardio. Активная незавершённая тренировка в карточную статистику не попадает.
 - **Правки подходов** идут через единственный процессный писатель `WorkoutSetMutator`
   (канал + один потребитель): экран и кнопки уведомления пишут в одну очередь, поэтому
   быстрые тапы не теряют обновления. Закрытие подхода — общий `CompleteSetUseCase`
@@ -129,6 +136,8 @@ device transfer, поэтому после переустановки или с�
 
 `./gradlew :app:testDebugUnitTest` — 430+ JUnit4-тестов: чистая логика и ViewModel'и — на
 рукописных фейках (без мок-библиотек), DAO и миграции — Robolectric + in-memory Room
-(`RoomDaoTest`), графики и карта тела — рендер-смоук `AnalysisRenderTest` (Robolectric,
-нативная графика, снимки в `app/build/reports/analysis-render/`). Robolectric закреплён на
+(`RoomDaoTest`). Расчёт карточной статистики и её реактивное редактирование покрыты
+`ExerciseStatisticsCalculatorTest` и `ExerciseDetailViewModelTest`; графики и карта тела —
+рендер-смоук `AnalysisRenderTest` (Robolectric, нативная графика, снимки в
+`app/build/reports/analysis-render/`, включая `exercise-detail.png`). Robolectric закреплён на
 sdk=36 (для 37 нет jar), тестовый JVM — JDK 21 (см. `app/build.gradle.kts`).

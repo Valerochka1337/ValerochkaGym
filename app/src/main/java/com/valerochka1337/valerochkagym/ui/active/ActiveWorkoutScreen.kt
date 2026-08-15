@@ -127,6 +127,7 @@ fun ActiveWorkoutScreen(
     onDiscarded: () -> Unit,
     onNavigateBack: () -> Unit,
     onAddExercise: () -> Unit,
+    onExerciseClick: (Long) -> Unit,
     modifier: Modifier = Modifier,
     viewModel: ActiveWorkoutViewModel = hiltViewModel(),
 ) {
@@ -205,6 +206,7 @@ fun ActiveWorkoutScreen(
                     onDeleteExercise = viewModel::deleteExercise,
                     onReorderExercises = viewModel::reorderExercises,
                     onAddExercise = onAddExercise,
+                    onExerciseClick = onExerciseClick,
                     onFinish = viewModel::finish,
                     onDiscard = viewModel::discard,
                     onAddRestSeconds = viewModel::addRestSeconds,
@@ -251,6 +253,7 @@ private fun ActiveWorkoutContent(
     onDeleteExercise: (Long) -> Unit,
     onReorderExercises: (List<Long>) -> Unit,
     onAddExercise: () -> Unit,
+    onExerciseClick: (Long) -> Unit,
     onFinish: () -> Unit,
     onDiscard: () -> Unit,
     onAddRestSeconds: (Int) -> Unit,
@@ -402,6 +405,7 @@ private fun ActiveWorkoutContent(
                             )
                         },
                         onDeleteExercise = { pendingDeleteExerciseId = exercise.workoutExercise.id },
+                        onExerciseClick = { onExerciseClick(exercise.exercise.id) },
                     )
                 }
             }
@@ -774,10 +778,12 @@ private fun ExerciseSection(
     actions: SetActions,
     dragHandle: @Composable () -> Unit,
     onDeleteExercise: () -> Unit,
+    onExerciseClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val type = exercise.exercise.type
     val currentSet = exercise.sets.firstOrNull { !it.isCompleted }
+    val haptics = gymHaptics()
 
     // Когда текущий подход схлопывается в пилюлю, высота секции меняется плавно (expressive-спек).
     Column(
@@ -786,21 +792,31 @@ private fun ExerciseSection(
             .animateContentSize(GymMotion.spatialDefault()),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            ExerciseAvatar(exercise = exercise.exercise)
-            Spacer(Modifier.width(12.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = exercise.exercise.name,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onBackground,
-                )
-                if (previous.isNotEmpty()) {
+            Row(
+                modifier = Modifier
+                    .weight(1f)
+                    .clickable {
+                        haptics.tap()
+                        onExerciseClick()
+                    },
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                ExerciseAvatar(exercise = exercise.exercise)
+                Spacer(Modifier.width(12.dp))
+                Column {
                     Text(
-                        text = "прошлый: $previous",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        text = exercise.exercise.name,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onBackground,
                     )
+                    if (previous.isNotEmpty()) {
+                        Text(
+                            text = "прошлый: $previous",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
             }
             dragHandle()

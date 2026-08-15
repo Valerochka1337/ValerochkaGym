@@ -46,6 +46,7 @@ import com.valerochka1337.valerochkagym.ui.haptics.gymHaptics
 fun AnalysisScreen(
     onOpenSettings: () -> Unit,
     onOpenMeasurements: () -> Unit,
+    onExerciseClick: (Long) -> Unit,
     modifier: Modifier = Modifier,
     viewModel: AnalysisViewModel = hiltViewModel(),
 ) {
@@ -106,9 +107,21 @@ fun AnalysisScreen(
                         state = state,
                         onExerciseSelected = viewModel::onExerciseSelected,
                         onSessionSelected = viewModel::onSessionSelected,
+                        onExerciseClick = {
+                            haptics.tap()
+                            onExerciseClick(it)
+                        },
                     )
                 }
-                item { RecordsCard(state) }
+                item {
+                    RecordsCard(
+                        state = state,
+                        onExerciseClick = {
+                            haptics.tap()
+                            onExerciseClick(it)
+                        },
+                    )
+                }
             }
         }
     }

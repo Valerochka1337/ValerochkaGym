@@ -6,10 +6,14 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.clickable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.EmojiEvents
 import androidx.compose.material.icons.automirrored.rounded.ShowChart
 import androidx.compose.material.icons.rounded.FitnessCenter
+import androidx.compose.material.icons.rounded.Info
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -98,6 +102,7 @@ internal fun ExerciseProgressCard(
     state: AnalysisUiState,
     onExerciseSelected: (Long) -> Unit,
     onSessionSelected: (Int?) -> Unit,
+    onExerciseClick: (Long) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val exercises = state.report.exercises
@@ -109,12 +114,18 @@ internal fun ExerciseProgressCard(
         icon = Icons.AutoMirrored.Rounded.ShowChart,
         modifier = modifier,
     ) {
-        ScrollableChipRow(
-            options = exercises.take(MAX_PICKABLE_EXERCISES).map { it.exerciseId },
-            selected = shown.exerciseId,
-            label = { id -> exercises.first { it.exerciseId == id }.name },
-            onSelect = onExerciseSelected,
-        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            ScrollableChipRow(
+                options = exercises.take(MAX_PICKABLE_EXERCISES).map { it.exerciseId },
+                selected = shown.exerciseId,
+                label = { id -> exercises.first { it.exerciseId == id }.name },
+                onSelect = onExerciseSelected,
+                modifier = Modifier.weight(1f),
+            )
+            IconButton(onClick = { onExerciseClick(shown.exerciseId) }) {
+                Icon(Icons.Rounded.Info, contentDescription = "Открыть карточку упражнения")
+            }
+        }
         Spacer(Modifier.height(14.dp))
 
         TrendHeadline(shown)
@@ -240,6 +251,7 @@ private fun SessionDetails(
 @Composable
 internal fun RecordsCard(
     state: AnalysisUiState,
+    onExerciseClick: (Long) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val records = state.report.records.take(MAX_RECORDS)
@@ -253,7 +265,10 @@ internal fun RecordsCard(
     ) {
         records.forEach { record ->
             Row(
-                modifier = Modifier.fillMaxWidth().height(44.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(44.dp)
+                    .clickable { onExerciseClick(record.exerciseId) },
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(modifier = Modifier.weight(1f)) {

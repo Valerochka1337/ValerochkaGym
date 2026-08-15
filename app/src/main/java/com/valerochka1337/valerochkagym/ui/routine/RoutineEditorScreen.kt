@@ -2,6 +2,7 @@ package com.valerochka1337.valerochkagym.ui.routine
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -65,6 +66,7 @@ import sh.calvin.reorderable.rememberReorderableLazyListState
 fun RoutineEditorScreen(
     onBack: () -> Unit,
     onAddExercise: () -> Unit,
+    onExerciseClick: (Long) -> Unit,
     modifier: Modifier = Modifier,
     viewModel: RoutineEditorViewModel = hiltViewModel(),
 ) {
@@ -177,6 +179,7 @@ fun RoutineEditorScreen(
                             onAddSet = { viewModel.addPlannedSet(index) },
                             onRemoveSet = { setIndex -> viewModel.removePlannedSet(index, setIndex) },
                             onSetChange = { setIndex, set -> viewModel.updatePlannedSet(index, setIndex, set) },
+                            onExerciseClick = { onExerciseClick(exercise.exerciseId) },
                         )
                     }
                 }
@@ -238,27 +241,39 @@ private fun ExerciseCard(
     onAddSet: () -> Unit,
     onRemoveSet: (Int) -> Unit,
     onSetChange: (Int, PlannedSet) -> Unit,
+    onExerciseClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val haptics = gymHaptics()
     GymCard(
         modifier = modifier.fillMaxWidth(),
         contentPadding = PaddingValues(start = 16.dp, end = 8.dp, top = 12.dp, bottom = 14.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            ExerciseAvatar(name = exercise.exerciseName, type = exercise.exerciseType)
-            Spacer(Modifier.width(12.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = exercise.exerciseName,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-                Text(
-                    text = exercise.exerciseType.displayName(),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+            Row(
+                modifier = Modifier
+                    .weight(1f)
+                    .clickable {
+                        haptics.tap()
+                        onExerciseClick()
+                    },
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                ExerciseAvatar(name = exercise.exerciseName, type = exercise.exerciseType)
+                Spacer(Modifier.width(12.dp))
+                Column {
+                    Text(
+                        text = exercise.exerciseName,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    Text(
+                        text = exercise.exerciseType.displayName(),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
             dragHandle()
             IconButton(onClick = onRemove) {

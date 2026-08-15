@@ -49,6 +49,7 @@ import com.valerochka1337.valerochkagym.domain.muscleGroupFrom
 import com.valerochka1337.valerochkagym.ui.components.ExerciseAvatar
 import com.valerochka1337.valerochkagym.ui.components.GlowBackground
 import com.valerochka1337.valerochkagym.ui.components.GymCard
+import com.valerochka1337.valerochkagym.ui.haptics.gymHaptics
 
 /**
  * Детальный экран завершённой тренировки: шапка с датой/временем, сводка (длительность, объём),
@@ -58,11 +59,13 @@ import com.valerochka1337.valerochkagym.ui.components.GymCard
 @Composable
 fun WorkoutDetailScreen(
     onBack: () -> Unit,
+    onExerciseClick: (Long) -> Unit,
     modifier: Modifier = Modifier,
     viewModel: WorkoutDetailViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     var showDeleteDialog by rememberSaveable { mutableStateOf(false) }
+    val haptics = gymHaptics()
 
     LaunchedEffect(Unit) {
         viewModel.deleteEvents.collect { onBack() }
@@ -106,7 +109,14 @@ fun WorkoutDetailScreen(
                         )
                     }
                     items(state.exercises, key = { it.id }) { exercise ->
-                        ExerciseCard(exercise = exercise, modifier = Modifier.animateItem())
+                        ExerciseCard(
+                            exercise = exercise,
+                            onClick = {
+                                haptics.tap()
+                                onExerciseClick(exercise.exerciseId)
+                            },
+                            modifier = Modifier.animateItem(),
+                        )
                     }
                 }
 
@@ -304,9 +314,14 @@ private fun UploadCard(
 }
 
 @Composable
-private fun ExerciseCard(exercise: DetailExerciseUi, modifier: Modifier = Modifier) {
+private fun ExerciseCard(
+    exercise: DetailExerciseUi,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     GymCard(
         modifier = modifier.fillMaxWidth(),
+        onClick = onClick,
         contentPadding = PaddingValues(horizontal = 18.dp, vertical = 14.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {

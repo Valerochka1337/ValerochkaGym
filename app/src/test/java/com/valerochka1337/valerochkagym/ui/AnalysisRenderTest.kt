@@ -15,12 +15,15 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.unit.dp
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
+import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
+import com.valerochka1337.valerochkagym.data.db.entity.MuscleGroup
 import com.valerochka1337.valerochkagym.data.db.entity.Muscle
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleLoad
 import com.valerochka1337.valerochkagym.data.db.entity.UploadStatus
 import com.valerochka1337.valerochkagym.data.db.entity.WorkoutEntity
 import com.valerochka1337.valerochkagym.data.db.relation.AnalyticsSetRow
 import com.valerochka1337.valerochkagym.domain.analysis.AnalysisPeriod
+import com.valerochka1337.valerochkagym.domain.ExerciseStatisticsCalculator
 import com.valerochka1337.valerochkagym.domain.analysis.AnalyticsEngine
 import com.valerochka1337.valerochkagym.domain.analysis.AnalyticsInput
 import com.valerochka1337.valerochkagym.ui.analysis.AnalysisUiState
@@ -39,6 +42,7 @@ import com.valerochka1337.valerochkagym.ui.analysis.body.BodyMapFlip
 import com.valerochka1337.valerochkagym.ui.analysis.body.BodyView
 import com.valerochka1337.valerochkagym.ui.analysis.body.InBodySegmentMapFlip
 import com.valerochka1337.valerochkagym.ui.analysis.body.InBodySegmentMapMode
+import com.valerochka1337.valerochkagym.ui.exercise.ExerciseDetailContent
 import com.valerochka1337.valerochkagym.ui.theme.ChartPalette
 import com.valerochka1337.valerochkagym.ui.theme.GymTheme
 import org.junit.Assert.assertTrue
@@ -96,8 +100,13 @@ class AnalysisRenderTest {
                     MuscleFrequencyCard(state)
                     WeeklyVolumeCard(state, onMetricSelected = {}, onWeekSelected = {})
                     BalanceCard(state.report.balances)
-                    ExerciseProgressCard(state, onExerciseSelected = {}, onSessionSelected = {})
-                    RecordsCard(state)
+                    ExerciseProgressCard(
+                        state,
+                        onExerciseSelected = {},
+                        onSessionSelected = {},
+                        onExerciseClick = {},
+                    )
+                    RecordsCard(state, onExerciseClick = {})
                 }
             }
         }
@@ -106,6 +115,54 @@ class AnalysisRenderTest {
         val bitmap = composeRule.onRoot().captureToImage().asAndroidBitmap()
         assertTrue("картинка должна иметь размер", bitmap.width > 0 && bitmap.height > 0)
         save(bitmap, "analysis-cards.png")
+    }
+
+    @Test
+    fun `exercise detail with statistics renders`() {
+        val exercise = ExerciseEntity(
+            id = BENCH,
+            name = "Жим штанги лёжа",
+            muscleGroup = MuscleGroup.CHEST,
+            type = ExerciseType.STRENGTH,
+        )
+        val statistics = ExerciseStatisticsCalculator().calculate(
+            type = exercise.type,
+            rows = buildState().report.exercises.first().points.flatMapIndexed { index, point ->
+                listOf(
+                    AnalyticsSetRow(
+                        workoutId = "detail-$index",
+                        exerciseId = BENCH,
+                        exerciseName = exercise.name,
+                        exerciseType = exercise.type,
+                        weightKg = point.bestWeightKg,
+                        reps = point.bestWeightReps,
+                        durationSec = null,
+                        speedKmh = null,
+                        inclinePct = null,
+                        completedAt = point.dateMillis,
+                    ),
+                )
+            },
+        )
+
+        composeRule.setContent {
+            GymTheme {
+                ExerciseDetailContent(
+                    exercise = exercise,
+                    loads = listOf(
+                        MuscleLoad(Muscle.CHEST, 100),
+                        MuscleLoad(Muscle.TRICEPS, 70),
+                        MuscleLoad(Muscle.FRONT_DELTS, 45),
+                    ),
+                    statistics = statistics,
+                )
+            }
+        }
+        composeRule.waitForIdle()
+
+        val bitmap = composeRule.onRoot().captureToImage().asAndroidBitmap()
+        assertTrue("карточка упражнения должна отрисоваться", bitmap.width > 0 && bitmap.height > 0)
+        save(bitmap, "exercise-detail.png")
     }
 
     @Test

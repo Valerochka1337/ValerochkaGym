@@ -23,6 +23,7 @@ import com.valerochka1337.valerochkagym.ui.active.ActiveWorkoutViewModel
 import com.valerochka1337.valerochkagym.ui.analysis.AnalysisScreen
 import com.valerochka1337.valerochkagym.ui.calendar.CalendarScreen
 import com.valerochka1337.valerochkagym.ui.calendar.ScheduleEditorScreen
+import com.valerochka1337.valerochkagym.ui.exercise.ExerciseDetailScreen
 import com.valerochka1337.valerochkagym.ui.history.WorkoutDetailScreen
 import com.valerochka1337.valerochkagym.ui.library.ExerciseLibraryScreen
 import com.valerochka1337.valerochkagym.ui.measurements.MeasurementEditorScreen
@@ -51,6 +52,7 @@ object GymRoutes {
     const val ROUTINE_ID_ARG = "routineId"
     const val WORKOUT_ID_ARG = "workoutId"
     const val MEASUREMENT_ID_ARG = "measurementId"
+    const val EXERCISE_ID_ARG = "exerciseId"
 
     /** Ключ savedStateHandle, через который библиотека-пикер возвращает выбранное упражнение. */
     const val SELECTED_EXERCISE_ID = "selected_exercise_id"
@@ -59,11 +61,13 @@ object GymRoutes {
     const val WORKOUT_SUMMARY = "workout_summary/{$WORKOUT_ID_ARG}"
     const val WORKOUT_DETAIL = "workout_detail/{$WORKOUT_ID_ARG}"
     const val MEASUREMENT_EDITOR = "measurement_editor?$MEASUREMENT_ID_ARG={$MEASUREMENT_ID_ARG}"
+    const val EXERCISE_DETAIL = "exercise_detail/{$EXERCISE_ID_ARG}"
 
     fun routineEditor(routineId: String? = null) =
         if (routineId != null) "routine_editor?$ROUTINE_ID_ARG=$routineId" else "routine_editor"
     fun workoutSummary(workoutId: String) = "workout_summary/$workoutId"
     fun workoutDetail(workoutId: String) = "workout_detail/$workoutId"
+    fun exerciseDetail(exerciseId: Long) = "exercise_detail/$exerciseId"
     fun measurementEditor(measurementId: String? = null) =
         if (measurementId == null) "measurement_editor" else "measurement_editor?$MEASUREMENT_ID_ARG=$measurementId"
 }
@@ -166,6 +170,7 @@ fun GymNavGraph(
             AnalysisScreen(
                 onOpenSettings = { navController.navigate(GymRoutes.SETTINGS) },
                 onOpenMeasurements = { navController.navigate(GymRoutes.MEASUREMENTS) },
+                onExerciseClick = { id -> navController.navigate(GymRoutes.exerciseDetail(id)) },
             )
         }
         composable(GymRoutes.MEASUREMENTS) {
@@ -188,6 +193,9 @@ fun GymNavGraph(
                     navController.previousBackStackEntry?.savedStateHandle
                         ?.set(GymRoutes.SELECTED_EXERCISE_ID, exercise.id)
                     navController.popBackStack()
+                },
+                onExerciseInfo = { exercise ->
+                    navController.navigate(GymRoutes.exerciseDetail(exercise.id))
                 },
             )
         }
@@ -215,6 +223,7 @@ fun GymNavGraph(
                 onDiscarded = { navController.popBackStack(GymRoutes.WORKOUTS, inclusive = false) },
                 onNavigateBack = { navController.popBackStack() },
                 onAddExercise = { navController.navigate(GymRoutes.LIBRARY) },
+                onExerciseClick = { id -> navController.navigate(GymRoutes.exerciseDetail(id)) },
                 viewModel = viewModel,
             )
         }
@@ -245,6 +254,7 @@ fun GymNavGraph(
             RoutineEditorScreen(
                 onBack = { navController.popBackStack() },
                 onAddExercise = { navController.navigate(GymRoutes.LIBRARY) },
+                onExerciseClick = { id -> navController.navigate(GymRoutes.exerciseDetail(id)) },
                 viewModel = viewModel,
             )
         }
@@ -258,6 +268,7 @@ fun GymNavGraph(
         ) {
             WorkoutSummaryScreen(
                 onDone = { navController.popBackStack(GymRoutes.WORKOUTS, inclusive = false) },
+                onExerciseClick = { id -> navController.navigate(GymRoutes.exerciseDetail(id)) },
             )
         }
 
@@ -265,7 +276,17 @@ fun GymNavGraph(
             route = GymRoutes.WORKOUT_DETAIL,
             arguments = listOf(navArgument(GymRoutes.WORKOUT_ID_ARG) { type = NavType.StringType }),
         ) {
-            WorkoutDetailScreen(onBack = { navController.popBackStack() })
+            WorkoutDetailScreen(
+                onBack = { navController.popBackStack() },
+                onExerciseClick = { id -> navController.navigate(GymRoutes.exerciseDetail(id)) },
+            )
+        }
+
+        composable(
+            route = GymRoutes.EXERCISE_DETAIL,
+            arguments = listOf(navArgument(GymRoutes.EXERCISE_ID_ARG) { type = NavType.LongType }),
+        ) {
+            ExerciseDetailScreen(onBack = { navController.popBackStack() })
         }
 
         composable(

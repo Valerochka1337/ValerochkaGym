@@ -22,6 +22,7 @@ import javax.inject.Inject
 /** Сводка одного упражнения в итогах: имя и краткая строка выполненных подходов. [id] — ключ списка. */
 data class ExerciseSummaryUi(
     val id: Long,
+    val exerciseId: Long,
     val name: String,
     val setsSummary: String,
 )
@@ -87,6 +88,7 @@ class WorkoutSummaryViewModel @Inject constructor(
             val exercises = full.exercises.map { exercise ->
                 ExerciseSummaryUi(
                     id = exercise.workoutExercise.id,
+                    exerciseId = exercise.exercise.id,
                     name = exercise.exercise.name,
                     setsSummary = previousSetsUseCase.formatSummary(
                         exercise.sets.filter { it.isCompleted },
