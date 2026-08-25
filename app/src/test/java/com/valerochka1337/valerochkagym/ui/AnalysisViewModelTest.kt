@@ -121,7 +121,7 @@ class AnalysisViewModelTest : RoomDaoTest() {
 
         val loads = viewModel.uiState.value.report.muscleLoads.associateBy { it.muscle }
         assertEquals(4.0, loads.getValue(Muscle.CHEST).totalSets, 1e-6)
-        assertEquals(4.0, loads.getValue(Muscle.TRICEPS).totalSets, 1e-6) // 65% — прямая работа
+        assertEquals(2.6, loads.getValue(Muscle.TRICEPS).totalSets, 1e-6)
         assertEquals(VolumeZone.NONE, loads.getValue(Muscle.CALVES).zone)
     }
 

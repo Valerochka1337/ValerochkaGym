@@ -63,6 +63,7 @@ data class ExerciseAiCreationState(
     val isGenerating: Boolean = false,
     val keyConfigured: Boolean = false,
     val error: String? = null,
+    val modelUnavailable: Boolean = false,
 )
 
 /** Заглушка оставляет ручной путь доступным в прямых unit-тестах без Hilt. */
@@ -157,7 +158,11 @@ class ExerciseLibraryViewModel @Inject constructor(
 
     fun onAiDescriptionChange(value: String) {
         _aiCreation.update { state ->
-            state?.takeUnless { it.isGenerating }?.copy(description = value, error = null)
+            state?.takeUnless { it.isGenerating }?.copy(
+                description = value,
+                error = null,
+                modelUnavailable = false,
+            )
         }
     }
 
@@ -180,10 +185,14 @@ class ExerciseLibraryViewModel @Inject constructor(
         if (state.isGenerating || !state.keyConfigured || state.description.trim().isEmpty()) return
 
         val currentGenerationId = ++generationId
-        _aiCreation.value = state.copy(isGenerating = true, error = null)
+        _aiCreation.value = state.copy(isGenerating = true, error = null, modelUnavailable = false)
         generationJob = viewModelScope.launch {
             when (val result = exerciseAiGenerator.generate(state.description)) {
-                is ExerciseAiGenerationResult.Failure -> showGenerationFailure(currentGenerationId, result.message)
+                is ExerciseAiGenerationResult.Failure -> showGenerationFailure(
+                    generationId = currentGenerationId,
+                    message = result.message,
+                    modelUnavailable = result.modelUnavailable,
+                )
                 is ExerciseAiGenerationResult.New -> {
                     if (currentGenerationId != generationId) return@launch
                     _aiCreation.value = null
@@ -224,9 +233,19 @@ class ExerciseLibraryViewModel @Inject constructor(
         )
     }
 
-    private fun showGenerationFailure(generationId: Long, message: String) {
+    private fun showGenerationFailure(
+        generationId: Long,
+        message: String,
+        modelUnavailable: Boolean = false,
+    ) {
         if (generationId != this.generationId) return
-        _aiCreation.update { state -> state?.copy(isGenerating = false, error = message) }
+        _aiCreation.update { state ->
+            state?.copy(
+                isGenerating = false,
+                error = message,
+                modelUnavailable = modelUnavailable,
+            )
+        }
     }
 
     private fun emptyEditorState(): ExerciseEditorState = ExerciseEditorState(

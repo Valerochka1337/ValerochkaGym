@@ -84,6 +84,7 @@ import kotlinx.coroutines.flow.StateFlow
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
 import com.valerochka1337.valerochkagym.data.db.entity.WorkoutSetEntity
 import com.valerochka1337.valerochkagym.data.db.relation.WorkoutExerciseWithSets
+import com.valerochka1337.valerochkagym.domain.currentFocus
 import com.valerochka1337.valerochkagym.ui.common.formatRestClock
 import com.valerochka1337.valerochkagym.ui.components.ExerciseAvatar
 import com.valerochka1337.valerochkagym.ui.components.DragHandle
@@ -97,10 +98,10 @@ import com.valerochka1337.valerochkagym.service.heartrate.HeartRateDevice
 import com.valerochka1337.valerochkagym.service.heartrate.HeartRateReading
 import com.valerochka1337.valerochkagym.ui.components.NumberField
 import com.valerochka1337.valerochkagym.ui.components.PillButton
+import com.valerochka1337.valerochkagym.ui.components.rememberGymReorderableLazyListState
 import com.valerochka1337.valerochkagym.ui.haptics.gymHaptics
 import com.valerochka1337.valerochkagym.ui.theme.GymMotion
 import sh.calvin.reorderable.ReorderableItem
-import sh.calvin.reorderable.rememberReorderableLazyListState
 
 /** Крупный шаг веса (обычный тап), кг. */
 private const val WEIGHT_STEP = 2.5
@@ -225,7 +226,7 @@ fun ActiveWorkoutScreen(
 }
 
 /** Колбэки правок подходов, прокинутые от [ActiveWorkoutViewModel] в карточки текущего подхода. */
-private class SetActions(
+internal class SetActions(
     val stepWeight: (Long, Double) -> Unit,
     val stepReps: (Long, Int) -> Unit,
     val stepDuration: (Long, Int) -> Unit,
@@ -243,7 +244,7 @@ private class SetActions(
 )
 
 @Composable
-private fun ActiveWorkoutContent(
+internal fun ActiveWorkoutContent(
     state: ActiveWorkoutUiState,
     elapsedSeconds: StateFlow<Long>,
     restTimer: StateFlow<RestTimerState?>,
@@ -291,7 +292,7 @@ private fun ActiveWorkoutContent(
     val exercisesById = roomExercises.associateBy { it.workoutExercise.id }
     val exercises = localOrder.mapNotNull(exercisesById::get)
     val lazyListState = rememberLazyListState()
-    val reorderableLazyListState = rememberReorderableLazyListState(lazyListState) { from, to ->
+    val reorderableLazyListState = rememberGymReorderableLazyListState(lazyListState) { from, to ->
         if (
             from.index in localOrder.indices &&
             to.index in localOrder.indices &&
@@ -318,7 +319,13 @@ private fun ActiveWorkoutContent(
         onReorderExercises(reordered)
     }
 
-    val currentIndex = exercises.indexOfFirst { exercise -> exercise.sets.any { !it.isCompleted } }
+    // currentFocus — единое правило для экрана, уведомления и Wear. Передаём ему локальный
+    // порядок, чтобы фокус немедленно следовал за карточкой ещё до записи перестановки в Room.
+    val currentFocus = workout.copy(exercises = exercises).currentFocus()
+    val activeSetId = currentFocus?.set?.id
+    val currentIndex = activeSetId?.let { setId ->
+        exercises.indexOfFirst { exercise -> exercise.sets.any { it.id == setId } }
+    } ?: -1
     val currentNumber = if (currentIndex >= 0) currentIndex + 1 else exercises.size
 
     var showFinishDialog by rememberSaveable { mutableStateOf(false) }
@@ -387,6 +394,7 @@ private fun ActiveWorkoutContent(
                         exercise = exercise,
                         previous = state.previousByExercise[exercise.exercise.id].orEmpty(),
                         actions = setActions,
+                        activeSetId = activeSetId,
                         dragHandle = {
                             DragHandle(
                                 reorderableItemScope = reorderableItemScope,
@@ -776,13 +784,13 @@ private fun ExerciseSection(
     exercise: WorkoutExerciseWithSets,
     previous: String,
     actions: SetActions,
+    activeSetId: Long?,
     dragHandle: @Composable () -> Unit,
     onDeleteExercise: () -> Unit,
     onExerciseClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val type = exercise.exercise.type
-    val currentSet = exercise.sets.firstOrNull { !it.isCompleted }
     val haptics = gymHaptics()
 
     // Когда текущий подход схлопывается в пилюлю, высота секции меняется плавно (expressive-спек).
@@ -833,7 +841,7 @@ private fun ExerciseSection(
 
         exercise.sets.forEach { set ->
             when {
-                set.id == currentSet?.id -> CurrentSetCard(
+                set.id == activeSetId -> CurrentSetCard(
                     set = set,
                     type = type,
                     actions = actions,

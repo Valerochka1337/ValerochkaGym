@@ -121,6 +121,10 @@ class UploadWorkoutWorkerTest {
             return result
         }
 
+        override suspend fun uploadRoutine(routineSyncId: String): UploadResult = result
+
+        override suspend fun uploadRoutineDeletion(routineSyncId: String, updatedAt: Long): UploadResult = result
+
         override suspend fun uploadMeasurement(measurementId: String): UploadResult = result
     }
 

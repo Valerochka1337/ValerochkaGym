@@ -63,7 +63,7 @@ internal fun MuscleHeatmapCard(
 
     AnalysisCard(
         title = "Карта нагрузки",
-        subtitle = "Рабочий подход даёт мышце 1, ½ или 0 подходов — по её вовлечению",
+        subtitle = "Вклад рабочего подхода пропорционален вовлечению мышцы",
         icon = Icons.Rounded.Accessibility,
         modifier = modifier,
     ) {
@@ -103,7 +103,7 @@ private fun EffectiveSetsExplanation() {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Text(
-            text = "На одну мышцу: вовлечение 60%+ — 1 подход; 25–59% — ½; ниже 25% — 0.",
+            text = "На одну мышцу: 100% — 1 подход; 60% — 0,6; 25% — 0,25; ниже 25% — 0.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

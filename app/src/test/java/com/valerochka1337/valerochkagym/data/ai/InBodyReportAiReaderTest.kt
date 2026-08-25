@@ -32,10 +32,14 @@ import java.time.LocalTime
 class InBodyReportAiReaderTest {
 
     @Test
-    fun `reader sends an image multipart request to the fixed model and returns a complete draft`() = runTest {
+    fun `reader sends an image multipart request to the selected model and returns a complete draft`() = runTest {
         val api = FakeOpenRouterApi(content = completeReportJson())
         val encoder = FakePhotoEncoder()
-        val reader = reader(api = api, encoder = encoder)
+        val reader = reader(
+            api = api,
+            encoder = encoder,
+            modelId = "dots-studio/dots-3-note-preview:free",
+        )
 
         val result = reader.read(Uri.parse("content://picker/inbody.jpg"))
 
@@ -49,14 +53,18 @@ class InBodyReportAiReaderTest {
         assertEquals(85.7, success.draft.segments.getValue(InBodySegment.LEFT_LEG).fatPercentage!!, 1e-6)
 
         val request = api.request!!
-        assertEquals("google/gemma-4-26b-a4b-it:free", request.model)
+        assertEquals("dots-studio/dots-3-note-preview:free", request.model)
         assertEquals(2_048, request.maxTokens)
+        assertEquals(null, request.reasoning)
         assertEquals(0.0, request.temperature!!, 0.0)
         assertTrue(request.provider.requireParameters)
-        assertTrue(request.responseFormat.jsonSchema.strict)
+        val schema = requireNotNull(request.responseFormat.jsonSchema)
+        assertTrue(schema.strict)
         assertEquals("json_schema", request.responseFormat.type)
-        assertTrue(request.responseFormat.jsonSchema.schema.toString().contains("LEFT_ARM"))
-        assertTrue(request.responseFormat.jsonSchema.schema.toString().contains("Масса скелетной мускулатуры"))
+        assertTrue(schema.schema.toString().contains("LEFT_ARM"))
+        assertTrue(schema.schema.toString().contains("Масса скелетной мускулатуры"))
+        val systemContent = (request.messages.first().content as JsonPrimitive).content
+        assertTrue(systemContent.contains("Используй минимум рассуждений"))
 
         val userParts = request.messages.last().content as JsonArray
         assertEquals("text", (userParts[0] as kotlinx.serialization.json.JsonObject)["type"]!!.jsonPrimitive.content)
@@ -78,6 +86,65 @@ class InBodyReportAiReaderTest {
     }
 
     @Test
+    fun `reader marks an unavailable selected model so the UI can open settings`() = runTest {
+        val result = reader(api = FakeOpenRouterApi(error = httpException(503)))
+            .read(Uri.parse("content://picker/inbody.jpg"))
+
+        val failure = result as InBodyReportAiResult.Failure
+        assertEquals(MODEL_UNAVAILABLE_MESSAGE, failure.message)
+        assertTrue(failure.modelUnavailable)
+    }
+
+    @Test
+    fun `reader uses JSON object mode for a compatible vision model without structured outputs`() = runTest {
+        val api = FakeOpenRouterApi(content = completeReportJson())
+        val reader = reader(
+            api = api,
+            modelId = "google/gemma-4-31b-it:free",
+            jsonMode = OpenRouterJsonMode.JSON_OBJECT,
+        )
+
+        reader.read(Uri.parse("content://picker/inbody.jpg"))
+
+        assertEquals("json_object", api.request?.responseFormat?.type)
+        assertEquals(null, api.request?.responseFormat?.jsonSchema)
+        val systemContent = (api.request?.messages?.first()?.content as JsonPrimitive).content
+        assertTrue(systemContent.contains("<response_schema_json>"))
+        assertTrue(systemContent.contains("LEFT_ARM"))
+    }
+
+    @Test
+    fun `reader uses the saved low reasoning effort for a mandatory reasoning model`() = runTest {
+        val api = FakeOpenRouterApi(content = completeReportJson())
+        val reader = reader(
+            api = api,
+            modelId = "stealth/ox-alpha",
+            jsonMode = OpenRouterJsonMode.JSON_OBJECT,
+            reasoningEffort = "low",
+        )
+
+        reader.read(Uri.parse("content://picker/inbody.jpg"))
+
+        assertEquals(OpenRouterReasoningPreferences(effort = "low"), api.request?.reasoning)
+    }
+
+    @Test
+    fun `reader logs the raw OpenRouter response before parsing it`() = runTest {
+        val logger = RecordingAiResponseLogger()
+        val reader = reader(
+            api = FakeOpenRouterApi(content = completeReportJson()),
+            responseLogger = logger,
+        )
+
+        reader.read(Uri.parse("content://picker/inbody.jpg"))
+
+        assertEquals(listOf(AiResponseSource.INBODY), logger.sources)
+        assertEquals(listOf(DEFAULT_OPEN_ROUTER_MODEL_ID), logger.modelIds)
+        val response = logger.responses.single()
+        assertEquals(completeReportJson(), (response.choices.single().message?.content as JsonPrimitive).content)
+    }
+
+    @Test
     fun `reader rejects missing fields invalid date negative value and duplicate segments`() = runTest {
         val malformedReports = listOf(
             "{\"isInBodyReport\":true}",
@@ -90,6 +157,23 @@ class InBodyReportAiReaderTest {
                 .read(Uri.parse("content://picker/inbody.jpg"))
             assertTrue("report must be rejected: $content", result is InBodyReportAiResult.Failure)
         }
+    }
+
+    @Test
+    fun `reader explains when the model exhausts its completion limit`() = runTest {
+        val reader = reader(
+            api = FakeOpenRouterApi(
+                content = null,
+                finishReason = "length",
+            ),
+        )
+
+        assertEquals(
+            InBodyReportAiResult.Failure(
+                "Модель исчерпала лимит ответа — попробуйте ещё раз или выберите другую",
+            ),
+            reader.read(Uri.parse("content://picker/inbody.jpg")),
+        )
     }
 
     @Test
@@ -123,17 +207,24 @@ class InBodyReportAiReaderTest {
         api: OpenRouterApi,
         encoder: InBodyPhotoEncoder = FakePhotoEncoder(),
         key: String? = "secret",
+        modelId: String = DEFAULT_OPEN_ROUTER_MODEL_ID,
+        jsonMode: OpenRouterJsonMode = OpenRouterJsonMode.JSON_SCHEMA,
+        reasoningEffort: String? = null,
+        responseLogger: AiResponseLogger = NoOpAiResponseLogger,
     ): OpenRouterInBodyReportAiReader = OpenRouterInBodyReportAiReader(
         api = api,
         keyStore = FakeOpenRouterKeyStore(key),
+        modelSelector = FakeOpenRouterModelSelector(modelId, jsonMode, reasoningEffort),
         photoEncoder = encoder,
         json = Json { ignoreUnknownKeys = true },
+        responseLogger = responseLogger,
         computeDispatcher = UnconfinedTestDispatcher(),
     )
 
     private class FakeOpenRouterApi(
         private val content: String? = null,
         private val error: Exception? = null,
+        private val finishReason: String? = null,
     ) : OpenRouterApi {
         val requests = mutableListOf<OpenRouterChatRequest>()
         val request: OpenRouterChatRequest? get() = requests.singleOrNull()
@@ -148,6 +239,7 @@ class InBodyReportAiReaderTest {
                 choices = listOf(
                     OpenRouterChoice(
                         message = OpenRouterResponseMessage(content = content?.let(::JsonPrimitive) ?: JsonNull),
+                        finishReason = finishReason,
                     ),
                 ),
             )
@@ -167,6 +259,42 @@ class InBodyReportAiReaderTest {
         override suspend fun save(value: String) = Unit
         override suspend fun read(): String? = key
         override suspend fun clear() = Unit
+    }
+
+    private class FakeOpenRouterModelSelector(
+        private val modelId: String,
+        private val jsonMode: OpenRouterJsonMode,
+        private val reasoningEffort: String?,
+    ) : OpenRouterModelSelector {
+        override suspend fun selectedModel(): OpenRouterModelSelection = OpenRouterModelSelection(
+            id = modelId,
+            jsonMode = jsonMode,
+            reasoningEffort = reasoningEffort,
+        )
+    }
+
+    private object NoOpAiResponseLogger : AiResponseLogger {
+        override fun log(
+            source: AiResponseSource,
+            requestedModelId: String,
+            response: OpenRouterChatResponse,
+        ) = Unit
+    }
+
+    private class RecordingAiResponseLogger : AiResponseLogger {
+        val sources = mutableListOf<AiResponseSource>()
+        val modelIds = mutableListOf<String>()
+        val responses = mutableListOf<OpenRouterChatResponse>()
+
+        override fun log(
+            source: AiResponseSource,
+            requestedModelId: String,
+            response: OpenRouterChatResponse,
+        ) {
+            sources += source
+            modelIds += requestedModelId
+            responses += response
+        }
     }
 
     private fun httpException(code: Int): HttpException =

@@ -58,6 +58,7 @@ data class MeasurementEditorUiState(
     val isSaving: Boolean = false,
     val isOpenRouterConfigured: Boolean = false,
     val inBodyScanError: String? = null,
+    val inBodyScanModelUnavailable: Boolean = false,
     val saveError: String? = null,
     val measuredAt: Long = System.currentTimeMillis(),
     val weightKg: String = "",
@@ -237,27 +238,48 @@ class MeasurementEditorViewModel @Inject constructor(
         val state = _uiState.value
         if (state.isLoading || state.isBusy) return
         if (!state.isOpenRouterConfigured) {
-            _uiState.update { it.copy(inBodyScanError = MISSING_KEY_MESSAGE) }
+            _uiState.update {
+                it.copy(inBodyScanError = MISSING_KEY_MESSAGE, inBodyScanModelUnavailable = false)
+            }
             temporaryCameraFile?.delete()
             return
         }
-        _uiState.update { it.copy(isScanningInBody = true, inBodyScanError = null, saveError = null) }
+        _uiState.update {
+            it.copy(
+                isScanningInBody = true,
+                inBodyScanError = null,
+                inBodyScanModelUnavailable = false,
+                saveError = null,
+            )
+        }
         viewModelScope.launch {
             try {
                 when (val result = inBodyReportAiReader.read(uri)) {
                     is InBodyReportAiResult.Success -> _uiState.update { current ->
-                        current.applyInBodyDraft(result.draft).copy(isScanningInBody = false, inBodyScanError = null)
+                        current.applyInBodyDraft(result.draft).copy(
+                            isScanningInBody = false,
+                            inBodyScanError = null,
+                            inBodyScanModelUnavailable = false,
+                        )
                     }
 
                     is InBodyReportAiResult.Failure -> _uiState.update { current ->
-                        current.copy(isScanningInBody = false, inBodyScanError = result.message)
+                        current.copy(
+                            isScanningInBody = false,
+                            inBodyScanError = result.message,
+                            inBodyScanModelUnavailable = result.modelUnavailable,
+                        )
                     }
                 }
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
                 _uiState.update { current ->
-                    current.copy(isScanningInBody = false, inBodyScanError = GENERIC_SCAN_FAILURE_MESSAGE)
+                    current.copy(
+                        isScanningInBody = false,
+                        inBodyScanError = GENERIC_SCAN_FAILURE_MESSAGE,
+                        inBodyScanModelUnavailable = false,
+                    )
                 }
             } finally {
                 temporaryCameraFile?.delete()

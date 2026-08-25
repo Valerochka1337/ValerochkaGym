@@ -5,9 +5,12 @@ import androidx.lifecycle.viewModelScope
 import com.valerochka1337.valerochkagym.data.db.dao.RoutineDao
 import com.valerochka1337.valerochkagym.data.db.entity.RoutineEntity
 import com.valerochka1337.valerochkagym.data.db.entity.RoutineExerciseEntity
+import com.valerochka1337.valerochkagym.data.db.entity.withNextUpdatedAt
 import com.valerochka1337.valerochkagym.data.db.relation.RoutineWithExercises
 import com.valerochka1337.valerochkagym.data.settings.SettingsRepository
 import com.valerochka1337.valerochkagym.domain.ActiveWorkoutRepository
+import com.valerochka1337.valerochkagym.worker.NoOpRoutineUploadScheduler
+import com.valerochka1337.valerochkagym.worker.RoutineUploadScheduler
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -54,6 +57,7 @@ class WorkoutsViewModel @Inject constructor(
     private val routineDao: RoutineDao,
     private val settingsRepository: SettingsRepository,
     private val activeWorkoutRepository: ActiveWorkoutRepository,
+    private val routineUploadScheduler: RoutineUploadScheduler = NoOpRoutineUploadScheduler,
 ) : ViewModel() {
 
     private val selectedRoutineId = MutableStateFlow<Long?>(null)
@@ -124,9 +128,11 @@ class WorkoutsViewModel @Inject constructor(
     fun duplicate(id: Long) {
         viewModelScope.launch {
             val source = routineDao.getRoutineWithExercises(id) ?: return@launch
-            val newId = routineDao.upsertRoutine(
-                RoutineEntity(name = "${source.routine.name} (копия)", note = source.routine.note),
+            val copy = RoutineEntity(
+                name = "${source.routine.name} (копия)",
+                note = source.routine.note,
             )
+            val newId = routineDao.upsertRoutine(copy)
             val copiedExercises = source.exercises.mapIndexed { index, item ->
                 RoutineExerciseEntity(
                     routineId = newId,
@@ -137,12 +143,16 @@ class WorkoutsViewModel @Inject constructor(
                 )
             }
             routineDao.replaceRoutineExercises(newId, copiedExercises)
+            routineUploadScheduler.schedule(copy.syncId)
         }
     }
 
     fun delete(id: Long) {
         viewModelScope.launch {
+            val routine = routineDao.getRoutineWithExercises(id)?.routine ?: return@launch
+            val deletedAt = routine.withNextUpdatedAt().updatedAt
             routineDao.deleteRoutine(id)
+            routineUploadScheduler.scheduleDeletion(routine.syncId, deletedAt)
         }
     }
 }

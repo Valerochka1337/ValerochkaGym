@@ -5,7 +5,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** Ориентиры недельного объёма: зоны, полнота таблицы и ступенчатый вес подхода. */
+/** Ориентиры недельного объёма: зоны, полнота таблицы и вес подхода. */
 class MuscleLandmarksTest {
 
     @Test
@@ -62,12 +62,13 @@ class MuscleLandmarksTest {
     }
 
     @Test
-    fun `set weight is stepped by contribution direct half indirect zero stabilizer`() {
+    fun `set weight preserves global contribution above the stabilizer threshold`() {
         assertEquals(1.0, setWeightFor(100), 1e-9)
-        assertEquals(1.0, setWeightFor(60), 1e-9)
-        assertEquals(0.5, setWeightFor(59), 1e-9)
-        assertEquals(0.5, setWeightFor(25), 1e-9)
+        assertEquals(0.6, setWeightFor(60), 1e-9)
+        assertEquals(0.59, setWeightFor(59), 1e-9)
+        assertEquals(0.25, setWeightFor(25), 1e-9)
         assertEquals(0.0, setWeightFor(24), 1e-9)
         assertEquals(0.0, setWeightFor(0), 1e-9)
+        assertEquals(1.0, setWeightFor(105), 1e-9)
     }
 }

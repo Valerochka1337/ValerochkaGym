@@ -10,7 +10,8 @@ import com.valerochka1337.valerochkagym.data.db.entity.MuscleLoad
  * из Google Sheets (там есть только колонка `muscle_group`).
  *
  * Числа — «типичный представитель» группы (жим лёжа для груди, тяга для спины, приседания для
- * ног), поэтому тепловая карта остаётся осмысленной даже без ручной разметки. Точные карты
+ * ног). Шкала глобальная: кардио и упражнения на выносливость не получают искусственные 100%.
+ * Точные карты
  * встроенного каталога живут в [seedExerciseMuscles].
  */
 fun MuscleGroup.defaultMuscleLoads(): List<MuscleLoad> = when (this) {
@@ -59,20 +60,20 @@ fun MuscleGroup.defaultMuscleLoads(): List<MuscleLoad> = when (this) {
     )
 
     MuscleGroup.CARDIO -> listOf(
-        MuscleLoad(Muscle.QUADS, 100),
-        MuscleLoad(Muscle.CALVES, 70),
-        MuscleLoad(Muscle.HAMSTRINGS, 55),
-        MuscleLoad(Muscle.GLUTES, 50),
+        MuscleLoad(Muscle.QUADS, 20),
+        MuscleLoad(Muscle.CALVES, 15),
+        MuscleLoad(Muscle.HAMSTRINGS, 15),
+        MuscleLoad(Muscle.GLUTES, 15),
     )
 
     MuscleGroup.FULL_BODY -> listOf(
-        MuscleLoad(Muscle.QUADS, 100),
-        MuscleLoad(Muscle.GLUTES, 85),
-        MuscleLoad(Muscle.ABS, 60),
-        MuscleLoad(Muscle.HAMSTRINGS, 55),
-        MuscleLoad(Muscle.FRONT_DELTS, 50),
-        MuscleLoad(Muscle.LATS, 45),
-        MuscleLoad(Muscle.CALVES, 40),
-        MuscleLoad(Muscle.TRICEPS, 35),
+        MuscleLoad(Muscle.QUADS, 70),
+        MuscleLoad(Muscle.GLUTES, 60),
+        MuscleLoad(Muscle.ABS, 45),
+        MuscleLoad(Muscle.HAMSTRINGS, 40),
+        MuscleLoad(Muscle.FRONT_DELTS, 35),
+        MuscleLoad(Muscle.LATS, 30),
+        MuscleLoad(Muscle.CALVES, 25),
+        MuscleLoad(Muscle.TRICEPS, 25),
     )
 }

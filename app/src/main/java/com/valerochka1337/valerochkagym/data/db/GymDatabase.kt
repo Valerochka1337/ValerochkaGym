@@ -20,6 +20,7 @@ import com.valerochka1337.valerochkagym.data.db.entity.ScheduledWorkoutEntity
 import com.valerochka1337.valerochkagym.data.db.entity.WorkoutEntity
 import com.valerochka1337.valerochkagym.data.db.entity.WorkoutExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.WorkoutSetEntity
+import java.util.UUID
 
 @Database(
     entities = [
@@ -33,7 +34,7 @@ import com.valerochka1337.valerochkagym.data.db.entity.WorkoutSetEntity
         WorkoutExerciseEntity::class,
         WorkoutSetEntity::class,
     ],
-    version = 5,
+    version = 7,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -145,6 +146,45 @@ abstract class GymDatabase : RoomDatabase() {
                     "ALTER TABLE body_measurements ADD COLUMN rightLegFatMassKg REAL",
                     "ALTER TABLE body_measurements ADD COLUMN rightLegFatPercentage REAL",
                 ).forEach(db::execSQL)
+            }
+        }
+
+        /**
+         * v5 → v6: встроенные карты мышц переходят с локальной на общую шкалу нагрузки.
+         * Удаляем только разметку стандартных упражнений: [GymDatabaseCallback] заполнит её заново из
+         * [seedExerciseMuscles] при первом открытии. Свои упражнения и их ручная разметка сохраняются.
+         */
+        val MIGRATION_5_6: Migration = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "DELETE FROM exercise_muscles WHERE exerciseId IN " +
+                        "(SELECT id FROM exercises WHERE isCustom = 0)",
+                )
+            }
+        }
+
+        /**
+         * v6 → v7: у программ появляется независимый от локального ID ключ синхронизации и
+         * монотонная версия снимка. UUID генерируются один раз именно в миграции, поэтому уже
+         * созданные программы не меняют свою cloud-идентичность при следующем открытии базы.
+         */
+        val MIGRATION_6_7: Migration = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE routines ADD COLUMN syncId TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE routines ADD COLUMN updatedAt INTEGER NOT NULL DEFAULT 0")
+                val migratedAt = System.currentTimeMillis()
+                db.query("SELECT id FROM routines").use { cursor ->
+                    val idColumn = cursor.getColumnIndexOrThrow("id")
+                    while (cursor.moveToNext()) {
+                        db.execSQL(
+                            "UPDATE routines SET syncId = ?, updatedAt = ? WHERE id = ?",
+                            arrayOf<Any?>(UUID.randomUUID().toString(), migratedAt, cursor.getLong(idColumn)),
+                        )
+                    }
+                }
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS index_routines_syncId ON routines (syncId)",
+                )
             }
         }
     }

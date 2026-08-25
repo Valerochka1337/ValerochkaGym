@@ -9,6 +9,10 @@ import androidx.datastore.preferences.core.mutablePreferencesOf
 import com.valerochka1337.valerochkagym.data.backup.ClearDataUseCase
 import com.valerochka1337.valerochkagym.data.backup.DatabaseExporter
 import com.valerochka1337.valerochkagym.data.backup.ExportResult
+import com.valerochka1337.valerochkagym.data.ai.DEFAULT_OPEN_ROUTER_MODEL_ID
+import com.valerochka1337.valerochkagym.data.ai.OpenRouterFreeModel
+import com.valerochka1337.valerochkagym.data.ai.OpenRouterFreeModelCatalog
+import com.valerochka1337.valerochkagym.data.ai.OpenRouterJsonMode
 import com.valerochka1337.valerochkagym.data.google.AuthorizeOutcome
 import com.valerochka1337.valerochkagym.data.google.GoogleAuth
 import com.valerochka1337.valerochkagym.data.google.ImportResult
@@ -16,19 +20,24 @@ import com.valerochka1337.valerochkagym.data.google.TokenResult
 import com.valerochka1337.valerochkagym.data.google.WorkoutImportRepository
 import com.valerochka1337.valerochkagym.data.settings.OpenRouterKeyStore
 import com.valerochka1337.valerochkagym.data.settings.SettingsRepository
+import com.valerochka1337.valerochkagym.ui.settings.OPEN_ROUTER_MODEL_CATALOG_TIMEOUT_MILLIS
 import com.valerochka1337.valerochkagym.ui.settings.SettingsViewModel
 import com.valerochka1337.valerochkagym.ui.theme.AccentColor
 import com.valerochka1337.valerochkagym.util.MainDispatcherRule
 import com.valerochka1337.valerochkagym.worker.UploadScheduler
 import com.valerochka1337.valerochkagym.worker.MeasurementUploadScheduler
+import com.valerochka1337.valerochkagym.worker.RoutineUploadScheduler
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.runCurrent
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -53,10 +62,11 @@ class SettingsViewModelTest {
     // region rest stepper
 
     @Test
-    fun `export all schedules both workouts and measurements`() =
+    fun `export all schedules workouts measurements and routines`() =
         runTest(mainDispatcherRule.testDispatcher.scheduler) {
             val workouts = FakeUploadScheduler(pendingCount = 2)
             val measurements = FakeMeasurementUploadScheduler(pendingCount = 3)
+            val routines = FakeRoutineUploadScheduler(pendingCount = 4)
             val viewModel = SettingsViewModel(
                 settingsRepository(),
                 FakeGoogleAuth(),
@@ -65,13 +75,15 @@ class SettingsViewModelTest {
                 FakeDatabaseExporter(),
                 FakeClearData(),
                 measurementUploadScheduler = measurements,
+                routineUploadScheduler = routines,
             )
 
             viewModel.exportAll()
 
-            assertEquals("Поставлено в очередь: 5", viewModel.messages.first())
+            assertEquals("Поставлено в очередь: 9", viewModel.messages.first())
             assertEquals(1, workouts.allCalls)
             assertEquals(1, measurements.allCalls)
+            assertEquals(1, routines.allCalls)
         }
 
     @Test
@@ -212,6 +224,67 @@ class SettingsViewModelTest {
             assertEquals("Ключ OpenRouter удалён", viewModel.messages.first())
         }
 
+    @Test
+    fun `selected OpenRouter model persists for both AI scenarios`() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val viewModel = SettingsViewModel(
+                settingsRepository(),
+                FakeGoogleAuth(),
+                FakeUploadScheduler(),
+                FakeImportRepository(),
+                FakeDatabaseExporter(),
+                FakeClearData(),
+            )
+            collectUiState(viewModel)
+
+            assertEquals(DEFAULT_OPEN_ROUTER_MODEL_ID, viewModel.uiState.value.settings?.openRouterModelId)
+
+            viewModel.setOpenRouterModel(
+                OpenRouterFreeModel(
+                    id = "dots-studio/dots-3-note-preview:free",
+                    name = "Dots3-Note",
+                    contextLength = 262_000,
+                    jsonMode = OpenRouterJsonMode.JSON_SCHEMA,
+                    reasoningEffort = "none",
+                ),
+            )
+
+            assertEquals(
+                "dots-studio/dots-3-note-preview:free",
+                viewModel.uiState.value.settings?.openRouterModelId,
+            )
+            assertEquals(
+                OpenRouterJsonMode.JSON_SCHEMA,
+                viewModel.uiState.value.settings?.openRouterModelJsonMode,
+            )
+            assertEquals("none", viewModel.uiState.value.settings?.openRouterModelReasoningEffort)
+        }
+
+    @Test
+    fun `model catalog timeout keeps automatic selection available`() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val viewModel = SettingsViewModel(
+                settingsRepository(),
+                FakeGoogleAuth(),
+                FakeUploadScheduler(),
+                FakeImportRepository(),
+                FakeDatabaseExporter(),
+                FakeClearData(),
+                openRouterFreeModelCatalog = HangingOpenRouterFreeModelCatalog(),
+            )
+            collectUiState(viewModel)
+
+            advanceTimeBy(OPEN_ROUTER_MODEL_CATALOG_TIMEOUT_MILLIS)
+            runCurrent()
+
+            assertFalse(viewModel.uiState.value.openRouterModelsLoading)
+            assertTrue(viewModel.uiState.value.openRouterModelsLoadError)
+            assertEquals(
+                listOf(DEFAULT_OPEN_ROUTER_MODEL_ID),
+                viewModel.uiState.value.openRouterModels.map(OpenRouterFreeModel::id),
+            )
+        }
+
     // endregion
 
     // region toggles
@@ -297,6 +370,27 @@ class SettingsViewModelTest {
 
             assertEquals(1, import.calls)
             assertEquals("Импортировано тренировок: 3", viewModel.messages.first())
+        }
+
+    @Test
+    fun `import result names restored measurements and routines`() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val import = FakeImportRepository(
+                ImportResult.Success(imported = 1, importedMeasurements = 2, importedRoutines = 3),
+            )
+            val viewModel = SettingsViewModel(
+                settingsRepository(),
+                FakeGoogleAuth(),
+                FakeUploadScheduler(),
+                import,
+                FakeDatabaseExporter(),
+                FakeClearData(),
+            )
+            collectUiState(viewModel)
+
+            viewModel.setSpreadsheetInput(validSpreadsheetId)
+
+            assertEquals("Импортировано тренировок: 1, замеров: 2, программ: 3", viewModel.messages.first())
         }
 
     @Test
@@ -418,6 +512,17 @@ class SettingsViewModelTest {
         }
     }
 
+    private class FakeRoutineUploadScheduler(private val pendingCount: Int = 0) : RoutineUploadScheduler {
+        var allCalls: Int = 0
+            private set
+        override fun schedule(syncId: String) = Unit
+        override fun scheduleDeletion(syncId: String, updatedAt: Long) = Unit
+        override suspend fun scheduleAll(): Int {
+            allCalls++
+            return pendingCount
+        }
+    }
+
     private class FakeOpenRouterKeyStore : OpenRouterKeyStore {
         private val configured = MutableStateFlow(false)
 
@@ -437,6 +542,10 @@ class SettingsViewModelTest {
             savedKey = null
             configured.value = false
         }
+    }
+
+    private class HangingOpenRouterFreeModelCatalog : OpenRouterFreeModelCatalog {
+        override suspend fun getModels(): List<OpenRouterFreeModel> = awaitCancellation()
     }
 
     /** No-op [GoogleAuth]: rest/spreadsheet/toggle paths never touch Google, so defaults suffice. */

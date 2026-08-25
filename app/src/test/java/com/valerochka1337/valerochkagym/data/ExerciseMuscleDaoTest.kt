@@ -136,8 +136,21 @@ class ExerciseMuscleDaoTest : RoomDaoTest() {
         ids.forEach { id ->
             val rows = muscleDao.getForExercise(id)
             assertTrue("упражнение $id осталось без мышц", rows.isNotEmpty())
-            assertTrue("у упражнения $id нет целевой мышцы", rows.any { it.contribution == 100 })
         }
+    }
+
+    @Test
+    fun `catalogue uses one global load scale across exercises`() {
+        val squatQuads = seedExerciseMuscles.getValue("приседания со штангой")
+            .single { it.muscle == Muscle.QUADS }
+            .contribution
+        val treadmillQuads = seedExerciseMuscles.getValue("беговая дорожка")
+            .single { it.muscle == Muscle.QUADS }
+            .contribution
+
+        assertEquals(100, squatQuads)
+        assertEquals(20, treadmillQuads)
+        assertTrue(treadmillQuads < squatQuads)
     }
 
     // endregion

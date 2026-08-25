@@ -9,6 +9,8 @@ import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleGroup
 import com.valerochka1337.valerochkagym.data.db.entity.BodyMeasurementEntity
+import com.valerochka1337.valerochkagym.data.db.entity.RoutineEntity
+import com.valerochka1337.valerochkagym.data.db.entity.RoutineExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.UploadStatus
 import com.valerochka1337.valerochkagym.data.google.AuthorizeOutcome
 import com.valerochka1337.valerochkagym.data.google.GoogleAuth
@@ -24,6 +26,7 @@ import com.valerochka1337.valerochkagym.data.google.SpreadsheetDto
 import com.valerochka1337.valerochkagym.data.google.ValueRangeDto
 import com.valerochka1337.valerochkagym.data.google.UpdateValuesDto
 import com.valerochka1337.valerochkagym.data.settings.SettingsRepository
+import com.valerochka1337.valerochkagym.domain.RoutineRowMapper
 import com.valerochka1337.valerochkagym.domain.WorkoutRowMapper
 import com.valerochka1337.valerochkagym.domain.measurements.BodyMeasurementRowMapper
 import android.app.Activity
@@ -117,6 +120,53 @@ class SheetsRepositoryTest : RoomDaoTest() {
         assertEquals(UploadResult.Success, result)
         assertTrue(api.appended.isEmpty())
         assertEquals(UploadStatus.UPLOADED, uploadStatus())
+    }
+
+    // endregion
+
+    // region routines
+
+    @Test
+    fun `routine export creates Routines with a snapshot header and data`() = runTest {
+        val syncId = seedRoutine()
+        val api = FakeSheetsApi()
+
+        val result = repository(api).uploadRoutine(syncId)
+
+        assertEquals(UploadResult.Success, result)
+        assertTrue(ROUTINES_SHEET in api.sheets)
+        assertEquals(ROUTINE_APPEND_RANGE, api.appendRanges.single())
+        assertEquals(RoutineRowMapper.HEADER_ROW, api.appended.single().first())
+        assertEquals(syncId, api.appended.single()[1].first())
+    }
+
+    @Test
+    fun `routine version already in Routines is idempotent`() = runTest {
+        val syncId = seedRoutine(updatedAt = 200)
+        val snapshot = db.routineDao().getRoutineWithExercises(1)!!
+        val api = FakeSheetsApi(
+            sheets = mutableListOf(ROUTINES_SHEET),
+            routineRows = (listOf(RoutineRowMapper.HEADER_ROW) + RoutineRowMapper.rows(snapshot))
+                .map { row -> row.map { it?.toString().orEmpty() } }
+                .toMutableList(),
+        )
+
+        val result = repository(api).uploadRoutine(syncId)
+
+        assertEquals(UploadResult.Success, result)
+        assertTrue(api.appended.isEmpty())
+    }
+
+    @Test
+    fun `routine deletion writes an idempotent tombstone snapshot`() = runTest {
+        val api = FakeSheetsApi()
+
+        val result = repository(api).uploadRoutineDeletion("routine-1", 300)
+
+        assertEquals(UploadResult.Success, result)
+        assertEquals(RoutineRowMapper.HEADER_ROW, api.appended.single().first())
+        val tombstone = api.appended.single()[1]
+        assertEquals(listOf("routine-1", "300", "true"), tombstone.take(3))
     }
 
     // endregion
@@ -384,7 +434,14 @@ class SheetsRepositoryTest : RoomDaoTest() {
         api: FakeSheetsApi,
         auth: GoogleAuth = FakeGoogleAuth(TokenResult.Success("token")),
         settings: SettingsRepository = settingsRepository(spreadsheetId = SPREADSHEET_ID),
-    ): SheetsRepositoryImpl = SheetsRepositoryImpl(api, auth, settings, db.workoutDao(), db.bodyMeasurementDao())
+    ): SheetsRepositoryImpl = SheetsRepositoryImpl(
+        api,
+        auth,
+        settings,
+        db.workoutDao(),
+        db.bodyMeasurementDao(),
+        db.routineDao(),
+    )
 
     private suspend fun uploadStatus(id: String = WORKOUT_ID): UploadStatus =
         workoutFull(id).workout.uploadStatus
@@ -424,6 +481,28 @@ class SheetsRepositoryTest : RoomDaoTest() {
         )
     }
 
+    private suspend fun seedRoutine(
+        syncId: String = "routine-1",
+        updatedAt: Long = 100,
+    ): String {
+        val exerciseId = insertExercise()
+        val routineId = db.routineDao().upsertRoutine(
+            RoutineEntity(syncId = syncId, updatedAt = updatedAt, name = "Грудь", note = "Техника"),
+        )
+        db.routineDao().replaceRoutineExercises(
+            routineId,
+            listOf(
+                RoutineExerciseEntity(
+                    routineId = routineId,
+                    exerciseId = exerciseId,
+                    position = 0,
+                    restSeconds = 90,
+                ),
+            ),
+        )
+        return syncId
+    }
+
     private suspend fun insertExercise(): Long =
         db.exerciseDao().insert(
             ExerciseEntity(name = "Жим штанги лёжа", muscleGroup = MuscleGroup.CHEST, type = ExerciseType.STRENGTH),
@@ -452,6 +531,7 @@ class SheetsRepositoryTest : RoomDaoTest() {
         private val columnA: MutableList<String> = mutableListOf(),
         private val measurementColumnA: MutableList<String> = mutableListOf(),
         private val measurementHeader: MutableList<String> = mutableListOf(),
+        private val routineRows: MutableList<List<String>> = mutableListOf(),
         private val failGetSpreadsheet: Exception? = null,
         private val failBatchUpdate: Exception? = null,
         private val failGetValues: Exception? = null,
@@ -505,6 +585,9 @@ class SheetsRepositoryTest : RoomDaoTest() {
                 }
                 return ValueRangeDto(values = header.takeIf { it.isNotEmpty() }?.let(::listOf))
             }
+            if (range == ROUTINES_RANGE) {
+                return ValueRangeDto(values = routineRows.ifEmpty { null })
+            }
             val values = if (range.startsWith("Measurements!")) measurementColumnA else columnA
             return ValueRangeDto(values = if (values.isEmpty()) null else values.map { listOf(it) })
         }
@@ -519,7 +602,9 @@ class SheetsRepositoryTest : RoomDaoTest() {
         ): JsonElement {
             failAppend?.let { throw it }
             appendRanges += range
-            appended.add(body.values.map { row -> (row as JsonArray).map { (it as JsonPrimitive).content } })
+            val rows = body.values.map { row -> (row as JsonArray).map { (it as JsonPrimitive).content } }
+            appended.add(rows)
+            if (range == ROUTINE_APPEND_RANGE) routineRows += rows
             return JsonNull
         }
 
@@ -578,6 +663,9 @@ class SheetsRepositoryTest : RoomDaoTest() {
         const val SPREADSHEET_ID = "1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms"
         const val WORKOUTS_SHEET = "Workouts"
         const val MEASUREMENTS_SHEET = "Measurements"
+        const val ROUTINES_SHEET = "Routines"
         const val MEASUREMENT_APPEND_RANGE = "Measurements!A:AP"
+        const val ROUTINE_APPEND_RANGE = "Routines!A:K"
+        const val ROUTINES_RANGE = "Routines!A:K"
     }
 }

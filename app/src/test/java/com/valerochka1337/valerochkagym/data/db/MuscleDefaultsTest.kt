@@ -16,14 +16,12 @@ class MuscleDefaultsTest {
     }
 
     @Test
-    fun `every fallback map has a full-contribution target muscle`() {
-        MuscleGroup.entries.forEach { group ->
-            assertEquals(
-                "у $group нет целевой мышцы на 100%",
-                100,
-                group.defaultMuscleLoads().maxOf { it.contribution },
-            )
-        }
+    fun `cardio fallback stays below direct strength work`() {
+        val cardioMax = MuscleGroup.CARDIO.defaultMuscleLoads().maxOf { it.contribution }
+        val legsMax = MuscleGroup.LEGS.defaultMuscleLoads().maxOf { it.contribution }
+
+        assertTrue(cardioMax <= 25)
+        assertTrue(cardioMax < legsMax)
     }
 
     @Test

@@ -4,6 +4,7 @@ import com.valerochka1337.valerochkagym.data.db.dao.ExerciseDao
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseMuscleDao
 import com.valerochka1337.valerochkagym.data.ai.ExerciseAiGenerationResult
 import com.valerochka1337.valerochkagym.data.ai.ExerciseAiGenerator
+import com.valerochka1337.valerochkagym.data.ai.MODEL_UNAVAILABLE_MESSAGE
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseMuscleEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
@@ -339,6 +340,30 @@ class ExerciseLibraryViewModelTest {
             assertEquals("Упражнение", viewModel.aiCreation.value?.description)
             assertEquals("Лимит бесплатной модели исчерпан — попробуйте позже", viewModel.aiCreation.value?.error)
             assertNull(viewModel.editor.value)
+        }
+
+    @Test
+    fun `ai generation exposes a settings action when the selected model is unavailable`() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val viewModel = ExerciseLibraryViewModel(
+                exerciseDao = FakeExerciseDao(),
+                exerciseMuscleDao = FakeExerciseMuscleDao(),
+                exerciseAiGenerator = FakeExerciseAiGenerator(
+                    ExerciseAiGenerationResult.Failure(
+                        message = MODEL_UNAVAILABLE_MESSAGE,
+                        modelUnavailable = true,
+                    ),
+                ),
+                openRouterKeyStore = FakeOpenRouterKeyStore(configured = true),
+            )
+            mainDispatcherRule.testDispatcher.scheduler.advanceUntilIdle()
+
+            viewModel.openCreate()
+            viewModel.onAiDescriptionChange("Упражнение")
+            viewModel.generateAiExercise()
+            mainDispatcherRule.testDispatcher.scheduler.advanceUntilIdle()
+
+            assertTrue(viewModel.aiCreation.value?.modelUnavailable ?: false)
         }
 
     @Test

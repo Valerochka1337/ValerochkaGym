@@ -1,9 +1,11 @@
 package com.valerochka1337.valerochkagym.data.google
 
 import com.valerochka1337.valerochkagym.data.db.dao.BodyMeasurementDao
+import com.valerochka1337.valerochkagym.data.db.dao.RoutineDao
 import com.valerochka1337.valerochkagym.data.db.dao.WorkoutDao
 import com.valerochka1337.valerochkagym.data.db.entity.UploadStatus
 import com.valerochka1337.valerochkagym.data.settings.SettingsRepository
+import com.valerochka1337.valerochkagym.domain.RoutineRowMapper
 import com.valerochka1337.valerochkagym.domain.WorkoutRowMapper
 import com.valerochka1337.valerochkagym.domain.measurements.BodyMeasurementRowMapper
 import kotlinx.coroutines.flow.first
@@ -18,7 +20,8 @@ import javax.inject.Inject
  * Результат попытки выгрузки одной записи.
  *
  * [Success] — запись уже в таблице или только что добавлена.
- * [PermanentFailure] — повтор не поможет; соответствующая локальная запись уже стала FAILED.
+ * [PermanentFailure] — повтор не поможет; у тренировок и замеров локальная запись уже стала
+ * FAILED, у программ следующая правка или ручная выгрузка создаст новую попытку.
  * [TransientFailure] — сеть/429/5xx; окончательное решение о ретрае принимает воркер.
  */
 sealed interface UploadResult {
@@ -27,19 +30,22 @@ sealed interface UploadResult {
     data class TransientFailure(val error: String) : UploadResult
 }
 
-/** Выгрузка тренировок и замеров в выбранную Google-таблицу. */
+/** Выгрузка тренировок, замеров и пользовательских программ в выбранную Google-таблицу. */
 interface SheetsRepository {
     suspend fun uploadWorkout(workoutId: String): UploadResult
     suspend fun uploadMeasurement(measurementId: String): UploadResult
+    suspend fun uploadRoutine(routineSyncId: String): UploadResult
+    suspend fun uploadRoutineDeletion(routineSyncId: String, updatedAt: Long): UploadResult
 }
 
 /**
  * Реализация append-only экспорта в Google Sheets.
  *
- * Тренировки занимают лист `Workouts`, замеры — `Measurements`. Для каждого типа первая колонка
- * — стабильный UUID локальной записи: это делает повтор WorkManager безопасным без обновления
- * строк. В частности, локальные правки и удаление замера не переписывают историческую строку
- * `Measurements`, что явно отражено в UI редактора.
+ * Тренировки занимают лист `Workouts`, замеры — `Measurements`, программы — `Routines`.
+ * Каждая запись имеет стабильный UUID, а у программ ещё и монотонную версию: это делает
+ * повтор WorkManager безопасным без обновления строк. В частности, локальные правки и удаление
+ * замера не переписывают историческую строку `Measurements`, а удаление программы добавляет
+ * tombstone в `Routines`.
  */
 class SheetsRepositoryImpl @Inject constructor(
     private val api: SheetsApi,
@@ -47,6 +53,7 @@ class SheetsRepositoryImpl @Inject constructor(
     private val settingsRepository: SettingsRepository,
     private val workoutDao: WorkoutDao,
     private val bodyMeasurementDao: BodyMeasurementDao,
+    private val routineDao: RoutineDao,
 ) : SheetsRepository {
 
     override suspend fun uploadWorkout(workoutId: String): UploadResult {
@@ -134,6 +141,69 @@ class SheetsRepositoryImpl @Inject constructor(
         }
     }
 
+    override suspend fun uploadRoutine(routineSyncId: String): UploadResult {
+        val routine = routineDao.observeRoutinesFull().first()
+            .firstOrNull { it.routine.syncId == routineSyncId }
+            ?: return UploadResult.PermanentFailure("Программа не найдена")
+        return uploadRoutineSnapshot(
+            routineSyncId = routine.routine.syncId,
+            updatedAt = routine.routine.updatedAt,
+            isDeleted = false,
+            rows = RoutineRowMapper.rows(routine),
+        )
+    }
+
+    override suspend fun uploadRoutineDeletion(routineSyncId: String, updatedAt: Long): UploadResult =
+        uploadRoutineSnapshot(
+            routineSyncId = routineSyncId,
+            updatedAt = updatedAt,
+            isDeleted = true,
+            rows = listOf(RoutineRowMapper.deletion(routineSyncId, updatedAt)),
+        )
+
+    /** Выгружает один неизменяемый снимок программы или tombstone-строку удаления. */
+    private suspend fun uploadRoutineSnapshot(
+        routineSyncId: String,
+        updatedAt: Long,
+        isDeleted: Boolean,
+        rows: List<List<Any?>>,
+    ): UploadResult {
+        val spreadsheetId = settingsRepository.settings.first().spreadsheetId
+            ?: return UploadResult.PermanentFailure("Укажите таблицу в настройках")
+        val token = when (val result = googleAuth.getAccessToken()) {
+            is TokenResult.Success -> result.token
+            TokenResult.NeedsConsent -> return UploadResult.PermanentFailure(
+                "Настройте доступ к Google в настройках",
+            )
+            is TokenResult.Failed -> return UploadResult.TransientFailure(GoogleErrorMessages.NO_CONNECTION)
+        }
+
+        val bearer = "Bearer $token"
+        return try {
+            ensureRoutinesSheet(bearer, spreadsheetId)
+            val existing = readRows(bearer, spreadsheetId, ROUTINES_RANGE)
+            if (existing.isNotEmpty() && existing.first() != RoutineRowMapper.HEADER_ROW) {
+                return UploadResult.PermanentFailure(
+                    "Заголовок листа Routines изменён вручную — не удалось безопасно выгрузить программу",
+                )
+            }
+            if (existing.any { it.isRoutineVersion(routineSyncId, updatedAt, isDeleted) }) {
+                return UploadResult.Success
+            }
+            val rowsToAppend = if (existing.isEmpty()) {
+                listOf(RoutineRowMapper.HEADER_ROW) + rows
+            } else {
+                rows
+            }
+            appendRows(bearer, spreadsheetId, ROUTINE_APPEND_RANGE, rowsToAppend)
+            UploadResult.Success
+        } catch (e: HttpException) {
+            classifyRoutineHttp(e.code())
+        } catch (e: IOException) {
+            UploadResult.TransientFailure(GoogleErrorMessages.NO_NETWORK)
+        }
+    }
+
     /** Создаёт лист `Workouts`, если его ещё нет (шапку добавляет первая выгрузка тренировки). */
     private suspend fun ensureWorkoutsSheet(bearer: String, spreadsheetId: String) {
         if (workoutsSheetExists(bearer, spreadsheetId)) return
@@ -192,6 +262,23 @@ class SheetsRepositoryImpl @Inject constructor(
             .properties
     }
 
+    /** Создаёт независимый append-only лист со снимками пользовательских программ. */
+    private suspend fun ensureRoutinesSheet(bearer: String, spreadsheetId: String) {
+        if (routinesSheetExists(bearer, spreadsheetId)) return
+        try {
+            api.batchUpdate(
+                bearer,
+                spreadsheetId,
+                BatchUpdateRequestDto(
+                    requests = listOf(BatchRequestDto(AddSheetDto(SheetPropertiesDto(ROUTINES_SHEET)))),
+                ),
+            )
+        } catch (e: HttpException) {
+            if (e.code() == ADD_SHEET_CONFLICT && routinesSheetExists(bearer, spreadsheetId)) return
+            throw e
+        }
+    }
+
     /**
      * v1 of `Measurements` had A:N. Add the v5 report columns only to a known app-managed
      * legacy header, inserting columns first so any user content to the right is shifted intact.
@@ -246,8 +333,17 @@ class SheetsRepositoryImpl @Inject constructor(
     private suspend fun measurementsSheetExists(bearer: String, spreadsheetId: String): Boolean =
         api.getSpreadsheet(bearer, spreadsheetId).sheets.any { it.properties.title == MEASUREMENTS_SHEET }
 
+    private suspend fun routinesSheetExists(bearer: String, spreadsheetId: String): Boolean =
+        api.getSpreadsheet(bearer, spreadsheetId).sheets.any { it.properties.title == ROUTINES_SHEET }
+
     /** Колонка A содержит UUID записи; отсутствующее поле values означает пустой лист. */
     private suspend fun readIdColumn(
+        bearer: String,
+        spreadsheetId: String,
+        range: String,
+    ): List<List<String>> = api.getValues(bearer, spreadsheetId, range).values ?: emptyList()
+
+    private suspend fun readRows(
         bearer: String,
         spreadsheetId: String,
         range: String,
@@ -286,6 +382,13 @@ class SheetsRepositoryImpl @Inject constructor(
             UploadResult.TransientFailure(HttpErrorClassifier.message(code))
         }
 
+    private fun classifyRoutineHttp(code: Int): UploadResult =
+        if (HttpErrorClassifier.isPermanent(code)) {
+            UploadResult.PermanentFailure(HttpErrorClassifier.message(code))
+        } else {
+            UploadResult.TransientFailure(HttpErrorClassifier.message(code))
+        }
+
     private suspend fun permanentWorkout(workoutId: String, reason: String): UploadResult {
         workoutDao.setUploadStatus(workoutId, UploadStatus.FAILED, reason)
         return UploadResult.PermanentFailure(reason)
@@ -303,22 +406,38 @@ class SheetsRepositoryImpl @Inject constructor(
         else -> JsonPrimitive(cell.toString())
     }
 
+    private fun List<String>.isRoutineVersion(
+        syncId: String,
+        updatedAt: Long,
+        isDeleted: Boolean,
+    ): Boolean =
+        getOrNull(ROUTINE_ID_COLUMN) == syncId &&
+            getOrNull(ROUTINE_UPDATED_AT_COLUMN)?.toLongOrNull() == updatedAt &&
+            getOrNull(ROUTINE_DELETED_COLUMN).toBoolean() == isDeleted
+
     private companion object {
         const val WORKOUTS_SHEET = "Workouts"
         const val MEASUREMENTS_SHEET = "Measurements"
+        const val ROUTINES_SHEET = "Routines"
 
         /** Sheets отвечает 400 на addSheet, если лист с таким title уже существует. */
         const val ADD_SHEET_CONFLICT = 400
 
         const val WORKOUT_ID_RANGE = "Workouts!A:A"
         const val MEASUREMENT_ID_RANGE = "Measurements!A:A"
+        const val ROUTINES_RANGE = "Routines!A:K"
 
         /** Workouts остаётся A:N, полный отчёт InBody занимает A:AP. */
         const val WORKOUT_APPEND_RANGE = "Workouts!A:N"
         const val MEASUREMENT_APPEND_RANGE = "Measurements!A:AP"
+        const val ROUTINE_APPEND_RANGE = "Routines!A:K"
         const val MEASUREMENT_HEADER_RANGE = "Measurements!1:1"
         const val MEASUREMENT_EXTENSION_HEADER_RANGE = "Measurements!O1:AP1"
         const val LEGACY_MEASUREMENT_COLUMN_COUNT = 14
+
+        const val ROUTINE_ID_COLUMN = 0
+        const val ROUTINE_UPDATED_AT_COLUMN = 1
+        const val ROUTINE_DELETED_COLUMN = 2
 
         val EMPTY_CELL = JsonPrimitive("")
     }

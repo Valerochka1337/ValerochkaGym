@@ -8,6 +8,8 @@ import androidx.lifecycle.viewModelScope
 import com.valerochka1337.valerochkagym.data.backup.ClearDataUseCase
 import com.valerochka1337.valerochkagym.data.backup.DatabaseExporter
 import com.valerochka1337.valerochkagym.data.backup.ExportResult
+import com.valerochka1337.valerochkagym.data.ai.OpenRouterFreeModel
+import com.valerochka1337.valerochkagym.data.ai.OpenRouterFreeModelCatalog
 import com.valerochka1337.valerochkagym.data.google.AuthorizeOutcome
 import com.valerochka1337.valerochkagym.data.google.GoogleAuth
 import com.valerochka1337.valerochkagym.data.google.ImportResult
@@ -18,17 +20,22 @@ import com.valerochka1337.valerochkagym.data.settings.OpenRouterKeyStore
 import com.valerochka1337.valerochkagym.data.settings.SettingsRepository
 import com.valerochka1337.valerochkagym.ui.theme.AccentColor
 import com.valerochka1337.valerochkagym.worker.MeasurementUploadScheduler
+import com.valerochka1337.valerochkagym.worker.NoOpRoutineUploadScheduler
+import com.valerochka1337.valerochkagym.worker.RoutineUploadScheduler
 import com.valerochka1337.valerochkagym.worker.UploadScheduler
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import javax.inject.Inject
 
 /** Шаг изменения отдыха по умолчанию и его нижняя граница (в секундах). */
@@ -37,6 +44,7 @@ private const val MIN_HEART_RATE_REST_THRESHOLD_BPM = 40
 private const val MAX_HEART_RATE_REST_THRESHOLD_BPM = 220
 private const val MIN_HEART_RATE_REST_HOLD_SECONDS = 5
 private const val MAX_HEART_RATE_REST_HOLD_SECONDS = 60
+internal const val OPEN_ROUTER_MODEL_CATALOG_TIMEOUT_MILLIS = 12_000L
 
 /** Сообщение об ошибке настройки OAuth-доступа. */
 private const val AUTH_ERROR_MESSAGE = "Не удалось настроить доступ — попробуйте ещё раз"
@@ -59,6 +67,25 @@ private object NoOpOpenRouterKeyStore : OpenRouterKeyStore {
     override suspend fun clear() = Unit
 }
 
+/** Не делает сетевой запрос в unit-тестах, но оставляет безопасный автоподбор доступным. */
+private object NoOpOpenRouterFreeModelCatalog : OpenRouterFreeModelCatalog {
+    override suspend fun getModels(): List<OpenRouterFreeModel> = listOf(OpenRouterFreeModel.Automatic)
+}
+
+private data class OpenRouterModelsUiState(
+    val models: List<OpenRouterFreeModel> = listOf(OpenRouterFreeModel.Automatic),
+    val isLoading: Boolean = false,
+    val hasLoadError: Boolean = false,
+)
+
+private data class SettingsAuxiliaryState(
+    val authBusy: Boolean,
+    val spreadsheetError: Boolean,
+    val authError: String?,
+    val openRouterKeyConfigured: Boolean,
+    val openRouterModels: OpenRouterModelsUiState,
+)
+
 /**
  * Состояние экрана настроек. [settings] == null — ещё не загружено (не мигаем пустой формой).
  * [authBusy] — идёт вход/выход через Google. [spreadsheetError] — последний ввод ссылки/ID не
@@ -71,6 +98,9 @@ data class SettingsUiState(
     val authBusy: Boolean = false,
     val spreadsheetError: Boolean = false,
     val openRouterKeyConfigured: Boolean = false,
+    val openRouterModels: List<OpenRouterFreeModel> = listOf(OpenRouterFreeModel.Automatic),
+    val openRouterModelsLoading: Boolean = false,
+    val openRouterModelsLoadError: Boolean = false,
     val authError: String? = null,
 )
 
@@ -88,33 +118,56 @@ class SettingsViewModel @Inject constructor(
     private val databaseExporter: DatabaseExporter,
     private val clearDataUseCase: ClearDataUseCase,
     private val measurementUploadScheduler: MeasurementUploadScheduler = NoOpMeasurementUploadScheduler,
+    private val routineUploadScheduler: RoutineUploadScheduler = NoOpRoutineUploadScheduler,
     private val openRouterKeyStore: OpenRouterKeyStore = NoOpOpenRouterKeyStore,
+    private val openRouterFreeModelCatalog: OpenRouterFreeModelCatalog = NoOpOpenRouterFreeModelCatalog,
 ) : ViewModel() {
 
     private val authBusy = MutableStateFlow(false)
     private val spreadsheetError = MutableStateFlow(false)
     private val authError = MutableStateFlow<String?>(null)
+    private val openRouterModels = MutableStateFlow(OpenRouterModelsUiState())
+
+    private val settingsAuxiliaryState: Flow<SettingsAuxiliaryState> = combine(
+        authBusy,
+        spreadsheetError,
+        authError,
+        openRouterKeyStore.isConfigured,
+        openRouterModels,
+    ) { busy, sheetError, currentAuthError, keyConfigured, models ->
+        SettingsAuxiliaryState(
+            authBusy = busy,
+            spreadsheetError = sheetError,
+            authError = currentAuthError,
+            openRouterKeyConfigured = keyConfigured,
+            openRouterModels = models,
+        )
+    }
 
     val uiState: StateFlow<SettingsUiState> =
         combine(
             settingsRepository.settings,
-            authBusy,
-            spreadsheetError,
-            authError,
-            openRouterKeyStore.isConfigured,
-        ) { settings, busy, sheetError, authError, keyConfigured ->
+            settingsAuxiliaryState,
+        ) { settings, auxiliary ->
             SettingsUiState(
                 settings = settings,
-                authBusy = busy,
-                spreadsheetError = sheetError,
-                openRouterKeyConfigured = keyConfigured,
-                authError = authError,
+                authBusy = auxiliary.authBusy,
+                spreadsheetError = auxiliary.spreadsheetError,
+                openRouterKeyConfigured = auxiliary.openRouterKeyConfigured,
+                openRouterModels = auxiliary.openRouterModels.models,
+                openRouterModelsLoading = auxiliary.openRouterModels.isLoading,
+                openRouterModelsLoadError = auxiliary.openRouterModels.hasLoadError,
+                authError = auxiliary.authError,
             )
         }.stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5_000),
             initialValue = SettingsUiState(),
         )
+
+    init {
+        refreshOpenRouterModels()
+    }
 
     private val _consentRequests = Channel<IntentSender>(Channel.CONFLATED)
 
@@ -166,7 +219,7 @@ class SettingsViewModel @Inject constructor(
         when (val outcome = googleAuth.authorize(activity)) {
             is AuthorizeOutcome.NeedsConsent -> _consentRequests.send(outcome.pendingIntent.intentSender)
             is AuthorizeOutcome.Failed -> authError.value = AUTH_ERROR_MESSAGE
-            AuthorizeOutcome.Granted -> Unit
+            AuthorizeOutcome.Granted -> importHistoryIfConfigured()
         }
     }
 
@@ -213,27 +266,80 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
-    /** Разово тянет историю из только что сохранённой таблицы и уведомляет о результате. */
+    /** Обновляет live-каталог бесплатных моделей, не требуя ключа OpenRouter. */
+    fun refreshOpenRouterModels() {
+        openRouterModels.value = openRouterModels.value.copy(isLoading = true, hasLoadError = false)
+        viewModelScope.launch {
+            try {
+                val models = withTimeoutOrNull(OPEN_ROUTER_MODEL_CATALOG_TIMEOUT_MILLIS) {
+                    openRouterFreeModelCatalog.getModels()
+                }?.ifEmpty { listOf(OpenRouterFreeModel.Automatic) } ?: run {
+                    openRouterModels.value = openRouterModels.value.copy(
+                        isLoading = false,
+                        hasLoadError = true,
+                    )
+                    return@launch
+                }
+                openRouterModels.value = OpenRouterModelsUiState(models = models)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                openRouterModels.value = openRouterModels.value.copy(
+                    isLoading = false,
+                    hasLoadError = true,
+                )
+            }
+        }
+    }
+
+    /** Сохраняет совместимую free-модель и её подтверждённый OpenRouter режим JSON. */
+    fun setOpenRouterModel(model: OpenRouterFreeModel) {
+        if (model.id.isBlank()) return
+        viewModelScope.launch { settingsRepository.setOpenRouterModel(model) }
+    }
+
+    /** Разово восстанавливает все app-managed данные из таблицы и уведомляет о результате. */
     private suspend fun importHistory() {
         val message = when (val result = importRepository.importAll()) {
-            is ImportResult.Success -> buildString {
-                append("Импортировано тренировок: ${result.imported}")
-                if (result.skippedRows > 0) append(" (пропущено строк: ${result.skippedRows})")
-            }
+            is ImportResult.Success -> buildImportMessage(result)
             ImportResult.NothingToImport -> "Нечего импортировать"
             is ImportResult.Failure -> result.reason
         }
         _messages.send(message)
     }
 
+    /** После входа восстанавливаем данные, только если ID таблицы уже вернулся из backup/DataStore. */
+    private suspend fun importHistoryIfConfigured() {
+        if (settingsRepository.settings.first().spreadsheetId != null) importHistory()
+    }
+
+    private fun buildImportMessage(result: ImportResult.Success): String = buildString {
+        val restored = buildList {
+            if (result.imported > 0) add("тренировок: ${result.imported}")
+            if (result.importedMeasurements > 0) add("замеров: ${result.importedMeasurements}")
+            if (result.importedRoutines > 0) add("программ: ${result.importedRoutines}")
+        }
+        if (restored.isEmpty()) {
+            append("Новых данных нет")
+        } else {
+            append("Импортировано ")
+            append(restored.joinToString())
+        }
+        if (result.skippedRows > 0) {
+            append(' ')
+            append("(пропущено строк: ${result.skippedRows})")
+        }
+    }
+
     /**
-     * Ставит в очередь все невыгруженные тренировки и замеры (PENDING/FAILED), каждой записи
-     * сбрасывая статус в PENDING. Замеры отправляются отдельным воркером, поэтому их UUID не
-     * смешиваются с очередью тренировок.
+     * Ставит в очередь все невыгруженные тренировки и замеры, а также актуальные снимки всех
+     * программ. У программ нет статуса: версия и UUID делают повторную выгрузку безопасной.
      */
     fun exportAll() {
         viewModelScope.launch {
-            val count = uploadScheduler.scheduleAllPending() + measurementUploadScheduler.scheduleAllPending()
+            val count = uploadScheduler.scheduleAllPending() +
+                measurementUploadScheduler.scheduleAllPending() +
+                routineUploadScheduler.scheduleAll()
             _messages.send("Поставлено в очередь: $count")
         }
     }

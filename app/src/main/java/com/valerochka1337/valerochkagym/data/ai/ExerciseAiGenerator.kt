@@ -40,7 +40,10 @@ sealed interface ExerciseAiGenerationResult {
         val loads: List<MuscleLoad>,
     ) : ExerciseAiGenerationResult
 
-    data class Failure(val message: String) : ExerciseAiGenerationResult
+    data class Failure(
+        val message: String,
+        val modelUnavailable: Boolean = false,
+    ) : ExerciseAiGenerationResult
 }
 
 interface ExerciseAiGenerator {
@@ -55,9 +58,11 @@ interface ExerciseAiGenerator {
 class OpenRouterExerciseAiGenerator @Inject constructor(
     private val api: OpenRouterApi,
     private val keyStore: OpenRouterKeyStore,
+    private val modelSelector: OpenRouterModelSelector,
     private val exerciseDao: ExerciseDao,
     private val exerciseMuscleDao: ExerciseMuscleDao,
     private val json: Json,
+    private val responseLogger: AiResponseLogger,
     @param:ComputeDispatcher private val computeDispatcher: CoroutineDispatcher,
 ) : ExerciseAiGenerator {
 
@@ -74,10 +79,12 @@ class OpenRouterExerciseAiGenerator @Inject constructor(
             return ExerciseAiGenerationResult.Failure(GENERIC_FAILURE_MESSAGE)
         }
 
+        val selectedModel = modelSelector.selectedModel()
+        val systemPrompt = selectedModel.systemPrompt(SYSTEM_PROMPT, RESPONSE_SCHEMA)
         val request = OpenRouterChatRequest(
-            model = EXERCISE_MODEL,
+            model = selectedModel.id,
             messages = listOf(
-                OpenRouterMessage.text(role = "system", text = SYSTEM_PROMPT),
+                OpenRouterMessage.text(role = "system", text = systemPrompt),
                 OpenRouterMessage.text(
                     role = "user",
                     text = """
@@ -93,16 +100,13 @@ class OpenRouterExerciseAiGenerator @Inject constructor(
                     """.trimIndent(),
                 ),
             ),
-            responseFormat = OpenRouterResponseFormat(
-                type = "json_schema",
-                jsonSchema = OpenRouterJsonSchema(
-                    name = "exercise_suggestion",
-                    strict = true,
-                    schema = RESPONSE_SCHEMA,
-                ),
+            responseFormat = selectedModel.responseFormat(
+                schemaName = "exercise_suggestion",
+                schema = RESPONSE_SCHEMA,
             ),
             provider = OpenRouterProviderPreferences(requireParameters = true),
             maxTokens = MAX_COMPLETION_TOKENS,
+            reasoning = selectedModel.reasoningPreferences(),
             temperature = RESPONSE_TEMPERATURE,
         )
 
@@ -111,14 +115,25 @@ class OpenRouterExerciseAiGenerator @Inject constructor(
         } catch (e: CancellationException) {
             throw e
         } catch (e: HttpException) {
-            return ExerciseAiGenerationResult.Failure(openRouterErrorMessage(e.code()))
+            return openRouterErrorFailure(e.code())
         } catch (_: IOException) {
             return ExerciseAiGenerationResult.Failure(NETWORK_FAILURE_MESSAGE)
         } catch (_: Exception) {
             return ExerciseAiGenerationResult.Failure(GENERIC_FAILURE_MESSAGE)
         }
 
-        return withContext(computeDispatcher) { parseResponse(response, snapshot.exercises) }
+        return withContext(computeDispatcher) {
+            logResponse(selectedModel.id, response)
+            parseResponse(response, snapshot.exercises)
+        }
+    }
+
+    private fun logResponse(modelId: String, response: OpenRouterChatResponse) {
+        try {
+            responseLogger.log(AiResponseSource.EXERCISE, modelId, response)
+        } catch (_: Exception) {
+            // Отладочный вывод не должен менять результат ИИ-запроса.
+        }
     }
 
     private suspend fun createSnapshot(): CatalogSnapshot {
@@ -152,12 +167,13 @@ class OpenRouterExerciseAiGenerator @Inject constructor(
         val choice = response.choices.firstOrNull()
         val responseError = response.error ?: response.choices.firstOrNull { it.error != null }?.error
         if (responseError != null) {
-            return ExerciseAiGenerationResult.Failure(
-                openRouterErrorMessage(responseError.code, responseError.metadata?.errorType),
-            )
+            return openRouterErrorFailure(responseError.code, responseError.metadata?.errorType)
         }
         if (choice?.finishReason == FINISH_REASON_ERROR) {
             return ExerciseAiGenerationResult.Failure(INTERRUPTED_RESPONSE_MESSAGE)
+        }
+        if (choice?.finishReason == FINISH_REASON_LENGTH) {
+            return ExerciseAiGenerationResult.Failure(RESPONSE_LIMIT_MESSAGE)
         }
         return parsePayload(choice?.message.textContent(), exercises)
     }
@@ -182,7 +198,9 @@ class OpenRouterExerciseAiGenerator @Inject constructor(
                 } catch (_: Exception) {
                     null
                 }
-                if (id == null || exercises.none { it.id == id }) {
+                if (id == null) {
+                    ExerciseAiGenerationResult.Failure(MISSING_EXISTING_ID_MESSAGE)
+                } else if (exercises.none { it.id == id }) {
                     ExerciseAiGenerationResult.Failure(INVALID_RESPONSE_MESSAGE)
                 } else {
                     ExerciseAiGenerationResult.Existing(id)
@@ -217,8 +235,7 @@ class OpenRouterExerciseAiGenerator @Inject constructor(
         val loadsAreValid = loads.size == responseLoads.size &&
             loads.size <= Muscle.entries.size &&
             loads.map { it.muscle }.distinct().size == loads.size &&
-            loads.all { it.contribution in MIN_CONTRIBUTION..MAX_CONTRIBUTION && it.contribution % LOAD_STEP == 0 } &&
-            loads.any { it.contribution == MAX_CONTRIBUTION }
+            loads.all { it.contribution in MIN_CONTRIBUTION..MAX_CONTRIBUTION && it.contribution % LOAD_STEP == 0 }
         if (!loadsAreValid) return ExerciseAiGenerationResult.Failure(INVALID_RESPONSE_MESSAGE)
 
         return ExerciseAiGenerationResult.New(
@@ -228,26 +245,32 @@ class OpenRouterExerciseAiGenerator @Inject constructor(
         )
     }
 
-    private fun openRouterErrorMessage(code: Int?, errorType: String? = null): String = when (errorType) {
-        "authentication", "permission_denied" -> "Ключ OpenRouter недействителен или не имеет доступа"
-        "payment_required" -> "Для этого ключа сейчас недоступны бесплатные модели — проверьте лимиты OpenRouter"
-        "rate_limit_exceeded" -> "Лимит бесплатной модели исчерпан — попробуйте позже"
-        "provider_overloaded", "provider_unavailable" ->
-            "Бесплатная модель со структурированным ответом сейчас недоступна — попробуйте позже"
-        "timeout" -> "OpenRouter не дождался ответа модели — попробуйте ещё раз"
-        "context_length_exceeded", "string_too_long" ->
-            "Каталог упражнений не поместился в контекст бесплатной модели — попробуйте позже"
-        "refusal" -> "Модель не смогла сформировать упражнение — переформулируйте описание"
-        else -> when (code) {
-            401, 403 -> "Ключ OpenRouter недействителен или не имеет доступа"
-            402 -> "Для этого ключа сейчас недоступны бесплатные модели — проверьте лимиты OpenRouter"
-            408, 504 -> "OpenRouter не дождался ответа модели — попробуйте ещё раз"
-            429 -> "Лимит бесплатной модели исчерпан — попробуйте позже"
-            502, 503 -> "Бесплатная модель со структурированным ответом сейчас недоступна — попробуйте позже"
-            in 500..599 -> "OpenRouter временно недоступен — попробуйте позже"
-            null -> GENERIC_FAILURE_MESSAGE
-            else -> "OpenRouter вернул ошибку (HTTP $code) — попробуйте ещё раз"
+    private fun openRouterErrorFailure(
+        code: Int?,
+        errorType: String? = null,
+    ): ExerciseAiGenerationResult.Failure {
+        if (isOpenRouterModelUnavailable(errorType, code)) {
+            return ExerciseAiGenerationResult.Failure(MODEL_UNAVAILABLE_MESSAGE, modelUnavailable = true)
         }
+        val message = when (errorType) {
+            "authentication", "permission_denied" -> "Ключ OpenRouter недействителен или не имеет доступа"
+            "payment_required" -> "Для этого ключа сейчас недоступны бесплатные модели — проверьте лимиты OpenRouter"
+            "rate_limit_exceeded" -> "Лимит бесплатной модели исчерпан — попробуйте позже"
+            "timeout" -> "OpenRouter не дождался ответа модели — попробуйте ещё раз"
+            "context_length_exceeded", "string_too_long" ->
+                "Каталог упражнений не поместился в контекст бесплатной модели — попробуйте позже"
+            "refusal" -> "Модель не смогла сформировать упражнение — переформулируйте описание"
+            else -> when (code) {
+                401, 403 -> "Ключ OpenRouter недействителен или не имеет доступа"
+                402 -> "Для этого ключа сейчас недоступны бесплатные модели — проверьте лимиты OpenRouter"
+                408, 504 -> "OpenRouter не дождался ответа модели — попробуйте ещё раз"
+                429 -> "Лимит бесплатной модели исчерпан — попробуйте позже"
+                in 500..599 -> "OpenRouter временно недоступен — попробуйте позже"
+                null -> GENERIC_FAILURE_MESSAGE
+                else -> "OpenRouter вернул ошибку (HTTP $code) — попробуйте ещё раз"
+            }
+        }
+        return ExerciseAiGenerationResult.Failure(message)
     }
 
     private fun OpenRouterResponseMessage?.textContent(): String? {
@@ -295,29 +318,30 @@ class OpenRouterExerciseAiGenerator @Inject constructor(
     )
 
     private companion object {
-        /**
-         * У фиксированного endpoint стабильнее поддержка `response_format`, чем у свободного
-         * роутера, который может выбрать разные модели на соседних запросах.
-         */
-        const val EXERCISE_MODEL = "google/gemma-4-26b-a4b-it:free"
         const val RESULT_EXISTING = "existing"
         const val RESULT_NEW = "new"
-        const val MAX_COMPLETION_TOKENS = 512
+        const val MAX_COMPLETION_TOKENS = 2_048
         const val RESPONSE_TEMPERATURE = 0.1
         const val MIN_CONTRIBUTION = 5
         const val MAX_CONTRIBUTION = 100
         const val LOAD_STEP = 5
         const val FINISH_REASON_ERROR = "error"
+        const val FINISH_REASON_LENGTH = "length"
 
         const val EMPTY_DESCRIPTION_MESSAGE = "Опишите упражнение"
         const val MISSING_KEY_MESSAGE = "Укажите ключ OpenRouter в настройках"
         const val NETWORK_FAILURE_MESSAGE = "Не удалось связаться с OpenRouter — попробуйте ещё раз"
         const val GENERIC_FAILURE_MESSAGE = "Не удалось создать упражнение — попробуйте ещё раз"
         const val INTERRUPTED_RESPONSE_MESSAGE = "OpenRouter не завершил ответ — попробуйте ещё раз"
+        const val RESPONSE_LIMIT_MESSAGE = "Модель исчерпала лимит ответа — попробуйте ещё раз или выберите другую"
+        const val MISSING_EXISTING_ID_MESSAGE = "ИИ не указал существующее упражнение — попробуйте ещё раз"
         const val INVALID_RESPONSE_MESSAGE = "ИИ вернул неполный ответ — попробуйте ещё раз"
 
         val SYSTEM_PROMPT = """
             Ты подготавливаешь одно упражнение для приложения ValerochkaGym.
+
+            Задача простая. Используй минимум рассуждений: без пошагового анализа каталога и лишних
+            перепроверок. После необходимого сопоставления сразу верни JSON.
 
             ВЕРНИ РОВНО ОДИН JSON-ОБЪЕКТ, соответствующий JSON Schema. Не пиши Markdown,
             ```json, пояснения, рассуждения, префиксы, суффиксы или несколько объектов. Значения
@@ -338,13 +362,16 @@ class OpenRouterExerciseAiGenerator @Inject constructor(
                STRENGTH — подходы с весом и повторениями; TIMED — удержание или упражнение на
                длительность; CARDIO — бег, вело, гребля или другое кардио со скоростью/дистанцией.
 
-            Для kind="existing" используй минимальную форму:
-            {"kind":"existing","existingExerciseId":123}
+            Все пять верхнеуровневых полей Schema обязательны. Для неиспользуемой ветки ставь null.
+            Для kind="existing" используй форму:
+            {"kind":"existing","existingExerciseId":123,"name":null,"type":null,"loads":null}
 
-            Для kind="new" обязательно заполни name, type и loads. loads — непустой список
-            уникальных мышц строго из Schema. contribution — целое число 5..100, кратное 5; хотя
-            бы у одной целевой мышцы contribution=100. Делай карту сопоставимой с каталогом:
-            55..85 — сильный синергист, 25..50 — заметное участие, 10..20 — стабилизатор.
+            Для kind="new" поставь existingExerciseId=null и обязательно заполни name, type и loads.
+            loads — непустой список
+            уникальных мышц строго из Schema. contribution — целое число 5..100, кратное 5. Шкала общая для всех
+            упражнений, а не нормализованная внутри одного: 100 — целевая мышца тяжёлого силового подхода, 60..85 —
+            сильная прямая нагрузка, 25..55 — умеренная или косвенная, 5..20 — стабилизация или выносливость. Максимум карты
+            может быть ниже 100; для обычного кардио не ставь выше 35.
             Пример формы: {"kind":"new","name":"Тяга гантели в наклоне одной рукой",
             "type":"STRENGTH","loads":[{"muscle":"LATS","contribution":100},
             {"muscle":"BICEPS","contribution":55}]}.
@@ -362,27 +389,40 @@ class OpenRouterExerciseAiGenerator @Inject constructor(
                     }
                 }
                 putJsonObject("existingExerciseId") {
-                    put("type", "integer")
+                    putJsonArray("type") {
+                        add(JsonPrimitive("integer"))
+                        add(JsonPrimitive("null"))
+                    }
                     put("minimum", 1)
-                    put("description", "Catalogue id copied exactly when kind is existing.")
+                    put("description", "Catalogue id copied exactly when kind is existing; null when kind is new.")
                 }
                 putJsonObject("name") {
-                    put("type", "string")
+                    putJsonArray("type") {
+                        add(JsonPrimitive("string"))
+                        add(JsonPrimitive("null"))
+                    }
                     put("minLength", 1)
-                    put("description", "Short Russian exercise name when kind is new.")
+                    put("description", "Short Russian exercise name when kind is new; null when kind is existing.")
                 }
                 putJsonObject("type") {
-                    put("type", "string")
-                    put("description", "Exercise input mode when kind is new.")
+                    putJsonArray("type") {
+                        add(JsonPrimitive("string"))
+                        add(JsonPrimitive("null"))
+                    }
+                    put("description", "Exercise input mode when kind is new; null when kind is existing.")
                     putJsonArray("enum") {
                         ExerciseType.entries.forEach { add(JsonPrimitive(it.name)) }
+                        add(JsonNull)
                     }
                 }
                 putJsonObject("loads") {
-                    put("type", "array")
+                    putJsonArray("type") {
+                        add(JsonPrimitive("array"))
+                        add(JsonPrimitive("null"))
+                    }
                     put("minItems", 1)
                     put("maxItems", Muscle.entries.size)
-                    put("description", "Unique muscle contribution rows when kind is new.")
+                    put("description", "Unique muscle contribution rows when kind is new; null when kind is existing.")
                     putJsonObject("items") {
                         put("type", "object")
                         putJsonObject("properties") {
@@ -409,7 +449,13 @@ class OpenRouterExerciseAiGenerator @Inject constructor(
                     }
                 }
             }
-            putJsonArray("required") { add(JsonPrimitive("kind")) }
+            putJsonArray("required") {
+                add(JsonPrimitive("kind"))
+                add(JsonPrimitive("existingExerciseId"))
+                add(JsonPrimitive("name"))
+                add(JsonPrimitive("type"))
+                add(JsonPrimitive("loads"))
+            }
             put("additionalProperties", false)
         }
     }

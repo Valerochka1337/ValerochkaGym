@@ -31,7 +31,7 @@ class AnalyticsEngineTest {
     // region effective sets
 
     @Test
-    fun `effective sets weight direct work fully and indirect work by half`() {
+    fun `effective sets preserve globally comparable muscle contribution`() {
         val report = analyze(
             sets = listOf(
                 set(BENCH, weight = 100.0, reps = 5, daysAgo = 1),
@@ -48,8 +48,8 @@ class AnalyticsEngineTest {
         )
 
         assertEquals(2.0, report.totalFor(Muscle.CHEST), 1e-6) // целевая — полный подход
-        assertEquals(2.0, report.totalFor(Muscle.TRICEPS), 1e-6) // сильный синергист (≥ 60)
-        assertEquals(1.0, report.totalFor(Muscle.FRONT_DELTS), 1e-6) // косвенная работа — половина
+        assertEquals(1.3, report.totalFor(Muscle.TRICEPS), 1e-6)
+        assertEquals(0.8, report.totalFor(Muscle.FRONT_DELTS), 1e-6)
         assertEquals(0.0, report.totalFor(Muscle.ABS), 1e-6) // стабилизатор объёма не даёт
     }
 

@@ -302,7 +302,7 @@ class AnalysisRenderTest {
                 MuscleLoad(Muscle.ADDUCTORS, 60),
                 MuscleLoad(Muscle.HAMSTRINGS, 30),
             ),
-            TREADMILL to listOf(MuscleLoad(Muscle.QUADS, 100), MuscleLoad(Muscle.CALVES, 85)),
+            TREADMILL to listOf(MuscleLoad(Muscle.QUADS, 20), MuscleLoad(Muscle.CALVES, 20)),
         )
 
         val sets = mutableListOf<AnalyticsSetRow>()

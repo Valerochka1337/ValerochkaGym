@@ -4,8 +4,11 @@ import com.valerochka1337.valerochkagym.data.db.PlannedSet
 import com.valerochka1337.valerochkagym.data.db.dao.RoutineDao
 import com.valerochka1337.valerochkagym.data.db.entity.RoutineExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.WorkoutSetEntity
+import com.valerochka1337.valerochkagym.data.db.entity.withNextUpdatedAt
 import com.valerochka1337.valerochkagym.data.db.relation.WorkoutExerciseWithSets
 import com.valerochka1337.valerochkagym.data.db.relation.WorkoutFull
+import com.valerochka1337.valerochkagym.worker.NoOpRoutineUploadScheduler
+import com.valerochka1337.valerochkagym.worker.RoutineUploadScheduler
 import javax.inject.Inject
 
 /**
@@ -14,6 +17,7 @@ import javax.inject.Inject
  */
 class RoutineUpdateUseCase @Inject constructor(
     private val routineDao: RoutineDao,
+    private val routineUploadScheduler: RoutineUploadScheduler = NoOpRoutineUploadScheduler,
 ) {
 
     /**
@@ -51,7 +55,10 @@ class RoutineUpdateUseCase @Inject constructor(
                 plannedSets = sets,
             )
         }
+        val updatedRoutine = routine.routine.withNextUpdatedAt()
+        routineDao.upsertRoutine(updatedRoutine)
         routineDao.replaceRoutineExercises(routineId, entities)
+        routineUploadScheduler.schedule(updatedRoutine.syncId)
     }
 
     /**

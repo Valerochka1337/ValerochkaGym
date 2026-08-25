@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -42,13 +43,22 @@ class OpenRouterExerciseAiGeneratorTest {
         assertEquals(ExerciseType.STRENGTH, exercise.type)
         assertEquals(mapOf(Muscle.LATS to 100, Muscle.BICEPS to 55), exercise.loads.associate { it.muscle to it.contribution })
         val request = api.request!!
-        assertEquals("google/gemma-4-26b-a4b-it:free", request.model)
+        assertEquals(DEFAULT_OPEN_ROUTER_MODEL_ID, request.model)
+        assertEquals(2_048, request.maxTokens)
+        assertEquals(null, request.reasoning)
         assertEquals(0.1, request.temperature!!, 0.0)
         assertTrue(request.provider.requireParameters)
-        assertTrue(request.responseFormat.jsonSchema.strict)
+        assertTrue(request.responseFormat.jsonSchema!!.strict)
+        val requiredFields = request.responseFormat.jsonSchema!!.schema["required"] as JsonArray
+        assertEquals(
+            listOf("kind", "existingExerciseId", "name", "type", "loads"),
+            requiredFields.map { (it as JsonPrimitive).content },
+        )
         val systemContent = (request.messages.first().content as JsonPrimitive).content
         val userContent = (request.messages.last().content as JsonPrimitive).content
         assertTrue(systemContent.contains("РОВНО ОДИН JSON-ОБЪЕКТ"))
+        assertTrue(systemContent.contains("Используй минимум рассуждений"))
+        assertTrue(systemContent.contains("\"existingExerciseId\":123"))
         assertTrue(systemContent.contains("Если есть сомнение, выбери kind=\"new\""))
         assertTrue(userContent.contains("Жим штанги лёжа"))
         assertTrue(userContent.contains("\"contribution\":100"))
@@ -64,10 +74,82 @@ class OpenRouterExerciseAiGeneratorTest {
     }
 
     @Test
+    fun `generator uses the model selected in settings`() = runTest {
+        val api = FakeOpenRouterApi("{\"kind\":\"existing\",\"existingExerciseId\":1}")
+        val generator = generator(api = api, modelId = "dots-studio/dots-3-note-preview:free")
+
+        generator.generate("Жим лёжа")
+
+        assertEquals("dots-studio/dots-3-note-preview:free", api.request?.model)
+    }
+
+    @Test
+    fun `generator uses JSON object mode for a compatible model without structured outputs`() = runTest {
+        val api = FakeOpenRouterApi("{\"kind\":\"existing\",\"existingExerciseId\":1}")
+        val generator = generator(
+            api = api,
+            modelId = "stealth/ox-alpha",
+            jsonMode = OpenRouterJsonMode.JSON_OBJECT,
+        )
+
+        generator.generate("Жим лёжа")
+
+        assertEquals("json_object", api.request?.responseFormat?.type)
+        assertEquals(null, api.request?.responseFormat?.jsonSchema)
+        val systemContent = (api.request?.messages?.first()?.content as JsonPrimitive).content
+        assertTrue(systemContent.contains("<response_schema_json>"))
+        assertTrue(systemContent.contains("existingExerciseId"))
+    }
+
+    @Test
+    fun `generator uses the saved low reasoning effort for a mandatory reasoning model`() = runTest {
+        val api = FakeOpenRouterApi("{\"kind\":\"existing\",\"existingExerciseId\":1}")
+        val generator = generator(
+            api = api,
+            modelId = "stealth/ox-alpha",
+            jsonMode = OpenRouterJsonMode.JSON_OBJECT,
+            reasoningEffort = "low",
+        )
+
+        generator.generate("Жим лёжа")
+
+        assertEquals(OpenRouterReasoningPreferences(effort = "low"), api.request?.reasoning)
+    }
+
+    @Test
+    fun `generator logs the raw OpenRouter response before parsing it`() = runTest {
+        val logger = RecordingAiResponseLogger()
+        val generator = generator(
+            api = FakeOpenRouterApi("{\"kind\":\"existing\",\"existingExerciseId\":1}"),
+            responseLogger = logger,
+        )
+
+        generator.generate("Жим лёжа")
+
+        assertEquals(listOf(AiResponseSource.EXERCISE), logger.sources)
+        assertEquals(listOf(DEFAULT_OPEN_ROUTER_MODEL_ID), logger.modelIds)
+        val response = logger.responses.single()
+        assertEquals(
+            "{\"kind\":\"existing\",\"existingExerciseId\":1}",
+            (response.choices.single().message?.content as JsonPrimitive).content,
+        )
+    }
+
+    @Test
     fun `generator rejects an unknown existing id`() = runTest {
         val generator = generator(api = FakeOpenRouterApi("{\"kind\":\"existing\",\"existingExerciseId\":99}"))
 
         assertTrue(generator.generate("Неизвестное").isFailure())
+    }
+
+    @Test
+    fun `generator explains when an existing response omits its catalogue id`() = runTest {
+        val generator = generator(api = FakeOpenRouterApi("{\"kind\":\"existing\",\"type\":\"STRENGTH\"}"))
+
+        assertEquals(
+            ExerciseAiGenerationResult.Failure("ИИ не указал существующее упражнение — попробуйте ещё раз"),
+            generator.generate("Жим лёжа"),
+        )
     }
 
     @Test
@@ -116,7 +198,26 @@ class OpenRouterExerciseAiGeneratorTest {
 
         assertEquals(
             ExerciseAiGenerationResult.Failure(
-                "Бесплатная модель со структурированным ответом сейчас недоступна — попробуйте позже",
+                MODEL_UNAVAILABLE_MESSAGE,
+                modelUnavailable = true,
+            ),
+            generator.generate("Жим лёжа"),
+        )
+    }
+
+    @Test
+    fun `generator explains when the model exhausts its completion limit`() = runTest {
+        val generator = generator(
+            api = FakeOpenRouterApi(
+                apiResponse = OpenRouterChatResponse(
+                    choices = listOf(OpenRouterChoice(finishReason = "length")),
+                ),
+            ),
+        )
+
+        assertEquals(
+            ExerciseAiGenerationResult.Failure(
+                "Модель исчерпала лимит ответа — попробуйте ещё раз или выберите другую",
             ),
             generator.generate("Жим лёжа"),
         )
@@ -139,6 +240,23 @@ class OpenRouterExerciseAiGeneratorTest {
     }
 
     @Test
+    fun `generator accepts a globally calibrated map without a hundred percent target`() = runTest {
+        val generator = generator(
+            api = FakeOpenRouterApi(
+                """
+                    {"kind":"new","name":"Бег по лесу","type":"CARDIO","loads":[
+                      {"muscle":"QUADS","contribution":20},
+                      {"muscle":"CALVES","contribution":15}
+                    ]}
+                """.trimIndent(),
+            ),
+        )
+
+        val result = generator.generate("Бегу по лесу") as ExerciseAiGenerationResult.New
+        assertEquals(mapOf(Muscle.QUADS to 20, Muscle.CALVES to 15), result.loads.associate { it.muscle to it.contribution })
+    }
+
+    @Test
     fun `generator keeps a new branch instead of inferring a duplicate from its title`() = runTest {
         val generator = generator(
             api = FakeOpenRouterApi(
@@ -153,13 +271,21 @@ class OpenRouterExerciseAiGeneratorTest {
         assertTrue(generator.generate("жим лёжа") is ExerciseAiGenerationResult.New)
     }
 
-    private fun generator(api: OpenRouterApi): OpenRouterExerciseAiGenerator =
+    private fun generator(
+        api: OpenRouterApi,
+        modelId: String = DEFAULT_OPEN_ROUTER_MODEL_ID,
+        jsonMode: OpenRouterJsonMode = OpenRouterJsonMode.JSON_SCHEMA,
+        reasoningEffort: String? = null,
+        responseLogger: AiResponseLogger = NoOpAiResponseLogger,
+    ): OpenRouterExerciseAiGenerator =
         OpenRouterExerciseAiGenerator(
             api = api,
             keyStore = FakeOpenRouterKeyStore(),
+            modelSelector = FakeOpenRouterModelSelector(modelId, jsonMode, reasoningEffort),
             exerciseDao = FakeExerciseDao(catalogue),
             exerciseMuscleDao = FakeExerciseMuscleDao(muscles),
             json = Json { ignoreUnknownKeys = true; encodeDefaults = true },
+            responseLogger = responseLogger,
             computeDispatcher = UnconfinedTestDispatcher(),
         )
 
@@ -197,6 +323,42 @@ class OpenRouterExerciseAiGeneratorTest {
         override suspend fun read(): String = "test-key"
 
         override suspend fun clear() = Unit
+    }
+
+    private class FakeOpenRouterModelSelector(
+        private val modelId: String,
+        private val jsonMode: OpenRouterJsonMode,
+        private val reasoningEffort: String?,
+    ) : OpenRouterModelSelector {
+        override suspend fun selectedModel(): OpenRouterModelSelection = OpenRouterModelSelection(
+            id = modelId,
+            jsonMode = jsonMode,
+            reasoningEffort = reasoningEffort,
+        )
+    }
+
+    private object NoOpAiResponseLogger : AiResponseLogger {
+        override fun log(
+            source: AiResponseSource,
+            requestedModelId: String,
+            response: OpenRouterChatResponse,
+        ) = Unit
+    }
+
+    private class RecordingAiResponseLogger : AiResponseLogger {
+        val sources = mutableListOf<AiResponseSource>()
+        val modelIds = mutableListOf<String>()
+        val responses = mutableListOf<OpenRouterChatResponse>()
+
+        override fun log(
+            source: AiResponseSource,
+            requestedModelId: String,
+            response: OpenRouterChatResponse,
+        ) {
+            sources += source
+            modelIds += requestedModelId
+            responses += response
+        }
     }
 
     private class FakeExerciseDao(initial: List<ExerciseEntity>) : ExerciseDao {

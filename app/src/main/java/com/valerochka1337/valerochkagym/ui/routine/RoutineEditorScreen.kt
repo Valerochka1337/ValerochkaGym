@@ -52,10 +52,10 @@ import com.valerochka1337.valerochkagym.ui.components.GlowBackground
 import com.valerochka1337.valerochkagym.ui.components.GymCard
 import com.valerochka1337.valerochkagym.ui.components.GymCardShape
 import com.valerochka1337.valerochkagym.ui.components.NumberField
+import com.valerochka1337.valerochkagym.ui.components.rememberGymReorderableLazyListState
 import com.valerochka1337.valerochkagym.ui.haptics.gymHaptics
 import com.valerochka1337.valerochkagym.ui.theme.GymMotion
 import sh.calvin.reorderable.ReorderableItem
-import sh.calvin.reorderable.rememberReorderableLazyListState
 
 /**
  * Полноэкранный редактор программы: имя, список упражнений с подходами и отдыхом.
@@ -73,7 +73,7 @@ fun RoutineEditorScreen(
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val haptics = gymHaptics()
     val lazyListState = rememberLazyListState()
-    val reorderableLazyListState = rememberReorderableLazyListState(lazyListState) { from, to ->
+    val reorderableLazyListState = rememberGymReorderableLazyListState(lazyListState) { from, to ->
         if (from.index in state.exercises.indices && to.index in state.exercises.indices) {
             // Reorderable expects the backing list to change before this callback returns.
             viewModel.moveExercise(from.index, to.index)

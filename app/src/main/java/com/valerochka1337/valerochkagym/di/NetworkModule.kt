@@ -3,6 +3,7 @@ package com.valerochka1337.valerochkagym.di
 import com.valerochka1337.valerochkagym.data.google.CalendarApi
 import com.valerochka1337.valerochkagym.data.google.SheetsApi
 import com.valerochka1337.valerochkagym.data.ai.OpenRouterApi
+import com.valerochka1337.valerochkagym.data.ai.OpenRouterModelsApi
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -82,4 +83,9 @@ object NetworkModule {
     @Singleton
     fun provideOpenRouterApi(@Named("openrouter") retrofit: Retrofit): OpenRouterApi =
         retrofit.create(OpenRouterApi::class.java)
+
+    @Provides
+    @Singleton
+    fun provideOpenRouterModelsApi(@Named("openrouter") retrofit: Retrofit): OpenRouterModelsApi =
+        retrofit.create(OpenRouterModelsApi::class.java)
 }

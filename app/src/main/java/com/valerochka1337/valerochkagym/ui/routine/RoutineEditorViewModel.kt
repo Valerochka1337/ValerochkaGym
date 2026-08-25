@@ -10,7 +10,10 @@ import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
 import com.valerochka1337.valerochkagym.data.db.entity.RoutineEntity
 import com.valerochka1337.valerochkagym.data.db.entity.RoutineExerciseEntity
+import com.valerochka1337.valerochkagym.data.db.entity.withNextUpdatedAt
 import com.valerochka1337.valerochkagym.ui.navigation.GymRoutes
+import com.valerochka1337.valerochkagym.worker.NoOpRoutineUploadScheduler
+import com.valerochka1337.valerochkagym.worker.RoutineUploadScheduler
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.util.UUID
 import kotlinx.coroutines.channels.Channel
@@ -45,6 +48,10 @@ data class RoutineEditorUiState(
     // Пока true, тело редактора не рисуется: иначе для существующей программы кадр показывает
     // пустую «готовую» форму, которую тут же подменяет загруженная — это и есть моргание.
     val isLoading: Boolean = false,
+    /** Невидимый UI ключ: сохраняет cloud-идентичность при редактировании существующей программы. */
+    val syncId: String = UUID.randomUUID().toString(),
+    /** Последняя версия снимка; следующее сохранение делает её строго больше. */
+    val updatedAt: Long = 0L,
     val name: String = "",
     val note: String = "",
     val exercises: List<EditorExercise> = emptyList(),
@@ -62,6 +69,7 @@ class RoutineEditorViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val routineDao: RoutineDao,
     private val exerciseDao: ExerciseDao,
+    private val routineUploadScheduler: RoutineUploadScheduler = NoOpRoutineUploadScheduler,
 ) : ViewModel() {
 
     private val routineId: Long? =
@@ -90,6 +98,8 @@ class RoutineEditorViewModel @Inject constructor(
         }
         _uiState.value = RoutineEditorUiState(
             isNew = false,
+            syncId = full.routine.syncId,
+            updatedAt = full.routine.updatedAt,
             name = full.routine.name,
             note = full.routine.note,
             exercises = full.exercises
@@ -200,9 +210,14 @@ class RoutineEditorViewModel @Inject constructor(
         viewModelScope.launch {
             // @Upsert возвращает -1 при обновлении существующей строки, поэтому для правки
             // берём уже известный routineId, а результат upsert используем только для новой.
-            val insertedId = routineDao.upsertRoutine(
-                RoutineEntity(id = routineId ?: 0, name = state.name.trim(), note = state.note),
-            )
+            val routine = RoutineEntity(
+                id = routineId ?: 0,
+                syncId = state.syncId,
+                updatedAt = state.updatedAt,
+                name = state.name.trim(),
+                note = state.note,
+            ).withNextUpdatedAt()
+            val insertedId = routineDao.upsertRoutine(routine)
             val id = routineId ?: insertedId
             val entities = state.exercises.mapIndexed { index, exercise ->
                 RoutineExerciseEntity(
@@ -214,6 +229,7 @@ class RoutineEditorViewModel @Inject constructor(
                 )
             }
             routineDao.replaceRoutineExercises(id, entities)
+            routineUploadScheduler.schedule(routine.syncId)
             _saved.send(Unit)
         }
     }

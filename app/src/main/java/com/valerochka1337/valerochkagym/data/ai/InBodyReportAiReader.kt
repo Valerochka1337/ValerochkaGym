@@ -52,7 +52,10 @@ data class InBodyReportDraft(
 sealed interface InBodyReportAiResult {
     data class Success(val draft: InBodyReportDraft) : InBodyReportAiResult
 
-    data class Failure(val message: String) : InBodyReportAiResult
+    data class Failure(
+        val message: String,
+        val modelUnavailable: Boolean = false,
+    ) : InBodyReportAiResult
 }
 
 /** Reads an InBody report photo into an editable draft and never writes a measurement itself. */
@@ -69,8 +72,10 @@ interface InBodyReportAiReader {
 class OpenRouterInBodyReportAiReader @Inject constructor(
     private val api: OpenRouterApi,
     private val keyStore: OpenRouterKeyStore,
+    private val modelSelector: OpenRouterModelSelector,
     private val photoEncoder: InBodyPhotoEncoder,
     private val json: Json,
+    private val responseLogger: AiResponseLogger,
     @param:ComputeDispatcher private val computeDispatcher: CoroutineDispatcher,
 ) : InBodyReportAiReader {
 
@@ -80,26 +85,25 @@ class OpenRouterInBodyReportAiReader @Inject constructor(
         val jpegDataUrl = (encoding as? InBodyPhotoEncodingResult.Success)?.jpegDataUrl
             ?: return encoding.failureMessage()
 
+        val selectedModel = modelSelector.selectedModel()
+        val systemPrompt = selectedModel.systemPrompt(SYSTEM_PROMPT, RESPONSE_SCHEMA)
         val request = OpenRouterChatRequest(
-            model = INBODY_MODEL,
+            model = selectedModel.id,
             messages = listOf(
-                OpenRouterMessage.text(role = "system", text = SYSTEM_PROMPT),
+                OpenRouterMessage.text(role = "system", text = systemPrompt),
                 OpenRouterMessage.textAndImage(
                     role = "user",
                     text = USER_PROMPT,
                     imageDataUrl = jpegDataUrl,
                 ),
             ),
-            responseFormat = OpenRouterResponseFormat(
-                type = "json_schema",
-                jsonSchema = OpenRouterJsonSchema(
-                    name = "inbody_report",
-                    strict = true,
-                    schema = RESPONSE_SCHEMA,
-                ),
+            responseFormat = selectedModel.responseFormat(
+                schemaName = "inbody_report",
+                schema = RESPONSE_SCHEMA,
             ),
             provider = OpenRouterProviderPreferences(requireParameters = true),
             maxTokens = MAX_COMPLETION_TOKENS,
+            reasoning = selectedModel.reasoningPreferences(),
             temperature = RESPONSE_TEMPERATURE,
         )
 
@@ -108,14 +112,25 @@ class OpenRouterInBodyReportAiReader @Inject constructor(
         } catch (e: CancellationException) {
             throw e
         } catch (e: HttpException) {
-            return InBodyReportAiResult.Failure(openRouterErrorMessage(e.code()))
+            return openRouterErrorFailure(e.code())
         } catch (_: IOException) {
             return InBodyReportAiResult.Failure(NETWORK_FAILURE_MESSAGE)
         } catch (_: Exception) {
             return InBodyReportAiResult.Failure(GENERIC_FAILURE_MESSAGE)
         }
 
-        return withContext(computeDispatcher) { parseResponse(response) }
+        return withContext(computeDispatcher) {
+            logResponse(selectedModel.id, response)
+            parseResponse(response)
+        }
+    }
+
+    private fun logResponse(modelId: String, response: OpenRouterChatResponse) {
+        try {
+            responseLogger.log(AiResponseSource.INBODY, modelId, response)
+        } catch (_: Exception) {
+            // Отладочный вывод не должен менять результат ИИ-запроса.
+        }
     }
 
     private fun InBodyPhotoEncodingResult.failureMessage(): InBodyReportAiResult.Failure = when (this) {
@@ -127,12 +142,13 @@ class OpenRouterInBodyReportAiReader @Inject constructor(
         val choice = response.choices.firstOrNull()
         val responseError = response.error ?: response.choices.firstOrNull { it.error != null }?.error
         if (responseError != null) {
-            return InBodyReportAiResult.Failure(
-                openRouterErrorMessage(responseError.code, responseError.metadata?.errorType),
-            )
+            return openRouterErrorFailure(responseError.code, responseError.metadata?.errorType)
         }
         if (choice?.finishReason == FINISH_REASON_ERROR) {
             return InBodyReportAiResult.Failure(INTERRUPTED_RESPONSE_MESSAGE)
+        }
+        if (choice?.finishReason == FINISH_REASON_LENGTH) {
+            return InBodyReportAiResult.Failure(RESPONSE_LIMIT_MESSAGE)
         }
         return parsePayload(choice?.message.textContent())
     }
@@ -263,24 +279,30 @@ class OpenRouterInBodyReportAiReader @Inject constructor(
     private fun OpenRouterResponseMessage?.textContent(): String? =
         (this?.content as? JsonPrimitive)?.takeUnless { it is JsonNull }?.content
 
-    private fun openRouterErrorMessage(code: Int?, errorType: String? = null): String = when (errorType) {
-        "authentication", "permission_denied" -> "Ключ OpenRouter недействителен или не имеет доступа"
-        "payment_required" -> "Для этого ключа сейчас недоступны бесплатные модели — проверьте лимиты OpenRouter"
-        "rate_limit_exceeded" -> "Лимит бесплатной модели исчерпан — попробуйте позже"
-        "provider_overloaded", "provider_unavailable" ->
-            "Бесплатная модель со структурированным ответом сейчас недоступна — попробуйте позже"
-        "timeout" -> "OpenRouter не дождался ответа модели — попробуйте ещё раз"
-        "refusal" -> "Модель не смогла прочитать лист InBody — выберите другой снимок"
-        else -> when (code) {
-            401, 403 -> "Ключ OpenRouter недействителен или не имеет доступа"
-            402 -> "Для этого ключа сейчас недоступны бесплатные модели — проверьте лимиты OpenRouter"
-            408, 504 -> "OpenRouter не дождался ответа модели — попробуйте ещё раз"
-            429 -> "Лимит бесплатной модели исчерпан — попробуйте позже"
-            502, 503 -> "Бесплатная модель со структурированным ответом сейчас недоступна — попробуйте позже"
-            in 500..599 -> "OpenRouter временно недоступен — попробуйте позже"
-            null -> GENERIC_FAILURE_MESSAGE
-            else -> "OpenRouter вернул ошибку (HTTP $code) — попробуйте ещё раз"
+    private fun openRouterErrorFailure(
+        code: Int?,
+        errorType: String? = null,
+    ): InBodyReportAiResult.Failure {
+        if (isOpenRouterModelUnavailable(errorType, code)) {
+            return InBodyReportAiResult.Failure(MODEL_UNAVAILABLE_MESSAGE, modelUnavailable = true)
         }
+        val message = when (errorType) {
+            "authentication", "permission_denied" -> "Ключ OpenRouter недействителен или не имеет доступа"
+            "payment_required" -> "Для этого ключа сейчас недоступны бесплатные модели — проверьте лимиты OpenRouter"
+            "rate_limit_exceeded" -> "Лимит бесплатной модели исчерпан — попробуйте позже"
+            "timeout" -> "OpenRouter не дождался ответа модели — попробуйте ещё раз"
+            "refusal" -> "Модель не смогла прочитать лист InBody — выберите другой снимок"
+            else -> when (code) {
+                401, 403 -> "Ключ OpenRouter недействителен или не имеет доступа"
+                402 -> "Для этого ключа сейчас недоступны бесплатные модели — проверьте лимиты OpenRouter"
+                408, 504 -> "OpenRouter не дождался ответа модели — попробуйте ещё раз"
+                429 -> "Лимит бесплатной модели исчерпан — попробуйте позже"
+                in 500..599 -> "OpenRouter временно недоступен — попробуйте позже"
+                null -> GENERIC_FAILURE_MESSAGE
+                else -> "OpenRouter вернул ошибку (HTTP $code) — попробуйте ещё раз"
+            }
+        }
+        return InBodyReportAiResult.Failure(message)
     }
 
     private data class ParsedOptional<T>(val value: T?)
@@ -296,17 +318,18 @@ class OpenRouterInBodyReportAiReader @Inject constructor(
     )
 
     private companion object {
-        const val INBODY_MODEL = "google/gemma-4-26b-a4b-it:free"
         // Полный отчёт содержит 20 сегментных значений с длинными ключами JSON. Резерв нужен,
         // чтобы модель не заменяла читаемые цифры null из-за лимита завершения.
         const val MAX_COMPLETION_TOKENS = 2_048
         const val RESPONSE_TEMPERATURE = 0.0
         const val FINISH_REASON_ERROR = "error"
+        const val FINISH_REASON_LENGTH = "length"
 
         const val MISSING_KEY_MESSAGE = "Укажите ключ OpenRouter в настройках"
         const val NETWORK_FAILURE_MESSAGE = "Не удалось связаться с OpenRouter — попробуйте ещё раз"
         const val GENERIC_FAILURE_MESSAGE = "Не удалось распознать лист InBody — попробуйте ещё раз"
         const val INTERRUPTED_RESPONSE_MESSAGE = "OpenRouter не завершил ответ — попробуйте ещё раз"
+        const val RESPONSE_LIMIT_MESSAGE = "Модель исчерпала лимит ответа — попробуйте ещё раз или выберите другую"
         const val INVALID_RESPONSE_MESSAGE = "ИИ вернул неполный или некорректный отчёт — попробуйте ещё раз"
         const val NOT_INBODY_REPORT_MESSAGE = "На фото не удалось найти отчёт InBody — выберите другой снимок"
 
@@ -376,6 +399,9 @@ class OpenRouterInBodyReportAiReader @Inject constructor(
 
         val SYSTEM_PROMPT = """
             Ты извлекаешь только фактические показатели из одного сфотографированного листа InBody.
+
+            Задача простая. Используй минимум рассуждений: считай нужные поля без пошагового анализа
+            и лишних перепроверок. После чтения сразу верни JSON.
 
             ВЕРНИ РОВНО ОДИН JSON-ОБЪЕКТ по JSON Schema. Не пиши Markdown, ```json, пояснения,
             рассуждения, префиксы, суффиксы или несколько объектов. Если значение не читается,

@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -49,6 +50,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Switch
@@ -84,6 +86,8 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.platform.LocalContext
 import com.valerochka1337.valerochkagym.data.backup.DatabaseExporter
+import com.valerochka1337.valerochkagym.data.ai.OpenRouterFreeModel
+import com.valerochka1337.valerochkagym.data.ai.OpenRouterJsonMode
 import com.valerochka1337.valerochkagym.data.settings.GymSettings
 import com.valerochka1337.valerochkagym.ui.components.GlowBackground
 import com.valerochka1337.valerochkagym.ui.haptics.gymHaptics
@@ -163,8 +167,14 @@ fun SettingsScreen(
                         )
                         OpenRouterCard(
                             keyConfigured = state.openRouterKeyConfigured,
+                            selectedModelId = settings.openRouterModelId,
+                            models = state.openRouterModels,
+                            modelsLoading = state.openRouterModelsLoading,
+                            modelsLoadError = state.openRouterModelsLoadError,
                             onSave = viewModel::setOpenRouterKey,
                             onClear = viewModel::clearOpenRouterKey,
+                            onSelectModel = viewModel::setOpenRouterModel,
+                            onRefreshModels = viewModel::refreshOpenRouterModels,
                         )
                         RestTimerCard(
                             settings = settings,
@@ -333,9 +343,16 @@ private fun SpreadsheetCard(
 @Composable
 private fun OpenRouterCard(
     keyConfigured: Boolean,
+    selectedModelId: String,
+    models: List<OpenRouterFreeModel>,
+    modelsLoading: Boolean,
+    modelsLoadError: Boolean,
     onSave: (String) -> Unit,
     onClear: () -> Unit,
+    onSelectModel: (OpenRouterFreeModel) -> Unit,
+    onRefreshModels: () -> Unit,
 ) {
+    var showModelPicker by rememberSaveable { mutableStateOf(false) }
     SectionCard(title = "OpenRouter", icon = Icons.Rounded.AutoAwesome) {
         var input by rememberSaveable { mutableStateOf("") }
         Text(
@@ -394,7 +411,151 @@ private fun OpenRouterCard(
                 }
             }
         }
+        Spacer(Modifier.height(20.dp))
+        Text(
+            text = "Модель ИИ",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            text = "Бесплатные модели для фото InBody и JSON. Где строгая схема недоступна, ответ дополнительно проверяет приложение. Список обновляется из OpenRouter.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(10.dp))
+        val selectedModel = models.firstOrNull { it.id == selectedModelId }
+            ?: OpenRouterFreeModel(
+                id = selectedModelId,
+                name = "Недоступная модель",
+                contextLength = 0,
+                jsonMode = OpenRouterJsonMode.JSON_OBJECT,
+            )
+        OutlinedButton(
+            onClick = { showModelPicker = true },
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = selectedModel.name,
+                    maxLines = 1,
+                    softWrap = false,
+                )
+                Text(
+                    text = if (modelsLoading) {
+                        "Загружаю дополнительные модели…"
+                    } else {
+                        modelDescription(selectedModel)
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    softWrap = false,
+                )
+            }
+        }
+        if (modelsLoadError) {
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = "Не удалось обновить список. Можно повторить попытку или оставить текущий выбор.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+            TextButton(onClick = onRefreshModels) { Text("Повторить") }
+        }
     }
+
+    if (showModelPicker) {
+        ModelPickerDialog(
+            selectedModelId = selectedModelId,
+            models = models,
+            modelsLoading = modelsLoading,
+            onSelect = { model ->
+                showModelPicker = false
+                onSelectModel(model)
+            },
+            onDismiss = { showModelPicker = false },
+        )
+    }
+}
+
+@Composable
+private fun ModelPickerDialog(
+    selectedModelId: String,
+    models: List<OpenRouterFreeModel>,
+    modelsLoading: Boolean,
+    onSelect: (OpenRouterFreeModel) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Бесплатная модель ИИ") },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 420.dp)
+                    .verticalScroll(rememberScrollState()),
+            ) {
+                models.forEach { model ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .selectable(
+                                selected = model.id == selectedModelId,
+                                role = Role.RadioButton,
+                                onClick = { onSelect(model) },
+                            )
+                            .padding(vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        RadioButton(
+                            selected = model.id == selectedModelId,
+                            onClick = null,
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = model.name,
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onSurface,
+                            )
+                            Text(
+                                text = modelDescription(model),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+                if (modelsLoading) {
+                    Text(
+                        text = "Загружаю дополнительные модели…",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 8.dp),
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Готово") }
+        },
+    )
+}
+
+private fun modelDescription(model: OpenRouterFreeModel): String = when {
+    model.isAutomatic -> "Рекомендуется: OpenRouter подберёт доступную совместимую модель"
+    model.expiresAt != null -> "${model.jsonDescription()} · доступна до ${model.expiresAt}"
+    model.contextLength >= 1_000_000 -> "${model.jsonDescription()} · контекст ${model.contextLength / 1_000_000} млн"
+    model.contextLength >= 1_000 -> "${model.jsonDescription()} · контекст ${model.contextLength / 1_000} тыс."
+    else -> model.jsonDescription()
+}
+
+private fun OpenRouterFreeModel.jsonDescription(): String = when (jsonMode) {
+    OpenRouterJsonMode.JSON_SCHEMA -> "Фото InBody + строгий JSON"
+    OpenRouterJsonMode.JSON_OBJECT -> "Фото InBody + JSON, проверяется приложением"
 }
 
 @Composable

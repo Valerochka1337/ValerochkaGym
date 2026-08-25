@@ -23,6 +23,7 @@ import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.MonitorWeight
 import androidx.compose.material.icons.rounded.PhotoCamera
 import androidx.compose.material.icons.rounded.PhotoLibrary
+import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Straighten
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularWavyProgressIndicator
@@ -358,6 +359,14 @@ private fun InBodyImportCard(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.error,
             )
+            if (state.inBodyScanModelUnavailable) {
+                Spacer(Modifier.height(8.dp))
+                OutlinedButton(onClick = onOpenSettings) {
+                    Icon(Icons.Rounded.Settings, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Выбрать другую модель")
+                }
+            }
         }
         if (state.isScanningInBody) {
             Spacer(Modifier.height(14.dp))

@@ -6,6 +6,7 @@ import androidx.lifecycle.SavedStateHandle
 import com.valerochka1337.valerochkagym.data.ai.InBodyReportAiReader
 import com.valerochka1337.valerochkagym.data.ai.InBodyReportAiResult
 import com.valerochka1337.valerochkagym.data.ai.InBodyReportDraft
+import com.valerochka1337.valerochkagym.data.ai.MODEL_UNAVAILABLE_MESSAGE
 import com.valerochka1337.valerochkagym.data.db.dao.BodyMeasurementDao
 import com.valerochka1337.valerochkagym.data.db.entity.BodyMeasurementEntity
 import com.valerochka1337.valerochkagym.data.db.entity.UploadStatus
@@ -149,6 +150,29 @@ class MeasurementEditorViewModelTest {
             assertEquals("60.0", viewModel.uiState.value.weightKg)
             assertNull(viewModel.uiState.value.inBodyScanError)
             assertEquals(2, reader.uris.size)
+        }
+
+    @Test
+    fun `failed InBody scan marks an unavailable selected model for settings navigation`() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val viewModel = MeasurementEditorViewModel(
+                SavedStateHandle(),
+                FakeBodyMeasurementDao(),
+                FakeMeasurementUploadScheduler(),
+                FakeInBodyReportAiReader(
+                    InBodyReportAiResult.Failure(
+                        message = MODEL_UNAVAILABLE_MESSAGE,
+                        modelUnavailable = true,
+                    ),
+                ),
+                FakeOpenRouterKeyStore(configured = true),
+            )
+            testScheduler.advanceUntilIdle()
+
+            viewModel.scanInBody(Uri.parse("content://picker/inbody.jpg"))
+            testScheduler.advanceUntilIdle()
+
+            assertTrue(viewModel.uiState.value.inBodyScanModelUnavailable)
         }
 
     @Test

@@ -107,6 +107,17 @@ internal fun AiExerciseCreationSheet(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error,
                 )
+                if (state.modelUnavailable) {
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedButton(onClick = onOpenSettings, enabled = !state.isGenerating) {
+                        Icon(
+                            imageVector = Icons.Rounded.Settings,
+                            contentDescription = null,
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text("Выбрать другую модель")
+                    }
+                }
             }
 
             if (!state.keyConfigured) {

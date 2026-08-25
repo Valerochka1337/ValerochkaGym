@@ -1,12 +1,18 @@
 package com.valerochka1337.valerochkagym.di
 
 import com.valerochka1337.valerochkagym.data.ActiveWorkoutRepositoryImpl
+import com.valerochka1337.valerochkagym.data.ai.AiResponseLogger
 import com.valerochka1337.valerochkagym.data.ai.AndroidInBodyPhotoEncoder
+import com.valerochka1337.valerochkagym.data.ai.DebugAiResponseLogger
 import com.valerochka1337.valerochkagym.data.ai.ExerciseAiGenerator
 import com.valerochka1337.valerochkagym.data.ai.InBodyPhotoEncoder
 import com.valerochka1337.valerochkagym.data.ai.InBodyReportAiReader
 import com.valerochka1337.valerochkagym.data.ai.OpenRouterInBodyReportAiReader
 import com.valerochka1337.valerochkagym.data.ai.OpenRouterExerciseAiGenerator
+import com.valerochka1337.valerochkagym.data.ai.OpenRouterFreeModelCatalog
+import com.valerochka1337.valerochkagym.data.ai.OpenRouterModelSelector
+import com.valerochka1337.valerochkagym.data.ai.RemoteOpenRouterFreeModelCatalog
+import com.valerochka1337.valerochkagym.data.ai.SettingsOpenRouterModelSelector
 import com.valerochka1337.valerochkagym.data.backup.ClearDataUseCase
 import com.valerochka1337.valerochkagym.data.backup.ClearDataUseCaseImpl
 import com.valerochka1337.valerochkagym.data.backup.DatabaseExporter
@@ -17,8 +23,10 @@ import com.valerochka1337.valerochkagym.data.settings.OpenRouterKeyStore
 import com.valerochka1337.valerochkagym.data.settings.SecretCipher
 import com.valerochka1337.valerochkagym.domain.ActiveWorkoutRepository
 import com.valerochka1337.valerochkagym.worker.MeasurementUploadScheduler
+import com.valerochka1337.valerochkagym.worker.RoutineUploadScheduler
 import com.valerochka1337.valerochkagym.worker.UploadScheduler
 import com.valerochka1337.valerochkagym.worker.WorkManagerMeasurementUploadScheduler
+import com.valerochka1337.valerochkagym.worker.WorkManagerRoutineUploadScheduler
 import com.valerochka1337.valerochkagym.worker.WorkManagerUploadScheduler
 import dagger.Binds
 import dagger.Module
@@ -48,6 +56,12 @@ abstract class DomainModule {
 
     @Binds
     @Singleton
+    abstract fun bindRoutineUploadScheduler(
+        impl: WorkManagerRoutineUploadScheduler,
+    ): RoutineUploadScheduler
+
+    @Binds
+    @Singleton
     abstract fun bindDatabaseExporter(impl: DatabaseExporterImpl): DatabaseExporter
 
     @Binds
@@ -73,4 +87,20 @@ abstract class DomainModule {
     @Binds
     @Singleton
     abstract fun bindInBodyReportAiReader(impl: OpenRouterInBodyReportAiReader): InBodyReportAiReader
+
+    @Binds
+    @Singleton
+    abstract fun bindOpenRouterFreeModelCatalog(
+        impl: RemoteOpenRouterFreeModelCatalog,
+    ): OpenRouterFreeModelCatalog
+
+    @Binds
+    @Singleton
+    abstract fun bindOpenRouterModelSelector(
+        impl: SettingsOpenRouterModelSelector,
+    ): OpenRouterModelSelector
+
+    @Binds
+    @Singleton
+    abstract fun bindAiResponseLogger(impl: DebugAiResponseLogger): AiResponseLogger
 }

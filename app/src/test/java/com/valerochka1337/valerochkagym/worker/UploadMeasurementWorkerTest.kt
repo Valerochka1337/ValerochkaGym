@@ -87,6 +87,10 @@ class UploadMeasurementWorkerTest {
         val measurementIds = mutableListOf<String>()
         override suspend fun uploadWorkout(workoutId: String): UploadResult = result
 
+        override suspend fun uploadRoutine(routineSyncId: String): UploadResult = result
+
+        override suspend fun uploadRoutineDeletion(routineSyncId: String, updatedAt: Long): UploadResult = result
+
         override suspend fun uploadMeasurement(measurementId: String): UploadResult {
             measurementIds += measurementId
             return result
