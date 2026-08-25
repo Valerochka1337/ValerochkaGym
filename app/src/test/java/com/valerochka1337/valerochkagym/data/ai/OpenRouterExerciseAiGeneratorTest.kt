@@ -10,14 +10,12 @@ import com.valerochka1337.valerochkagym.data.settings.OpenRouterKeyStore
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -49,7 +47,7 @@ class OpenRouterExerciseAiGeneratorTest {
         assertEquals(0.1, request.temperature!!, 0.0)
         assertTrue(request.provider.requireParameters)
         assertTrue(request.responseFormat.jsonSchema!!.strict)
-        val requiredFields = request.responseFormat.jsonSchema!!.schema["required"] as JsonArray
+        val requiredFields = request.responseFormat.jsonSchema.schema["required"] as JsonArray
         assertEquals(
             listOf("kind", "existingExerciseId", "name", "type", "loads"),
             requiredFields.map { (it as JsonPrimitive).content },
@@ -59,6 +57,7 @@ class OpenRouterExerciseAiGeneratorTest {
         assertTrue(systemContent.contains("РОВНО ОДИН JSON-ОБЪЕКТ"))
         assertTrue(systemContent.contains("Используй минимум рассуждений"))
         assertTrue(systemContent.contains("\"existingExerciseId\":123"))
+        assertTrue(systemContent.contains("\"existingExerciseId\":null"))
         assertTrue(systemContent.contains("Если есть сомнение, выбери kind=\"new\""))
         assertTrue(userContent.contains("Жим штанги лёжа"))
         assertTrue(userContent.contains("\"contribution\":100"))

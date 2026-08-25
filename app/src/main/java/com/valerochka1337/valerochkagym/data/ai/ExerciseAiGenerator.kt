@@ -14,12 +14,10 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.put
@@ -372,7 +370,7 @@ class OpenRouterExerciseAiGenerator @Inject constructor(
             упражнений, а не нормализованная внутри одного: 100 — целевая мышца тяжёлого силового подхода, 60..85 —
             сильная прямая нагрузка, 25..55 — умеренная или косвенная, 5..20 — стабилизация или выносливость. Максимум карты
             может быть ниже 100; для обычного кардио не ставь выше 35.
-            Пример формы: {"kind":"new","name":"Тяга гантели в наклоне одной рукой",
+            Пример формы: {"kind":"new","existingExerciseId":null,"name":"Тяга гантели в наклоне одной рукой",
             "type":"STRENGTH","loads":[{"muscle":"LATS","contribution":100},
             {"muscle":"BICEPS","contribution":55}]}.
         """.trimIndent()
