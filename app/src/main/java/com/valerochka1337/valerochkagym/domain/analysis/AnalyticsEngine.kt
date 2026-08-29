@@ -5,7 +5,6 @@ import com.valerochka1337.valerochkagym.data.db.entity.Muscle
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleLoad
 import com.valerochka1337.valerochkagym.data.db.entity.WorkoutEntity
 import com.valerochka1337.valerochkagym.data.db.relation.AnalyticsSetRow
-import java.time.DayOfWeek
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -33,8 +32,9 @@ data class AnalyticsInput(
  *   (для кардио есть минуты и МЕТ). Разминка отсекается эвристикой: подход легче 60% от самого
  *   тяжёлого подхода этого упражнения в этой же тренировке — разминочный. RIR приложение
  *   не записывает, а без него это лучший доступный признак.
- * * **Эффективный подход мышцы** — рабочий подход, взвешенный по общей шкале вовлечения
- *   ([setWeightFor]): 100% даёт 1.0, 60% — 0.6, а стабилизация ниже 25% отсекается.
+ * * **Эффективный подход мышцы** — рабочий подход по общей шкале вовлечения
+ *   ([setWeightFor]): прямая нагрузка ≥60% даёт 1.0, косвенная 25–59% — 0.5, стабилизация
+ *   ниже 25% не учитывается. Это оценка стимула, а не измерение близости к отказу.
  * * **Тоннаж** — Σ вес × повторы по силовым подходам (как в итогах тренировки).
  * * Недельные величины — **средние за неделю окна**, иначе окна разной длины несравнимы.
  */
@@ -42,27 +42,26 @@ class AnalyticsEngine @Inject constructor() {
 
     fun analyze(input: AnalyticsInput, period: AnalysisPeriod): AnalyticsReport {
         val today = Instant.ofEpochMilli(input.nowMillis).atZone(input.zone).toLocalDate()
-        val periodStartMillis = period.weeks?.let { weeks ->
-            today.minusWeeks(weeks.toLong() - 1)
-                .with(DayOfWeek.MONDAY)
-                .atStartOfDay(input.zone)
-                .toInstant()
-                .toEpochMilli()
-        } ?: Long.MIN_VALUE
-
-        val sets = input.sets.filter { it.completedAt >= periodStartMillis }
-        val workouts = input.workouts.filter { it.finishedAt != null && it.startedAt >= periodStartMillis }
-        if (sets.isEmpty() && workouts.isEmpty()) return AnalyticsReport.empty(period)
+        val range = period.resolveRange(today, firstActivityDate(input))
+        val sets = input.sets.filter { range.contains(it.date(input.zone)) }
+        val workouts = input.workouts.filter { workout ->
+            workout.finishedAt != null && range.contains(workout.startedDate(input.zone))
+        }
+        val allRecords = records(input.sets)
+        if (sets.isEmpty() && workouts.isEmpty()) {
+            return AnalyticsReport.empty(period = period, range = range, records = allRecords)
+        }
 
         val hardSets = hardSets(sets)
-        val weeks = periodWeeks(period, firstActivityMillis(input), today, input.zone)
+        val weeks = range.weeks
 
-        val muscleLoads = muscleLoads(hardSets, input.muscleMap, weeks, today, input.zone)
+        val muscleLoads = muscleLoads(hardSets, input.muscleMap, weeks, range.endInclusive, input.zone)
         val effectiveByMuscle = muscleLoads.associate { it.muscle to it.totalSets }
 
         return AnalyticsReport(
             hasData = hardSets.isNotEmpty() || workouts.isNotEmpty(),
             period = period,
+            range = range,
             periodWeeks = weeks,
             sessions = workouts.size,
             sessionsPerWeek = workouts.size / weeks,
@@ -72,19 +71,17 @@ class AnalyticsEngine @Inject constructor() {
             cardioMinutes = sets.filter { it.exerciseType == ExerciseType.CARDIO }
                 .sumOf { it.durationSec ?: 0 } / 60,
             aerobicMetMinutesPerWeek = metMinutes(sets) / weeks,
-            weeklyPoints = weeklyPoints(sets, hardSets, workouts, period, today, input.zone),
+            weeklyPoints = weeklyPoints(sets, hardSets, workouts, range, input.zone),
             muscleLoads = muscleLoads,
             exercises = exerciseProgress(sets),
-            // Окно намеренно игнорируется: острая и хроническая нагрузка определены
-            // на фиксированных 7 и 28 днях, иначе показатель не сравним с литературой.
-            workload = workloadRatio(hardSets(input.sets), input.nowMillis),
+            workload = workloadRatio(hardSets, range, input.zone),
             balances = balances(effectiveByMuscle),
-            records = records(input.sets),
-            streakWeeks = streakWeeks(input.workouts, today, input.zone),
-            daysSinceLast = input.workouts.maxOfOrNull { it.startedAt }?.let { last ->
+            // Рекорд не перестаёт быть достижением после смены календарного периода.
+            records = allRecords,
+            streakWeeks = streakWeeks(workouts, range, input.zone),
+            daysSinceLast = workouts.maxOfOrNull { it.startedAt }?.let { last ->
                 ChronoUnit.DAYS.between(
-                    Instant.ofEpochMilli(last).atZone(input.zone).toLocalDate(),
-                    today,
+                    Instant.ofEpochMilli(last).atZone(input.zone).toLocalDate(), range.endInclusive,
                 ).toInt()
             },
         )
@@ -120,32 +117,15 @@ class AnalyticsEngine @Inject constructor() {
     private fun AnalyticsSetRow.date(zone: ZoneId): LocalDate =
         Instant.ofEpochMilli(completedAt).atZone(zone).toLocalDate()
 
-    /**
-     * Длина окна в неделях — знаменатель всех «в неделю». Для конечного окна это его длина,
-     * но не больше **всей** прожитой истории: у новичка с одной тренировкой на прошлой неделе
-     * делить на 12 недель нельзя, получится «0.1 подхода в неделю».
-     *
-     * Важно, что история считается по всем данным, а не по попавшим в окно: иначе двухнедельный
-     * простой в начале окна сократил бы знаменатель и выдал бы простой за рост объёма.
-     */
-    private fun periodWeeks(
-        period: AnalysisPeriod,
-        firstActivityMillis: Long?,
-        today: LocalDate,
-        zone: ZoneId,
-    ): Double {
-        if (firstActivityMillis == null) return 1.0
-        val firstDate = Instant.ofEpochMilli(firstActivityMillis).atZone(zone).toLocalDate()
-        val historyWeeks = (ChronoUnit.DAYS.between(firstDate, today) + 1) / 7.0
-        val windowWeeks = period.weeks?.toDouble() ?: historyWeeks
-        return maxOf(1.0, minOf(windowWeeks, historyWeeks))
-    }
+    private fun WorkoutEntity.startedDate(zone: ZoneId): LocalDate =
+        Instant.ofEpochMilli(startedAt).atZone(zone).toLocalDate()
 
-    /** Момент самой первой активности во всей истории (не только в окне). */
-    private fun firstActivityMillis(input: AnalyticsInput): Long? = minOf(
+    /** Первая активность нужна только для начала пресета «всё время». */
+    private fun firstActivityDate(input: AnalyticsInput): LocalDate? = minOf(
         input.sets.minOfOrNull { it.completedAt } ?: Long.MAX_VALUE,
         input.workouts.minOfOrNull { it.startedAt } ?: Long.MAX_VALUE,
     ).takeIf { it != Long.MAX_VALUE }
+        ?.let { Instant.ofEpochMilli(it).atZone(input.zone).toLocalDate() }
 
     // endregion
 
@@ -170,10 +150,10 @@ class AnalyticsEngine @Inject constructor() {
                 val share = setWeightFor(load.contribution)
                 if (share <= 0.0) continue
                 totals[load.muscle] = (totals[load.muscle] ?: 0.0) + share
-                // Тоннаж мышцы взвешивается непрерывной долей, а не ступенькой: он описывает
-                // «сколько килограммов прошло через мышцу», и стабилизаторы там тоже участвуют.
+                // Тоннаж идёт по тем же прямым/косвенным правилам, что и эффективные подходы:
+                // стабилизация не должна создавать ощущение отдельной мышечной работы.
                 tonnage[load.muscle] = (tonnage[load.muscle] ?: 0.0) +
-                    set.tonnage * (load.contribution / 100.0)
+                    set.tonnage * share
                 val days = perDay.getOrPut(load.muscle) { mutableMapOf() }
                 days[date] = (days[date] ?: 0.0) + share
                 val exercises = perExercise.getOrPut(load.muscle) { mutableMapOf() }
@@ -213,41 +193,34 @@ class AnalyticsEngine @Inject constructor() {
         sets: List<AnalyticsSetRow>,
         hardSets: List<AnalyticsSetRow>,
         workouts: List<WorkoutEntity>,
-        period: AnalysisPeriod,
-        today: LocalDate,
+        range: AnalysisDateRange,
         zone: ZoneId,
     ): List<WeeklyPoint> {
-        val currentWeek = today.with(DayOfWeek.MONDAY)
-        val firstMillis = minOf(
-            workouts.minOfOrNull { it.startedAt } ?: Long.MAX_VALUE,
-            sets.minOfOrNull { it.completedAt } ?: Long.MAX_VALUE,
-        )
-        if (firstMillis == Long.MAX_VALUE) return emptyList()
-        val firstWeek = Instant.ofEpochMilli(firstMillis).atZone(zone).toLocalDate().with(DayOfWeek.MONDAY)
-        val windowStart = period.weeks
-            ?.let { currentWeek.minusWeeks(it.toLong() - 1) }
-            ?.coerceAtLeast(firstWeek)
-            ?: firstWeek
-
-        val setsByWeek = hardSets.groupBy { it.date(zone).with(DayOfWeek.MONDAY) }
-        val tonnageByWeek = sets.groupBy { it.date(zone).with(DayOfWeek.MONDAY) }
-        val sessionsByWeek = workouts.groupBy {
-            Instant.ofEpochMilli(it.startedAt).atZone(zone).toLocalDate().with(DayOfWeek.MONDAY)
-        }
-
-        // Пустые недели рисуем нулями, а не пропускаем: провал в тренировках — это тоже данные.
+        // Блоки всегда начинаются с первой даты выбранного диапазона, а не с понедельника:
+        // пользователь сравнивает именно выбранные семь дней, без добавочных дней вне периода.
         val points = mutableListOf<WeeklyPoint>()
-        var week = windowStart
-        while (!week.isAfter(currentWeek)) {
+        var weekStart = range.start
+        while (!weekStart.isAfter(range.endInclusive)) {
+            val weekEnd = minOf(weekStart.plusDays(6), range.endInclusive)
             points += WeeklyPoint(
-                weekStart = week,
-                label = "%02d.%02d".format(week.dayOfMonth, week.monthValue),
-                hardSets = (setsByWeek[week]?.size ?: 0).toDouble(),
-                tonnageKg = tonnageByWeek[week].orEmpty().sumOf { it.tonnage },
-                sessions = sessionsByWeek[week]?.size ?: 0,
-                partial = week == currentWeek,
+                weekStart = weekStart,
+                weekEndInclusive = weekEnd,
+                label = "%02d.%02d".format(weekStart.dayOfMonth, weekStart.monthValue),
+                hardSets = hardSets.count { set ->
+                    val date = set.date(zone)
+                    !date.isBefore(weekStart) && !date.isAfter(weekEnd)
+                }.toDouble(),
+                tonnageKg = sets.sumOf { set ->
+                    val date = set.date(zone)
+                    if (!date.isBefore(weekStart) && !date.isAfter(weekEnd)) set.tonnage else 0.0
+                },
+                sessions = workouts.count { workout ->
+                    val date = workout.startedDate(zone)
+                    !date.isBefore(weekStart) && !date.isAfter(weekEnd)
+                },
+                partial = ChronoUnit.DAYS.between(weekStart, weekEnd) + 1 < 7,
             )
-            week = week.plusWeeks(1)
+            weekStart = weekStart.plusDays(7)
         }
         return points
     }
@@ -268,21 +241,21 @@ class AnalyticsEngine @Inject constructor() {
         return (durations.average() / 60_000.0).roundToInt()
     }
 
-    private fun streakWeeks(workouts: List<WorkoutEntity>, today: LocalDate, zone: ZoneId): Int {
+    /**
+     * Серия опирается на конец выбранного диапазона и его же семидневные блоки. Данные до
+     * начала периода не «достраивают» серию и не меняют историю, которую выбрал пользователь.
+     */
+    private fun streakWeeks(
+        workouts: List<WorkoutEntity>,
+        range: AnalysisDateRange,
+        zone: ZoneId,
+    ): Int {
         if (workouts.isEmpty()) return 0
-        val trainedWeeks = workouts
-            .filter { it.finishedAt != null }
-            .mapTo(mutableSetOf()) {
-                Instant.ofEpochMilli(it.startedAt).atZone(zone).toLocalDate().with(DayOfWeek.MONDAY)
-            }
-        // Текущая неделя ещё может «доиграться», поэтому серия, прерванная только ею, не рвётся:
-        // отсчёт начинаем с последней недели, где тренировка уже была.
-        var week = today.with(DayOfWeek.MONDAY)
-        if (week !in trainedWeeks) week = week.minusWeeks(1)
+        val blocks = weeklyPoints(emptyList(), emptyList(), workouts, range, zone)
         var streak = 0
-        while (week in trainedWeeks) {
-            streak++
-            week = week.minusWeeks(1)
+        for (block in blocks.asReversed()) {
+            if (block.sessions == 0) break
+            streak += 1
         }
         return streak
     }
@@ -412,14 +385,33 @@ class AnalyticsEngine @Inject constructor() {
 
     // region load and balance
 
-    private fun workloadRatio(hardSets: List<AnalyticsSetRow>, nowMillis: Long): WorkloadRatio {
+    /**
+     * ACWR заканчивается последней датой выбранного периода. Подходы уже ограничены диапазоном,
+     * поэтому более ранняя история не подмешивается в «хроническую» нагрузку.
+     */
+    private fun workloadRatio(
+        hardSets: List<AnalyticsSetRow>,
+        range: AnalysisDateRange,
+        zone: ZoneId,
+    ): WorkloadRatio {
         if (hardSets.isEmpty()) return WorkloadRatio(0.0, 0.0, null, hasEnoughData = false)
-        val day = 86_400_000L
-        val acute = hardSets.count { it.completedAt >= nowMillis - 7 * day }.toDouble()
-        val chronicTotal = hardSets.count { it.completedAt >= nowMillis - 28 * day }.toDouble()
+        val acuteStart = range.endInclusive.minusDays(6)
+        val chronicStart = range.endInclusive.minusDays(27)
+        val acute = hardSets.count { set ->
+            val date = set.date(zone)
+            !date.isBefore(acuteStart) && !date.isAfter(range.endInclusive)
+        }.toDouble()
+        val chronicTotal = hardSets.count { set ->
+            val date = set.date(zone)
+            !date.isBefore(chronicStart) && !date.isAfter(range.endInclusive)
+        }.toDouble()
         val chronicWeekly = chronicTotal / 4.0
-        val historyDays = (nowMillis - hardSets.minOf { it.completedAt }) / day
-        val enough = historyDays >= 28 && chronicWeekly > 0.0
+        // Выбранный период должен вмещать 4 недели, а журнал — действительно содержать
+        // нагрузку в начале этого окна. Сам широкий выбранный диапазон не делает ACWR
+        // информативным, если в нём записана только недавняя тренировка.
+        val enough = !range.start.isAfter(chronicStart) && hardSets.any { set ->
+            !set.date(zone).isAfter(chronicStart)
+        } && chronicWeekly > 0.0
         return WorkloadRatio(
             acuteSets = acute,
             chronicWeeklySets = chronicWeekly,

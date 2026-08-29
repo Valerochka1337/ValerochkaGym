@@ -18,6 +18,7 @@ import com.valerochka1337.valerochkagym.ui.analysis.sideLabels
 import com.valerochka1337.valerochkagym.ui.analysis.title
 import org.junit.Assert.assertEquals
 import org.junit.Test
+import java.time.LocalDate
 import java.time.ZoneId
 import java.time.ZonedDateTime
 
@@ -56,10 +57,10 @@ class AnalysisFormatTest {
     }
 
     @Test
-    fun `last session caption uses today and yesterday for recent workouts`() {
-        assertEquals("последняя — сегодня", formatLastSessionCaption(0))
-        assertEquals("последняя — вчера", formatLastSessionCaption(1))
-        assertEquals("последняя — 2 дн. назад", formatLastSessionCaption(2))
+    fun `last session caption refers to the end of the selected period`() {
+        assertEquals("последняя — в последний день периода", formatLastSessionCaption(0))
+        assertEquals("последняя — за день до конца периода", formatLastSessionCaption(1))
+        assertEquals("последняя — за 2 дн. до конца периода", formatLastSessionCaption(2))
     }
 
     @Test
@@ -85,15 +86,19 @@ class AnalysisFormatTest {
     @Test
     fun `every analysis period has a display name`() {
         assertEquals(
-            listOf("4 недели", "12 недель", "Год", "Всё"),
-            AnalysisPeriod.entries.map { it.displayName() },
+            listOf("Последние 7 дней", "4 недели", "12 недель", "52 недели", "Всё время"),
+            AnalysisPeriod.presets.map { it.displayName() },
+        )
+        assertEquals(
+            "01.06.26 – 07.06.26",
+            AnalysisPeriod.Custom(LocalDate.of(2026, 6, 1), LocalDate.of(2026, 6, 7)).displayName(),
         )
     }
 
     @Test
     fun `every volume zone has a display name`() {
         assertEquals(
-            listOf("нет нагрузки", "мало", "поддержка", "норма", "перебор"),
+            listOf("малый объём", "базовый объём", "рабочий объём", "ориентир для роста"),
             VolumeZone.entries.map { it.displayName() },
         )
     }

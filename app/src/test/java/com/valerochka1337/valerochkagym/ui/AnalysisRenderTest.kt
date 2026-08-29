@@ -12,6 +12,11 @@ import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.unit.dp
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
@@ -23,10 +28,14 @@ import com.valerochka1337.valerochkagym.data.db.entity.UploadStatus
 import com.valerochka1337.valerochkagym.data.db.entity.WorkoutEntity
 import com.valerochka1337.valerochkagym.data.db.relation.AnalyticsSetRow
 import com.valerochka1337.valerochkagym.domain.analysis.AnalysisPeriod
+import com.valerochka1337.valerochkagym.domain.analysis.AnalysisDateRange
 import com.valerochka1337.valerochkagym.domain.ExerciseStatisticsCalculator
 import com.valerochka1337.valerochkagym.domain.analysis.AnalyticsEngine
 import com.valerochka1337.valerochkagym.domain.analysis.AnalyticsInput
 import com.valerochka1337.valerochkagym.ui.analysis.AnalysisUiState
+import com.valerochka1337.valerochkagym.ui.analysis.AnalysisDateRangePickerDialog
+import com.valerochka1337.valerochkagym.ui.analysis.AnalysisPeriodSelector
+import com.valerochka1337.valerochkagym.ui.analysis.AnalysisSelectableDates
 import com.valerochka1337.valerochkagym.ui.analysis.BalanceCard
 import com.valerochka1337.valerochkagym.ui.analysis.ExerciseProgressCard
 import com.valerochka1337.valerochkagym.ui.analysis.MuscleFrequencyCard
@@ -35,6 +44,7 @@ import com.valerochka1337.valerochkagym.ui.analysis.MuscleVolumeCard
 import com.valerochka1337.valerochkagym.ui.analysis.RecordsCard
 import com.valerochka1337.valerochkagym.ui.analysis.SummaryCard
 import com.valerochka1337.valerochkagym.ui.analysis.WeeklyVolumeCard
+import com.valerochka1337.valerochkagym.ui.analysis.WorkloadCard
 import com.valerochka1337.valerochkagym.domain.analysis.VolumeZone
 import com.valerochka1337.valerochkagym.domain.measurements.InBodySegment
 import com.valerochka1337.valerochkagym.domain.measurements.InBodySegmentValues
@@ -46,6 +56,8 @@ import com.valerochka1337.valerochkagym.ui.exercise.ExerciseDetailContent
 import com.valerochka1337.valerochkagym.ui.theme.ChartPalette
 import com.valerochka1337.valerochkagym.ui.theme.GymTheme
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -55,6 +67,8 @@ import org.robolectric.annotation.GraphicsMode
 import java.io.File
 import java.io.FileOutputStream
 import java.time.ZoneId
+import java.time.LocalDate
+import java.time.ZoneOffset
 
 /**
  * Дымовой тест отрисовки вкладки «Анализы».
@@ -72,7 +86,7 @@ import java.time.ZoneId
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 // Высокий «экран»: карточки помещаются целиком, и снимок захватывает их без прокрутки.
-@Config(application = Application::class, qualifiers = "w420dp-h4000dp-xhdpi")
+@Config(application = Application::class, qualifiers = "w420dp-h5200dp-xhdpi")
 class AnalysisRenderTest {
 
     @get:Rule
@@ -99,6 +113,7 @@ class AnalysisRenderTest {
                     MuscleVolumeCard(state, onMuscleClicked = {})
                     MuscleFrequencyCard(state)
                     WeeklyVolumeCard(state, onMetricSelected = {}, onWeekSelected = {})
+                    WorkloadCard(state.report.workload, state.report.range.endInclusive)
                     BalanceCard(state.report.balances)
                     ExerciseProgressCard(
                         state,
@@ -115,6 +130,55 @@ class AnalysisRenderTest {
         val bitmap = composeRule.onRoot().captureToImage().asAndroidBitmap()
         assertTrue("картинка должна иметь размер", bitmap.width > 0 && bitmap.height > 0)
         save(bitmap, "analysis-cards.png")
+    }
+
+    @Test
+    fun `period selector opens one menu with presets and custom dates`() {
+        val today = LocalDate.of(2026, 6, 10)
+        val range = AnalysisDateRange(today.minusDays(6), today)
+        var selected: AnalysisPeriod? = null
+
+        composeRule.setContent {
+            GymTheme {
+                AnalysisPeriodSelector(
+                    period = AnalysisPeriod.LAST_7_DAYS,
+                    range = range,
+                    onPeriodSelected = { selected = it },
+                    onCustomRangeSelected = { _, _ -> },
+                )
+            }
+        }
+
+        composeRule.onNodeWithContentDescription("Выбрать период анализа").performClick()
+        composeRule.onNodeWithText("4 недели").assertIsDisplayed().performClick()
+        assertEquals(AnalysisPeriod.WEEKS_4, selected)
+
+        composeRule.onNodeWithContentDescription("Выбрать период анализа").performClick()
+        composeRule.onNodeWithText("Выбрать даты…").assertIsDisplayed()
+    }
+
+    @Test
+    fun `calendar disables confirmation for a range shorter than seven days and future dates`() {
+        val today = LocalDate.of(2026, 6, 10)
+        val oneDayRange = AnalysisDateRange(today.minusDays(1), today.minusDays(1))
+        val selectableDates = AnalysisSelectableDates(today)
+        val tomorrowMillis = today.plusDays(1).atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
+
+        assertFalse(selectableDates.isSelectableDate(tomorrowMillis))
+
+        composeRule.setContent {
+            GymTheme {
+                AnalysisDateRangePickerDialog(
+                    initialRange = oneDayRange,
+                    today = today,
+                    onConfirm = { _, _ -> },
+                    onDismiss = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("Готово").assertIsNotEnabled()
+        composeRule.onNodeWithText("Выберите не меньше 7 дней включительно").assertIsDisplayed()
     }
 
     @Test
@@ -175,7 +239,7 @@ class AnalysisRenderTest {
             GymTheme {
                 Column(modifier = Modifier.width(420.dp).padding(16.dp)) {
                     BodyMapFlip(
-                        fillFor = { muscle -> ChartPalette.zoneColor(loads[muscle]?.zone ?: VolumeZone.NONE) },
+                        fillFor = { muscle -> ChartPalette.zoneColor(loads[muscle]?.zone ?: VolumeZone.LOW) },
                         selectedMuscle = Muscle.LATS,
                         initialView = BodyView.BACK,
                     )

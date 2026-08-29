@@ -42,7 +42,6 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.valerochka1337.valerochkagym.data.db.entity.Muscle
 import com.valerochka1337.valerochkagym.ui.haptics.gymHaptics
-import com.valerochka1337.valerochkagym.ui.theme.ChartPalette
 import com.valerochka1337.valerochkagym.ui.theme.GymMotion
 import kotlin.math.min
 
@@ -56,7 +55,6 @@ private const val BACK_X_OFFSET = -724f
 // заданы «крупно»: при типичной ширине карты масштаб около 0.5, и значения вдвое мельче в px.
 private const val OUTLINE_STROKE = 3f
 private const val SEPARATION_STROKE = 4.5f
-private const val OVERLOAD_STROKE = 8f
 private const val SELECTION_OUTER_STROKE = 13f
 private const val SELECTION_INNER_STROKE = 7f
 
@@ -76,7 +74,6 @@ fun BodyMapFlip(
     fillFor: (Muscle) -> Color,
     modifier: Modifier = Modifier,
     selectedMuscle: Muscle? = null,
-    outlined: Set<Muscle> = emptySet(),
     onMuscleClick: ((Muscle?) -> Unit)? = null,
     initialView: BodyView = BodyView.FRONT,
 ) {
@@ -96,7 +93,6 @@ fun BodyMapFlip(
                     view = current,
                     fillFor = fillFor,
                     selectedMuscle = selectedMuscle,
-                    outlined = outlined,
                     onMuscleClick = onMuscleClick,
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -129,7 +125,7 @@ fun BodyMapFlip(
  * в [fillFor], поэтому один компонент обслуживает и тепловую карту нагрузки, и разметку мышц при
  * создании упражнения. Соседние области разделяются не рамкой, а зазором цветом подложки — рамка
  * вокруг каждой мышцы добавила бы «чернил» без данных. Обводка зарезервирована за выбранной
- * мышцей ([selectedMuscle]) и предупреждением о переборе ([outlined]).
+ * мышцей ([selectedMuscle]).
  *
  * Тап вне любой области отдаёт `null` — осознанный сброс выбора.
  */
@@ -139,7 +135,6 @@ fun BodyMap(
     fillFor: (Muscle) -> Color,
     modifier: Modifier = Modifier,
     selectedMuscle: Muscle? = null,
-    outlined: Set<Muscle> = emptySet(),
     onMuscleClick: ((Muscle?) -> Unit)? = null,
 ) {
     val parsed = remember(view) { ParsedBody.of(view) }
@@ -148,7 +143,6 @@ fun BodyMap(
     val surface = MaterialTheme.colorScheme.surfaceContainerHigh
     val outline = MaterialTheme.colorScheme.outline
     val selectionColor = MaterialTheme.colorScheme.onSurface
-    val overloadColor = ChartPalette.Overload
 
     Canvas(
         modifier = modifier
@@ -184,12 +178,6 @@ fun BodyMap(
                         drawPath(path, color = color)
                         // Зазор цветом подложки: соседние мышцы соприкасаются краями.
                         drawPath(path, color = body, style = Stroke(SEPARATION_STROKE, join = StrokeJoin.Round))
-                    }
-                }
-
-                parsed.muscles.filter { it.muscle in outlined }.forEach { shape ->
-                    shape.paths.forEach { path ->
-                        drawPath(path, color = overloadColor, style = Stroke(OVERLOAD_STROKE, join = StrokeJoin.Round))
                     }
                 }
 

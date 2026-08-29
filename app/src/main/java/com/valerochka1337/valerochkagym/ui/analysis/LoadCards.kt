@@ -1,7 +1,6 @@
 package com.valerochka1337.valerochkagym.ui.analysis
 
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -31,6 +30,7 @@ import com.valerochka1337.valerochkagym.ui.analysis.charts.MeterZone
 import com.valerochka1337.valerochkagym.ui.analysis.charts.ZoneMeter
 import com.valerochka1337.valerochkagym.ui.analysis.charts.rememberChartColors
 import com.valerochka1337.valerochkagym.ui.theme.ChartPalette
+import java.time.LocalDate
 import kotlin.math.abs
 import kotlin.math.log2
 
@@ -58,13 +58,17 @@ internal fun WeeklyVolumeCard(
             partial = point.partial,
         )
     }
-    // Средняя считается по закрытым неделям: текущая неполная занижала бы ориентир.
+    // Неполный только последний блок ручного диапазона; он не занижает среднее полных недель.
     val closed = data.filterNot { it.partial }
     val average = closed.takeIf { it.isNotEmpty() }?.map { it.value }?.average()?.toFloat()
 
     AnalysisCard(
         title = "Недельный объём",
-        subtitle = "Линия — среднее за закрытые недели. Последняя неделя ещё не завершена и показана бледнее",
+        subtitle = if (points.any { it.partial }) {
+            "Каждый столбец — 7 дней от начала периода; последний блок короче и показан бледнее"
+        } else {
+            "Каждый столбец — 7 дней от начала выбранного периода"
+        },
         icon = Icons.Rounded.StackedBarChart,
         modifier = modifier,
     ) {
@@ -87,13 +91,20 @@ internal fun WeeklyVolumeCard(
         Spacer(Modifier.height(8.dp))
         val index = state.selectedWeekIndex?.coerceIn(points.indices) ?: points.lastIndex
         val point = points[index]
-        ValueRow(label = "Неделя с ${point.label}", value = "${point.sessions} трен.", accent = true)
+        ValueRow(
+            label = "Блок ${formatDateRange(point.weekStart, point.weekEndInclusive)}",
+            value = "${point.sessions} трен.",
+            accent = true,
+        )
         ValueRow(label = "Рабочих подходов", value = formatDecimal(point.hardSets, 0))
         ValueRow(label = "Тоннаж", value = formatTonnage(point.tonnageKg))
         if (average != null) {
             ValueRow(
                 label = "Среднее за период",
-                value = if (sets) formatDecimal(average.toDouble(), 0) else formatTonnage(average.toDouble()),
+                value = if (sets) formatDecimal(
+                    average.toDouble(),
+                    0
+                ) else formatTonnage(average.toDouble()),
             )
         }
     }
@@ -110,18 +121,21 @@ internal fun WeeklyVolumeCard(
 @Composable
 internal fun WorkloadCard(
     workload: WorkloadRatio,
+    periodEnd: LocalDate,
     modifier: Modifier = Modifier,
 ) {
     AnalysisCard(
         title = "Скачок нагрузки",
-        subtitle = "Подходы за 7 дней к средней неделе за 28 дней. Коридор 0.8–1.3 — рост под контролем",
+        subtitle = "Подходы за 7 дней к средней неделе за 28 дней; оба окна заканчиваются " +
+                formatDateRange(periodEnd, periodEnd),
         icon = Icons.Rounded.MonitorHeart,
         modifier = modifier,
     ) {
         val ratio = workload.ratio
         if (!workload.hasEnoughData || ratio == null) {
             Text(
-                text = "Нужно 28 дней истории: пока «обычная неделя» не с чем сравнивать",
+                text = "Нужен выбранный период не короче 28 дней с рабочими подходами: " +
+                        "пока «обычную неделю» не с чем сравнивать",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -249,7 +263,9 @@ private fun BalanceRow(balance: BalanceRatio) {
             )
         }
         Spacer(Modifier.height(6.dp))
-        Canvas(modifier = Modifier.fillMaxWidth().height(28.dp)) {
+        Canvas(modifier = Modifier
+            .fillMaxWidth()
+            .height(28.dp)) {
             val trackWidth = 6.dp.toPx()
             val centerY = size.height / 2f
             val centerX = size.width / 2f

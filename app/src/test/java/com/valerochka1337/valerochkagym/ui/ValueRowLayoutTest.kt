@@ -41,7 +41,7 @@ class ValueRowLayoutTest {
 
     @Test
     fun `a long value never squeezes the label`() {
-        val label = "Ориентир (MEV · коридор · MRV)"
+        val label = "Шкала: малый · базовый · рабочий · ориентир"
         val value = "Жим штанги на наклонной скамье, Сведение рук в кроссовере"
 
         composeRule.setContent {

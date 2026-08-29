@@ -43,7 +43,7 @@ internal fun SummaryCard(
 
     AnalysisCard(
         title = "Итоги периода",
-        subtitle = "За ${state.period.displayName().lowercase()}",
+        subtitle = "За ${state.report.range.displayName()}",
         icon = Icons.Rounded.FitnessCenter,
         modifier = modifier,
     ) {
@@ -78,7 +78,11 @@ internal fun SummaryCard(
             )
         }
         Spacer(Modifier.height(14.dp))
-        ValueRow(label = "Недель подряд с тренировкой", value = report.streakWeeks.toString(), accent = true)
+        ValueRow(
+            label = "Недель подряд до конца периода",
+            value = report.streakWeeks.toString(),
+            accent = true,
+        )
         if (report.cardioMinutes > 0) {
             ValueRow(label = "Кардио", value = formatMinutes(report.cardioMinutes))
             ValueRow(
@@ -258,8 +262,8 @@ internal fun RecordsCard(
     if (records.isEmpty()) return
 
     AnalysisCard(
-        title = "Рекорды",
-        subtitle = "Лучшая оценка максимума за всю историю, независимо от выбранного периода",
+        title = "Рекорды за всю историю",
+        subtitle = "Лучшая оценка максимума — независимо от выбранного периода",
         icon = Icons.Rounded.EmojiEvents,
         modifier = modifier,
     ) {

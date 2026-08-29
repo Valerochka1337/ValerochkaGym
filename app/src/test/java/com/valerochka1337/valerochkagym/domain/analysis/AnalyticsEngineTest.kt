@@ -12,7 +12,6 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.ZoneId
 
@@ -48,8 +47,8 @@ class AnalyticsEngineTest {
         )
 
         assertEquals(2.0, report.totalFor(Muscle.CHEST), 1e-6) // целевая — полный подход
-        assertEquals(1.3, report.totalFor(Muscle.TRICEPS), 1e-6)
-        assertEquals(0.8, report.totalFor(Muscle.FRONT_DELTS), 1e-6)
+        assertEquals(2.0, report.totalFor(Muscle.TRICEPS), 1e-6)
+        assertEquals(1.0, report.totalFor(Muscle.FRONT_DELTS), 1e-6)
         assertEquals(0.0, report.totalFor(Muscle.ABS), 1e-6) // стабилизатор объёма не даёт
     }
 
@@ -102,14 +101,14 @@ class AnalyticsEngineTest {
     // region volume zones
 
     @Test
-    fun `a muscle with no work lands in the none zone`() {
+    fun `a muscle with no work lands in the low volume zone`() {
         val report = analyze(
             sets = listOf(set(BENCH, weight = 100.0, reps = 5, daysAgo = 1)),
             muscles = mapOf(BENCH to listOf(MuscleLoad(Muscle.CHEST, 100))),
         )
 
         val calves = report.muscleLoads.first { it.muscle == Muscle.CALVES }
-        assertEquals(VolumeZone.NONE, calves.zone)
+        assertEquals(VolumeZone.LOW, calves.zone)
         assertEquals(0.0, calves.weeklySets, 1e-6)
     }
 
@@ -128,11 +127,11 @@ class AnalyticsEngineTest {
 
         val chest = report.muscleLoads.first { it.muscle == Muscle.CHEST }
         assertEquals(12.0, chest.weeklySets, 0.01)
-        assertEquals(VolumeZone.OPTIMAL, chest.zone) // MAV груди начинается с 12
+        assertEquals(VolumeZone.GROWTH_GUIDE, chest.zone)
     }
 
     @Test
-    fun `too much weekly volume is reported as excessive`() {
+    fun `ten or more weekly sets reach the growth guide zone`() {
         val sets = (0..3).flatMap { week ->
             (1..30).map { set(BENCH, weight = 100.0, reps = 5, daysAgo = week * 7L + 1) }
         }
@@ -143,7 +142,7 @@ class AnalyticsEngineTest {
             historyStartsDaysAgo = 90,
         )
 
-        assertEquals(VolumeZone.EXCESSIVE, report.muscleLoads.first { it.muscle == Muscle.CHEST }.zone)
+        assertEquals(VolumeZone.GROWTH_GUIDE, report.muscleLoads.first { it.muscle == Muscle.CHEST }.zone)
     }
 
     @Test
@@ -191,28 +190,70 @@ class AnalyticsEngineTest {
                 set(BENCH, weight = 100.0, reps = 5, daysAgo = 400),
             ),
             muscles = mapOf(BENCH to listOf(MuscleLoad(Muscle.CHEST, 100))),
-            period = AnalysisPeriod.ALL,
+            period = AnalysisPeriod.ALL_TIME,
         )
 
         assertEquals(2.0, report.totalHardSets, 1e-6)
     }
 
     @Test
-    fun `weekly points fill silent weeks with zeros and flag the current one`() {
+    fun `seven day preset has seven inclusive dates and excludes the eighth`() {
         val report = analyze(
             sets = listOf(
-                set(BENCH, weight = 100.0, reps = 5, daysAgo = 21),
-                set(BENCH, weight = 100.0, reps = 5, daysAgo = 1),
+                set(BENCH, weight = 100.0, reps = 5, daysAgo = 6),
+                set(BENCH, weight = 100.0, reps = 5, daysAgo = 7),
             ),
             muscles = mapOf(BENCH to listOf(MuscleLoad(Muscle.CHEST, 100))),
-            period = AnalysisPeriod.WEEKS_4,
+            period = AnalysisPeriod.LAST_7_DAYS,
         )
 
-        assertEquals(4, report.weeklyPoints.size)
-        assertTrue("пропущенные недели должны быть нулями", report.weeklyPoints.any { it.hardSets == 0.0 })
-        assertEquals(today.with(DayOfWeek.MONDAY), report.weeklyPoints.last().weekStart)
-        assertTrue(report.weeklyPoints.last().partial)
-        assertFalse(report.weeklyPoints.first().partial)
+        assertEquals(today.minusDays(6), report.range.start)
+        assertEquals(today, report.range.endInclusive)
+        assertEquals(1.0, report.totalHardSets, 1e-6)
+        assertEquals(1, report.weeklyPoints.size)
+        assertFalse(report.weeklyPoints.single().partial)
+    }
+
+    @Test
+    fun `custom range excludes data outside its dates and anchors pauses to its end`() {
+        val end = today.minusDays(7)
+        val report = analyze(
+            sets = listOf(
+                set(BENCH, weight = 100.0, reps = 5, daysAgo = 9),
+                set(BENCH, weight = 100.0, reps = 5, daysAgo = 2),
+                set(BENCH, weight = 100.0, reps = 5, daysAgo = 22),
+            ),
+            muscles = mapOf(BENCH to listOf(MuscleLoad(Muscle.CHEST, 100))),
+            period = AnalysisPeriod.Custom(start = end.minusDays(13), endInclusive = end),
+        )
+
+        assertEquals(1.0, report.totalHardSets, 1e-6)
+        assertEquals(2, report.daysSinceLast)
+        assertEquals(2, report.muscleLoads.first { it.muscle == Muscle.CHEST }.daysSinceLast)
+    }
+
+    @Test
+    fun `weekly points use seven day buckets from custom range start`() {
+        val start = today.minusDays(20)
+        val end = start.plusDays(13)
+        val report = analyze(
+            sets = listOf(
+                set(BENCH, weight = 100.0, reps = 5, daysAgo = 20),
+                set(BENCH, weight = 100.0, reps = 5, daysAgo = 13),
+                set(BENCH, weight = 100.0, reps = 5, daysAgo = 7),
+            ),
+            muscles = mapOf(BENCH to listOf(MuscleLoad(Muscle.CHEST, 100))),
+            period = AnalysisPeriod.Custom(start = start, endInclusive = end),
+        )
+
+        assertEquals(2, report.weeklyPoints.size)
+        assertEquals(start, report.weeklyPoints[0].weekStart)
+        assertEquals(start.plusDays(6), report.weeklyPoints[0].weekEndInclusive)
+        assertEquals(start.plusDays(7), report.weeklyPoints[1].weekStart)
+        assertEquals(end, report.weeklyPoints[1].weekEndInclusive)
+        assertEquals(1.0, report.weeklyPoints[0].hardSets, 1e-6)
+        assertEquals(2.0, report.weeklyPoints[1].hardSets, 1e-6)
+        assertFalse(report.weeklyPoints.any { it.partial })
     }
 
     @Test
@@ -283,7 +324,7 @@ class AnalyticsEngineTest {
         val sets = (0..5).map { index ->
             set(BENCH, weight = 100.0 + index * 5, reps = 5, daysAgo = 35L - index * 7)
         }
-        val report = analyze(sets, mapOf(BENCH to listOf(MuscleLoad(Muscle.CHEST, 100))), AnalysisPeriod.ALL)
+        val report = analyze(sets, mapOf(BENCH to listOf(MuscleLoad(Muscle.CHEST, 100))), AnalysisPeriod.ALL_TIME)
 
         val progress = report.exercises.single()
         assertEquals(TrendVerdict.GROWING, progress.verdict)
@@ -294,7 +335,7 @@ class AnalyticsEngineTest {
     @Test
     fun `a flat series is reported as stalled`() {
         val sets = (0..5).map { index -> set(BENCH, weight = 100.0, reps = 5, daysAgo = 35L - index * 7) }
-        val report = analyze(sets, mapOf(BENCH to listOf(MuscleLoad(Muscle.CHEST, 100))), AnalysisPeriod.ALL)
+        val report = analyze(sets, mapOf(BENCH to listOf(MuscleLoad(Muscle.CHEST, 100))), AnalysisPeriod.ALL_TIME)
 
         assertEquals(TrendVerdict.STALLED, report.exercises.single().verdict)
     }
@@ -305,7 +346,7 @@ class AnalyticsEngineTest {
             set(BENCH, weight = 100.0, reps = 5, daysAgo = 14),
             set(BENCH, weight = 105.0, reps = 5, daysAgo = 7),
         )
-        val report = analyze(sets, mapOf(BENCH to listOf(MuscleLoad(Muscle.CHEST, 100))), AnalysisPeriod.ALL)
+        val report = analyze(sets, mapOf(BENCH to listOf(MuscleLoad(Muscle.CHEST, 100))), AnalysisPeriod.ALL_TIME)
 
         val progress = report.exercises.single()
         assertEquals(TrendVerdict.NOT_ENOUGH_DATA, progress.verdict)
@@ -343,7 +384,7 @@ class AnalyticsEngineTest {
     @Test
     fun `a steady load gives a workload ratio around one`() {
         val sets = (0..29).map { day -> set(BENCH, weight = 100.0, reps = 5, daysAgo = day.toLong()) }
-        val report = analyze(sets, mapOf(BENCH to listOf(MuscleLoad(Muscle.CHEST, 100))), AnalysisPeriod.ALL)
+        val report = analyze(sets, mapOf(BENCH to listOf(MuscleLoad(Muscle.CHEST, 100))), AnalysisPeriod.ALL_TIME)
 
         assertTrue(report.workload.hasEnoughData)
         assertEquals(1.0, report.workload.ratio!!, 0.15)
@@ -355,9 +396,28 @@ class AnalyticsEngineTest {
         val spike = (0..6).flatMap { day ->
             (1..5).map { set(BENCH, weight = 100.0, reps = 5, daysAgo = day.toLong()) }
         }
-        val report = analyze(quiet + spike, mapOf(BENCH to listOf(MuscleLoad(Muscle.CHEST, 100))), AnalysisPeriod.ALL)
+        val report = analyze(quiet + spike, mapOf(BENCH to listOf(MuscleLoad(Muscle.CHEST, 100))), AnalysisPeriod.ALL_TIME)
 
         assertTrue("резкий скачок должен выйти за 1.3, получено ${report.workload.ratio}", report.workload.ratio!! > 1.3)
+    }
+
+    @Test
+    fun `workload windows end at the selected range end and ignore newer data`() {
+        val end = today.minusDays(7)
+        val withinRange = (7L..34L).map { day ->
+            set(BENCH, weight = 100.0, reps = 5, daysAgo = day)
+        }
+        val newerSpike = (0L..6L).flatMap { day ->
+            (1..5).map { set(BENCH, weight = 100.0, reps = 5, daysAgo = day) }
+        }
+        val report = analyze(
+            sets = withinRange + newerSpike,
+            muscles = mapOf(BENCH to listOf(MuscleLoad(Muscle.CHEST, 100))),
+            period = AnalysisPeriod.Custom(start = end.minusDays(27), endInclusive = end),
+        )
+
+        assertTrue(report.workload.hasEnoughData)
+        assertEquals(1.0, report.workload.ratio!!, 1e-6)
     }
 
     @Test
@@ -401,7 +461,7 @@ class AnalyticsEngineTest {
         val workouts = listOf(0L, 7L, 14L, 28L).map { workout("w$it", daysAgo = it) }
         val report = engine.analyze(
             AnalyticsInput(emptyList(), workouts, emptyMap(), nowMillis, zone),
-            AnalysisPeriod.ALL,
+            AnalysisPeriod.ALL_TIME,
         )
 
         assertEquals(3, report.streakWeeks) // неделя 21 дня назад пропущена — серия обрывается
@@ -429,9 +489,9 @@ class AnalyticsEngineTest {
 
     /**
      * Прогоняет движок. Тренировки восстанавливаются из подходов (по одной на день), так что
-     * `startedAt` совпадает с реальным временем подходов. [historyStartsDaysAgo] добавляет один
-     * старый подход-«якорь» вне окна там, где тест проверяет усреднение: знаменатель «в неделю»
-     * равен длине окна только если история достаточно длинная.
+     * `startedAt` совпадает с реальным временем подходов. [historyStartsDaysAgo] при необходимости
+     * добавляет старый подход-«якорь» вне диапазона: так тесты отдельно фиксируют, что старые
+     * данные не попадают в выбранный срез, но остаются в рекордах за всю историю.
      */
     private fun analyze(
         sets: List<AnalyticsSetRow>,

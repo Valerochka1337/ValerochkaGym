@@ -9,7 +9,7 @@ import com.valerochka1337.valerochkagym.domain.analysis.VolumeZone
  * Правило единственного акцента в `docs/design-system.md` действует для интерфейса: кнопок,
  * состояний, чисел. На тепловых картах цвет несёт **значение**, а не идентичность, поэтому здесь
  * собраны фиксированные красная, янтарная и зелёная ступени, обязательные вместе с легендой.
- * Карта нагрузки использует их как «мало → норма», а InBody — относительно напечатанного
+ * Карта нагрузки использует их как «мало → ориентир для роста», а InBody — относительно напечатанного
  * процента: дефицит мышц и избыток жира движутся к красному.
  *
  * Шкалы **ступенчатые, а не градиентные**: глаз всё равно не различает непрерывную заливку
@@ -17,8 +17,8 @@ import com.valerochka1337.valerochkagym.domain.analysis.VolumeZone
  * с зонами недельного объёма ([VolumeZone]); для InBody границы задаются его процентами.
  *
  * На карте нагрузки заливка строго монотонна (меньше → краснее, больше → зеленее), поэтому
- * «перебор» **не** красится вторым красным: иначе один цвет означал бы противоположные вещи.
- * Перебор — это зелёная заливка плюс отдельный канал: обводка [Overload], значок и слово в списке.
+ * Объём не получает отдельной красной зоны: сам по себе он не говорит о восстановлении. Тёмно-зелёная
+ * ступень означает только ориентир для роста, а не верхний лимит.
  */
 object ChartPalette {
 
@@ -34,34 +34,43 @@ object ChartPalette {
     /** Зелёная ступень общей тепловой шкалы данных. */
     val HeatGreen = Color(0xFF3DDC84)
 
-    /** Ниже MEV: нагрузка есть, но для роста её мало. */
+    /** Тёмно-зелёная ступень для верхней части шкалы объёма. */
+    val HeatDarkGreen = Color(0xFF168A4A)
+
+    /** Семантический красный для других графиков, например резкого скачка нагрузки. */
     val TooLittle = HeatRed
 
-    /** MEV..MAV: рабочий минимум. */
+    /** Семантический янтарный для других графиков, например мягкого напоминания. */
     val Maintenance = HeatAmber
 
-    /**
-     * Рабочий коридор. Зелёный здесь фиксирован и **не** следует за выбранным акцентом: на шкале
-     * «мало → норма» цвет означает величину, и коралловая «норма» слилась бы с красным «мало».
-     */
+    /** Семантический зелёный для других графиков. */
     val Optimal = HeatGreen
 
-    /** Обводка и значок для объёма выше MRV. */
-    val Overload = HeatRed
+    /** 0–2 эффективных подхода в неделю. */
+    val LowVolume = HeatRed
+
+    /** >2–<5 эффективных подхода в неделю. */
+    val BaseVolume = HeatAmber
+
+    /** 5–<10 эффективных подхода в неделю. */
+    val WorkingVolume = HeatGreen
+
+    /** ≥10 эффективных подходов в неделю: ориентир для роста. */
+    val GrowthGuideVolume = HeatDarkGreen
 
     /** Заливка мышцы по зоне недельного объёма. */
     fun zoneColor(zone: VolumeZone): Color = when (zone) {
-        VolumeZone.NONE -> Empty
-        VolumeZone.BELOW_MEV -> TooLittle
-        VolumeZone.MAINTENANCE -> Maintenance
-        VolumeZone.OPTIMAL, VolumeZone.EXCESSIVE -> Optimal
+        VolumeZone.LOW -> LowVolume
+        VolumeZone.BASE -> BaseVolume
+        VolumeZone.WORKING -> WorkingVolume
+        VolumeZone.GROWTH_GUIDE -> GrowthGuideVolume
     }
 
-    /** Порядок ступеней для легенды — от «нет» к «норме». */
+    /** Порядок ступеней для легенды — от малого объёма к ориентиру для роста. */
     val legendZones: List<VolumeZone> = listOf(
-        VolumeZone.NONE,
-        VolumeZone.BELOW_MEV,
-        VolumeZone.MAINTENANCE,
-        VolumeZone.OPTIMAL,
+        VolumeZone.LOW,
+        VolumeZone.BASE,
+        VolumeZone.WORKING,
+        VolumeZone.GROWTH_GUIDE,
     )
 }

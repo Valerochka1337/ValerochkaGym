@@ -19,21 +19,46 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.ArrowDropDown
+import androidx.compose.material.icons.rounded.CalendarMonth
+import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.DateRangePicker
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.SelectableDates
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberDateRangePickerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.valerochka1337.valerochkagym.domain.analysis.AnalysisDateRange
+import com.valerochka1337.valerochkagym.domain.analysis.AnalysisPeriod
+import com.valerochka1337.valerochkagym.domain.analysis.MIN_ANALYSIS_RANGE_DAYS
 import com.valerochka1337.valerochkagym.ui.components.GymCard
 import com.valerochka1337.valerochkagym.ui.components.GymFilterChip
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneOffset
+import java.time.temporal.ChronoUnit
 
 /**
  * Карточка блока аналитики: заголовок, пояснение и содержимое.
@@ -109,6 +134,144 @@ internal fun <T> ChipRow(
 }
 
 /**
+ * Единственный выбор периода над всеми карточками. Пресеты и ручной календарный диапазон
+ * сходятся в один [AnalysisPeriod], поэтому соседние графики всегда показывают один срез.
+ */
+@Composable
+internal fun AnalysisPeriodSelector(
+    period: AnalysisPeriod,
+    range: AnalysisDateRange,
+    onPeriodSelected: (AnalysisPeriod) -> Unit,
+    onCustomRangeSelected: (LocalDate, LocalDate) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    var showDatePicker by remember { mutableStateOf(false) }
+
+    Box(modifier = modifier) {
+        OutlinedButton(
+            onClick = { expanded = true },
+            modifier = Modifier.semantics { contentDescription = "Выбрать период анализа" },
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.CalendarMonth,
+                contentDescription = null,
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(period.displayName())
+            Spacer(Modifier.width(4.dp))
+            Icon(
+                imageVector = Icons.Rounded.ArrowDropDown,
+                contentDescription = null,
+            )
+        }
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+        ) {
+            AnalysisPeriod.presets.forEach { option ->
+                DropdownMenuItem(
+                    text = { Text(option.displayName()) },
+                    onClick = {
+                        expanded = false
+                        onPeriodSelected(option)
+                    },
+                )
+            }
+            DropdownMenuItem(
+                text = { Text("Выбрать даты…") },
+                onClick = {
+                    expanded = false
+                    showDatePicker = true
+                },
+            )
+        }
+    }
+
+    if (showDatePicker) {
+        AnalysisDateRangePickerDialog(
+            initialRange = range,
+            today = LocalDate.now(),
+            onConfirm = { start, endInclusive ->
+                showDatePicker = false
+                onCustomRangeSelected(start, endInclusive)
+            },
+            onDismiss = { showDatePicker = false },
+        )
+    }
+}
+
+/** Будущие даты не выбираются в M3-календаре. */
+@OptIn(ExperimentalMaterial3Api::class)
+internal class AnalysisSelectableDates(
+    private val latestDate: LocalDate,
+) : SelectableDates {
+    override fun isSelectableDate(utcTimeMillis: Long): Boolean =
+        !utcTimeMillis.toUtcLocalDate().isAfter(latestDate)
+
+    override fun isSelectableYear(year: Int): Boolean = year <= latestDate.year
+}
+
+/** Проверяем минимум на подтверждении: DateRangePicker не умеет задавать длину диапазона сам. */
+internal fun isValidAnalysisDateRange(
+    start: LocalDate?,
+    endInclusive: LocalDate?,
+    latestDate: LocalDate,
+): Boolean = start != null && endInclusive != null &&
+    !endInclusive.isAfter(latestDate) &&
+    ChronoUnit.DAYS.between(start, endInclusive) + 1 >= MIN_ANALYSIS_RANGE_DAYS
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun AnalysisDateRangePickerDialog(
+    initialRange: AnalysisDateRange,
+    today: LocalDate,
+    onConfirm: (LocalDate, LocalDate) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val selectableDates = remember(today) { AnalysisSelectableDates(today) }
+    val pickerState = rememberDateRangePickerState(
+        initialSelectedStartDateMillis = initialRange.start.toUtcDatePickerMillis(),
+        initialSelectedEndDateMillis = initialRange.endInclusive.toUtcDatePickerMillis(),
+        selectableDates = selectableDates,
+    )
+    val selectedStart = pickerState.selectedStartDateMillis?.toUtcLocalDate()
+    val selectedEnd = pickerState.selectedEndDateMillis?.toUtcLocalDate()
+    val isValid = isValidAnalysisDateRange(selectedStart, selectedEnd, today)
+
+    DatePickerDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(
+                enabled = isValid,
+                onClick = {
+                    if (selectedStart != null && selectedEnd != null) onConfirm(selectedStart, selectedEnd)
+                },
+            ) {
+                Text("Готово")
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } },
+    ) {
+        DateRangePicker(state = pickerState)
+        if (!isValid) {
+            Text(
+                text = "Выберите не меньше 7 дней включительно",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
+            )
+        }
+    }
+}
+
+private fun LocalDate.toUtcDatePickerMillis(): Long =
+    atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
+
+private fun Long.toUtcLocalDate(): LocalDate =
+    Instant.ofEpochMilli(this).atZone(ZoneOffset.UTC).toLocalDate()
+
+/**
  * Ряд чипов с горизонтальной прокруткой — для длинных подписей вроде названий упражнений.
  * Перенос по строкам там даёт по одному чипу на строку и съедает пол-экрана.
  */
@@ -136,7 +299,7 @@ internal fun <T> ScrollableChipRow(
 
 /**
  * Легенда шкалы: цветной образец плюс подпись. Образец с обводкой ([outlined]) показывает
- * состояния, которые кодируются не заливкой, а обводкой — например перебор объёма.
+ * состояния, которые кодируются не заливкой, а обводкой в других графиках.
  */
 @Composable
 internal fun LegendSwatch(

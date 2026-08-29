@@ -21,6 +21,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
+import java.time.LocalDate
 import java.time.ZoneId
 import javax.inject.Inject
 
@@ -33,8 +34,8 @@ enum class WeeklyMetric { SETS, TONNAGE }
  */
 data class AnalysisUiState(
     val loading: Boolean = true,
-    val report: AnalyticsReport = AnalyticsReport.empty(AnalysisPeriod.WEEKS_4),
-    val period: AnalysisPeriod = AnalysisPeriod.WEEKS_4,
+    val report: AnalyticsReport = AnalyticsReport.empty(AnalysisPeriod.LAST_7_DAYS),
+    val period: AnalysisPeriod = AnalysisPeriod.LAST_7_DAYS,
     val selectedMuscle: Muscle? = null,
     val selectedExerciseId: Long? = null,
     val weeklyMetric: WeeklyMetric = WeeklyMetric.SETS,
@@ -72,7 +73,8 @@ class AnalysisViewModel @Inject constructor(
 
     private val zone: ZoneId = ZoneId.systemDefault()
 
-    private val period = MutableStateFlow(AnalysisPeriod.WEEKS_4)
+    // Намеренно не SavedStateHandle и не DataStore: новый экран всегда начинает с последних 7 дней.
+    private val period = MutableStateFlow<AnalysisPeriod>(AnalysisPeriod.LAST_7_DAYS)
     private val selectedMuscle = MutableStateFlow<Muscle?>(null)
     private val selectedExerciseId = MutableStateFlow<Long?>(null)
     private val weeklyMetric = MutableStateFlow(WeeklyMetric.SETS)
@@ -137,6 +139,10 @@ class AnalysisViewModel @Inject constructor(
         // Индексы точек привязаны к длине серии — при смене окна они теряют смысл.
         selectedWeekIndex.value = null
         selectedSessionIndex.value = null
+    }
+
+    fun onCustomRangeSelected(start: LocalDate, endInclusive: LocalDate) {
+        onPeriodSelected(AnalysisPeriod.Custom(start, endInclusive))
     }
 
     /** Повторный тап по той же мышце снимает выбор — как в фильтрах библиотеки. */

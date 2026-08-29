@@ -26,7 +26,6 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.valerochka1337.valerochkagym.R
-import com.valerochka1337.valerochkagym.domain.analysis.AnalysisPeriod
 import com.valerochka1337.valerochkagym.ui.components.GlowBackground
 import com.valerochka1337.valerochkagym.ui.components.GymTopBar
 import com.valerochka1337.valerochkagym.ui.components.PillButton
@@ -71,65 +70,84 @@ fun AnalysisScreen(
                 },
             )
 
-            if (!state.report.hasData) {
-                if (!state.loading) EmptyState(modifier = Modifier.weight(1f))
-                return@Column
-            }
-
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 96.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 item {
-                    ChipRow(
-                        options = AnalysisPeriod.entries,
-                        selected = state.period,
-                        label = { it.displayName() },
-                        onSelect = viewModel::onPeriodSelected,
-                    )
-                }
-                item { SummaryCard(state) }
-                item { MuscleHeatmapCard(state = state, onMuscleClicked = viewModel::onMuscleClicked) }
-                item { MuscleVolumeCard(state = state, onMuscleClicked = viewModel::onMuscleClicked) }
-                item { MuscleFrequencyCard(state) }
-                item {
-                    WeeklyVolumeCard(
-                        state = state,
-                        onMetricSelected = viewModel::onWeeklyMetricSelected,
-                        onWeekSelected = viewModel::onWeekSelected,
-                    )
-                }
-                item { WorkloadCard(state.report.workload) }
-                item { BalanceCard(state.report.balances) }
-                item {
-                    ExerciseProgressCard(
-                        state = state,
-                        onExerciseSelected = viewModel::onExerciseSelected,
-                        onSessionSelected = viewModel::onSessionSelected,
-                        onExerciseClick = {
+                    AnalysisPeriodSelector(
+                        period = state.period,
+                        range = state.report.range,
+                        onPeriodSelected = {
                             haptics.tap()
-                            onExerciseClick(it)
+                            viewModel.onPeriodSelected(it)
+                        },
+                        onCustomRangeSelected = { start, endInclusive ->
+                            haptics.tap()
+                            viewModel.onCustomRangeSelected(start, endInclusive)
                         },
                     )
                 }
-                item {
-                    RecordsCard(
-                        state = state,
-                        onExerciseClick = {
-                            haptics.tap()
-                            onExerciseClick(it)
-                        },
-                    )
+                if (!state.loading && !state.report.hasData) {
+                    item { EmptyState(hasHistory = state.report.records.isNotEmpty()) }
+                    if (state.report.records.isNotEmpty()) {
+                        item {
+                            RecordsCard(
+                                state = state,
+                                onExerciseClick = {
+                                    haptics.tap()
+                                    onExerciseClick(it)
+                                },
+                            )
+                        }
+                    }
+                } else if (state.report.hasData) {
+                    item { SummaryCard(state) }
+                    item { MuscleHeatmapCard(state = state, onMuscleClicked = viewModel::onMuscleClicked) }
+                    item { MuscleVolumeCard(state = state, onMuscleClicked = viewModel::onMuscleClicked) }
+                    item { MuscleFrequencyCard(state) }
+                    item {
+                        WeeklyVolumeCard(
+                            state = state,
+                            onMetricSelected = viewModel::onWeeklyMetricSelected,
+                            onWeekSelected = viewModel::onWeekSelected,
+                        )
+                    }
+                    item { WorkloadCard(state.report.workload, state.report.range.endInclusive) }
+                    item { BalanceCard(state.report.balances) }
+                    item {
+                        ExerciseProgressCard(
+                            state = state,
+                            onExerciseSelected = viewModel::onExerciseSelected,
+                            onSessionSelected = viewModel::onSessionSelected,
+                            onExerciseClick = {
+                                haptics.tap()
+                                onExerciseClick(it)
+                            },
+                        )
+                    }
+                    item {
+                        RecordsCard(
+                            state = state,
+                            onExerciseClick = {
+                                haptics.tap()
+                                onExerciseClick(it)
+                            },
+                        )
+                    }
                 }
             }
         }
     }
 }
 
-/** Пустая история: объясняем, что появится, вместо графиков из нулей. */
+/** Пустая история или пустой выбранный период: объясняем, что появится, вместо нулевых графиков. */
 @Composable
-private fun EmptyState(modifier: Modifier = Modifier) {
+private fun EmptyState(
+    hasHistory: Boolean,
+    modifier: Modifier = Modifier,
+) {
     Column(
         modifier = modifier.fillMaxWidth().padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -143,15 +161,19 @@ private fun EmptyState(modifier: Modifier = Modifier) {
         )
         Spacer(Modifier.height(16.dp))
         Text(
-            text = "Пока нечего анализировать",
+            text = if (hasHistory) "В этом периоде нет тренировок" else "Пока нечего анализировать",
             style = MaterialTheme.typography.titleMedium,
             color = MaterialTheme.colorScheme.onSurface,
             textAlign = TextAlign.Center,
         )
         Spacer(Modifier.height(8.dp))
         Text(
-            text = "Завершите первую тренировку — появятся карта нагрузки по мышцам, недельный объём " +
-                "и графики прогресса по каждому упражнению.",
+            text = if (hasHistory) {
+                "Выберите другой диапазон — рекорды ниже остаются за всю историю."
+            } else {
+                "Завершите первую тренировку — появятся карта нагрузки по мышцам, недельный объём " +
+                    "и графики прогресса по каждому упражнению."
+            },
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,

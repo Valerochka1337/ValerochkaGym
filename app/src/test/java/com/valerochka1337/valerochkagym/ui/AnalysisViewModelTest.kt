@@ -26,6 +26,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
+import java.time.Instant
+import java.time.ZoneId
 
 /**
  * Тесты [AnalysisViewModel] поверх настоящей Room-базы: заодно проверяют SQL-проекцию
@@ -121,8 +123,8 @@ class AnalysisViewModelTest : RoomDaoTest() {
 
         val loads = viewModel.uiState.value.report.muscleLoads.associateBy { it.muscle }
         assertEquals(4.0, loads.getValue(Muscle.CHEST).totalSets, 1e-6)
-        assertEquals(2.6, loads.getValue(Muscle.TRICEPS).totalSets, 1e-6)
-        assertEquals(VolumeZone.NONE, loads.getValue(Muscle.CALVES).zone)
+        assertEquals(4.0, loads.getValue(Muscle.TRICEPS).totalSets, 1e-6)
+        assertEquals(VolumeZone.LOW, loads.getValue(Muscle.CALVES).zone)
     }
 
     @Test
@@ -136,12 +138,31 @@ class AnalysisViewModelTest : RoomDaoTest() {
 
             assertEquals(2.0, viewModel.uiState.value.report.totalHardSets, 1e-6)
 
-            viewModel.onPeriodSelected(AnalysisPeriod.ALL)
+            viewModel.onPeriodSelected(AnalysisPeriod.ALL_TIME)
 
             val state = viewModel.uiState.value
-            assertEquals(AnalysisPeriod.ALL, state.period)
+            assertEquals(AnalysisPeriod.ALL_TIME, state.period)
             assertEquals(7.0, state.report.totalHardSets, 1e-6)
             assertNull("выбор точки привязан к длине серии", state.selectedWeekIndex)
+        }
+
+    @Test
+    fun `switching to a custom range recomputes the report and clears point selection`() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            insertSession(daysAgo = 1, sets = 2)
+            insertSession(daysAgo = 20, sets = 5)
+            val viewModel = viewModel()
+            collect(viewModel)
+            viewModel.onWeekSelected(0)
+
+            val end = Instant.ofEpochMilli(now).atZone(ZoneId.systemDefault()).toLocalDate().minusDays(14)
+            val start = end.minusDays(6)
+            viewModel.onCustomRangeSelected(start, end)
+
+            val state = viewModel.uiState.value
+            assertEquals(AnalysisPeriod.Custom(start, end), state.period)
+            assertEquals(5.0, state.report.totalHardSets, 1e-6)
+            assertNull("выбор точки привязан к длине новой серии", state.selectedWeekIndex)
         }
 
     @Test

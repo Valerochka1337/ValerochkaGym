@@ -1,12 +1,14 @@
 package com.valerochka1337.valerochkagym.ui.analysis
 
 import com.valerochka1337.valerochkagym.domain.analysis.AnalysisPeriod
+import com.valerochka1337.valerochkagym.domain.analysis.AnalysisDateRange
 import com.valerochka1337.valerochkagym.domain.analysis.BalanceId
 import com.valerochka1337.valerochkagym.domain.analysis.TrendVerdict
 import com.valerochka1337.valerochkagym.domain.analysis.VolumeZone
 import java.math.BigDecimal
 import java.math.RoundingMode
 import java.time.Instant
+import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import kotlin.math.abs
@@ -39,13 +41,13 @@ fun formatTonnage(kg: Double): String =
 fun formatMinutes(minutes: Int): String =
     if (minutes >= 60) "${minutes / 60} ч ${"%02d".format(minutes % 60)} мин" else "$minutes мин"
 
-/** Дата последней тренировки в естественной форме для подписи под средней длительностью. */
+/** Дата последней тренировки относительно конца выбранного периода. */
 fun formatLastSessionCaption(daysSinceLast: Int): String {
     val days = daysSinceLast.coerceAtLeast(0)
     return when (days) {
-        0 -> "последняя — сегодня"
-        1 -> "последняя — вчера"
-        else -> "последняя — $days дн. назад"
+        0 -> "последняя — в последний день периода"
+        1 -> "последняя — за день до конца периода"
+        else -> "последняя — за $days дн. до конца периода"
     }
 }
 
@@ -54,6 +56,15 @@ fun formatDate(millis: Long, zone: ZoneId): String =
 
 fun formatDateWithYear(millis: Long, zone: ZoneId): String =
     DATE_YEAR_FORMATTER.format(Instant.ofEpochMilli(millis).atZone(zone))
+
+fun formatDateRange(start: LocalDate, endInclusive: LocalDate): String =
+    if (start == endInclusive) {
+        DATE_YEAR_FORMATTER.format(start)
+    } else {
+        "${DATE_YEAR_FORMATTER.format(start)} – ${DATE_YEAR_FORMATTER.format(endInclusive)}"
+    }
+
+fun AnalysisDateRange.displayName(): String = formatDateRange(start, endInclusive)
 
 /** Отношение как «1.2 : 1» — так виден перекос, в отличие от «1.2». */
 fun formatRatio(ratio: Double): String = "${formatDecimal(ratio)} : 1"
@@ -65,18 +76,19 @@ fun formatSigned(value: Double, unit: String): String {
 }
 
 fun AnalysisPeriod.displayName(): String = when (this) {
+    AnalysisPeriod.LAST_7_DAYS -> "Последние 7 дней"
     AnalysisPeriod.WEEKS_4 -> "4 недели"
     AnalysisPeriod.WEEKS_12 -> "12 недель"
-    AnalysisPeriod.YEAR -> "Год"
-    AnalysisPeriod.ALL -> "Всё"
+    AnalysisPeriod.WEEKS_52 -> "52 недели"
+    AnalysisPeriod.ALL_TIME -> "Всё время"
+    is AnalysisPeriod.Custom -> formatDateRange(start, endInclusive)
 }
 
 fun VolumeZone.displayName(): String = when (this) {
-    VolumeZone.NONE -> "нет нагрузки"
-    VolumeZone.BELOW_MEV -> "мало"
-    VolumeZone.MAINTENANCE -> "поддержка"
-    VolumeZone.OPTIMAL -> "норма"
-    VolumeZone.EXCESSIVE -> "перебор"
+    VolumeZone.LOW -> "малый объём"
+    VolumeZone.BASE -> "базовый объём"
+    VolumeZone.WORKING -> "рабочий объём"
+    VolumeZone.GROWTH_GUIDE -> "ориентир для роста"
 }
 
 fun TrendVerdict.displayName(): String = when (this) {

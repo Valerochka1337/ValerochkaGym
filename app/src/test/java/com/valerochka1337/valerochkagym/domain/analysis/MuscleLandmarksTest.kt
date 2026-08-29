@@ -2,73 +2,50 @@ package com.valerochka1337.valerochkagym.domain.analysis
 
 import com.valerochka1337.valerochkagym.data.db.entity.Muscle
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** Ориентиры недельного объёма: зоны, полнота таблицы и вес подхода. */
+/** Единая шкала объёма и дискретный вклад мышц. */
 class MuscleLandmarksTest {
 
     @Test
-    fun `zero or negative weekly sets fall into the NONE zone`() {
-        assertEquals(VolumeZone.NONE, Muscle.CHEST.zoneFor(0.0))
-        assertEquals(VolumeZone.NONE, Muscle.CHEST.zoneFor(-1.0))
+    fun `zero through two weekly sets are in the low volume zone`() {
+        assertEquals(VolumeZone.LOW, Muscle.CHEST.zoneFor(-1.0))
+        assertEquals(VolumeZone.LOW, Muscle.CHEST.zoneFor(0.0))
+        assertEquals(VolumeZone.LOW, Muscle.CHEST.zoneFor(2.0))
     }
 
     @Test
-    fun `sets below MEV are BELOW_MEV and the MEV boundary itself is maintenance`() {
-        // У груди MEV = 8: чуть ниже — недобор, ровно на границе — уже поддержка.
-        assertEquals(VolumeZone.BELOW_MEV, Muscle.CHEST.zoneFor(0.5))
-        assertEquals(VolumeZone.BELOW_MEV, Muscle.CHEST.zoneFor(7.99))
-        assertEquals(VolumeZone.MAINTENANCE, Muscle.CHEST.zoneFor(8.0))
+    fun `more than two and less than five weekly sets are in the base zone`() {
+        assertEquals(VolumeZone.BASE, Muscle.CHEST.zoneFor(2.01))
+        assertEquals(VolumeZone.BASE, Muscle.CHEST.zoneFor(4.99))
     }
 
     @Test
-    fun `the adaptive corridor from MAV low to MRV inclusive is OPTIMAL`() {
-        // У груди MAV начинается с 12, MRV = 22.
-        assertEquals(VolumeZone.MAINTENANCE, Muscle.CHEST.zoneFor(11.99))
-        assertEquals(VolumeZone.OPTIMAL, Muscle.CHEST.zoneFor(12.0))
-        assertEquals(VolumeZone.OPTIMAL, Muscle.CHEST.zoneFor(22.0))
-        assertEquals(VolumeZone.EXCESSIVE, Muscle.CHEST.zoneFor(22.01))
+    fun `five through less than ten weekly sets are in the working zone`() {
+        assertEquals(VolumeZone.WORKING, Muscle.CHEST.zoneFor(5.0))
+        assertEquals(VolumeZone.WORKING, Muscle.CHEST.zoneFor(9.99))
     }
 
     @Test
-    fun `a muscle with zero MEV never reports BELOW_MEV`() {
-        // Передняя дельта: MEV = 0 — любая ненулевая работа сразу хотя бы поддержка.
-        assertEquals(VolumeZone.MAINTENANCE, Muscle.FRONT_DELTS.zoneFor(0.1))
-        assertEquals(VolumeZone.NONE, Muscle.FRONT_DELTS.zoneFor(0.0))
+    fun `ten or more weekly sets are in the growth guide zone`() {
+        assertEquals(VolumeZone.GROWTH_GUIDE, Muscle.CHEST.zoneFor(10.0))
+        assertEquals(VolumeZone.GROWTH_GUIDE, Muscle.CHEST.zoneFor(100.0))
     }
 
     @Test
-    fun `every muscle has explicit landmarks in the table`() {
-        Muscle.entries.forEach { muscle ->
-            assertTrue("нет ориентиров для $muscle", muscleLandmarks.containsKey(muscle))
-        }
-    }
-
-    @Test
-    fun `landmarks of every muscle are ordered mev mavLow mavHigh mrv`() {
-        Muscle.entries.forEach { muscle ->
-            val landmarks = muscle.landmarks()
-            assertTrue("$muscle: mev > mavLow", landmarks.mev <= landmarks.mavLow)
-            assertTrue("$muscle: mavLow > mavHigh", landmarks.mavLow <= landmarks.mavHigh)
-            assertTrue("$muscle: mavHigh > mrv", landmarks.mavHigh <= landmarks.mrv)
-        }
-    }
-
-    @Test
-    fun `meta-analytic range is the shared ten to twenty sets band`() {
-        assertEquals(10.0, META_ANALYTIC_RANGE.start, 1e-9)
-        assertEquals(20.0, META_ANALYTIC_RANGE.endInclusive, 1e-9)
-    }
-
-    @Test
-    fun `set weight preserves global contribution above the stabilizer threshold`() {
+    fun `direct and indirect contributions use discrete effective set weights`() {
         assertEquals(1.0, setWeightFor(100), 1e-9)
-        assertEquals(0.6, setWeightFor(60), 1e-9)
-        assertEquals(0.59, setWeightFor(59), 1e-9)
-        assertEquals(0.25, setWeightFor(25), 1e-9)
+        assertEquals(1.0, setWeightFor(60), 1e-9)
+        assertEquals(0.5, setWeightFor(59), 1e-9)
+        assertEquals(0.5, setWeightFor(25), 1e-9)
         assertEquals(0.0, setWeightFor(24), 1e-9)
         assertEquals(0.0, setWeightFor(0), 1e-9)
-        assertEquals(1.0, setWeightFor(105), 1e-9)
+    }
+
+    @Test
+    fun `the volume guide exposes the two five and ten boundaries`() {
+        assertEquals(2.0, HypertrophyVolumeGuide.LOW_MAX, 1e-9)
+        assertEquals(5.0, HypertrophyVolumeGuide.BASE_MAX, 1e-9)
+        assertEquals(10.0, HypertrophyVolumeGuide.WORKING_MAX, 1e-9)
     }
 }

@@ -2,6 +2,7 @@ package com.valerochka1337.valerochkagym.ui.analysis
 
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -29,14 +30,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.valerochka1337.valerochkagym.data.db.entity.Muscle
-import com.valerochka1337.valerochkagym.domain.analysis.META_ANALYTIC_RANGE
+import com.valerochka1337.valerochkagym.domain.analysis.HypertrophyVolumeGuide
 import com.valerochka1337.valerochkagym.domain.analysis.MuscleLoadSummary
 import com.valerochka1337.valerochkagym.domain.analysis.VolumeZone
-import com.valerochka1337.valerochkagym.domain.analysis.landmarks
 import com.valerochka1337.valerochkagym.domain.displayName
 import com.valerochka1337.valerochkagym.ui.analysis.body.BodyMapFlip
 import com.valerochka1337.valerochkagym.ui.analysis.charts.ChartSpec
 import com.valerochka1337.valerochkagym.ui.analysis.charts.rememberChartColors
+import com.valerochka1337.valerochkagym.ui.haptics.gymHaptics
 import com.valerochka1337.valerochkagym.ui.theme.ChartPalette
 import com.valerochka1337.valerochkagym.ui.theme.GymMotion
 
@@ -44,8 +45,8 @@ import com.valerochka1337.valerochkagym.ui.theme.GymMotion
  * Тепловая карта тела: интерактивный человек, закрашенный по недельному объёму каждой мышцы.
  *
  * Шкала ступенчатая и подписана легендой, а числа выбранной мышцы выводятся текстом под картой —
- * цвет здесь нигде не остаётся единственным носителем смысла. Перебор объёма отмечается
- * обводкой, а не ещё одним оттенком: заливка должна оставаться монотонной «мало → норма».
+ * цвет здесь нигде не остаётся единственным носителем смысла. Тёмно-зелёный — ориентир для
+ * роста, а не верхний лимит или оценка восстановления.
  */
 @Composable
 internal fun MuscleHeatmapCard(
@@ -55,22 +56,16 @@ internal fun MuscleHeatmapCard(
 ) {
     // Производные от отчёта, а не от выбора: пересобирать их на каждый тап по карте незачем.
     val loads = remember(state.report) { state.report.muscleLoads.associateBy { it.muscle } }
-    val overloaded = remember(state.report) {
-        state.report.muscleLoads
-            .filter { it.zone == VolumeZone.EXCESSIVE }
-            .mapTo(mutableSetOf()) { it.muscle }
-    }
 
     AnalysisCard(
         title = "Карта нагрузки",
-        subtitle = "Вклад рабочего подхода пропорционален вовлечению мышцы",
+        subtitle = "Эффективные подходы в неделю: прямой вклад — 1, косвенный — 0,5",
         icon = Icons.Rounded.Accessibility,
         modifier = modifier,
     ) {
         BodyMapFlip(
-            fillFor = { muscle -> ChartPalette.zoneColor(loads[muscle]?.zone ?: VolumeZone.NONE) },
+            fillFor = { muscle -> ChartPalette.zoneColor(loads[muscle]?.zone ?: VolumeZone.LOW) },
             selectedMuscle = state.selectedMuscle,
-            outlined = overloaded,
             onMuscleClick = onMuscleClicked,
         )
 
@@ -103,7 +98,7 @@ private fun EffectiveSetsExplanation() {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Text(
-            text = "На одну мышцу: 100% — 1 подход; 60% — 0,6; 25% — 0,25; ниже 25% — 0.",
+            text = "На одну мышцу: ≥60% — 1 подход; 25–59% — 0,5; ниже 25% — 0.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -120,7 +115,6 @@ private fun HeatLegend() {
         ChartPalette.legendZones.forEach { zone ->
             LegendSwatch(color = ChartPalette.zoneColor(zone), label = zone.displayName())
         }
-        LegendSwatch(color = ChartPalette.Overload, label = "перебор", outlined = true)
     }
 }
 
@@ -139,7 +133,6 @@ private fun SelectedMuscleDetails(
         )
         return
     }
-    val landmarks = load.muscle.landmarks()
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
@@ -151,11 +144,7 @@ private fun SelectedMuscleDetails(
             )
             StatusPill(
                 text = load.zone.displayName(),
-                color = if (load.zone == VolumeZone.EXCESSIVE) {
-                    ChartPalette.Overload
-                } else {
-                    ChartPalette.zoneColor(load.zone)
-                },
+                color = ChartPalette.zoneColor(load.zone),
             )
         }
         ValueRow(
@@ -164,10 +153,12 @@ private fun SelectedMuscleDetails(
             accent = true,
         )
         ValueRow(
-            label = "Ориентир (MEV · коридор · MRV)",
-            value = "${formatDecimal(landmarks.mev, 0)} · " +
-                "${formatDecimal(landmarks.mavLow, 0)}–${formatDecimal(landmarks.mavHigh, 0)} · " +
-                formatDecimal(landmarks.mrv, 0),
+            label = "Границы шкалы",
+            value = "2 · 5 · 10",
+        )
+        ValueBlock(
+            label = "Как читать",
+            value = "0–2 — малый; >2–<5 — базовый; 5–<10 — рабочий; ≥10 — ориентир для роста.",
         )
         ValueRow(label = "Раз в неделю", value = formatDecimal(load.sessionsPerWeek))
         ValueRow(
@@ -183,11 +174,11 @@ private fun SelectedMuscleDetails(
 }
 
 /**
- * Объём по мышцам в виде bullet-графика: фактическое значение поверх опорных диапазонов.
+ * Объём по мышцам в виде bullet-графика: фактическое значение поверх общей шкалы 2 / 5 / 10.
  *
- * Отсортировано по дефициту относительно рабочего коридора, поэтому первые строки — это готовый
- * список «что добавить в план». Такая форма единственная, где рядом видны и значение, и цель,
- * и допустимый максимум.
+ * Строки отсортированы от меньшего объёма к большему: это снимок распределения, а не рецепт
+ * «добрать до потолка». Больший объём в среднем помогает гипертрофии с убывающей отдачей, но
+ * единого оптимума или максимального восстанавливаемого объёма не существует.
  */
 @Composable
 internal fun MuscleVolumeCard(
@@ -195,17 +186,11 @@ internal fun MuscleVolumeCard(
     onMuscleClicked: (Muscle?) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val rows = state.report.muscleLoads.sortedBy { load ->
-        // Дефицит в долях коридора: так мелкие и крупные мышцы сравниваются честно.
-        val target = load.muscle.landmarks().mavLow.takeIf { it > 0.0 } ?: 1.0
-        load.weeklySets / target
-    }
+    val rows = state.report.muscleLoads.sortedBy { it.weeklySets }
 
     AnalysisCard(
         title = "Объём по мышцам",
-        subtitle = "Подходов в неделю против ориентиров. Мета-анализы дают " +
-            "${formatDecimal(META_ANALYTIC_RANGE.start, 0)}–${formatDecimal(META_ANALYTIC_RANGE.endInclusive, 0)} " +
-            "подходов в неделю как рабочий диапазон для большинства мышц",
+        subtitle = "Эффективные подходы в неделю — ориентир для гипертрофии, не диагноз тренировки",
         icon = Icons.Rounded.BarChart,
         modifier = modifier,
     ) {
@@ -216,6 +201,21 @@ internal fun MuscleVolumeCard(
                 onClick = { onMuscleClicked(load.muscle) },
             )
         }
+        Spacer(Modifier.height(10.dp))
+        Text(
+            text = "Больше объём в среднем помогает росту, но отдача снижается; единого " +
+                "универсального оптимума или максимального восстанавливаемого объёма нет. " +
+                "Основа: мета-анализ 2026 (PMID 41343037).",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(6.dp))
+        Text(
+            text = "Приложение не знает близость подходов к отказу, технику, сон и восстановление. " +
+                "При стабильном прогрессе меньший объём не делает программу неправильной.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 
@@ -225,10 +225,10 @@ private fun MuscleBulletRow(
     selected: Boolean,
     onClick: () -> Unit,
 ) {
-    val landmarks = load.muscle.landmarks()
     val colors = rememberChartColors()
+    val haptics = gymHaptics()
     val fill = ChartPalette.zoneColor(load.zone)
-    val maxValue = maxOf(landmarks.mrv, load.weeklySets) * 1.05
+    val maxValue = maxOf(HypertrophyVolumeGuide.WORKING_MAX, load.weeklySets) * 1.05
 
     Row(
         modifier = Modifier
@@ -249,7 +249,11 @@ private fun MuscleBulletRow(
         Box(
             modifier = Modifier
                 .weight(1f)
-                .height(28.dp),
+                .height(28.dp)
+                .clickable {
+                    haptics.tap()
+                    onClick()
+                },
         ) {
             Canvas(modifier = Modifier.fillMaxWidth().height(28.dp)) {
                 val trackHeight = 10.dp.toPx()
@@ -263,14 +267,35 @@ private fun MuscleBulletRow(
                     size = Size(size.width, trackHeight),
                     cornerRadius = radius,
                 )
-                // Рабочий коридор — подложка, на фоне которой читается длина метки.
-                drawRect(
-                    color = colors.mark.copy(alpha = 0.14f),
-                    topLeft = Offset(x(landmarks.mavLow), top),
-                    size = Size(x(landmarks.mavHigh) - x(landmarks.mavLow), trackHeight),
-                )
-                listOf(landmarks.mev, landmarks.mrv).forEach { landmark ->
-                    if (landmark <= 0.0) return@forEach
+                // Фон показывает четыре честные ступени; метки 2 / 5 / 10 остаются читаемыми
+                // и при значениях выше ориентира — это не верхний лимит.
+                listOf(
+                    Triple(0.0, HypertrophyVolumeGuide.LOW_MAX, ChartPalette.LowVolume),
+                    Triple(
+                        HypertrophyVolumeGuide.LOW_MAX,
+                        HypertrophyVolumeGuide.BASE_MAX,
+                        ChartPalette.BaseVolume,
+                    ),
+                    Triple(
+                        HypertrophyVolumeGuide.BASE_MAX,
+                        HypertrophyVolumeGuide.WORKING_MAX,
+                        ChartPalette.WorkingVolume,
+                    ),
+                    Triple(HypertrophyVolumeGuide.WORKING_MAX, maxValue, ChartPalette.GrowthGuideVolume),
+                ).forEach { (start, end, color) ->
+                    if (end > start) {
+                        drawRect(
+                            color = color.copy(alpha = 0.18f),
+                            topLeft = Offset(x(start), top),
+                            size = Size(x(end) - x(start), trackHeight),
+                        )
+                    }
+                }
+                listOf(
+                    HypertrophyVolumeGuide.LOW_MAX,
+                    HypertrophyVolumeGuide.BASE_MAX,
+                    HypertrophyVolumeGuide.WORKING_MAX,
+                ).forEach { landmark ->
                     drawLine(
                         color = colors.grid,
                         start = Offset(x(landmark), top - 3.dp.toPx()),
@@ -306,9 +331,12 @@ private fun MuscleBulletRow(
 /**
  * Частота и пауза: сколько дней прошло с последней работы по каждой мышце.
  *
- * Отсортировано по паузе вниз, поэтому первые строки — это список «что тренировать сегодня».
- * Опорные линии на 2, 4 и 7 днях: два раза в неделю на мышцу превосходит один раз по
- * гипертрофии, а пауза больше недели означает, что мышца выпала из плана.
+ * Отсортировано по паузе вниз, поэтому первые строки — это мягкое напоминание, что давно не
+ * было работы. При равном объёме частота сама по себе не даёт значимого преимущества для
+ * гипертрофии; раз в неделю может быть достаточно при умеренном объёме.
+ *
+ * Основание: https://pubmed.ncbi.nlm.nih.gov/30558493/ и position stand IUSCA:
+ * https://journal.iusca.org/index.php/Journal/article/download/81/140/5323
  */
 @Composable
 internal fun MuscleFrequencyCard(
@@ -322,7 +350,8 @@ internal fun MuscleFrequencyCard(
 
     AnalysisCard(
         title = "Частота и пауза",
-        subtitle = "Дней с последней работы по мышце. Ориентир — два раза в неделю, то есть пауза 2–4 дня",
+        subtitle = "До недели — обычный ритм; дальше — мягкое напоминание. Раз в неделю может " +
+            "быть достаточно при умеренном объёме: при равном объёме частота сама по себе не определяет рост",
         icon = Icons.Rounded.Schedule,
         modifier = modifier,
     ) {
@@ -361,7 +390,7 @@ private fun FrequencyRow(load: MuscleLoadSummary) {
                 strokeWidth = 6.dp.toPx(),
                 cap = androidx.compose.ui.graphics.StrokeCap.Round,
             )
-            listOf(2f, 4f, 7f).forEach { landmark ->
+            listOf(7f).forEach { landmark ->
                 drawLine(
                     color = colors.grid,
                     start = Offset(x(landmark), centerY - 7.dp.toPx()),
@@ -381,8 +410,7 @@ private fun FrequencyRow(load: MuscleLoadSummary) {
                 drawCircle(color = colors.surface, radius = ChartSpec.MarkerRadius.toPx() + ChartSpec.MarkerRing.toPx(), center = Offset(dotX, centerY))
                 drawCircle(
                     color = when {
-                        days > 7f -> ChartPalette.TooLittle
-                        days > 4f -> ChartPalette.Maintenance
+                        days > 7f -> ChartPalette.Maintenance
                         else -> ChartPalette.Optimal
                     },
                     radius = ChartSpec.MarkerRadius.toPx(),
