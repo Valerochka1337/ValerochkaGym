@@ -28,8 +28,8 @@ import kotlinx.coroutines.SupervisorJob
 import javax.inject.Singleton
 
 private val Context.settingsDataStore: DataStore<Preferences> by preferencesDataStore(name = "settings")
-private val Context.openRouterSecretsDataStore: DataStore<Preferences> by preferencesDataStore(
-    name = "openrouter_secrets",
+private val Context.aiApiSecretsDataStore: DataStore<Preferences> by preferencesDataStore(
+    name = "ai_secrets",
 )
 
 @Module
@@ -100,10 +100,10 @@ object DataModule {
 
     @Provides
     @Singleton
-    @OpenRouterSecrets
-    fun provideOpenRouterSecretsDataStore(
+    @AiApiSecrets
+    fun provideAiApiSecretsDataStore(
         @ApplicationContext context: Context,
-    ): DataStore<Preferences> = context.openRouterSecretsDataStore
+    ): DataStore<Preferences> = context.aiApiSecretsDataStore
 
     @Provides
     @Singleton

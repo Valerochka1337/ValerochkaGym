@@ -7,19 +7,19 @@ import com.valerochka1337.valerochkagym.data.ai.DebugAiResponseLogger
 import com.valerochka1337.valerochkagym.data.ai.ExerciseAiGenerator
 import com.valerochka1337.valerochkagym.data.ai.InBodyPhotoEncoder
 import com.valerochka1337.valerochkagym.data.ai.InBodyReportAiReader
-import com.valerochka1337.valerochkagym.data.ai.OpenRouterInBodyReportAiReader
-import com.valerochka1337.valerochkagym.data.ai.OpenRouterExerciseAiGenerator
-import com.valerochka1337.valerochkagym.data.ai.OpenRouterFreeModelCatalog
-import com.valerochka1337.valerochkagym.data.ai.OpenRouterModelSelector
-import com.valerochka1337.valerochkagym.data.ai.RemoteOpenRouterFreeModelCatalog
-import com.valerochka1337.valerochkagym.data.ai.SettingsOpenRouterModelSelector
+import com.valerochka1337.valerochkagym.data.ai.RemoteAiModelCatalog
+import com.valerochka1337.valerochkagym.data.ai.StoredAiApiConfigurationProvider
+import com.valerochka1337.valerochkagym.data.ai.AiApiConfigurationProvider
+import com.valerochka1337.valerochkagym.data.ai.AiApiInBodyReportAiReader
+import com.valerochka1337.valerochkagym.data.ai.AiApiExerciseAiGenerator
+import com.valerochka1337.valerochkagym.data.ai.AiModelCatalog
 import com.valerochka1337.valerochkagym.data.backup.ClearDataUseCase
 import com.valerochka1337.valerochkagym.data.backup.ClearDataUseCaseImpl
 import com.valerochka1337.valerochkagym.data.backup.DatabaseExporter
 import com.valerochka1337.valerochkagym.data.backup.DatabaseExporterImpl
 import com.valerochka1337.valerochkagym.data.settings.AndroidKeystoreSecretCipher
-import com.valerochka1337.valerochkagym.data.settings.EncryptedOpenRouterKeyStore
-import com.valerochka1337.valerochkagym.data.settings.OpenRouterKeyStore
+import com.valerochka1337.valerochkagym.data.settings.EncryptedAiApiKeyStore
+import com.valerochka1337.valerochkagym.data.settings.AiApiKeyStore
 import com.valerochka1337.valerochkagym.data.settings.SecretCipher
 import com.valerochka1337.valerochkagym.domain.ActiveWorkoutRepository
 import com.valerochka1337.valerochkagym.worker.MeasurementUploadScheduler
@@ -36,6 +36,7 @@ import javax.inject.Singleton
 
 @Module
 @InstallIn(SingletonComponent::class)
+@Suppress("unused")
 abstract class DomainModule {
 
     @Binds
@@ -70,7 +71,7 @@ abstract class DomainModule {
 
     @Binds
     @Singleton
-    abstract fun bindOpenRouterKeyStore(impl: EncryptedOpenRouterKeyStore): OpenRouterKeyStore
+    abstract fun bindAiApiKeyStore(impl: EncryptedAiApiKeyStore): AiApiKeyStore
 
     @Binds
     @Singleton
@@ -78,7 +79,7 @@ abstract class DomainModule {
 
     @Binds
     @Singleton
-    abstract fun bindExerciseAiGenerator(impl: OpenRouterExerciseAiGenerator): ExerciseAiGenerator
+    abstract fun bindExerciseAiGenerator(impl: AiApiExerciseAiGenerator): ExerciseAiGenerator
 
     @Binds
     @Singleton
@@ -86,19 +87,19 @@ abstract class DomainModule {
 
     @Binds
     @Singleton
-    abstract fun bindInBodyReportAiReader(impl: OpenRouterInBodyReportAiReader): InBodyReportAiReader
+    abstract fun bindInBodyReportAiReader(impl: AiApiInBodyReportAiReader): InBodyReportAiReader
 
     @Binds
     @Singleton
-    abstract fun bindOpenRouterFreeModelCatalog(
-        impl: RemoteOpenRouterFreeModelCatalog,
-    ): OpenRouterFreeModelCatalog
+    abstract fun bindAiModelCatalog(
+        impl: RemoteAiModelCatalog,
+    ): AiModelCatalog
 
     @Binds
     @Singleton
-    abstract fun bindOpenRouterModelSelector(
-        impl: SettingsOpenRouterModelSelector,
-    ): OpenRouterModelSelector
+    abstract fun bindAiApiConfigurationProvider(
+        impl: StoredAiApiConfigurationProvider,
+    ): AiApiConfigurationProvider
 
     @Binds
     @Singleton

@@ -5,7 +5,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
-import android.media.ExifInterface
+import androidx.exifinterface.media.ExifInterface
 import android.net.Uri
 import android.util.Base64
 import com.valerochka1337.valerochkagym.di.ComputeDispatcher
@@ -16,13 +16,14 @@ import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 import javax.inject.Inject
 import javax.inject.Singleton
+import androidx.core.graphics.scale
 
 sealed interface InBodyPhotoEncodingResult {
     data class Success(val jpegDataUrl: String) : InBodyPhotoEncodingResult
     data class Failure(val message: String) : InBodyPhotoEncodingResult
 }
 
-/** Converts one locally selected image into a bounded JPEG data URL for OpenRouter. */
+/** Converts one locally selected image into a bounded JPEG data URL for the vision request. */
 interface InBodyPhotoEncoder {
     suspend fun encode(uri: Uri): InBodyPhotoEncodingResult
 }
@@ -119,11 +120,9 @@ class AndroidInBodyPhotoEncoder @Inject constructor(
         val maxSide = maxOf(width, height)
         if (maxSide <= MAX_IMAGE_SIDE) return this
         val scale = MAX_IMAGE_SIDE.toFloat() / maxSide
-        val resized = Bitmap.createScaledBitmap(
-            this,
+        val resized = this.scale(
             (width * scale).toInt().coerceAtLeast(1),
             (height * scale).toInt().coerceAtLeast(1),
-            true,
         )
         if (resized !== this) recycle()
         return resized
@@ -142,11 +141,9 @@ class AndroidInBodyPhotoEncoder @Inject constructor(
         return bytes
     }
 
-    private fun Bitmap.scaleDown(): Bitmap = Bitmap.createScaledBitmap(
-        this,
+    private fun Bitmap.scaleDown(): Bitmap = this.scale(
         (width * SCALE_DOWN_FACTOR).toInt().coerceAtLeast(1),
         (height * SCALE_DOWN_FACTOR).toInt().coerceAtLeast(1),
-        true,
     )
 
     private fun sampleSize(width: Int, height: Int): Int {

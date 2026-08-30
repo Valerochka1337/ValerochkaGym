@@ -1,0 +1,120 @@
+name: Android CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out sources
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6.0.0
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+        with:
+          cache-provider: basic
+
+      - name: Build debug APK
+        if: github.event_name == 'pull_request'
+        run: ./gradlew :app:assembleDebug --stacktrace
+
+      - name: Restore release keystore
+        if: github.event_name != 'pull_request'
+        env:
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+        shell: bash
+        run: |
+          if [[ -z "$RELEASE_KEYSTORE_BASE64" ]]; then
+            echo "::error::Repository secret RELEASE_KEYSTORE_BASE64 is not configured."
+            exit 1
+          fi
+
+          umask 077
+          printf '%s' "$RELEASE_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/release.jks"
+
+      - name: Build signed release APK
+        if: github.event_name != 'pull_request'
+        env:
+          RELEASE_KEYSTORE_FILE: ${{ runner.temp }}/release.jks
+          RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+        run: ./gradlew :app:assembleRelease --stacktrace
+
+      - name: Run unit tests
+        run: ./gradlew :app:testDebugUnitTest --stacktrace
+
+      - name: Upload test report on failure
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: unit-test-report-${{ github.run_number }}
+          path: app/build/reports/tests/testDebugUnitTest/
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Verify signature and prepare release artifact
+        if: github.event_name != 'pull_request'
+        shell: bash
+        run: |
+          apk="app/build/outputs/apk/release/app-release.apk"
+          apksigner_path="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner -print | sort -V | tail -n 1)"
+
+          if [[ -z "$apksigner_path" ]]; then
+            echo "::error::apksigner was not found in ANDROID_HOME."
+            exit 1
+          fi
+
+          "$apksigner_path" verify --verbose --print-certs "$apk"
+
+          artifact_dir="app/build/release-artifact"
+          mkdir -p "$artifact_dir"
+          cp "$apk" "$artifact_dir/ValerochkaGym-release.apk"
+          cp "app/build/outputs/mapping/release/mapping.txt" "$artifact_dir/mapping.txt"
+
+          digest="$(sha256sum "$artifact_dir/ValerochkaGym-release.apk" | cut -d ' ' -f 1)"
+          printf '%s  %s\n' "$digest" "ValerochkaGym-release.apk" \
+            > "$artifact_dir/ValerochkaGym-release.apk.sha256"
+
+      - name: Upload signed release APK
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ValerochkaGym-release-${{ github.run_number }}
+          path: app/build/release-artifact/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Remove release keystore
+        if: always() && github.event_name != 'pull_request'
+        shell: bash
+        run: |
+          if [[ -x ./gradlew ]]; then
+            ./gradlew --stop || true
+          fi
+          rm -f "$RUNNER_TEMP/release.jks"

@@ -1,7 +1,6 @@
 package com.valerochka1337.valerochkagym.data.ai
 
 import android.net.Uri
-import com.valerochka1337.valerochkagym.data.settings.OpenRouterKeyStore
 import com.valerochka1337.valerochkagym.di.ComputeDispatcher
 import com.valerochka1337.valerochkagym.domain.measurements.InBodySegment
 import com.valerochka1337.valerochkagym.domain.measurements.InBodySegmentValues
@@ -15,13 +14,12 @@ import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
-import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
 import retrofit2.HttpException
+import java.io.InterruptedIOException
 import java.io.IOException
 import java.time.LocalDate
 import java.time.LocalTime
@@ -64,15 +62,14 @@ interface InBodyReportAiReader {
 }
 
 /**
- * OpenRouter-backed reader for a photo of a printed InBody report. Only explicitly requested
+ * OpenAI-compatible reader for a photo of a printed InBody report. Only explicitly requested
  * factual fields are present in the schema and prompt, so personal header fields and device
  * recommendations cannot enter the local measurement model by accident.
  */
 @Singleton
-class OpenRouterInBodyReportAiReader @Inject constructor(
-    private val api: OpenRouterApi,
-    private val keyStore: OpenRouterKeyStore,
-    private val modelSelector: OpenRouterModelSelector,
+class AiApiInBodyReportAiReader @Inject constructor(
+    private val api: AiApi,
+    private val configurationProvider: AiApiConfigurationProvider,
     private val photoEncoder: InBodyPhotoEncoder,
     private val json: Json,
     private val responseLogger: AiResponseLogger,
@@ -80,54 +77,102 @@ class OpenRouterInBodyReportAiReader @Inject constructor(
 ) : InBodyReportAiReader {
 
     override suspend fun read(uri: Uri): InBodyReportAiResult {
-        val key = keyStore.read() ?: return InBodyReportAiResult.Failure(MISSING_KEY_MESSAGE)
+        val configuration = try {
+            configurationProvider.requestConfiguration()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            null
+        } ?: return InBodyReportAiResult.Failure(MISSING_CONFIGURATION_MESSAGE)
         val encoding = photoEncoder.encode(uri)
         val jpegDataUrl = (encoding as? InBodyPhotoEncodingResult.Success)?.jpegDataUrl
             ?: return encoding.failureMessage()
 
-        val selectedModel = modelSelector.selectedModel()
-        val systemPrompt = selectedModel.systemPrompt(SYSTEM_PROMPT, RESPONSE_SCHEMA)
-        val request = OpenRouterChatRequest(
-            model = selectedModel.id,
+        val systemPrompt = jsonObjectSystemPrompt(SYSTEM_PROMPT, RESPONSE_SCHEMA)
+        val request = AiApiChatRequest(
+            model = configuration.modelId,
             messages = listOf(
-                OpenRouterMessage.text(role = "system", text = systemPrompt),
-                OpenRouterMessage.textAndImage(
+                AiApiMessage.text(role = "system", text = systemPrompt),
+                AiApiMessage.textAndImage(
                     role = "user",
                     text = USER_PROMPT,
                     imageDataUrl = jpegDataUrl,
                 ),
             ),
-            responseFormat = selectedModel.responseFormat(
-                schemaName = "inbody_report",
-                schema = RESPONSE_SCHEMA,
-            ),
-            provider = OpenRouterProviderPreferences(requireParameters = true),
+            responseFormat = AiApiResponseFormat(),
             maxTokens = MAX_COMPLETION_TOKENS,
-            reasoning = selectedModel.reasoningPreferences(),
-            temperature = RESPONSE_TEMPERATURE,
         )
 
         val response = try {
-            api.createCompletion(authorization = "Bearer $key", request = request)
+            api.createCompletion(
+                endpoint = aiApiChatCompletionsEndpoint(configuration.connection.baseUrl),
+                authorization = "Bearer ${configuration.connection.apiKey}",
+                request = request,
+            )
         } catch (e: CancellationException) {
             throw e
         } catch (e: HttpException) {
-            return openRouterErrorFailure(e.code())
-        } catch (_: IOException) {
+            logFailure(
+                modelId = configuration.modelId,
+                stage = "http",
+                httpCode = e.code(),
+                responseBody = runCatching { e.response()?.errorBody()?.string() }.getOrNull(),
+                throwable = e,
+            )
+            return aiApiErrorFailure(e.code())
+        } catch (e: InterruptedIOException) {
+            logFailure(
+                modelId = configuration.modelId,
+                stage = "timeout",
+                throwable = e,
+            )
+            return InBodyReportAiResult.Failure(AI_REQUEST_TIMEOUT_MESSAGE)
+        } catch (e: IOException) {
+            logFailure(
+                modelId = configuration.modelId,
+                stage = "network",
+                throwable = e,
+            )
             return InBodyReportAiResult.Failure(NETWORK_FAILURE_MESSAGE)
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            logFailure(
+                modelId = configuration.modelId,
+                stage = "request",
+                throwable = e,
+            )
             return InBodyReportAiResult.Failure(GENERIC_FAILURE_MESSAGE)
         }
 
         return withContext(computeDispatcher) {
-            logResponse(selectedModel.id, response)
+            logResponse(configuration.modelId, response)
             parseResponse(response)
         }
     }
 
-    private fun logResponse(modelId: String, response: OpenRouterChatResponse) {
+    private fun logResponse(modelId: String, response: AiApiChatResponse) {
         try {
             responseLogger.log(AiResponseSource.INBODY, modelId, response)
+        } catch (_: Exception) {
+            // Отладочный вывод не должен менять результат ИИ-запроса.
+        }
+    }
+
+    private fun logFailure(
+        modelId: String,
+        stage: String,
+        httpCode: Int? = null,
+        responseBody: String? = null,
+        throwable: Throwable? = null,
+    ) {
+        try {
+            responseLogger.logFailure(
+                source = AiResponseSource.INBODY,
+                requestedModelId = modelId,
+                stage = stage,
+                httpCode = httpCode,
+                responseBody = responseBody,
+                throwable = throwable,
+            )
         } catch (_: Exception) {
             // Отладочный вывод не должен менять результат ИИ-запроса.
         }
@@ -138,11 +183,11 @@ class OpenRouterInBodyReportAiReader @Inject constructor(
         is InBodyPhotoEncodingResult.Success -> error("JPEG data URL has already been extracted")
     }
 
-    private fun parseResponse(response: OpenRouterChatResponse): InBodyReportAiResult {
+    private fun parseResponse(response: AiApiChatResponse): InBodyReportAiResult {
         val choice = response.choices.firstOrNull()
         val responseError = response.error ?: response.choices.firstOrNull { it.error != null }?.error
         if (responseError != null) {
-            return openRouterErrorFailure(responseError.code, responseError.metadata?.errorType)
+            return aiApiErrorFailure(responseError.httpCode, responseError.normalizedType)
         }
         if (choice?.finishReason == FINISH_REASON_ERROR) {
             return InBodyReportAiResult.Failure(INTERRUPTED_RESPONSE_MESSAGE)
@@ -276,30 +321,32 @@ class OpenRouterInBodyReportAiReader @Inject constructor(
 
     private fun JsonPrimitive.contentOrNull(): String? = takeUnless { it is JsonNull }?.content
 
-    private fun OpenRouterResponseMessage?.textContent(): String? =
+    private fun AiApiResponseMessage?.textContent(): String? =
         (this?.content as? JsonPrimitive)?.takeUnless { it is JsonNull }?.content
 
-    private fun openRouterErrorFailure(
+    private fun aiApiErrorFailure(
         code: Int?,
         errorType: String? = null,
     ): InBodyReportAiResult.Failure {
-        if (isOpenRouterModelUnavailable(errorType, code)) {
+        if (isAiModelUnavailable(errorType, code)) {
             return InBodyReportAiResult.Failure(MODEL_UNAVAILABLE_MESSAGE, modelUnavailable = true)
         }
         val message = when (errorType) {
-            "authentication", "permission_denied" -> "Ключ OpenRouter недействителен или не имеет доступа"
-            "payment_required" -> "Для этого ключа сейчас недоступны бесплатные модели — проверьте лимиты OpenRouter"
-            "rate_limit_exceeded" -> "Лимит бесплатной модели исчерпан — попробуйте позже"
-            "timeout" -> "OpenRouter не дождался ответа модели — попробуйте ещё раз"
+            "authentication", "authentication_error", "invalid_api_key", "permission_denied" ->
+                "API key недействителен или не имеет доступа"
+            "payment_required", "insufficient_quota" ->
+                "На сервере закончился доступный лимит — проверьте ключ и баланс"
+            "rate_limit_exceeded", "rate_limit_error" -> "Лимит запросов исчерпан — попробуйте позже"
+            "timeout", "timeout_error" -> "Сервер не дождался ответа нейросети — попробуйте ещё раз"
             "refusal" -> "Модель не смогла прочитать лист InBody — выберите другой снимок"
             else -> when (code) {
-                401, 403 -> "Ключ OpenRouter недействителен или не имеет доступа"
-                402 -> "Для этого ключа сейчас недоступны бесплатные модели — проверьте лимиты OpenRouter"
-                408, 504 -> "OpenRouter не дождался ответа модели — попробуйте ещё раз"
-                429 -> "Лимит бесплатной модели исчерпан — попробуйте позже"
-                in 500..599 -> "OpenRouter временно недоступен — попробуйте позже"
+                401, 403 -> "API key недействителен или не имеет доступа"
+                402 -> "На сервере закончился доступный лимит — проверьте ключ и баланс"
+                408, 504 -> "Сервер не дождался ответа нейросети — попробуйте ещё раз"
+                429 -> "Лимит запросов исчерпан — попробуйте позже"
+                in 500..599 -> "Сервер временно недоступен — попробуйте позже"
                 null -> GENERIC_FAILURE_MESSAGE
-                else -> "OpenRouter вернул ошибку (HTTP $code) — попробуйте ещё раз"
+                else -> "Сервер вернул ошибку (HTTP $code) — попробуйте ещё раз"
             }
         }
         return InBodyReportAiResult.Failure(message)
@@ -321,14 +368,14 @@ class OpenRouterInBodyReportAiReader @Inject constructor(
         // Полный отчёт содержит 20 сегментных значений с длинными ключами JSON. Резерв нужен,
         // чтобы модель не заменяла читаемые цифры null из-за лимита завершения.
         const val MAX_COMPLETION_TOKENS = 2_048
-        const val RESPONSE_TEMPERATURE = 0.0
         const val FINISH_REASON_ERROR = "error"
         const val FINISH_REASON_LENGTH = "length"
 
-        const val MISSING_KEY_MESSAGE = "Укажите ключ OpenRouter в настройках"
-        const val NETWORK_FAILURE_MESSAGE = "Не удалось связаться с OpenRouter — попробуйте ещё раз"
+        const val MISSING_CONFIGURATION_MESSAGE =
+            "Настройте нейросеть в настройках"
+        const val NETWORK_FAILURE_MESSAGE = "Не удалось связаться с сервером — попробуйте ещё раз"
         const val GENERIC_FAILURE_MESSAGE = "Не удалось распознать лист InBody — попробуйте ещё раз"
-        const val INTERRUPTED_RESPONSE_MESSAGE = "OpenRouter не завершил ответ — попробуйте ещё раз"
+        const val INTERRUPTED_RESPONSE_MESSAGE = "Сервер не завершил ответ — попробуйте ещё раз"
         const val RESPONSE_LIMIT_MESSAGE = "Модель исчерпала лимит ответа — попробуйте ещё раз или выберите другую"
         const val INVALID_RESPONSE_MESSAGE = "ИИ вернул неполный или некорректный отчёт — попробуйте ещё раз"
         const val NOT_INBODY_REPORT_MESSAGE = "На фото не удалось найти отчёт InBody — выберите другой снимок"

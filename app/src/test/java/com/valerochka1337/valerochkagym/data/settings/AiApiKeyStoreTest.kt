@@ -14,42 +14,64 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-class OpenRouterKeyStoreTest {
+class AiApiKeyStoreTest {
 
     @Test
-    fun `saving a key stores ciphertext and exposes only configured state`() = runTest {
+    fun `saving a key stores ciphertext and a masked preview`() = runTest {
         val dataStore = FakeDataStore(emptyPreferences())
-        val store = EncryptedOpenRouterKeyStore(dataStore, FakeCipher())
+        val store = EncryptedAiApiKeyStore(dataStore, FakeCipher())
 
-        store.save("  sk-or-v1-secret  ")
+        store.save("  sk-ai-secret  ")
 
         assertTrue(store.isConfigured.first())
-        assertEquals("sk-or-v1-secret", store.read())
+        assertEquals("sk-ai-secret", store.read())
+        assertEquals("sk-************cret", store.preview())
         assertEquals(
-            "encrypted:sk-or-v1-secret",
-            dataStore.data.first()[stringPreferencesKey("openrouter_api_key")],
+            "encrypted:sk-ai-secret",
+            dataStore.data.first()[stringPreferencesKey("ai_api_key")],
+        )
+        assertEquals(
+            "sk-************cret",
+            dataStore.data.first()[stringPreferencesKey("ai_api_key_preview")],
         )
     }
 
     @Test
     fun `clearing a key removes it from the secret store`() = runTest {
-        val store = EncryptedOpenRouterKeyStore(FakeDataStore(emptyPreferences()), FakeCipher())
+        val store = EncryptedAiApiKeyStore(FakeDataStore(emptyPreferences()), FakeCipher())
         store.save("key")
 
         store.clear()
 
         assertFalse(store.isConfigured.first())
         assertNull(store.read())
+        assertNull(store.preview())
+    }
+
+    @Test
+    fun `preview backfills the suffix for a key saved before previews existed`() = runTest {
+        val dataStore = FakeDataStore(
+            androidx.datastore.preferences.core.mutablePreferencesOf(
+                stringPreferencesKey("ai_api_key") to "encrypted:sk-legacy-key-1234",
+            ),
+        )
+        val store = EncryptedAiApiKeyStore(dataStore, FakeCipher())
+
+        assertEquals("sk-************1234", store.preview())
+        assertEquals(
+            "sk-************1234",
+            dataStore.data.first()[stringPreferencesKey("ai_api_key_preview")],
+        )
     }
 
     @Test
     fun `an unreadable ciphertext is removed instead of being treated as a key`() = runTest {
         val dataStore = FakeDataStore(
             androidx.datastore.preferences.core.mutablePreferencesOf(
-                stringPreferencesKey("openrouter_api_key") to "broken",
+                stringPreferencesKey("ai_api_key") to "broken",
             ),
         )
-        val store = EncryptedOpenRouterKeyStore(dataStore, object : SecretCipher {
+        val store = EncryptedAiApiKeyStore(dataStore, object : SecretCipher {
             override fun encrypt(plainText: String): String = plainText
 
             override fun decrypt(cipherText: String): String = error("cannot decrypt")

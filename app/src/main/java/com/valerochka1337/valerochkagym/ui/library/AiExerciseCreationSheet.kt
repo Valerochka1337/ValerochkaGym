@@ -79,12 +79,6 @@ internal fun AiExerciseCreationSheet(
                     color = MaterialTheme.colorScheme.onSurface,
                 )
             }
-            Spacer(Modifier.height(12.dp))
-            Text(
-                text = "Опишите снаряд, положение и движение. ИИ предложит название, тип и карту мышц, а вы сможете всё проверить перед сохранением.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
             Spacer(Modifier.height(16.dp))
             OutlinedTextField(
                 value = state.description,
@@ -120,10 +114,10 @@ internal fun AiExerciseCreationSheet(
                 }
             }
 
-            if (!state.keyConfigured) {
+            if (!state.aiConfigured) {
                 Spacer(Modifier.height(12.dp))
                 Text(
-                    text = "Чтобы воспользоваться ИИ, добавьте ключ OpenRouter в настройках.",
+                    text = "Настройте нейросеть в настройках.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -150,7 +144,7 @@ internal fun AiExerciseCreationSheet(
                         )
                         Spacer(Modifier.width(12.dp))
                         Text(
-                            text = "Создаю черновик упражнения…",
+                            text = "Создаю упражнение…",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -162,7 +156,9 @@ internal fun AiExerciseCreationSheet(
             PillButton(
                 text = if (state.isGenerating) "Создаю…" else "Создать с ИИ",
                 onClick = onGenerate,
-                enabled = !state.isGenerating && state.keyConfigured && state.description.trim().isNotEmpty(),
+                enabled = !state.isGenerating &&
+                    state.aiConfigured &&
+                    state.description.trim().isNotEmpty(),
                 leadingIcon = Icons.Rounded.AutoAwesome,
                 modifier = Modifier.fillMaxWidth(),
             )

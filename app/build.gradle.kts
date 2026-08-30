@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
@@ -6,6 +8,28 @@ plugins {
     alias(libs.plugins.hilt)
     alias(libs.plugins.room)
 }
+
+val localKeystoreProperties = Properties()
+val localKeystorePropertiesFile = rootProject.file("keystore.properties")
+if (localKeystorePropertiesFile.isFile) {
+    localKeystorePropertiesFile.inputStream().use { localKeystoreProperties.load(it) }
+}
+
+fun releaseSigningValue(environmentVariable: String, propertyName: String): String? =
+    providers.environmentVariable(environmentVariable).orNull?.takeIf { it.isNotBlank() }
+        ?: localKeystoreProperties.getProperty(propertyName)?.takeIf { it.isNotBlank() }
+
+val releaseKeystoreFile = releaseSigningValue("RELEASE_KEYSTORE_FILE", "storeFile")
+val releaseKeystorePassword = releaseSigningValue("RELEASE_KEYSTORE_PASSWORD", "storePassword")
+val releaseKeyAlias = releaseSigningValue("RELEASE_KEY_ALIAS", "keyAlias")
+val releaseKeyPassword = releaseSigningValue("RELEASE_KEY_PASSWORD", "keyPassword")
+
+val releaseSigningInputs = linkedMapOf(
+    "RELEASE_KEYSTORE_FILE / storeFile" to releaseKeystoreFile,
+    "RELEASE_KEYSTORE_PASSWORD / storePassword" to releaseKeystorePassword,
+    "RELEASE_KEY_ALIAS / keyAlias" to releaseKeyAlias,
+    "RELEASE_KEY_PASSWORD / keyPassword" to releaseKeyPassword,
+)
 
 android {
     namespace = "com.valerochka1337.valerochkagym"
@@ -23,8 +47,19 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        create("release") {
+            storeFile = releaseKeystoreFile?.let(rootProject::file)
+            storePassword = releaseKeystorePassword
+            keyAlias = releaseKeyAlias
+            keyPassword = releaseKeyPassword
+        }
+    }
+
     buildTypes {
         release {
+            signingConfig = signingConfigs.getByName("release")
+
             // R8: сжатие кода и ресурсов. Keep-правила — в src/main/keepRules/rules.keep
             // (kotlinx-serialization DTO Google API; Hilt/Room/WorkManager несут consumer-rules).
             optimization {
@@ -41,6 +76,18 @@ android {
     testOptions {
         unitTests {
             isIncludeAndroidResources = true
+        }
+    }
+}
+
+tasks.matching { it.name == "validateSigningRelease" }.configureEach {
+    doFirst {
+        val missingInputs = releaseSigningInputs.filterValues { it.isNullOrBlank() }.keys
+        if (missingInputs.isNotEmpty()) {
+            throw GradleException(
+                "Release-подпись не настроена. Задайте: ${missingInputs.joinToString()}. " +
+                    "Локально можно использовать keystore.properties в корне проекта.",
+            )
         }
     }
 }
@@ -65,6 +112,7 @@ room {
 }
 
 dependencies {
+    implementation(libs.androidx.exifinterface)
     // Official Xiaomi Wear interconnect SDK from the Vela third-party-app demo.
     implementation(files("libs/xms-wearable-lib_1.4_release.aar"))
 

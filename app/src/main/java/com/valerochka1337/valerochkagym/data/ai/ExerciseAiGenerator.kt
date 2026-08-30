@@ -7,7 +7,6 @@ import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
 import com.valerochka1337.valerochkagym.data.db.entity.Muscle
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleLoad
-import com.valerochka1337.valerochkagym.data.settings.OpenRouterKeyStore
 import com.valerochka1337.valerochkagym.di.ComputeDispatcher
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
@@ -24,6 +23,7 @@ import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
 import retrofit2.HttpException
+import java.io.InterruptedIOException
 import java.io.IOException
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -49,14 +49,13 @@ interface ExerciseAiGenerator {
 }
 
 /**
- * Генератор упражнений через OpenRouter. Каталог передаётся целиком, чтобы новая карта мышц
+ * Генератор упражнений через OpenAI-совместимый API. Каталог передаётся целиком, чтобы новая карта мышц
  * оставалась сопоставимой с существующими, а повтор существующего варианта возвращал его ID.
  */
 @Singleton
-class OpenRouterExerciseAiGenerator @Inject constructor(
-    private val api: OpenRouterApi,
-    private val keyStore: OpenRouterKeyStore,
-    private val modelSelector: OpenRouterModelSelector,
+class AiApiExerciseAiGenerator @Inject constructor(
+    private val api: AiApi,
+    private val configurationProvider: AiApiConfigurationProvider,
     private val exerciseDao: ExerciseDao,
     private val exerciseMuscleDao: ExerciseMuscleDao,
     private val json: Json,
@@ -68,22 +67,32 @@ class OpenRouterExerciseAiGenerator @Inject constructor(
         val normalizedDescription = description.trim()
         if (normalizedDescription.isEmpty()) return ExerciseAiGenerationResult.Failure(EMPTY_DESCRIPTION_MESSAGE)
 
-        val key = keyStore.read() ?: return ExerciseAiGenerationResult.Failure(MISSING_KEY_MESSAGE)
+        val configuration = try {
+            configurationProvider.requestConfiguration()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            null
+        } ?: return ExerciseAiGenerationResult.Failure(MISSING_CONFIGURATION_MESSAGE)
         val snapshot = try {
             withContext(computeDispatcher) { createSnapshot() }
         } catch (e: CancellationException) {
             throw e
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            logFailure(
+                modelId = configuration.modelId,
+                stage = "catalog_snapshot",
+                throwable = e,
+            )
             return ExerciseAiGenerationResult.Failure(GENERIC_FAILURE_MESSAGE)
         }
 
-        val selectedModel = modelSelector.selectedModel()
-        val systemPrompt = selectedModel.systemPrompt(SYSTEM_PROMPT, RESPONSE_SCHEMA)
-        val request = OpenRouterChatRequest(
-            model = selectedModel.id,
+        val systemPrompt = jsonObjectSystemPrompt(SYSTEM_PROMPT, RESPONSE_SCHEMA)
+        val request = AiApiChatRequest(
+            model = configuration.modelId,
             messages = listOf(
-                OpenRouterMessage.text(role = "system", text = systemPrompt),
-                OpenRouterMessage.text(
+                AiApiMessage.text(role = "system", text = systemPrompt),
+                AiApiMessage.text(
                     role = "user",
                     text = """
                         <exercise_catalog_json>
@@ -98,37 +107,80 @@ class OpenRouterExerciseAiGenerator @Inject constructor(
                     """.trimIndent(),
                 ),
             ),
-            responseFormat = selectedModel.responseFormat(
-                schemaName = "exercise_suggestion",
-                schema = RESPONSE_SCHEMA,
-            ),
-            provider = OpenRouterProviderPreferences(requireParameters = true),
+            responseFormat = AiApiResponseFormat(),
             maxTokens = MAX_COMPLETION_TOKENS,
-            reasoning = selectedModel.reasoningPreferences(),
-            temperature = RESPONSE_TEMPERATURE,
         )
 
         val response = try {
-            api.createCompletion(authorization = "Bearer $key", request = request)
+            api.createCompletion(
+                endpoint = aiApiChatCompletionsEndpoint(configuration.connection.baseUrl),
+                authorization = "Bearer ${configuration.connection.apiKey}",
+                request = request,
+            )
         } catch (e: CancellationException) {
             throw e
         } catch (e: HttpException) {
-            return openRouterErrorFailure(e.code())
-        } catch (_: IOException) {
+            logFailure(
+                modelId = configuration.modelId,
+                stage = "http",
+                httpCode = e.code(),
+                responseBody = runCatching { e.response()?.errorBody()?.string() }.getOrNull(),
+                throwable = e,
+            )
+            return aiApiErrorFailure(e.code())
+        } catch (e: InterruptedIOException) {
+            logFailure(
+                modelId = configuration.modelId,
+                stage = "timeout",
+                throwable = e,
+            )
+            return ExerciseAiGenerationResult.Failure(AI_REQUEST_TIMEOUT_MESSAGE)
+        } catch (e: IOException) {
+            logFailure(
+                modelId = configuration.modelId,
+                stage = "network",
+                throwable = e,
+            )
             return ExerciseAiGenerationResult.Failure(NETWORK_FAILURE_MESSAGE)
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            logFailure(
+                modelId = configuration.modelId,
+                stage = "request",
+                throwable = e,
+            )
             return ExerciseAiGenerationResult.Failure(GENERIC_FAILURE_MESSAGE)
         }
 
         return withContext(computeDispatcher) {
-            logResponse(selectedModel.id, response)
+            logResponse(configuration.modelId, response)
             parseResponse(response, snapshot.exercises)
         }
     }
 
-    private fun logResponse(modelId: String, response: OpenRouterChatResponse) {
+    private fun logResponse(modelId: String, response: AiApiChatResponse) {
         try {
             responseLogger.log(AiResponseSource.EXERCISE, modelId, response)
+        } catch (_: Exception) {
+            // Отладочный вывод не должен менять результат ИИ-запроса.
+        }
+    }
+
+    private fun logFailure(
+        modelId: String,
+        stage: String,
+        httpCode: Int? = null,
+        responseBody: String? = null,
+        throwable: Throwable? = null,
+    ) {
+        try {
+            responseLogger.logFailure(
+                source = AiResponseSource.EXERCISE,
+                requestedModelId = modelId,
+                stage = stage,
+                httpCode = httpCode,
+                responseBody = responseBody,
+                throwable = throwable,
+            )
         } catch (_: Exception) {
             // Отладочный вывод не должен менять результат ИИ-запроса.
         }
@@ -159,13 +211,13 @@ class OpenRouterExerciseAiGenerator @Inject constructor(
     }
 
     private fun parseResponse(
-        response: OpenRouterChatResponse,
+        response: AiApiChatResponse,
         exercises: List<ExerciseEntity>,
     ): ExerciseAiGenerationResult {
         val choice = response.choices.firstOrNull()
         val responseError = response.error ?: response.choices.firstOrNull { it.error != null }?.error
         if (responseError != null) {
-            return openRouterErrorFailure(responseError.code, responseError.metadata?.errorType)
+            return aiApiErrorFailure(responseError.httpCode, responseError.normalizedType)
         }
         if (choice?.finishReason == FINISH_REASON_ERROR) {
             return ExerciseAiGenerationResult.Failure(INTERRUPTED_RESPONSE_MESSAGE)
@@ -243,35 +295,37 @@ class OpenRouterExerciseAiGenerator @Inject constructor(
         )
     }
 
-    private fun openRouterErrorFailure(
+    private fun aiApiErrorFailure(
         code: Int?,
         errorType: String? = null,
     ): ExerciseAiGenerationResult.Failure {
-        if (isOpenRouterModelUnavailable(errorType, code)) {
+        if (isAiModelUnavailable(errorType, code)) {
             return ExerciseAiGenerationResult.Failure(MODEL_UNAVAILABLE_MESSAGE, modelUnavailable = true)
         }
         val message = when (errorType) {
-            "authentication", "permission_denied" -> "Ключ OpenRouter недействителен или не имеет доступа"
-            "payment_required" -> "Для этого ключа сейчас недоступны бесплатные модели — проверьте лимиты OpenRouter"
-            "rate_limit_exceeded" -> "Лимит бесплатной модели исчерпан — попробуйте позже"
-            "timeout" -> "OpenRouter не дождался ответа модели — попробуйте ещё раз"
+            "authentication", "authentication_error", "invalid_api_key", "permission_denied" ->
+                "API key недействителен или не имеет доступа"
+            "payment_required", "insufficient_quota" ->
+                "На сервере закончился доступный лимит — проверьте ключ и баланс"
+            "rate_limit_exceeded", "rate_limit_error" -> "Лимит запросов исчерпан — попробуйте позже"
+            "timeout", "timeout_error" -> "Сервер не дождался ответа нейросети — попробуйте ещё раз"
             "context_length_exceeded", "string_too_long" ->
-                "Каталог упражнений не поместился в контекст бесплатной модели — попробуйте позже"
+                "Каталог упражнений не поместился в контекст модели — выберите другую"
             "refusal" -> "Модель не смогла сформировать упражнение — переформулируйте описание"
             else -> when (code) {
-                401, 403 -> "Ключ OpenRouter недействителен или не имеет доступа"
-                402 -> "Для этого ключа сейчас недоступны бесплатные модели — проверьте лимиты OpenRouter"
-                408, 504 -> "OpenRouter не дождался ответа модели — попробуйте ещё раз"
-                429 -> "Лимит бесплатной модели исчерпан — попробуйте позже"
-                in 500..599 -> "OpenRouter временно недоступен — попробуйте позже"
+                401, 403 -> "API key недействителен или не имеет доступа"
+                402 -> "На сервере закончился доступный лимит — проверьте ключ и баланс"
+                408, 504 -> "Сервер не дождался ответа нейросети — попробуйте ещё раз"
+                429 -> "Лимит запросов исчерпан — попробуйте позже"
+                in 500..599 -> "Сервер временно недоступен — попробуйте позже"
                 null -> GENERIC_FAILURE_MESSAGE
-                else -> "OpenRouter вернул ошибку (HTTP $code) — попробуйте ещё раз"
+                else -> "Сервер вернул ошибку (HTTP $code) — попробуйте ещё раз"
             }
         }
         return ExerciseAiGenerationResult.Failure(message)
     }
 
-    private fun OpenRouterResponseMessage?.textContent(): String? {
+    private fun AiApiResponseMessage?.textContent(): String? {
         val content = this?.content
         return (content as? JsonPrimitive)
             ?.takeUnless { it is JsonNull }
@@ -319,7 +373,6 @@ class OpenRouterExerciseAiGenerator @Inject constructor(
         const val RESULT_EXISTING = "existing"
         const val RESULT_NEW = "new"
         const val MAX_COMPLETION_TOKENS = 2_048
-        const val RESPONSE_TEMPERATURE = 0.1
         const val MIN_CONTRIBUTION = 5
         const val MAX_CONTRIBUTION = 100
         const val LOAD_STEP = 5
@@ -327,10 +380,11 @@ class OpenRouterExerciseAiGenerator @Inject constructor(
         const val FINISH_REASON_LENGTH = "length"
 
         const val EMPTY_DESCRIPTION_MESSAGE = "Опишите упражнение"
-        const val MISSING_KEY_MESSAGE = "Укажите ключ OpenRouter в настройках"
-        const val NETWORK_FAILURE_MESSAGE = "Не удалось связаться с OpenRouter — попробуйте ещё раз"
+        const val MISSING_CONFIGURATION_MESSAGE =
+            "Настройте нейросеть в настройках"
+        const val NETWORK_FAILURE_MESSAGE = "Не удалось связаться с сервером — попробуйте ещё раз"
         const val GENERIC_FAILURE_MESSAGE = "Не удалось создать упражнение — попробуйте ещё раз"
-        const val INTERRUPTED_RESPONSE_MESSAGE = "OpenRouter не завершил ответ — попробуйте ещё раз"
+        const val INTERRUPTED_RESPONSE_MESSAGE = "Сервер не завершил ответ — попробуйте ещё раз"
         const val RESPONSE_LIMIT_MESSAGE = "Модель исчерпала лимит ответа — попробуйте ещё раз или выберите другую"
         const val MISSING_EXISTING_ID_MESSAGE = "ИИ не указал существующее упражнение — попробуйте ещё раз"
         const val INVALID_RESPONSE_MESSAGE = "ИИ вернул неполный ответ — попробуйте ещё раз"

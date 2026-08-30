@@ -1,7 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?><!--
-    Бэкап включён почти целиком (устройства до API 31). OpenRouter API key хранится отдельно,
+    Бэкап включён почти целиком (устройства до API 31). API key нейросети хранится отдельно,
     зашифрован Android Keystore и намеренно не переносится на другое устройство.
 -->
 <full-backup-content>
+    <exclude domain="file" path="datastore/ai_secrets.preferences_pb" />
+    <!-- Не переносим и оставшийся после обновления секрет прежней OpenRouter-интеграции. -->
     <exclude domain="file" path="datastore/openrouter_secrets.preferences_pb" />
 </full-backup-content>

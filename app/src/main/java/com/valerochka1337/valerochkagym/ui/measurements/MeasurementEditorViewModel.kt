@@ -7,10 +7,10 @@ import androidx.lifecycle.viewModelScope
 import com.valerochka1337.valerochkagym.data.ai.InBodyReportAiReader
 import com.valerochka1337.valerochkagym.data.ai.InBodyReportAiResult
 import com.valerochka1337.valerochkagym.data.ai.InBodyReportDraft
+import com.valerochka1337.valerochkagym.data.ai.AiApiConfigurationProvider
 import com.valerochka1337.valerochkagym.data.db.dao.BodyMeasurementDao
 import com.valerochka1337.valerochkagym.data.db.entity.BodyMeasurementEntity
 import com.valerochka1337.valerochkagym.data.db.entity.UploadStatus
-import com.valerochka1337.valerochkagym.data.settings.OpenRouterKeyStore
 import com.valerochka1337.valerochkagym.domain.measurements.InBodySegment
 import com.valerochka1337.valerochkagym.domain.measurements.InBodySegmentValues
 import com.valerochka1337.valerochkagym.domain.measurements.calculateWaistHipRatio
@@ -56,7 +56,7 @@ data class MeasurementEditorUiState(
     val isLoading: Boolean = false,
     val isScanningInBody: Boolean = false,
     val isSaving: Boolean = false,
-    val isOpenRouterConfigured: Boolean = false,
+    val isAiConfigured: Boolean = false,
     val inBodyScanError: String? = null,
     val inBodyScanModelUnavailable: Boolean = false,
     val saveError: String? = null,
@@ -143,7 +143,8 @@ class MeasurementEditorViewModel @Inject constructor(
     private val bodyMeasurementDao: BodyMeasurementDao,
     private val uploadScheduler: MeasurementUploadScheduler,
     private val inBodyReportAiReader: InBodyReportAiReader = NoOpInBodyReportAiReader,
-    private val openRouterKeyStore: OpenRouterKeyStore = NoOpOpenRouterKeyStore,
+    private val aiApiConfigurationProvider: AiApiConfigurationProvider =
+        NoOpAiApiConfigurationProvider,
 ) : ViewModel() {
 
     private val measurementId: String? = savedStateHandle.get(GymRoutes.MEASUREMENT_ID_ARG)
@@ -161,8 +162,8 @@ class MeasurementEditorViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            openRouterKeyStore.isConfigured.collect { isConfigured ->
-                _uiState.update { it.copy(isOpenRouterConfigured = isConfigured) }
+            aiApiConfigurationProvider.isConfigured.collect { isConfigured ->
+                _uiState.update { it.copy(isAiConfigured = isConfigured) }
             }
         }
         measurementId?.let { id -> viewModelScope.launch { load(id) } }
@@ -175,10 +176,10 @@ class MeasurementEditorViewModel @Inject constructor(
             MeasurementEditorUiState(
                 isNew = false,
                 isLoading = false,
-                isOpenRouterConfigured = _uiState.value.isOpenRouterConfigured,
+                isAiConfigured = _uiState.value.isAiConfigured,
             )
         } else {
-            measurement.toEditorState(isOpenRouterConfigured = _uiState.value.isOpenRouterConfigured)
+            measurement.toEditorState(isAiConfigured = _uiState.value.isAiConfigured)
         }
     }
 
@@ -237,9 +238,9 @@ class MeasurementEditorViewModel @Inject constructor(
     fun scanInBody(uri: Uri, temporaryCameraFile: File? = null) {
         val state = _uiState.value
         if (state.isLoading || state.isBusy) return
-        if (!state.isOpenRouterConfigured) {
+        if (!state.isAiConfigured) {
             _uiState.update {
-                it.copy(inBodyScanError = MISSING_KEY_MESSAGE, inBodyScanModelUnavailable = false)
+                it.copy(inBodyScanError = MISSING_CONFIGURATION_MESSAGE, inBodyScanModelUnavailable = false)
             }
             temporaryCameraFile?.delete()
             return
@@ -384,20 +385,20 @@ class MeasurementEditorViewModel @Inject constructor(
     }
 
     private companion object {
-        const val MISSING_KEY_MESSAGE = "Укажите ключ OpenRouter в настройках"
+        const val MISSING_CONFIGURATION_MESSAGE =
+            "Настройте нейросеть в настройках"
         const val GENERIC_SCAN_FAILURE_MESSAGE = "Не удалось распознать лист InBody — попробуйте ещё раз"
         const val GENERIC_SAVE_FAILURE_MESSAGE = "Не удалось сохранить замер — попробуйте ещё раз"
 
         object NoOpInBodyReportAiReader : InBodyReportAiReader {
             override suspend fun read(uri: Uri): InBodyReportAiResult =
-                InBodyReportAiResult.Failure(MISSING_KEY_MESSAGE)
+                InBodyReportAiResult.Failure(MISSING_CONFIGURATION_MESSAGE)
         }
 
-        object NoOpOpenRouterKeyStore : OpenRouterKeyStore {
+        object NoOpAiApiConfigurationProvider : AiApiConfigurationProvider {
             override val isConfigured: Flow<Boolean> = flowOf(false)
-            override suspend fun save(value: String) = Unit
-            override suspend fun read(): String? = null
-            override suspend fun clear() = Unit
+            override suspend fun connection() = null
+            override suspend fun requestConfiguration() = null
         }
     }
 }
@@ -441,11 +442,11 @@ private fun MeasurementEditorUiState.applyInBodyDraft(draft: InBodyReportDraft):
     )
 }
 
-private fun BodyMeasurementEntity.toEditorState(isOpenRouterConfigured: Boolean): MeasurementEditorUiState =
+private fun BodyMeasurementEntity.toEditorState(isAiConfigured: Boolean): MeasurementEditorUiState =
     MeasurementEditorUiState(
         isNew = false,
         isLoading = false,
-        isOpenRouterConfigured = isOpenRouterConfigured,
+        isAiConfigured = isAiConfigured,
         measuredAt = measuredAt,
         weightKg = weightKg.toInput(),
         skeletalMuscleMassKg = skeletalMuscleMassKg.toInput(),

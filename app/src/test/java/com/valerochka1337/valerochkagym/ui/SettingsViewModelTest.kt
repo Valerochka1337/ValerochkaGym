@@ -9,18 +9,17 @@ import androidx.datastore.preferences.core.mutablePreferencesOf
 import com.valerochka1337.valerochkagym.data.backup.ClearDataUseCase
 import com.valerochka1337.valerochkagym.data.backup.DatabaseExporter
 import com.valerochka1337.valerochkagym.data.backup.ExportResult
-import com.valerochka1337.valerochkagym.data.ai.DEFAULT_OPEN_ROUTER_MODEL_ID
-import com.valerochka1337.valerochkagym.data.ai.OpenRouterFreeModel
-import com.valerochka1337.valerochkagym.data.ai.OpenRouterFreeModelCatalog
-import com.valerochka1337.valerochkagym.data.ai.OpenRouterJsonMode
+import com.valerochka1337.valerochkagym.data.ai.AiModel
+import com.valerochka1337.valerochkagym.data.ai.AiModelCatalog
 import com.valerochka1337.valerochkagym.data.google.AuthorizeOutcome
 import com.valerochka1337.valerochkagym.data.google.GoogleAuth
 import com.valerochka1337.valerochkagym.data.google.ImportResult
 import com.valerochka1337.valerochkagym.data.google.TokenResult
 import com.valerochka1337.valerochkagym.data.google.WorkoutImportRepository
-import com.valerochka1337.valerochkagym.data.settings.OpenRouterKeyStore
+import com.valerochka1337.valerochkagym.data.settings.AiApiKeyStore
+import com.valerochka1337.valerochkagym.data.settings.maskedAiApiKeyPreview
 import com.valerochka1337.valerochkagym.data.settings.SettingsRepository
-import com.valerochka1337.valerochkagym.ui.settings.OPEN_ROUTER_MODEL_CATALOG_TIMEOUT_MILLIS
+import com.valerochka1337.valerochkagym.ui.settings.AI_MODEL_CATALOG_TIMEOUT_MILLIS
 import com.valerochka1337.valerochkagym.ui.settings.SettingsViewModel
 import com.valerochka1337.valerochkagym.ui.theme.AccentColor
 import com.valerochka1337.valerochkagym.util.MainDispatcherRule
@@ -44,6 +43,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
+import kotlin.time.Duration.Companion.milliseconds
 
 /**
  * Unit tests for [SettingsViewModel]. A [FakeGoogleAuth] stands in for Google flows and a real
@@ -194,12 +194,12 @@ class SettingsViewModelTest {
 
     // endregion
 
-    // region OpenRouter key
+    // region AI
 
     @Test
-    fun `OpenRouter key state is exposed without exposing the saved key`() =
+    fun `API key state is exposed without exposing the saved key`() =
         runTest(mainDispatcherRule.testDispatcher.scheduler) {
-            val keyStore = FakeOpenRouterKeyStore()
+            val keyStore = FakeAiApiKeyStore()
             val viewModel = SettingsViewModel(
                 settingsRepository(),
                 FakeGoogleAuth(),
@@ -207,25 +207,58 @@ class SettingsViewModelTest {
                 FakeImportRepository(),
                 FakeDatabaseExporter(),
                 FakeClearData(),
-                openRouterKeyStore = keyStore,
+                aiApiKeyStore = keyStore,
             )
             collectUiState(viewModel)
 
-            viewModel.setOpenRouterKey("  sk-or-v1-secret  ")
+            viewModel.setAiApiKey("  sk-ai-secret  ")
 
-            assertTrue(viewModel.uiState.value.openRouterKeyConfigured)
-            assertEquals("sk-or-v1-secret", keyStore.savedKey)
-            assertEquals("Ключ OpenRouter сохранён", viewModel.messages.first())
+            assertTrue(viewModel.uiState.value.aiApiKeyConfigured)
+            assertEquals("sk-************cret", viewModel.uiState.value.aiApiKeyPreview)
+            assertEquals("sk-ai-secret", keyStore.savedKey)
+            assertEquals("API key сохранён", viewModel.messages.first())
 
-            viewModel.clearOpenRouterKey()
+            viewModel.clearAiApiKey()
 
-            assertFalse(viewModel.uiState.value.openRouterKeyConfigured)
+            assertFalse(viewModel.uiState.value.aiApiKeyConfigured)
+            assertNull(viewModel.uiState.value.aiApiKeyPreview)
             assertNull(keyStore.savedKey)
-            assertEquals("Ключ OpenRouter удалён", viewModel.messages.first())
+            assertEquals("API key удалён", viewModel.messages.first())
         }
 
     @Test
-    fun `selected OpenRouter model persists for both AI scenarios`() =
+    fun `AI address accepts http and rejects malformed input`() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val repository = settingsRepository()
+            val viewModel = SettingsViewModel(
+                repository,
+                FakeGoogleAuth(),
+                FakeUploadScheduler(),
+                FakeImportRepository(),
+                FakeDatabaseExporter(),
+                FakeClearData(),
+            )
+            collectUiState(viewModel)
+
+            viewModel.setAiBaseUrl(" ai.example.com ")
+
+            assertEquals("https://ai.example.com/v1/", viewModel.uiState.value.settings?.aiBaseUrl)
+            assertFalse(viewModel.uiState.value.aiBaseUrlError)
+            assertEquals("Адрес сохранён", viewModel.messages.first())
+
+            viewModel.setAiBaseUrl("http://ai.example.com")
+
+            assertFalse(viewModel.uiState.value.aiBaseUrlError)
+            assertEquals("http://ai.example.com/v1/", viewModel.uiState.value.settings?.aiBaseUrl)
+
+            viewModel.setAiBaseUrl("http://user:pass@ai.example.com")
+
+            assertTrue(viewModel.uiState.value.aiBaseUrlError)
+            assertEquals("http://ai.example.com/v1/", viewModel.uiState.value.settings?.aiBaseUrl)
+        }
+
+    @Test
+    fun `selected AI model persists for both AI scenarios`() =
         runTest(mainDispatcherRule.testDispatcher.scheduler) {
             val viewModel = SettingsViewModel(
                 settingsRepository(),
@@ -237,52 +270,40 @@ class SettingsViewModelTest {
             )
             collectUiState(viewModel)
 
-            assertEquals(DEFAULT_OPEN_ROUTER_MODEL_ID, viewModel.uiState.value.settings?.openRouterModelId)
+            assertNull(viewModel.uiState.value.settings?.aiModelId)
 
-            viewModel.setOpenRouterModel(
-                OpenRouterFreeModel(
-                    id = "dots-studio/dots-3-note-preview:free",
-                    name = "Dots3-Note",
-                    contextLength = 262_000,
-                    jsonMode = OpenRouterJsonMode.JSON_SCHEMA,
-                    reasoningEffort = "none",
-                ),
+            viewModel.setAiModel(
+                AiModel(id = "gpt-5.4", ownedBy = "openai"),
             )
 
-            assertEquals(
-                "dots-studio/dots-3-note-preview:free",
-                viewModel.uiState.value.settings?.openRouterModelId,
-            )
-            assertEquals(
-                OpenRouterJsonMode.JSON_SCHEMA,
-                viewModel.uiState.value.settings?.openRouterModelJsonMode,
-            )
-            assertEquals("none", viewModel.uiState.value.settings?.openRouterModelReasoningEffort)
+            assertEquals("gpt-5.4", viewModel.uiState.value.settings?.aiModelId)
         }
 
     @Test
-    fun `model catalog timeout keeps automatic selection available`() =
+    fun `model catalog timeout exposes retryable error`() =
         runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val repository = settingsRepository()
+            repository.setAiBaseUrl("https://ai.example.com/v1/")
+            val keyStore = FakeAiApiKeyStore().apply { save("key") }
             val viewModel = SettingsViewModel(
-                settingsRepository(),
+                repository,
                 FakeGoogleAuth(),
                 FakeUploadScheduler(),
                 FakeImportRepository(),
                 FakeDatabaseExporter(),
                 FakeClearData(),
-                openRouterFreeModelCatalog = HangingOpenRouterFreeModelCatalog(),
+                aiApiKeyStore = keyStore,
+                aiModelCatalog = HangingAiModelCatalog(),
             )
             collectUiState(viewModel)
-
-            advanceTimeBy(OPEN_ROUTER_MODEL_CATALOG_TIMEOUT_MILLIS)
             runCurrent()
 
-            assertFalse(viewModel.uiState.value.openRouterModelsLoading)
-            assertTrue(viewModel.uiState.value.openRouterModelsLoadError)
-            assertEquals(
-                listOf(DEFAULT_OPEN_ROUTER_MODEL_ID),
-                viewModel.uiState.value.openRouterModels.map(OpenRouterFreeModel::id),
-            )
+            advanceTimeBy(AI_MODEL_CATALOG_TIMEOUT_MILLIS.milliseconds)
+            runCurrent()
+
+            assertFalse(viewModel.uiState.value.aiModelsLoading)
+            assertTrue(viewModel.uiState.value.aiModelsLoadError)
+            assertTrue(viewModel.uiState.value.aiModels.isEmpty())
         }
 
     // endregion
@@ -523,7 +544,7 @@ class SettingsViewModelTest {
         }
     }
 
-    private class FakeOpenRouterKeyStore : OpenRouterKeyStore {
+    private class FakeAiApiKeyStore : AiApiKeyStore {
         private val configured = MutableStateFlow(false)
 
         var savedKey: String? = null
@@ -538,14 +559,16 @@ class SettingsViewModelTest {
 
         override suspend fun read(): String? = savedKey
 
+        override suspend fun preview(): String? = savedKey?.let(::maskedAiApiKeyPreview)
+
         override suspend fun clear() {
             savedKey = null
             configured.value = false
         }
     }
 
-    private class HangingOpenRouterFreeModelCatalog : OpenRouterFreeModelCatalog {
-        override suspend fun getModels(): List<OpenRouterFreeModel> = awaitCancellation()
+    private class HangingAiModelCatalog : AiModelCatalog {
+        override suspend fun getModels(): List<AiModel> = awaitCancellation()
     }
 
     /** No-op [GoogleAuth]: rest/spreadsheet/toggle paths never touch Google, so defaults suffice. */

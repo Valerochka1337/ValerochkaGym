@@ -31,6 +31,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.rounded.AccountCircle
 import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.CloudUpload
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Favorite
@@ -66,6 +67,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -80,14 +82,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import com.valerochka1337.valerochkagym.data.backup.DatabaseExporter
-import com.valerochka1337.valerochkagym.data.ai.OpenRouterFreeModel
-import com.valerochka1337.valerochkagym.data.ai.OpenRouterJsonMode
+import com.valerochka1337.valerochkagym.data.ai.AiModel
 import com.valerochka1337.valerochkagym.data.settings.GymSettings
 import com.valerochka1337.valerochkagym.ui.components.GlowBackground
 import com.valerochka1337.valerochkagym.ui.haptics.gymHaptics
@@ -165,16 +168,20 @@ fun SettingsScreen(
                             onSave = viewModel::setSpreadsheetInput,
                             onExportAll = viewModel::exportAll,
                         )
-                        OpenRouterCard(
-                            keyConfigured = state.openRouterKeyConfigured,
-                            selectedModelId = settings.openRouterModelId,
-                            models = state.openRouterModels,
-                            modelsLoading = state.openRouterModelsLoading,
-                            modelsLoadError = state.openRouterModelsLoadError,
-                            onSave = viewModel::setOpenRouterKey,
-                            onClear = viewModel::clearOpenRouterKey,
-                            onSelectModel = viewModel::setOpenRouterModel,
-                            onRefreshModels = viewModel::refreshOpenRouterModels,
+                        AiSettingsCard(
+                            baseUrl = settings.aiBaseUrl,
+                            baseUrlError = state.aiBaseUrlError,
+                            keyConfigured = state.aiApiKeyConfigured,
+                            keyPreview = state.aiApiKeyPreview,
+                            selectedModelId = settings.aiModelId,
+                            models = state.aiModels,
+                            modelsLoading = state.aiModelsLoading,
+                            modelsLoadError = state.aiModelsLoadError,
+                            onSaveBaseUrl = viewModel::setAiBaseUrl,
+                            onSaveKey = viewModel::setAiApiKey,
+                            onClear = viewModel::clearAiApiKey,
+                            onSelectModel = viewModel::setAiModel,
+                            onRefreshModels = viewModel::refreshAiModels,
                         )
                         RestTimerCard(
                             settings = settings,
@@ -339,38 +346,83 @@ private fun SpreadsheetCard(
     }
 }
 
-/** Настройка AI-генерации: поле всегда пустое, чтобы ключ нельзя было прочитать из интерфейса. */
+/** Настройка AI-генерации: после отправки key удаляется из состояния поля и не возвращается в UI. */
 @Composable
-private fun OpenRouterCard(
+private fun AiSettingsCard(
+    baseUrl: String?,
+    baseUrlError: Boolean,
     keyConfigured: Boolean,
-    selectedModelId: String,
-    models: List<OpenRouterFreeModel>,
+    keyPreview: String?,
+    selectedModelId: String?,
+    models: List<AiModel>,
     modelsLoading: Boolean,
     modelsLoadError: Boolean,
-    onSave: (String) -> Unit,
+    onSaveBaseUrl: (String) -> Unit,
+    onSaveKey: (String) -> Unit,
     onClear: () -> Unit,
-    onSelectModel: (OpenRouterFreeModel) -> Unit,
+    onSelectModel: (AiModel) -> Unit,
     onRefreshModels: () -> Unit,
 ) {
     var showModelPicker by rememberSaveable { mutableStateOf(false) }
-    SectionCard(title = "OpenRouter", icon = Icons.Rounded.AutoAwesome) {
-        var input by rememberSaveable { mutableStateOf("") }
-        Text(
-            text = if (keyConfigured) {
-                "Ключ сохранён на этом устройстве. Он используется для упражнений и сканирования листов InBody."
-            } else {
-                "Добавьте API key, чтобы создавать упражнения по описанию и сканировать листы InBody"
-            },
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Spacer(Modifier.height(12.dp))
+    val focusManager = LocalFocusManager.current
+    SectionCard(title = "Нейросеть", icon = Icons.Rounded.AutoAwesome) {
+        var baseUrlInput by rememberSaveable(baseUrl) { mutableStateOf(baseUrl.orEmpty()) }
+        var keyInput by rememberSaveable { mutableStateOf("") }
+        var keyFieldFocused by remember { mutableStateOf(false) }
+        val showSavedKeyPreview = keyConfigured && keyInput.isEmpty() && !keyFieldFocused
+        val saveKey = {
+            val key = keyInput
+            if (key.isNotBlank()) {
+                keyInput = ""
+                focusManager.clearFocus()
+                onSaveKey(key)
+            }
+        }
         OutlinedTextField(
-            value = input,
-            onValueChange = { input = it },
+            value = baseUrlInput,
+            onValueChange = { baseUrlInput = it },
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
-            label = { Text("OpenRouter API key") },
+            label = { Text("Base URL") },
+            leadingIcon = {
+                Icon(
+                    imageVector = Icons.Rounded.Link,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            },
+            trailingIcon = {
+                IconButton(
+                    onClick = { onSaveBaseUrl(baseUrlInput) },
+                    enabled = baseUrlInput.trim().isNotEmpty() && baseUrlInput.trim() != baseUrl,
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Check,
+                        contentDescription = "Сохранить Base URL",
+                    )
+                }
+            },
+            isError = baseUrlError,
+            keyboardOptions = KeyboardOptions(
+                keyboardType = KeyboardType.Uri,
+                imeAction = ImeAction.Done,
+            ),
+            keyboardActions = KeyboardActions(onDone = { onSaveBaseUrl(baseUrlInput) }),
+            supportingText = if (baseUrlError) {
+                { Text("Некорректный HTTP(S)-адрес") }
+            } else {
+                null
+            },
+        )
+        Spacer(Modifier.height(16.dp))
+        OutlinedTextField(
+            value = if (showSavedKeyPreview) keyPreview ?: FALLBACK_API_KEY_PREVIEW else keyInput,
+            onValueChange = { keyInput = it },
+            modifier = Modifier
+                .fillMaxWidth()
+                .onFocusChanged { keyFieldFocused = it.isFocused },
+            singleLine = true,
+            label = { Text("API key") },
             leadingIcon = {
                 Icon(
                     imageVector = Icons.Rounded.Key,
@@ -378,87 +430,78 @@ private fun OpenRouterCard(
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             },
-            visualTransformation = PasswordVisualTransformation(),
+            trailingIcon = {
+                IconButton(
+                    onClick = saveKey,
+                    enabled = keyInput.trim().isNotEmpty(),
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Check,
+                        contentDescription = "Сохранить API key",
+                    )
+                }
+            },
+            visualTransformation = if (showSavedKeyPreview) {
+                VisualTransformation.None
+            } else {
+                PasswordVisualTransformation(mask = '*')
+            },
             keyboardOptions = KeyboardOptions(
                 keyboardType = KeyboardType.Password,
                 imeAction = ImeAction.Done,
             ),
-            keyboardActions = KeyboardActions(onDone = { onSave(input) }),
-            supportingText = {
-                Text("Ключ шифруется и не переносится в резервных копиях; фото InBody отправляется в OpenRouter только на время распознавания и не сохраняется")
-            },
+            keyboardActions = KeyboardActions(onDone = { saveKey() }),
         )
-        Spacer(Modifier.height(12.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            OutlinedButton(
-                onClick = { onSave(input) },
-                enabled = input.trim().isNotEmpty(),
+        if (keyConfigured) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
             ) {
-                Text(if (keyConfigured) "Заменить ключ" else "Сохранить ключ")
-            }
-            if (keyConfigured) {
                 TextButton(
                     onClick = {
-                        input = ""
+                        keyInput = ""
                         onClear()
                     },
                 ) {
-                    Text("Удалить")
+                    Text("Удалить ключ")
                 }
             }
         }
-        Spacer(Modifier.height(20.dp))
-        Text(
-            text = "Модель ИИ",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
-        Spacer(Modifier.height(4.dp))
-        Text(
-            text = "Бесплатные модели для фото InBody и JSON. Где строгая схема недоступна, ответ дополнительно проверяет приложение. Список обновляется из OpenRouter.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Spacer(Modifier.height(10.dp))
-        val selectedModel = models.firstOrNull { it.id == selectedModelId }
-            ?: OpenRouterFreeModel(
-                id = selectedModelId,
-                name = "Недоступная модель",
-                contextLength = 0,
-                jsonMode = OpenRouterJsonMode.JSON_OBJECT,
-            )
+        Spacer(Modifier.height(12.dp))
+        val connectionConfigured = baseUrl != null && keyConfigured
+        val modelStatus = when {
+            !connectionConfigured -> "Сначала сохраните адрес и ключ"
+            modelsLoading -> "Загрузка…"
+            selectedModelId != null && models.none { it.id == selectedModelId } -> "Нет в каталоге"
+            selectedModelId == null -> "Выберите из каталога"
+            else -> null
+        }
         OutlinedButton(
             onClick = { showModelPicker = true },
+            enabled = connectionConfigured,
             modifier = Modifier.fillMaxWidth(),
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = selectedModel.name,
+                    text = selectedModelId ?: "Модель не выбрана",
                     maxLines = 1,
                     softWrap = false,
                 )
-                Text(
-                    text = if (modelsLoading) {
-                        "Загружаю дополнительные модели…"
-                    } else {
-                        modelDescription(selectedModel)
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    softWrap = false,
-                )
+                modelStatus?.let { status ->
+                    Text(
+                        text = status,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        softWrap = false,
+                    )
+                }
             }
         }
-        if (modelsLoadError) {
+        if (modelsLoadError && connectionConfigured) {
             Spacer(Modifier.height(8.dp))
             Text(
-                text = "Не удалось обновить список. Можно повторить попытку или оставить текущий выбор.",
+                text = "Не удалось загрузить модели",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.error,
             )
@@ -482,15 +525,15 @@ private fun OpenRouterCard(
 
 @Composable
 private fun ModelPickerDialog(
-    selectedModelId: String,
-    models: List<OpenRouterFreeModel>,
+    selectedModelId: String?,
+    models: List<AiModel>,
     modelsLoading: Boolean,
-    onSelect: (OpenRouterFreeModel) -> Unit,
+    onSelect: (AiModel) -> Unit,
     onDismiss: () -> Unit,
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Бесплатная модель ИИ") },
+        title = { Text("Модель") },
         text = {
             Column(
                 modifier = Modifier
@@ -515,23 +558,21 @@ private fun ModelPickerDialog(
                             onClick = null,
                         )
                         Spacer(Modifier.width(8.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = model.name,
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = MaterialTheme.colorScheme.onSurface,
-                            )
-                            Text(
-                                text = modelDescription(model),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
+                        Text(
+                            text = model.id,
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.weight(1f),
+                        )
                     }
                 }
-                if (modelsLoading) {
+                if (modelsLoading || models.isEmpty()) {
                     Text(
-                        text = "Загружаю дополнительные модели…",
+                        text = if (modelsLoading) {
+                            "Загружаю модели…"
+                        } else {
+                            "Список моделей пуст"
+                        },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(top = 8.dp),
@@ -545,18 +586,7 @@ private fun ModelPickerDialog(
     )
 }
 
-private fun modelDescription(model: OpenRouterFreeModel): String = when {
-    model.isAutomatic -> "Рекомендуется: OpenRouter подберёт доступную совместимую модель"
-    model.expiresAt != null -> "${model.jsonDescription()} · доступна до ${model.expiresAt}"
-    model.contextLength >= 1_000_000 -> "${model.jsonDescription()} · контекст ${model.contextLength / 1_000_000} млн"
-    model.contextLength >= 1_000 -> "${model.jsonDescription()} · контекст ${model.contextLength / 1_000} тыс."
-    else -> model.jsonDescription()
-}
-
-private fun OpenRouterFreeModel.jsonDescription(): String = when (jsonMode) {
-    OpenRouterJsonMode.JSON_SCHEMA -> "Фото InBody + строгий JSON"
-    OpenRouterJsonMode.JSON_OBJECT -> "Фото InBody + JSON, проверяется приложением"
-}
+private const val FALLBACK_API_KEY_PREVIEW = "sk-************"
 
 @Composable
 private fun RestTimerCard(

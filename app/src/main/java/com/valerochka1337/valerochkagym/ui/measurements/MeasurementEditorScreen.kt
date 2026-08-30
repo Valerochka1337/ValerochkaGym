@@ -348,7 +348,7 @@ private fun InBodyImportCard(
         }
         Spacer(Modifier.height(6.dp))
         Text(
-            text = "Перед выбором снимка: фото отправится во внешний OpenRouter для распознавания и не будет сохранено в приложении. Для полного отчёта снимите лист целиком, без бликов и не издалека.",
+            text = "Снимите лист целиком, без бликов.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -388,7 +388,7 @@ private fun InBodyImportCard(
             }
         }
         Spacer(Modifier.height(14.dp))
-        if (state.isOpenRouterConfigured) {
+        if (state.isAiConfigured) {
             PillButton(
                 text = if (state.isScanningInBody) "Распознаю…" else "Выбрать фото листа",
                 onClick = onScan,
@@ -398,7 +398,7 @@ private fun InBodyImportCard(
             )
         } else {
             Text(
-                text = "Чтобы распознать отчёт, добавьте ключ OpenRouter в настройках.",
+                text = "Настройте нейросеть в настройках.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -439,14 +439,9 @@ private fun InBodyImportSourceSheet(
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onSurface,
             )
-            Text(
-                text = "Снимок будет отправлен в OpenRouter только для создания редактируемого черновика. После обработки файл камеры удаляется, галерейный снимок не копируется в приложение.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            if (!state.isOpenRouterConfigured) {
+            if (!state.isAiConfigured) {
                 Text(
-                    text = "Сначала добавьте ключ OpenRouter в настройках.",
+                    text = "Настройте нейросеть в настройках.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

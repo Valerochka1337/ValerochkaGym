@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.valerochka1337.valerochkagym.data.ai.ExerciseAiGenerationResult
 import com.valerochka1337.valerochkagym.data.ai.ExerciseAiGenerator
+import com.valerochka1337.valerochkagym.data.ai.AiApiConfigurationProvider
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseDao
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseMuscleDao
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
@@ -13,7 +14,6 @@ import com.valerochka1337.valerochkagym.data.db.entity.Muscle
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleGroup
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleLoad
 import com.valerochka1337.valerochkagym.data.db.entity.group
-import com.valerochka1337.valerochkagym.data.settings.OpenRouterKeyStore
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -61,7 +61,7 @@ data class ExerciseEditorState(
 data class ExerciseAiCreationState(
     val description: String = "",
     val isGenerating: Boolean = false,
-    val keyConfigured: Boolean = false,
+    val aiConfigured: Boolean = false,
     val error: String? = null,
     val modelUnavailable: Boolean = false,
 )
@@ -69,17 +69,15 @@ data class ExerciseAiCreationState(
 /** Заглушка оставляет ручной путь доступным в прямых unit-тестах без Hilt. */
 private object NoOpExerciseAiGenerator : ExerciseAiGenerator {
     override suspend fun generate(description: String): ExerciseAiGenerationResult =
-        ExerciseAiGenerationResult.Failure("Укажите ключ OpenRouter в настройках")
+        ExerciseAiGenerationResult.Failure("Настройте нейросеть в настройках")
 }
 
-private object NoOpOpenRouterKeyStore : OpenRouterKeyStore {
+private object NoOpAiApiConfigurationProvider : AiApiConfigurationProvider {
     override val isConfigured = MutableStateFlow(false)
 
-    override suspend fun save(value: String) = Unit
+    override suspend fun connection() = null
 
-    override suspend fun read(): String? = null
-
-    override suspend fun clear() = Unit
+    override suspend fun requestConfiguration() = null
 }
 
 /**
@@ -94,14 +92,15 @@ class ExerciseLibraryViewModel @Inject constructor(
     private val exerciseDao: ExerciseDao,
     private val exerciseMuscleDao: ExerciseMuscleDao,
     private val exerciseAiGenerator: ExerciseAiGenerator = NoOpExerciseAiGenerator,
-    private val openRouterKeyStore: OpenRouterKeyStore = NoOpOpenRouterKeyStore,
+    private val aiApiConfigurationProvider: AiApiConfigurationProvider =
+        NoOpAiApiConfigurationProvider,
 ) : ViewModel() {
 
     private val query = MutableStateFlow("")
     private val selectedGroup = MutableStateFlow<MuscleGroup?>(null)
     private val _editor = MutableStateFlow<ExerciseEditorState?>(null)
     private val _aiCreation = MutableStateFlow<ExerciseAiCreationState?>(null)
-    private val keyConfigured = MutableStateFlow(false)
+    private val aiConfigured = MutableStateFlow(false)
     private var generationJob: Job? = null
     private var generationId = 0L
 
@@ -131,9 +130,9 @@ class ExerciseLibraryViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            openRouterKeyStore.isConfigured.collect { configured ->
-                keyConfigured.value = configured
-                _aiCreation.update { state -> state?.copy(keyConfigured = configured) }
+            aiApiConfigurationProvider.isConfigured.collect { configured ->
+                aiConfigured.value = configured
+                _aiCreation.update { state -> state?.copy(aiConfigured = configured) }
             }
         }
     }
@@ -153,7 +152,7 @@ class ExerciseLibraryViewModel @Inject constructor(
 
     fun openCreate() {
         closeAiCreation()
-        _aiCreation.value = ExerciseAiCreationState(keyConfigured = keyConfigured.value)
+        _aiCreation.value = ExerciseAiCreationState(aiConfigured = aiConfigured.value)
     }
 
     fun onAiDescriptionChange(value: String) {
@@ -182,7 +181,7 @@ class ExerciseLibraryViewModel @Inject constructor(
 
     fun generateAiExercise() {
         val state = _aiCreation.value ?: return
-        if (state.isGenerating || !state.keyConfigured || state.description.trim().isEmpty()) return
+        if (state.isGenerating || !state.aiConfigured || state.description.trim().isEmpty()) return
 
         val currentGenerationId = ++generationId
         _aiCreation.value = state.copy(isGenerating = true, error = null, modelUnavailable = false)

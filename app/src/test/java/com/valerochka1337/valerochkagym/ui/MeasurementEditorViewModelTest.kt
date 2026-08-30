@@ -7,10 +7,10 @@ import com.valerochka1337.valerochkagym.data.ai.InBodyReportAiReader
 import com.valerochka1337.valerochkagym.data.ai.InBodyReportAiResult
 import com.valerochka1337.valerochkagym.data.ai.InBodyReportDraft
 import com.valerochka1337.valerochkagym.data.ai.MODEL_UNAVAILABLE_MESSAGE
+import com.valerochka1337.valerochkagym.data.ai.AiApiConfigurationProvider
 import com.valerochka1337.valerochkagym.data.db.dao.BodyMeasurementDao
 import com.valerochka1337.valerochkagym.data.db.entity.BodyMeasurementEntity
 import com.valerochka1337.valerochkagym.data.db.entity.UploadStatus
-import com.valerochka1337.valerochkagym.data.settings.OpenRouterKeyStore
 import com.valerochka1337.valerochkagym.domain.measurements.InBodySegment
 import com.valerochka1337.valerochkagym.domain.measurements.InBodySegmentValues
 import com.valerochka1337.valerochkagym.domain.measurements.effectiveWaistHipRatio
@@ -90,7 +90,7 @@ class MeasurementEditorViewModelTest {
                 dao,
                 FakeMeasurementUploadScheduler(),
                 reader,
-                FakeOpenRouterKeyStore(configured = true),
+                FakeAiApiConfigurationProvider(configured = true),
             )
             testScheduler.advanceUntilIdle()
             viewModel.setWaistCm("72")
@@ -130,7 +130,7 @@ class MeasurementEditorViewModelTest {
                 FakeBodyMeasurementDao(),
                 FakeMeasurementUploadScheduler(),
                 reader,
-                FakeOpenRouterKeyStore(configured = true),
+                FakeAiApiConfigurationProvider(configured = true),
             )
             testScheduler.advanceUntilIdle()
             viewModel.setWeightKg("70")
@@ -165,7 +165,7 @@ class MeasurementEditorViewModelTest {
                         modelUnavailable = true,
                     ),
                 ),
-                FakeOpenRouterKeyStore(configured = true),
+                FakeAiApiConfigurationProvider(configured = true),
             )
             testScheduler.advanceUntilIdle()
 
@@ -200,7 +200,7 @@ class MeasurementEditorViewModelTest {
                         ),
                     ),
                 ),
-                FakeOpenRouterKeyStore(configured = true),
+                FakeAiApiConfigurationProvider(configured = true),
             )
             testScheduler.advanceUntilIdle()
 
@@ -225,7 +225,7 @@ class MeasurementEditorViewModelTest {
                 dao,
                 FakeMeasurementUploadScheduler(),
                 FakeInBodyReportAiReader(InBodyReportAiResult.Success(InBodyReportDraft(inBodyScore = 74))),
-                FakeOpenRouterKeyStore(configured = true),
+                FakeAiApiConfigurationProvider(configured = true),
             )
             testScheduler.advanceUntilIdle()
 
@@ -307,11 +307,10 @@ class MeasurementEditorViewModelTest {
         }
     }
 
-    private class FakeOpenRouterKeyStore(private val configured: Boolean) : OpenRouterKeyStore {
+    private class FakeAiApiConfigurationProvider(configured: Boolean) : AiApiConfigurationProvider {
         override val isConfigured: Flow<Boolean> = flowOf(configured)
-        override suspend fun save(value: String) = Unit
-        override suspend fun read(): String? = if (configured) "key" else null
-        override suspend fun clear() = Unit
+        override suspend fun connection() = null
+        override suspend fun requestConfiguration() = null
     }
 
     private class FakeBodyMeasurementDao(

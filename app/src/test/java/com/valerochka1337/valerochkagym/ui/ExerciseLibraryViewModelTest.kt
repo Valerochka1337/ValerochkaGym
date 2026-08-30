@@ -5,13 +5,13 @@ import com.valerochka1337.valerochkagym.data.db.dao.ExerciseMuscleDao
 import com.valerochka1337.valerochkagym.data.ai.ExerciseAiGenerationResult
 import com.valerochka1337.valerochkagym.data.ai.ExerciseAiGenerator
 import com.valerochka1337.valerochkagym.data.ai.MODEL_UNAVAILABLE_MESSAGE
+import com.valerochka1337.valerochkagym.data.ai.AiApiConfigurationProvider
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseMuscleEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
 import com.valerochka1337.valerochkagym.data.db.entity.Muscle
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleGroup
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleLoad
-import com.valerochka1337.valerochkagym.data.settings.OpenRouterKeyStore
 import com.valerochka1337.valerochkagym.ui.library.ExerciseLibraryViewModel
 import com.valerochka1337.valerochkagym.util.MainDispatcherRule
 import kotlinx.coroutines.CompletableDeferred
@@ -273,7 +273,7 @@ class ExerciseLibraryViewModelTest {
                         loads = listOf(MuscleLoad(Muscle.GLUTES, 100), MuscleLoad(Muscle.LOWER_BACK, 70)),
                     ),
                 ),
-                openRouterKeyStore = FakeOpenRouterKeyStore(configured = true),
+                aiApiConfigurationProvider = FakeAiApiConfigurationProvider(configured = true),
             )
             mainDispatcherRule.testDispatcher.scheduler.advanceUntilIdle()
 
@@ -302,7 +302,7 @@ class ExerciseLibraryViewModelTest {
                 exerciseDao = dao,
                 exerciseMuscleDao = muscleDao,
                 exerciseAiGenerator = FakeExerciseAiGenerator(ExerciseAiGenerationResult.Existing(1L)),
-                openRouterKeyStore = FakeOpenRouterKeyStore(configured = true),
+                aiApiConfigurationProvider = FakeAiApiConfigurationProvider(configured = true),
             )
             mainDispatcherRule.testDispatcher.scheduler.advanceUntilIdle()
 
@@ -328,7 +328,7 @@ class ExerciseLibraryViewModelTest {
                 exerciseAiGenerator = FakeExerciseAiGenerator(
                     ExerciseAiGenerationResult.Failure("Лимит бесплатной модели исчерпан — попробуйте позже"),
                 ),
-                openRouterKeyStore = FakeOpenRouterKeyStore(configured = true),
+                aiApiConfigurationProvider = FakeAiApiConfigurationProvider(configured = true),
             )
             mainDispatcherRule.testDispatcher.scheduler.advanceUntilIdle()
 
@@ -354,7 +354,7 @@ class ExerciseLibraryViewModelTest {
                         modelUnavailable = true,
                     ),
                 ),
-                openRouterKeyStore = FakeOpenRouterKeyStore(configured = true),
+                aiApiConfigurationProvider = FakeAiApiConfigurationProvider(configured = true),
             )
             mainDispatcherRule.testDispatcher.scheduler.advanceUntilIdle()
 
@@ -367,7 +367,7 @@ class ExerciseLibraryViewModelTest {
         }
 
     @Test
-    fun `manual creation remains available without an OpenRouter key`() =
+    fun `manual creation remains available without an AiApi key`() =
         runTest(mainDispatcherRule.testDispatcher.scheduler) {
             val viewModel = ExerciseLibraryViewModel(FakeExerciseDao(), FakeExerciseMuscleDao())
 
@@ -386,7 +386,7 @@ class ExerciseLibraryViewModelTest {
                 exerciseDao = FakeExerciseDao(),
                 exerciseMuscleDao = FakeExerciseMuscleDao(),
                 exerciseAiGenerator = generator,
-                openRouterKeyStore = FakeOpenRouterKeyStore(configured = true),
+                aiApiConfigurationProvider = FakeAiApiConfigurationProvider(configured = true),
             )
             mainDispatcherRule.testDispatcher.scheduler.advanceUntilIdle()
 
@@ -514,19 +514,13 @@ class ExerciseLibraryViewModelTest {
         }
     }
 
-    private class FakeOpenRouterKeyStore(configured: Boolean) : OpenRouterKeyStore {
+    private class FakeAiApiConfigurationProvider(configured: Boolean) : AiApiConfigurationProvider {
         private val configuredFlow = MutableStateFlow(configured)
 
         override val isConfigured: Flow<Boolean> = configuredFlow
 
-        override suspend fun save(value: String) {
-            configuredFlow.value = value.isNotBlank()
-        }
+        override suspend fun connection() = null
 
-        override suspend fun read(): String? = if (configuredFlow.value) "test-key" else null
-
-        override suspend fun clear() {
-            configuredFlow.value = false
-        }
+        override suspend fun requestConfiguration() = null
     }
 }

@@ -7,9 +7,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
-import com.valerochka1337.valerochkagym.data.ai.DEFAULT_OPEN_ROUTER_MODEL_ID
-import com.valerochka1337.valerochkagym.data.ai.OpenRouterFreeModel
-import com.valerochka1337.valerochkagym.data.ai.OpenRouterJsonMode
+import com.valerochka1337.valerochkagym.data.ai.AiModel
 import com.valerochka1337.valerochkagym.ui.theme.AccentColor
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
@@ -34,12 +32,10 @@ data class GymSettings(
     val heartRateRestThresholdBpm: Int = DEFAULT_HEART_RATE_REST_THRESHOLD_BPM,
     /** Сколько секунд пульс должен непрерывно держаться не выше порога. */
     val heartRateRestHoldSeconds: Int = DEFAULT_HEART_RATE_REST_HOLD_SECONDS,
-    /** Free-модель OpenRouter для генерации упражнений и распознавания фото InBody. */
-    val openRouterModelId: String = DEFAULT_OPEN_ROUTER_MODEL_ID,
-    /** Совместимый с выбранной моделью способ запросить JSON. */
-    val openRouterModelJsonMode: OpenRouterJsonMode = OpenRouterJsonMode.JSON_SCHEMA,
-    /** Подходящий модели уровень reasoning; null сохраняет стандартное поведение OpenRouter. */
-    val openRouterModelReasoningEffort: String? = null,
+    /** HTTP(S) base URL пользовательского OpenAI-совместимого сервера с завершающим `/`. */
+    val aiBaseUrl: String? = null,
+    /** Модель, общая для генерации упражнений и распознавания фото InBody. */
+    val aiModelId: String? = null,
     val accent: AccentColor = AccentColor.DEFAULT,
 ) {
     companion object {
@@ -65,18 +61,14 @@ class SettingsRepository @Inject constructor(
         val HEART_RATE_REST_ENABLED = booleanPreferencesKey("heart_rate_rest_enabled")
         val HEART_RATE_REST_THRESHOLD_BPM = intPreferencesKey("heart_rate_rest_threshold_bpm")
         val HEART_RATE_REST_HOLD_SECONDS = intPreferencesKey("heart_rate_rest_hold_seconds")
-        val OPEN_ROUTER_MODEL_ID = stringPreferencesKey("openrouter_model_id")
-        val OPEN_ROUTER_MODEL_JSON_MODE = stringPreferencesKey("openrouter_model_json_mode")
-        val OPEN_ROUTER_MODEL_REASONING_EFFORT = stringPreferencesKey("openrouter_model_reasoning_effort")
+        val AI_BASE_URL = stringPreferencesKey("ai_base_url")
+        val AI_MODEL_ID = stringPreferencesKey("ai_model_id")
         val ACCENT_COLOR = stringPreferencesKey("accent_color")
     }
 
     val settings: Flow<GymSettings> = dataStore.data
         .catch { e -> if (e is IOException) emit(emptyPreferences()) else throw e }
         .map { prefs ->
-        val openRouterModelId = prefs[Keys.OPEN_ROUTER_MODEL_ID]
-            ?.takeIf { it.isNotBlank() }
-            ?: DEFAULT_OPEN_ROUTER_MODEL_ID
         GymSettings(
             googleEmail = prefs[Keys.GOOGLE_EMAIL],
             spreadsheetId = prefs[Keys.SPREADSHEET_ID],
@@ -96,13 +88,8 @@ class SettingsRepository @Inject constructor(
                 MIN_HEART_RATE_REST_HOLD_SECONDS,
                 MAX_HEART_RATE_REST_HOLD_SECONDS,
             ),
-            openRouterModelId = openRouterModelId,
-            openRouterModelJsonMode = OpenRouterJsonMode.fromStored(
-                value = prefs[Keys.OPEN_ROUTER_MODEL_JSON_MODE],
-                modelId = openRouterModelId,
-            ),
-            openRouterModelReasoningEffort = prefs[Keys.OPEN_ROUTER_MODEL_REASONING_EFFORT]
-                ?.takeIf { it.isNotBlank() },
+            aiBaseUrl = prefs[Keys.AI_BASE_URL]?.takeIf { it.isNotBlank() },
+            aiModelId = prefs[Keys.AI_MODEL_ID]?.takeIf { it.isNotBlank() },
             accent = AccentColor.fromId(prefs[Keys.ACCENT_COLOR]),
         )
     }
@@ -153,14 +140,16 @@ class SettingsRepository @Inject constructor(
         )
     }
 
-    suspend fun setOpenRouterModel(value: OpenRouterFreeModel) = dataStore.edit { prefs ->
-        prefs[Keys.OPEN_ROUTER_MODEL_ID] = value.id
-        prefs[Keys.OPEN_ROUTER_MODEL_JSON_MODE] = value.jsonMode.name
-        if (value.reasoningEffort == null) {
-            prefs.remove(Keys.OPEN_ROUTER_MODEL_REASONING_EFFORT)
-        } else {
-            prefs[Keys.OPEN_ROUTER_MODEL_REASONING_EFFORT] = value.reasoningEffort
-        }
+    suspend fun setAiBaseUrl(value: String) = dataStore.edit { prefs ->
+        require(value.isNotBlank()) { "Base URL не должен быть пустым" }
+        val previous = prefs[Keys.AI_BASE_URL]
+        prefs[Keys.AI_BASE_URL] = value
+        if (previous != value) prefs.remove(Keys.AI_MODEL_ID)
+    }
+
+    suspend fun setAiModel(value: AiModel) = dataStore.edit { prefs ->
+        require(value.id.isNotBlank()) { "ID модели не должен быть пустым" }
+        prefs[Keys.AI_MODEL_ID] = value.id.trim()
     }
 
     suspend fun setAccent(value: AccentColor) = dataStore.edit { prefs ->

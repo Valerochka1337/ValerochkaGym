@@ -16,6 +16,12 @@ local.properties
 .superpowers/
 /.idea/
 
+# Release signing credentials must never be committed.
+/keystore.properties
+*.jks
+*.keystore
+*.p12
+
 # локальные файлы инструментов и кэш Kotlin-компилятора
 /.claude/
 /.kotlin/
