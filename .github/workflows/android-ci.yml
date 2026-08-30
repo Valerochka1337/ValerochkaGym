@@ -69,12 +69,27 @@ jobs:
       - name: Run unit tests
         run: ./gradlew :app:testDebugUnitTest --stacktrace
 
+      - name: Print failed test summary
+        if: failure()
+        shell: bash
+        run: |
+          shopt -s nullglob
+          reports=(app/build/test-results/testDebugUnitTest/TEST-*.xml)
+          if (( ${#reports[@]} == 0 )); then
+            echo "No JUnit XML reports were generated."
+            exit 0
+          fi
+
+          grep -H -B 1 -A 2 '<failure' "${reports[@]}" || true
+
       - name: Upload test report on failure
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: unit-test-report-${{ github.run_number }}
-          path: app/build/reports/tests/testDebugUnitTest/
+          path: |
+            app/build/reports/tests/testDebugUnitTest/
+            app/build/test-results/testDebugUnitTest/
           if-no-files-found: ignore
           retention-days: 14
 
