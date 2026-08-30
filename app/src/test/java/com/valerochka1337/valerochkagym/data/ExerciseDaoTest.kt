@@ -12,8 +12,9 @@ import com.valerochka1337.valerochkagym.data.db.entity.MuscleGroup
 import com.valerochka1337.valerochkagym.data.db.seedExercises
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
@@ -35,12 +36,21 @@ import javax.inject.Provider
 class ExerciseDaoTest {
 
     private val openDatabases = mutableListOf<GymDatabase>()
-    private val scopes = mutableListOf<CoroutineScope>()
+    private val seedingScopes = mutableMapOf<GymDatabase, CoroutineScope>()
 
     @After
     fun tearDown() {
+        // GymDatabaseCallback seeds from a fire-and-forget coroutine. Stop and join it before
+        // closing Room; otherwise a slower CI runner can continue seeding against a closed DB and
+        // leak the exception into the next runTest as UncaughtExceptionsBeforeTest.
+        runBlocking {
+            seedingScopes.values.forEach { scope ->
+                scope.coroutineContext[Job]?.cancelAndJoin()
+            }
+        }
         openDatabases.forEach { it.close() }
-        scopes.forEach { it.cancel() }
+        seedingScopes.clear()
+        openDatabases.clear()
     }
 
     @Test
@@ -92,8 +102,7 @@ class ExerciseDaoTest {
             val first = buildSeedingDatabase(fileName = dbFile.absolutePath)
             first.openHelper.writableDatabase // onOpen seeds the fresh database
             awaitExerciseCount(first.exerciseDao(), seedExercises.size)
-            first.close()
-            openDatabases.remove(first)
+            closeSeedingDatabase(first)
 
             // Reopen: onOpen sees a non-empty table and must not add duplicates.
             val second = buildSeedingDatabase(fileName = dbFile.absolutePath)
@@ -130,7 +139,6 @@ class ExerciseDaoTest {
     private fun buildSeedingDatabase(fileName: String?): GymDatabase {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-        scopes += scope
 
         lateinit var holder: GymDatabase
         val callback = GymDatabaseCallback(Provider { holder }, scope)
@@ -145,7 +153,16 @@ class ExerciseDaoTest {
             .build()
         holder = db
         openDatabases += db
+        seedingScopes[db] = scope
         return db
+    }
+
+    private fun closeSeedingDatabase(db: GymDatabase) {
+        runBlocking {
+            seedingScopes.remove(db)?.coroutineContext?.get(Job)?.cancelAndJoin()
+        }
+        db.close()
+        openDatabases.remove(db)
     }
 
     // Seeding is a fire-and-forget scope.launch inside onOpen with no awaitable Job or Flow, so

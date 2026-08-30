@@ -80,7 +80,16 @@ jobs:
             exit 0
           fi
 
-          grep -H -B 1 -A 2 '<failure' "${reports[@]}" || true
+          awk '
+            /<testcase / { testcase = $0 }
+            /<failure / {
+              print "==> " FILENAME
+              print testcase
+              in_failure = 1
+            }
+            in_failure { print }
+            /<\/failure>/ { in_failure = 0 }
+          ' "${reports[@]}"
 
       - name: Upload test report on failure
         if: failure()
