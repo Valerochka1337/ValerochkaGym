@@ -40,6 +40,7 @@ import androidx.compose.material.icons.rounded.Link
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.PlayCircle
 import androidx.compose.material.icons.rounded.Storage
+import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material.icons.rounded.TableChart
 import androidx.compose.material.icons.rounded.Timer
 import androidx.compose.material.icons.rounded.TouchApp
@@ -48,6 +49,7 @@ import androidx.compose.material.icons.automirrored.rounded.VolumeUp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -87,7 +89,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import com.valerochka1337.valerochkagym.data.backup.DatabaseExporter
 import com.valerochka1337.valerochkagym.data.ai.AiModel
@@ -100,6 +101,10 @@ import com.valerochka1337.valerochkagym.ui.components.GymCard
 import com.valerochka1337.valerochkagym.ui.components.PillButton
 import com.valerochka1337.valerochkagym.ui.theme.AccentColor
 import com.valerochka1337.valerochkagym.ui.theme.LauncherIconBackground
+import com.valerochka1337.valerochkagym.ui.update.AppUpdateRetry
+import com.valerochka1337.valerochkagym.ui.update.AppUpdateStatus
+import com.valerochka1337.valerochkagym.ui.update.AppUpdateUiState
+import com.valerochka1337.valerochkagym.ui.update.formatUpdateBytes
 
 /** Шаг степпера отдыха по умолчанию (секунды) — совпадает с шагом внутри [SettingsViewModel]. */
 private const val REST_STEP_SECONDS = 15
@@ -114,6 +119,11 @@ private const val HEART_RATE_REST_HOLD_STEP_SECONDS = 5
 @Composable
 fun SettingsScreen(
     onBack: () -> Unit,
+    appUpdateState: AppUpdateUiState,
+    onCheckUpdate: () -> Unit,
+    onDownloadUpdate: () -> Unit,
+    onInstallUpdate: () -> Unit,
+    onRetryUpdate: () -> Unit,
     modifier: Modifier = Modifier,
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
@@ -200,6 +210,13 @@ fun SettingsScreen(
                         AccentCard(
                             selected = settings.accent,
                             onSelect = viewModel::setAccent,
+                        )
+                        AppUpdateCard(
+                            state = appUpdateState,
+                            onCheck = onCheckUpdate,
+                            onDownload = onDownloadUpdate,
+                            onInstall = onInstallUpdate,
+                            onRetry = onRetryUpdate,
                         )
                         DataCard(
                             onExport = viewModel::exportDatabase,
@@ -783,8 +800,6 @@ private fun DataCard(
                 Text("Очистить данные", color = MaterialTheme.colorScheme.error)
             }
         }
-        Spacer(Modifier.height(12.dp))
-        AboutRow()
     }
 
     if (showClearDialog) {
@@ -815,28 +830,142 @@ private fun DataCard(
     }
 }
 
-/** «О приложении»: имя и версия из PackageManager — без включения buildConfig. */
 @Composable
-private fun AboutRow() {
-    val context = LocalContext.current
-    val versionName = remember {
-        context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "—"
-    }
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
+private fun AppUpdateCard(
+    state: AppUpdateUiState,
+    onCheck: () -> Unit,
+    onDownload: () -> Unit,
+    onInstall: () -> Unit,
+    onRetry: () -> Unit,
+) {
+    val haptics = gymHaptics()
+    val status = state.status
+
+    SectionCard(title = "Приложение", icon = Icons.Rounded.SystemUpdate) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = "ValerochkaGym",
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Text(
+                text = "v${state.installedVersionName}",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                softWrap = false,
+            )
+        }
+        Spacer(Modifier.height(8.dp))
+
+        val statusText = when (status) {
+            AppUpdateStatus.Idle -> "Проверка обновлений доступна вручную"
+            AppUpdateStatus.Checking -> "Проверяем GitHub Releases…"
+            AppUpdateStatus.UpToDate -> "Установлена последняя версия"
+            is AppUpdateStatus.Available ->
+                "Доступна v${status.release.versionName} · ${formatUpdateBytes(status.release.apk.sizeBytes)}"
+            is AppUpdateStatus.Downloading -> {
+                val percent = if (status.totalBytes > 0L) {
+                    (status.downloadedBytes * 100 / status.totalBytes).coerceIn(0, 100)
+                } else {
+                    0
+                }
+                "Скачиваем v${status.release.versionName} · $percent%"
+            }
+            is AppUpdateStatus.ReadyToInstall ->
+                "v${status.release.versionName} скачана и проверена"
+            is AppUpdateStatus.Failed -> status.message
+        }
         Text(
-            text = "ValerochkaGym",
+            text = statusText,
             style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = if (status is AppUpdateStatus.Failed) {
+                MaterialTheme.colorScheme.error
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
         )
-        Text(
-            text = "v$versionName",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+
+        if (status is AppUpdateStatus.Downloading) {
+            Spacer(Modifier.height(12.dp))
+            if (status.totalBytes > 0L) {
+                LinearProgressIndicator(
+                    progress = {
+                        (status.downloadedBytes.toFloat() / status.totalBytes).coerceIn(0f, 1f)
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            } else {
+                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            }
+        }
+
+        Spacer(Modifier.height(12.dp))
+        when (status) {
+            AppUpdateStatus.Idle,
+            AppUpdateStatus.UpToDate -> OutlinedButton(onClick = {
+                haptics.tap()
+                onCheck()
+            }) {
+                Text("Проверить обновление")
+            }
+            AppUpdateStatus.Checking -> OutlinedButton(onClick = {}, enabled = false) {
+                Text("Проверяем…")
+            }
+            is AppUpdateStatus.Available -> PillButton(
+                text = "Обновить до v${status.release.versionName}",
+                onClick = {
+                    haptics.tap()
+                    onDownload()
+                },
+                modifier = Modifier.fillMaxWidth(),
+                leadingIcon = Icons.Rounded.Download,
+            )
+            is AppUpdateStatus.Downloading -> Unit
+            is AppUpdateStatus.ReadyToInstall -> PillButton(
+                text = "Установить v${status.release.versionName}",
+                onClick = {
+                    haptics.tap()
+                    onInstall()
+                },
+                modifier = Modifier.fillMaxWidth(),
+                leadingIcon = Icons.Rounded.SystemUpdate,
+            )
+            is AppUpdateStatus.Failed -> {
+                val label = when (status.retry) {
+                    AppUpdateRetry.CHECK -> "Проверить ещё раз"
+                    AppUpdateRetry.DOWNLOAD -> "Повторить скачивание"
+                    AppUpdateRetry.INSTALL -> "Открыть установщик"
+                }
+                if (status.retry == AppUpdateRetry.CHECK) {
+                    OutlinedButton(onClick = {
+                        haptics.tap()
+                        onRetry()
+                    }) {
+                        Text(label)
+                    }
+                } else {
+                    PillButton(
+                        text = label,
+                        onClick = {
+                            haptics.tap()
+                            onRetry()
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        leadingIcon = if (status.retry == AppUpdateRetry.DOWNLOAD) {
+                            Icons.Rounded.Download
+                        } else {
+                            Icons.Rounded.SystemUpdate
+                        },
+                    )
+                }
+            }
+        }
     }
 }
 

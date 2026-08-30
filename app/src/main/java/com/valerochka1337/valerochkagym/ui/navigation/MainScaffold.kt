@@ -53,6 +53,8 @@ import com.valerochka1337.valerochkagym.service.RestTimerState
 import com.valerochka1337.valerochkagym.ui.common.formatRestClock
 import com.valerochka1337.valerochkagym.ui.haptics.gymHaptics
 import com.valerochka1337.valerochkagym.ui.theme.GymMotion
+import com.valerochka1337.valerochkagym.ui.update.AppUpdateHost
+import com.valerochka1337.valerochkagym.ui.update.AppUpdateViewModel
 
 /** A root tab shown in the bottom [NavigationBar]. */
 private data class TabItem(
@@ -81,6 +83,7 @@ fun MainScaffold(
     requestedRoute: String? = null,
     onRequestedRouteHandled: () -> Unit = {},
     viewModel: MainScaffoldViewModel = hiltViewModel(),
+    appUpdateViewModel: AppUpdateViewModel = hiltViewModel(),
 ) {
     val navController = rememberNavController()
     val currentBackStackEntry by navController.currentBackStackEntryAsState()
@@ -89,6 +92,7 @@ fun MainScaffold(
         currentDestination?.hierarchy?.any { it.route == tab.route } == true
     }
     val banner by viewModel.banner.collectAsStateWithLifecycle()
+    val appUpdateState by appUpdateViewModel.uiState.collectAsStateWithLifecycle()
     // Баннер показываем только на вкладках (где виден нижний бар): это и есть «мы не на
     // активной тренировке», при этом он не мешает временным полноэкранным экранам.
     val showResumeBanner = banner != null && showBottomBar
@@ -159,8 +163,26 @@ fun MainScaffold(
         GymNavGraph(
             navController = navController,
             modifier = Modifier.padding(innerPadding),
+            appUpdateState = appUpdateState,
+            onCheckUpdate = appUpdateViewModel::checkForUpdate,
+            onDownloadUpdate = appUpdateViewModel::downloadAvailableUpdate,
+            onInstallUpdate = appUpdateViewModel::requestInstallation,
+            onRetryUpdate = appUpdateViewModel::retryFailedAction,
         )
     }
+
+    AppUpdateHost(
+        state = appUpdateState,
+        externalActions = appUpdateViewModel.externalActions,
+        onDismissPromptOnce = appUpdateViewModel::dismissPromptOnce,
+        onIgnorePromptVersion = appUpdateViewModel::ignorePromptVersion,
+        onDownload = appUpdateViewModel::downloadAvailableUpdate,
+        onHideDownloadDialog = appUpdateViewModel::hideDownloadDialog,
+        onRetry = appUpdateViewModel::retryFailedAction,
+        onDismissError = appUpdateViewModel::dismissErrorDialog,
+        onUnknownSourcesReturned = appUpdateViewModel::unknownSourcesPermissionReturned,
+        onExternalActionFailed = appUpdateViewModel::externalActionFailed,
+    )
 }
 
 /**

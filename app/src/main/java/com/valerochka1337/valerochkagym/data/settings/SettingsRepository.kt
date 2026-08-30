@@ -37,6 +37,8 @@ data class GymSettings(
     /** Модель, общая для генерации упражнений и распознавания фото InBody. */
     val aiModelId: String? = null,
     val accent: AccentColor = AccentColor.DEFAULT,
+    /** GitHub Release, для которого пользователь выбрал «Не напоминать». */
+    val ignoredUpdateTag: String? = null,
 ) {
     companion object {
         const val DEFAULT_REST_SECONDS: Int = 120
@@ -64,6 +66,7 @@ class SettingsRepository @Inject constructor(
         val AI_BASE_URL = stringPreferencesKey("ai_base_url")
         val AI_MODEL_ID = stringPreferencesKey("ai_model_id")
         val ACCENT_COLOR = stringPreferencesKey("accent_color")
+        val IGNORED_UPDATE_TAG = stringPreferencesKey("ignored_update_tag")
     }
 
     val settings: Flow<GymSettings> = dataStore.data
@@ -91,6 +94,7 @@ class SettingsRepository @Inject constructor(
             aiBaseUrl = prefs[Keys.AI_BASE_URL]?.takeIf { it.isNotBlank() },
             aiModelId = prefs[Keys.AI_MODEL_ID]?.takeIf { it.isNotBlank() },
             accent = AccentColor.fromId(prefs[Keys.ACCENT_COLOR]),
+            ignoredUpdateTag = prefs[Keys.IGNORED_UPDATE_TAG],
         )
     }
 
@@ -154,6 +158,14 @@ class SettingsRepository @Inject constructor(
 
     suspend fun setAccent(value: AccentColor) = dataStore.edit { prefs ->
         prefs[Keys.ACCENT_COLOR] = value.id
+    }
+
+    suspend fun setIgnoredUpdateTag(value: String?) = dataStore.edit { prefs ->
+        if (value == null) {
+            prefs.remove(Keys.IGNORED_UPDATE_TAG)
+        } else {
+            prefs[Keys.IGNORED_UPDATE_TAG] = value
+        }
     }
 
     private companion object {

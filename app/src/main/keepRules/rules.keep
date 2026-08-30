@@ -1,6 +1,6 @@
 # R8-правила проекта. AGP объединяет все файлы из src/main/keepRules.
 #
-# kotlinx-serialization: сериализаторы @Serializable DTO Google API (SheetsApi/CalendarApi)
+# kotlinx-serialization: сериализаторы @Serializable DTO сетевых API (Google, AI, GitHub)
 # ищутся рефлексией по companion-полю — R8 без правил его выбрасывает.
 # Набор правил — рекомендованный kotlinx.serialization (README, раздел Android/R8).
 

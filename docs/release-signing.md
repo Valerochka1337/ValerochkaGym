@@ -3,10 +3,17 @@
 Workflow `.github/workflows/android-ci.yml` делает следующее:
 
 - в pull request собирает debug APK и запускает unit-тесты без доступа к секретам;
-- при push в `main`, push тега `v*` или ручном запуске собирает подписанный
-  release APK, запускает unit-тесты, проверяет подпись через `apksigner` и публикует
-  Actions artifact на 30 дней;
+- при push в `main`, push тега `v*` или ручном запуске собирает подписанный release APK,
+  запускает unit-тесты, проверяет подпись через `apksigner` и публикует Actions artifact
+  на 30 дней;
+- при push в `main` автоматически создаёт stable GitHub Release `v<versionName>`, только если
+  такого релиза ещё нет; в него входят подписанный `ValerochkaGym-v<versionName>.apk` и SHA-256;
+- ручной тег `v*` тоже публикует релиз, но workflow проверяет точное совпадение тега с
+  `versionName` приложения;
 - вместе с APK сохраняет SHA-256 checksum и `mapping.txt` для расшифровки R8 stack trace.
+
+GitHub Releases API читается приложением без токена, поэтому репозиторий должен оставаться
+публичным. Токен или release-ключ в APK не встраиваются.
 
 ## 1. Создать постоянный release-ключ
 
@@ -72,4 +79,17 @@ client для `com.valerochka1337.valerochkagym` в Google Cloud, иначе Goo
 keytool -list -v -keystore /absolute/path/to/valerochka-gym-release.jks -alias valerochka-gym
 ```
 
-Для каждого обновления увеличивайте `versionCode` в `app/build.gradle.kts`.
+## 5. Выпустить обновление
+
+1. Увеличьте **оба** значения в `app/build.gradle.kts`: человекочитаемый стабильный SemVer
+   `versionName` и строго монотонный `versionCode`.
+2. Перенесите изменения из `[Unreleased]` в секцию этой версии в `CHANGELOG.md`.
+3. Влейте изменения в `main`. После зелёных тестов workflow создаст тег и GitHub Release.
+4. Не заменяйте APK уже опубликованного тега. Для любой правки выпускайте следующую версию.
+
+Приложение выбирает asset по точному имени `ValerochkaGym-v<versionName>.apk`, а SHA-256 берёт
+из метаданных GitHub asset. Перед открытием системного установщика оно дополнительно проверяет
+package name, `versionName`, более высокий `versionCode` и совпадение подтверждённой APK-подписи.
+
+Версия `1.2.0` впервые содержит updater, поэтому переход с `1.1.0` на `1.2.0` нужно сделать
+вручную. Начиная с установленной `1.2.0`, следующие релизы обнаруживаются автоматически.

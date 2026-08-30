@@ -3,6 +3,7 @@ package com.valerochka1337.valerochkagym.di
 import com.valerochka1337.valerochkagym.data.google.CalendarApi
 import com.valerochka1337.valerochkagym.data.google.SheetsApi
 import com.valerochka1337.valerochkagym.data.ai.AiApi
+import com.valerochka1337.valerochkagym.data.update.GitHubReleaseApi
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -29,6 +30,7 @@ object NetworkModule {
 
     private const val SHEETS_BASE_URL = "https://sheets.googleapis.com/"
     private const val CALENDAR_BASE_URL = "https://www.googleapis.com/"
+    private const val GITHUB_BASE_URL = "https://api.github.com/"
     /** Retrofit требует base URL, но каждый запрос к модели передаёт полный пользовательский @Url. */
     private const val AI_API_PLACEHOLDER_BASE_URL = "https://ai.invalid/"
     internal const val AI_CONNECT_TIMEOUT_SECONDS = 20L
@@ -88,6 +90,21 @@ object NetworkModule {
     @Singleton
     fun provideCalendarApi(@Named("calendar") retrofit: Retrofit): CalendarApi =
         retrofit.create(CalendarApi::class.java)
+
+    @Provides
+    @Singleton
+    @Named("github")
+    fun provideGitHubRetrofit(client: OkHttpClient, json: Json): Retrofit =
+        Retrofit.Builder()
+            .baseUrl(GITHUB_BASE_URL)
+            .client(client)
+            .addConverterFactory(json.asConverterFactory("application/json".toMediaType()))
+            .build()
+
+    @Provides
+    @Singleton
+    fun provideGitHubReleaseApi(@Named("github") retrofit: Retrofit): GitHubReleaseApi =
+        retrofit.create(GitHubReleaseApi::class.java)
 
     @Provides
     @Singleton

@@ -33,6 +33,7 @@ import com.valerochka1337.valerochkagym.ui.routine.RoutineEditorViewModel
 import com.valerochka1337.valerochkagym.ui.settings.SettingsScreen
 import com.valerochka1337.valerochkagym.ui.summary.WorkoutSummaryScreen
 import com.valerochka1337.valerochkagym.ui.theme.GymMotion
+import com.valerochka1337.valerochkagym.ui.update.AppUpdateUiState
 import com.valerochka1337.valerochkagym.ui.workouts.WorkoutsScreen
 
 /**
@@ -119,6 +120,11 @@ private fun AnimatedContentTransitionScope<NavBackStackEntry>.isTabSwitch(): Boo
 fun GymNavGraph(
     navController: NavHostController,
     modifier: Modifier = Modifier,
+    appUpdateState: AppUpdateUiState,
+    onCheckUpdate: () -> Unit,
+    onDownloadUpdate: () -> Unit,
+    onInstallUpdate: () -> Unit,
+    onRetryUpdate: () -> Unit,
 ) {
     NavHost(
         navController = navController,
@@ -181,7 +187,14 @@ fun GymNavGraph(
             )
         }
         composable(GymRoutes.SETTINGS) {
-            SettingsScreen(onBack = { navController.popBackStack() })
+            SettingsScreen(
+                onBack = { navController.popBackStack() },
+                appUpdateState = appUpdateState,
+                onCheckUpdate = onCheckUpdate,
+                onDownloadUpdate = onDownloadUpdate,
+                onInstallUpdate = onInstallUpdate,
+                onRetryUpdate = onRetryUpdate,
+            )
         }
 
         composable(GymRoutes.LIBRARY) {
