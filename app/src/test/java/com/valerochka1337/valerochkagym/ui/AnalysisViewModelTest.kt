@@ -136,11 +136,14 @@ class AnalysisViewModelTest : RoomDaoTest() {
             collect(viewModel)
             viewModel.onWeekSelected(0)
 
-            assertEquals(2.0, viewModel.uiState.value.report.totalHardSets, 1e-6)
+            val withSelectedWeek = viewModel.uiState.first { it.selectedWeekIndex == 0 }
+            assertEquals(2.0, withSelectedWeek.report.totalHardSets, 1e-6)
 
             viewModel.onPeriodSelected(AnalysisPeriod.ALL_TIME)
 
-            val state = viewModel.uiState.value
+            val state = viewModel.uiState.first {
+                it.period == AnalysisPeriod.ALL_TIME && it.selectedWeekIndex == null
+            }
             assertEquals(AnalysisPeriod.ALL_TIME, state.period)
             assertEquals(7.0, state.report.totalHardSets, 1e-6)
             assertNull("выбор точки привязан к длине серии", state.selectedWeekIndex)
@@ -154,13 +157,17 @@ class AnalysisViewModelTest : RoomDaoTest() {
             val viewModel = viewModel()
             collect(viewModel)
             viewModel.onWeekSelected(0)
+            viewModel.uiState.first { it.selectedWeekIndex == 0 }
 
             val end = Instant.ofEpochMilli(now).atZone(ZoneId.systemDefault()).toLocalDate().minusDays(14)
             val start = end.minusDays(6)
             viewModel.onCustomRangeSelected(start, end)
 
-            val state = viewModel.uiState.value
-            assertEquals(AnalysisPeriod.Custom(start, end), state.period)
+            val customPeriod = AnalysisPeriod.Custom(start, end)
+            val state = viewModel.uiState.first {
+                it.period == customPeriod && it.selectedWeekIndex == null
+            }
+            assertEquals(customPeriod, state.period)
             assertEquals(5.0, state.report.totalHardSets, 1e-6)
             assertNull("выбор точки привязан к длине новой серии", state.selectedWeekIndex)
         }
@@ -173,11 +180,13 @@ class AnalysisViewModelTest : RoomDaoTest() {
             collect(viewModel)
 
             viewModel.onMuscleClicked(Muscle.CHEST)
-            assertEquals(Muscle.CHEST, viewModel.uiState.value.selectedMuscle)
-            assertEquals(Muscle.CHEST, viewModel.uiState.value.selectedMuscleLoad?.muscle)
+            val selected = viewModel.uiState.first { it.selectedMuscle == Muscle.CHEST }
+            assertEquals(Muscle.CHEST, selected.selectedMuscle)
+            assertEquals(Muscle.CHEST, selected.selectedMuscleLoad?.muscle)
 
             viewModel.onMuscleClicked(Muscle.CHEST)
-            assertNull(viewModel.uiState.value.selectedMuscle)
+            val cleared = viewModel.uiState.first { it.selectedMuscle == null }
+            assertNull(cleared.selectedMuscle)
         }
 
     @Test
@@ -200,7 +209,8 @@ class AnalysisViewModelTest : RoomDaoTest() {
 
         viewModel.onWeeklyMetricSelected(WeeklyMetric.TONNAGE)
 
-        assertEquals(WeeklyMetric.TONNAGE, viewModel.uiState.value.weeklyMetric)
+        val state = viewModel.uiState.first { it.weeklyMetric == WeeklyMetric.TONNAGE }
+        assertEquals(WeeklyMetric.TONNAGE, state.weeklyMetric)
     }
 
     // region helpers
@@ -218,8 +228,9 @@ class AnalysisViewModelTest : RoomDaoTest() {
      *
      * Room отдаёт Flow-запросы со своего исполнителя, то есть первая эмиссия приходит из другого
      * потока и не попадает в виртуальное время `runTest`. Поэтому её нужно именно дождаться
-     * (`loading = false` бывает только после реальной эмиссии); дальше смена периода и выбора
-     * идёт по `combine` синхронно, и состояние можно читать через `uiState.value`.
+     * (`loading = false` бывает только после реальной эмиссии). Каскад `combine` + `stateIn` не обещает,
+     * что публичный `uiState.value` обновится в той же строке, поэтому после событий тесты ждут
+     * нужную эмиссию через `first`.
      */
     private suspend fun TestScope.collect(viewModel: AnalysisViewModel) {
         backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
