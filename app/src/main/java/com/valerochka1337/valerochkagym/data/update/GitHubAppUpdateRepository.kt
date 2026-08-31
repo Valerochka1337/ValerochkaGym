@@ -24,14 +24,22 @@ class GitHubAppUpdateRepository @Inject constructor(
         when {
             response.code() == 404 -> null // Репозиторий доступен, но stable release ещё не создан.
             response.code() == 403 || response.code() == 429 -> {
-                throw AppUpdateException("GitHub временно ограничил проверку обновлений")
+                throw AppUpdateException(
+                    "Сервис обновлений временно недоступен. Попробуйте позже.",
+                )
             }
             !response.isSuccessful -> {
-                throw AppUpdateException("Не удалось проверить обновления на GitHub")
+                throw AppUpdateException("Не удалось проверить обновления. Попробуйте позже.")
             }
-            else -> response.body()
-                ?.toAppRelease(installedVersionName)
-                ?: throw AppUpdateException("GitHub вернул пустое описание релиза")
+            else -> {
+                // toAppRelease закономерно возвращает null, когда установленная версия уже
+                // актуальна. Elvis после всей цепочки ошибочно превращал этот случай в ошибку.
+                val latestRelease = response.body()
+                    ?: throw AppUpdateException(
+                        "Не удалось проверить обновления. Попробуйте позже.",
+                    )
+                latestRelease.toAppRelease(installedVersionName)
+            }
         }
     } catch (e: CancellationException) {
         throw e
@@ -73,13 +81,13 @@ class GitHubAppUpdateRepository @Inject constructor(
         try {
             val response = api.downloadAsset(release.apk.downloadUrl)
             if (!response.isSuccessful) {
-                throw AppUpdateException("GitHub не отдал APK обновления")
+                throw AppUpdateException("Не удалось скачать обновление. Попробуйте позже.")
             }
             val body = response.body()
-                ?: throw AppUpdateException("GitHub вернул пустой APK")
+                ?: throw AppUpdateException("Не удалось скачать обновление. Попробуйте позже.")
             val responseLength = body.contentLength()
             if (responseLength > MAX_UPDATE_APK_BYTES) {
-                throw AppUpdateException("APK обновления слишком большой")
+                throw AppUpdateException("Файл обновления слишком большой")
             }
 
             val digest = MessageDigest.getInstance(SHA256_ALGORITHM)
@@ -93,7 +101,7 @@ class GitHubAppUpdateRepository @Inject constructor(
                         if (count < 0) break
                         downloaded += count
                         if (downloaded > MAX_UPDATE_APK_BYTES) {
-                            throw AppUpdateException("APK обновления слишком большой")
+                            throw AppUpdateException("Файл обновления слишком большой")
                         }
                         output.write(buffer, 0, count)
                         digest.update(buffer, 0, count)
@@ -103,11 +111,11 @@ class GitHubAppUpdateRepository @Inject constructor(
             }
 
             if (downloaded != release.apk.sizeBytes) {
-                throw AppUpdateException("APK скачан не полностью")
+                throw AppUpdateException("Обновление скачано не полностью")
             }
             val actualDigest = digest.digest().toHexString()
             if (actualDigest != release.apk.sha256) {
-                throw AppUpdateException("SHA-256 скачанного APK не совпадает с GitHub")
+                throw AppUpdateException("Проверка целостности скачанного обновления не пройдена")
             }
             if (!temporary.renameTo(target)) {
                 temporary.copyTo(target, overwrite = true)
@@ -125,11 +133,14 @@ class GitHubAppUpdateRepository @Inject constructor(
         } catch (e: IOException) {
             temporary.delete()
             target.delete()
-            throw AppUpdateException("Не удалось скачать APK обновления", e)
+            throw AppUpdateException(
+                "Не удалось скачать обновление. Проверьте подключение и попробуйте снова.",
+                e,
+            )
         } catch (e: Exception) {
             temporary.delete()
             target.delete()
-            throw AppUpdateException("Не удалось проверить APK обновления", e)
+            throw AppUpdateException("Не удалось проверить скачанное обновление", e)
         }
     }
 }

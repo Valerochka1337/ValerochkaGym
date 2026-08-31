@@ -52,7 +52,7 @@ class GitHubReleaseParsingTest {
             dto.toAppRelease(installedVersionName = "1.2.0")
         }
 
-        assertTrue(error.userMessage.contains("ValerochkaGym-v1.3.0.apk"))
+        assertEquals("Файл обновления пока недоступен. Попробуйте позже.", error.userMessage)
     }
 
     @Test
@@ -65,7 +65,7 @@ class GitHubReleaseParsingTest {
             dto.toAppRelease(installedVersionName = "1.2.0")
         }
 
-        assertTrue(error.userMessage.contains("SHA-256"))
+        assertEquals("Не удалось проверить целостность файла обновления", error.userMessage)
     }
 
     @Test

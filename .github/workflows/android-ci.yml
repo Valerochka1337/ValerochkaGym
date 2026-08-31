@@ -8,6 +8,15 @@ on:
     tags:
       - "v*"
   workflow_dispatch:
+    inputs:
+      test_version_name:
+        description: "Версия старой тестовой сборки, например 1.1.9 (не публикуется)"
+        required: false
+        type: string
+      test_version_code:
+        description: "versionCode старой тестовой сборки, например 2 (не публикуется)"
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -70,7 +79,20 @@ jobs:
           RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
           RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
           RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
-        run: ./gradlew :app:assembleRelease --stacktrace
+          TEST_VERSION_NAME: ${{ inputs.test_version_name }}
+          TEST_VERSION_CODE: ${{ inputs.test_version_code }}
+        shell: bash
+        run: |
+          version_args=()
+          if [[ -n "$TEST_VERSION_NAME" || -n "$TEST_VERSION_CODE" ]]; then
+            if [[ -z "$TEST_VERSION_NAME" || -z "$TEST_VERSION_CODE" ]]; then
+              echo "::error::Both test version fields must be filled."
+              exit 1
+            fi
+            version_args+=("-PtestVersionName=$TEST_VERSION_NAME")
+            version_args+=("-PtestVersionCode=$TEST_VERSION_CODE")
+          fi
+          ./gradlew :app:assembleRelease --stacktrace "${version_args[@]}"
 
       - name: Run unit tests
         run: ./gradlew :app:testDebugUnitTest --stacktrace

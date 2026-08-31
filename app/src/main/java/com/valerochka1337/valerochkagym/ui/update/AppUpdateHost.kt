@@ -77,7 +77,7 @@ fun AppUpdateHost(
                     Text("Установлена v${state.installedVersionName}, доступна v${release.versionName}.")
                     Spacer(Modifier.height(8.dp))
                     Text(
-                        text = "Размер APK — ${formatUpdateBytes(release.apk.sizeBytes)}. " +
+                        text = "Размер обновления — ${formatUpdateBytes(release.apk.sizeBytes)}. " +
                             "«Не напоминать» скроет только эту версию.",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -132,7 +132,7 @@ fun AppUpdateHost(
                         LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                     }
                     Spacer(Modifier.height(8.dp))
-                    Text("После проверки откроется системный установщик Android.")
+                    Text("После проверки откроется системный экран установки.")
                 }
             },
             confirmButton = {
@@ -161,8 +161,9 @@ fun AppUpdateHost(
             title = { Text("Разрешите установку") },
             text = {
                 Text(
-                    "Android блокирует APK из новых источников. Разрешите ValerochkaGym " +
-                        "устанавливать приложения — затем установка продолжится автоматически.",
+                    "Система блокирует установку файлов из новых источников. Разрешите " +
+                        "ValerochkaGym устанавливать приложения — затем установка продолжится " +
+                        "автоматически.",
                 )
             },
             confirmButton = {

@@ -33,6 +33,23 @@ val releaseSigningInputs = linkedMapOf(
     "RELEASE_KEY_PASSWORD / keyPassword" to releaseKeyPassword,
 )
 
+// Только для ручной Actions-сборки старой тестовой версии updater-а. Значения не меняют
+// исходники и не используются при обычном push в main.
+val testVersionName = providers.gradleProperty("testVersionName").orNull
+    ?.takeIf { it.isNotBlank() }
+val testVersionCodeRaw = providers.gradleProperty("testVersionCode").orNull
+    ?.takeIf { it.isNotBlank() }
+if ((testVersionName == null) != (testVersionCodeRaw == null)) {
+    throw GradleException("testVersionName and testVersionCode must be provided together")
+}
+if (testVersionName != null && !testVersionName.matches(Regex("[0-9]+\\.[0-9]+\\.[0-9]+"))) {
+    throw GradleException("testVersionName must be a stable three-part SemVer")
+}
+val testVersionCode = testVersionCodeRaw?.toIntOrNull()?.takeIf { it > 0 }
+if (testVersionCodeRaw != null && testVersionCode == null) {
+    throw GradleException("testVersionCode must be a positive integer")
+}
+
 android {
     namespace = "com.valerochka1337.valerochkagym"
     compileSdk {
@@ -43,8 +60,8 @@ android {
         applicationId = "com.valerochka1337.valerochkagym"
         minSdk = 36
         targetSdk = 37
-        versionCode = 3
-        versionName = "1.2.0"
+        versionCode = testVersionCode ?: 3
+        versionName = testVersionName ?: "1.2.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

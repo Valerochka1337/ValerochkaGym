@@ -30,6 +30,13 @@ class GitHubAppUpdateRepositoryTest {
     }
 
     @Test
+    fun `release matching the installed version means no update`() = runTest {
+        val repository = repository(FakeGitHubReleaseApi())
+
+        assertNull(repository.findUpdate("9.9.9"))
+    }
+
+    @Test
     fun `download writes exact bytes and verifies the finished apk`() = runTest {
         val bytes = "signed apk placeholder".encodeToByteArray()
         val release = release(bytes)
@@ -69,7 +76,10 @@ class GitHubAppUpdateRepositoryTest {
             e
         }
 
-        assertTrue(error?.userMessage.orEmpty().contains("SHA-256"))
+        assertEquals(
+            "Проверка целостности скачанного обновления не пройдена",
+            error?.userMessage,
+        )
         assertEquals(0, installer.verifyCalls)
         val directory = File(ApplicationProvider.getApplicationContext<Context>().cacheDir, "app_updates")
         assertFalse(File(directory, release.apk.name).exists())

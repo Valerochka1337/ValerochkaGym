@@ -865,7 +865,7 @@ private fun AppUpdateCard(
 
         val statusText = when (status) {
             AppUpdateStatus.Idle -> "Проверка обновлений доступна вручную"
-            AppUpdateStatus.Checking -> "Проверяем GitHub Releases…"
+            AppUpdateStatus.Checking -> "Проверяем наличие обновлений…"
             AppUpdateStatus.UpToDate -> "Установлена последняя версия"
             is AppUpdateStatus.Available ->
                 "Доступна v${status.release.versionName} · ${formatUpdateBytes(status.release.apk.sizeBytes)}"

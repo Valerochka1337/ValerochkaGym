@@ -23,12 +23,12 @@ class AndroidAppUpdateInstaller @Inject constructor(
         val archiveInfo = packageManager.getPackageArchiveInfo(
             file.absolutePath,
             PackageManager.PackageInfoFlags.of(0L),
-        ) ?: throw AppUpdateException("Android не распознал скачанный APK")
+        ) ?: throw AppUpdateException("Скачанный файл обновления повреждён или не поддерживается")
         if (archiveInfo.packageName != context.packageName) {
-            throw AppUpdateException("APK выпущен для другого приложения")
+            throw AppUpdateException("Скачан файл для другого приложения")
         }
         if (archiveInfo.versionName != release.versionName) {
-            throw AppUpdateException("Версия внутри APK не совпадает с GitHub Release")
+            throw AppUpdateException("Версия скачанного обновления не совпадает с ожидаемой")
         }
 
         val installedInfo = packageManager.getPackageInfo(
@@ -36,7 +36,7 @@ class AndroidAppUpdateInstaller @Inject constructor(
             PackageManager.PackageInfoFlags.of(PackageManager.GET_SIGNING_CERTIFICATES.toLong()),
         )
         if (archiveInfo.longVersionCode <= installedInfo.longVersionCode) {
-            throw AppUpdateException("versionCode обновления должен быть выше установленного")
+            throw AppUpdateException("Скачанная версия не новее установленной")
         }
 
         val verifiedSigningInfo = try {
@@ -45,12 +45,12 @@ class AndroidAppUpdateInstaller @Inject constructor(
                 SigningInfo.VERSION_SIGNING_BLOCK_V2,
             )
         } catch (e: Exception) {
-            throw AppUpdateException("Не удалось подтвердить подпись APK", e)
+            throw AppUpdateException("Не удалось подтвердить подлинность обновления", e)
         }
         val installedSigningInfo = installedInfo.signingInfo
             ?: throw AppUpdateException("Не удалось прочитать подпись установленного приложения")
         if (!verifiedSigningInfo.signersMatchExactly(installedSigningInfo)) {
-            throw AppUpdateException("APK подписан не тем release-ключом")
+            throw AppUpdateException("Не удалось подтвердить подлинность обновления")
         }
     }
 

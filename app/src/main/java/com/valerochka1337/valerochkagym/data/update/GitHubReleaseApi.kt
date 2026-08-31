@@ -70,24 +70,24 @@ internal fun GitHubReleaseDto.toAppRelease(installedVersionName: String): AppRel
     val installedVersion = parseSemanticVersion(installedVersionName)
         ?: throw AppUpdateException("Текущая версия приложения имеет неизвестный формат")
     val remoteVersion = parseSemanticVersion(tagName)
-        ?: throw AppUpdateException("Тег последнего GitHub Release имеет неизвестный формат")
+        ?: throw AppUpdateException("Номер доступной версии имеет неподдерживаемый формат")
     if (remoteVersion <= installedVersion) return null
 
     val versionName = tagName.removePrefix("v").removePrefix("V")
     val expectedApkName = "ValerochkaGym-v$versionName.apk"
     val asset = assets.singleOrNull { it.name == expectedApkName }
-        ?: throw AppUpdateException("Релиз $tagName не содержит файл $expectedApkName")
+        ?: throw AppUpdateException("Файл обновления пока недоступен. Попробуйте позже.")
     if (asset.size !in 1..MAX_UPDATE_APK_BYTES) {
-        throw AppUpdateException("APK релиза имеет недопустимый размер")
+        throw AppUpdateException("Файл обновления имеет недопустимый размер")
     }
     val sha256 = asset.digest
         ?.let(SHA256_DIGEST_PATTERN::matchEntire)
         ?.groupValues
         ?.get(1)
         ?.lowercase()
-        ?: throw AppUpdateException("GitHub не вернул SHA-256 для APK релиза")
+        ?: throw AppUpdateException("Не удалось проверить целостность файла обновления")
     if (!asset.browserDownloadUrl.isTrustedReleaseAssetUrl()) {
-        throw AppUpdateException("GitHub вернул недопустимую ссылку на APK")
+        throw AppUpdateException("Получена небезопасная ссылка на обновление")
     }
 
     return AppRelease(
