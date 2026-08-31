@@ -68,11 +68,27 @@ class AndroidAppUpdateInstaller @Inject constructor(
             "${context.packageName}.updates",
             file,
         )
-        return Intent(Intent.ACTION_VIEW).apply {
+        val intent = Intent(Intent.ACTION_VIEW).apply {
             setDataAndType(uri, APK_MIME_TYPE)
             clipData = ClipData.newRawUri("APK обновления", uri)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
+        val installerPackage = context.packageManager.resolveActivity(
+            intent,
+            PackageManager.ResolveInfoFlags.of(PackageManager.MATCH_DEFAULT_ONLY.toLong()),
+        )?.activityInfo?.packageName
+            ?: throw AppUpdateException("На устройстве не найден системный экран установки")
+
+        // На некоторых прошивках InstallStart передаёт URI внутреннему InstallStaging без grant-а
+        // исходного Intent. Явный read-only grant на один URI действует для всего пакета
+        // установщика и позволяет его внутреннему компоненту прочитать проверенный APK.
+        context.grantUriPermission(
+            installerPackage,
+            uri,
+            Intent.FLAG_GRANT_READ_URI_PERMISSION,
+        )
+        intent.setPackage(installerPackage)
+        return intent
     }
 }
 
