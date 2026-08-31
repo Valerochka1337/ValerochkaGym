@@ -940,7 +940,7 @@ private fun AppUpdateCard(
                 val label = when (status.retry) {
                     AppUpdateRetry.CHECK -> "Проверить ещё раз"
                     AppUpdateRetry.DOWNLOAD -> "Повторить скачивание"
-                    AppUpdateRetry.INSTALL -> "Открыть установщик"
+                    AppUpdateRetry.INSTALL -> "Повторить установку"
                 }
                 if (status.retry == AppUpdateRetry.CHECK) {
                     OutlinedButton(onClick = {

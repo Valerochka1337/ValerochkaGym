@@ -7,6 +7,7 @@ import com.valerochka1337.valerochkagym.BuildConfig
 import com.valerochka1337.valerochkagym.data.settings.SettingsRepository
 import com.valerochka1337.valerochkagym.data.update.AppRelease
 import com.valerochka1337.valerochkagym.data.update.AppUpdateException
+import com.valerochka1337.valerochkagym.data.update.AppUpdateInstallEvent
 import com.valerochka1337.valerochkagym.data.update.AppUpdateInstaller
 import com.valerochka1337.valerochkagym.data.update.AppUpdateRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -72,10 +73,23 @@ class AppUpdateViewModel @Inject constructor(
 
     private var checkJob: Job? = null
     private var downloadJob: Job? = null
+    private var installJob: Job? = null
     private var downloadedFile: File? = null
     private var dismissedPromptTag: String? = null
 
     init {
+        viewModelScope.launch {
+            installer.installEvents.collect { event ->
+                when (event) {
+                    is AppUpdateInstallEvent.UserActionRequired -> {
+                        _externalActions.trySend(AppUpdateExternalAction.OpenInstaller(event.intent))
+                    }
+                    is AppUpdateInstallEvent.Failed -> showInstallFailure(event.message)
+                    AppUpdateInstallEvent.Cancelled -> Unit
+                    AppUpdateInstallEvent.Succeeded -> Unit
+                }
+            }
+        }
         // Debug APK подписан другим ключом и не может обновиться release APK. Ручная проверка в
         // настройках остаётся доступной, а автоматический popup включён только в release-сборке.
         if (!BuildConfig.DEBUG) checkForUpdate()
@@ -205,17 +219,37 @@ class AppUpdateViewModel @Inject constructor(
 
     fun requestInstallation() {
         val file = downloadedFile ?: return
+        val release = when (val status = _uiState.value.status) {
+            is AppUpdateStatus.ReadyToInstall -> status.release
+            is AppUpdateStatus.Failed -> status.release
+            else -> null
+        } ?: return
+        if (installJob?.isActive == true) return
+
         try {
-            val action = if (installer.canRequestPackageInstalls()) {
-                AppUpdateExternalAction.OpenInstaller(installer.installIntent(file))
-            } else {
-                AppUpdateExternalAction.RequestUnknownSourcesPermission(
-                    installer.unknownSourcesSettingsIntent(),
+            if (!installer.canRequestPackageInstalls()) {
+                _externalActions.trySend(
+                    AppUpdateExternalAction.RequestUnknownSourcesPermission(
+                        installer.unknownSourcesSettingsIntent(),
+                    ),
                 )
+                return
             }
-            _externalActions.trySend(action)
         } catch (_: Exception) {
             externalActionFailed()
+            return
+        }
+
+        installJob = viewModelScope.launch {
+            try {
+                installer.startInstallation(file, release)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: AppUpdateException) {
+                showInstallFailure(e.userMessage)
+            } catch (_: Exception) {
+                showInstallFailure("Не удалось подготовить обновление к установке")
+            }
         }
     }
 
@@ -228,21 +262,7 @@ class AppUpdateViewModel @Inject constructor(
     }
 
     fun externalActionFailed() {
-        val release = when (val status = _uiState.value.status) {
-            is AppUpdateStatus.ReadyToInstall -> status.release
-            is AppUpdateStatus.Failed -> status.release
-            else -> null
-        }
-        _uiState.update {
-            it.copy(
-                status = AppUpdateStatus.Failed(
-                    message = "Не удалось открыть системный установщик",
-                    release = release,
-                    retry = AppUpdateRetry.INSTALL,
-                ),
-                errorDialogMessage = "Не удалось открыть системный установщик",
-            )
-        }
+        showInstallFailure("Не удалось открыть системное подтверждение установки")
     }
 
     fun retryFailedAction() {
@@ -272,6 +292,24 @@ class AppUpdateViewModel @Inject constructor(
                     retry = AppUpdateRetry.DOWNLOAD,
                 ),
                 showDownloadDialog = false,
+                errorDialogMessage = message,
+            )
+        }
+    }
+
+    private fun showInstallFailure(message: String) {
+        val release = when (val status = _uiState.value.status) {
+            is AppUpdateStatus.ReadyToInstall -> status.release
+            is AppUpdateStatus.Failed -> status.release
+            else -> null
+        }
+        _uiState.update {
+            it.copy(
+                status = AppUpdateStatus.Failed(
+                    message = message,
+                    release = release,
+                    retry = AppUpdateRetry.INSTALL,
+                ),
                 errorDialogMessage = message,
             )
         }

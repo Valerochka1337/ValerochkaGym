@@ -1,8 +1,9 @@
 package com.valerochka1337.valerochkagym.data.update
 
 import android.content.Context
-import android.content.Intent
 import androidx.test.core.app.ApplicationProvider
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.test.runTest
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.ResponseBody
@@ -133,6 +134,8 @@ class GitHubAppUpdateRepositoryTest {
     }
 
     private class FakeInstaller : AppUpdateInstaller {
+        override val installEvents: Flow<AppUpdateInstallEvent> = emptyFlow()
+
         var verifyCalls: Int = 0
             private set
 
@@ -141,7 +144,7 @@ class GitHubAppUpdateRepositoryTest {
         }
 
         override fun canRequestPackageInstalls(): Boolean = true
-        override fun unknownSourcesSettingsIntent(): Intent = Intent()
-        override fun installIntent(file: File): Intent = Intent()
+        override fun unknownSourcesSettingsIntent() = android.content.Intent()
+        override suspend fun startInstallation(file: File, release: AppRelease) = Unit
     }
 }

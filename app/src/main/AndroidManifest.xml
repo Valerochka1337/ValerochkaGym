@@ -22,11 +22,6 @@
     <queries>
         <package android:name="com.mi.health" />
         <package android:name="com.xiaomi.wearable" />
-        <!-- Нужен для точного resolve системного установщика и узкого URI-grant только ему. -->
-        <intent>
-            <action android:name="android.intent.action.VIEW" />
-            <data android:mimeType="application/vnd.android.package-archive" />
-        </intent>
     </queries>
 
     <application
@@ -60,17 +55,11 @@
                 android:resource="@xml/inbody_import_paths" />
         </provider>
 
-        <!-- Временный проверенный APK обновления. Доступ системному установщику выдаётся только
-             на конкретный content URI и только на время Intent-а установки. -->
-        <provider
-            android:name="androidx.core.content.FileProvider"
-            android:authorities="${applicationId}.updates"
-            android:exported="false"
-            android:grantUriPermissions="true">
-            <meta-data
-                android:name="android.support.FILE_PROVIDER_PATHS"
-                android:resource="@xml/app_update_paths" />
-        </provider>
+        <!-- Явный callback PackageInstaller.Session. Не экспортируется; система вызывает его
+             только через созданный приложением mutable PendingIntent. -->
+        <receiver
+            android:name=".data.update.AppUpdateInstallStatusReceiver"
+            android:exported="false" />
 
         <!-- Иконки под акценты. Включён ровно один; переключает AppIconManager по настройке.
              Порядок и имена связаны с AccentColor.aliasName — менять только вместе. -->
