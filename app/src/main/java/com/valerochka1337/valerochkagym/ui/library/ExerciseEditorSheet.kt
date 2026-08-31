@@ -84,10 +84,10 @@ internal fun ExerciseEditorSheet(
 
     val base = MaterialTheme.colorScheme.surfaceContainerHighest
     val accent = MaterialTheme.colorScheme.primary
-    val canSave = name.trim().isNotEmpty() && loads.isNotEmpty()
+    val canSave = name.trim().isNotEmpty() && loads.isNotEmpty() && !initial.isSaving
 
     ModalBottomSheet(
-        onDismissRequest = onDismiss,
+        onDismissRequest = { if (!initial.isSaving) onDismiss() },
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
     ) {
         Column(
@@ -106,7 +106,17 @@ internal fun ExerciseEditorSheet(
 
             if (initial.wasFoundByAi) {
                 Spacer(Modifier.height(12.dp))
-                FoundExistingExerciseNotice()
+                FoundExistingExerciseNotice(
+                    assignToSelectedGyms = initial.assignToSelectedGyms,
+                    selectedGymNames = initial.selectedGymNames,
+                    selectionTarget = initial.selectionTarget,
+                )
+            } else if (initial.exerciseId == null && initial.selectionTarget != null) {
+                Spacer(Modifier.height(12.dp))
+                NewExerciseDestinationNotice(
+                    selectedGymNames = initial.selectedGymNames,
+                    selectionTarget = initial.selectionTarget,
+                )
             }
 
             Spacer(Modifier.height(16.dp))
@@ -220,10 +230,20 @@ internal fun ExerciseEditorSheet(
             }
 
             Spacer(Modifier.height(20.dp))
+            initial.saveError?.let { error ->
+                Text(
+                    text = error,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+                Spacer(Modifier.height(8.dp))
+            }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 PillButton(
                     text = when {
+                        initial.isSaving -> "Сохраняем…"
                         initial.exerciseId == null -> "Создать"
+                        initial.assignToSelectedGyms -> "Добавить в залы"
                         initial.wasFoundByAi -> "Изменить найденное"
                         else -> "Сохранить"
                     },
@@ -238,7 +258,7 @@ internal fun ExerciseEditorSheet(
                     modifier = Modifier.weight(1f),
                 )
                 Spacer(Modifier.width(8.dp))
-                TextButton(onClick = onDismiss) { Text("Отмена") }
+                TextButton(onClick = onDismiss, enabled = !initial.isSaving) { Text("Отмена") }
             }
         }
     }
@@ -246,7 +266,11 @@ internal fun ExerciseEditorSheet(
 
 /** Поясняет, что ИИ открыл существующую запись, а не подготовил новую. */
 @Composable
-private fun FoundExistingExerciseNotice() {
+private fun FoundExistingExerciseNotice(
+    assignToSelectedGyms: Boolean,
+    selectedGymNames: List<String>,
+    selectionTarget: String?,
+) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.medium,
@@ -271,11 +295,49 @@ private fun FoundExistingExerciseNotice() {
                 )
                 Spacer(Modifier.height(2.dp))
                 Text(
-                    text = "ИИ не создал новую запись. После сохранения изменится существующее упражнение.",
+                    text = if (assignToSelectedGyms) {
+                        "ИИ не создал дубликат. После подтверждения существующее упражнение " +
+                            "будет добавлено во все выбранные залы" +
+                            selectedGymNames.takeIf { it.isNotEmpty() }
+                                ?.joinToString(prefix = " (", postfix = ")")
+                                .orEmpty() +
+                            selectionTarget?.let { " и сразу добавлено в $it." }.orEmpty()
+                    } else {
+                        "ИИ не создал новую запись. После сохранения изменится существующее упражнение" +
+                            selectionTarget?.let { " и будет сразу добавлено в $it." }.orEmpty()
+                    },
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun NewExerciseDestinationNotice(
+    selectedGymNames: List<String>,
+    selectionTarget: String,
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.secondaryContainer,
+        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+    ) {
+        Text(
+            text = buildString {
+                append("Новая запись будет добавлена в общий каталог")
+                if (selectedGymNames.isNotEmpty()) {
+                    append(" и во все выбранные залы: ")
+                    append(selectedGymNames.joinToString())
+                }
+                append(", затем сразу добавлена в ")
+                append(selectionTarget)
+                append('.')
+            },
+            modifier = Modifier.padding(12.dp),
+            style = MaterialTheme.typography.bodySmall,
+        )
     }
 }
 

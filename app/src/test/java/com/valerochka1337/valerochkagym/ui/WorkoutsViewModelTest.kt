@@ -9,6 +9,7 @@ import com.valerochka1337.valerochkagym.data.db.PlannedSet
 import com.valerochka1337.valerochkagym.data.db.dao.RoutineDao
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
+import com.valerochka1337.valerochkagym.data.db.entity.GymEntity
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleGroup
 import com.valerochka1337.valerochkagym.data.db.entity.RoutineEntity
 import com.valerochka1337.valerochkagym.data.db.entity.RoutineExerciseEntity
@@ -62,6 +63,10 @@ class WorkoutsViewModelTest {
                     routineExercise(exercise(1, "Приседания"), position = 0, restSeconds = 60, sets = 3),
                     routineExercise(exercise(2, "Выпады"), position = 1, restSeconds = null, sets = 2),
                 ),
+                gyms = listOf(
+                    GymEntity(id = 2, syncId = "gym-second", name = "Яблоко"),
+                    GymEntity(id = 1, syncId = "gym-first", name = "Альфа"),
+                ),
             )
             val viewModel = WorkoutsViewModel(
                 FakeRoutineDao(listOf(routine)),
@@ -74,6 +79,7 @@ class WorkoutsViewModelTest {
             assertEquals("День ног", card.name)
             assertEquals(2, card.exerciseCount)
             assertEquals(10, card.estimatedMinutes)
+            assertEquals(listOf("Альфа", "Яблоко"), card.gymNames)
         }
 
     // endregion
@@ -129,7 +135,11 @@ class WorkoutsViewModelTest {
                 ),
             )
             val routineDao = FakeRoutineDao(listOf(routine))
-            val viewModel = WorkoutsViewModel(routineDao, settingsRepository(), FakeActiveWorkoutRepository())
+            val viewModel = WorkoutsViewModel(
+                routineDao = routineDao,
+                settingsRepository = settingsRepository(),
+                activeWorkoutRepository = FakeActiveWorkoutRepository(),
+            )
 
             viewModel.duplicate(4)
 
@@ -181,8 +191,13 @@ class WorkoutsViewModelTest {
         name: String,
         note: String = "",
         exercises: List<RoutineExerciseWithExercise> = emptyList(),
+        gyms: List<GymEntity> = emptyList(),
     ): RoutineWithExercises =
-        RoutineWithExercises(routine = RoutineEntity(id = id, name = name, note = note), exercises = exercises)
+        RoutineWithExercises(
+            routine = RoutineEntity(id = id, name = name, note = note),
+            exercises = exercises,
+            gyms = gyms,
+        )
 
     /** Builds a relation row with [sets] empty planned sets — for the duration formula, only the count matters. */
     private fun routineExercise(

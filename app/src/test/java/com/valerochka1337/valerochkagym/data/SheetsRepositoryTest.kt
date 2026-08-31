@@ -158,6 +158,26 @@ class SheetsRepositoryTest : RoomDaoTest() {
     }
 
     @Test
+    fun `routine export upgrades legacy header and appends stable exercise ids`() = runTest {
+        val syncId = seedRoutine(updatedAt = 200)
+        val snapshot = db.routineDao().getRoutineWithExercises(1)!!
+        val legacyRows = (listOf(RoutineRowMapper.LEGACY_HEADER_ROW) +
+            RoutineRowMapper.rows(snapshot).map { it.dropLast(1) })
+            .map { row -> row.map { it?.toString().orEmpty() } }
+            .toMutableList()
+        val api = FakeSheetsApi(
+            sheets = mutableListOf(ROUTINES_SHEET),
+            routineRows = legacyRows,
+        )
+
+        val result = repository(api).uploadRoutine(syncId)
+
+        assertEquals(UploadResult.Success, result)
+        assertEquals(listOf(listOf(listOf("exercise_id"))), api.headerUpdates)
+        assertEquals(snapshot.exercises.single().exercise.syncId, api.appended.single().single()[11])
+    }
+
+    @Test
     fun `routine deletion writes an idempotent tombstone snapshot`() = runTest {
         val api = FakeSheetsApi()
 
@@ -665,7 +685,7 @@ class SheetsRepositoryTest : RoomDaoTest() {
         const val MEASUREMENTS_SHEET = "Measurements"
         const val ROUTINES_SHEET = "Routines"
         const val MEASUREMENT_APPEND_RANGE = "Measurements!A:AP"
-        const val ROUTINE_APPEND_RANGE = "Routines!A:K"
-        const val ROUTINES_RANGE = "Routines!A:K"
+        const val ROUTINE_APPEND_RANGE = "Routines!A:L"
+        const val ROUTINES_RANGE = "Routines!A:L"
     }
 }

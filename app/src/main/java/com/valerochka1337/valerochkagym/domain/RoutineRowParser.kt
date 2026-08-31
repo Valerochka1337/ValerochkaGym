@@ -16,6 +16,7 @@ data class ParsedRoutine(
 )
 
 data class ParsedRoutineExercise(
+    val syncId: String? = null,
     val name: String,
     val muscleGroup: MuscleGroup,
     val type: ExerciseType,
@@ -44,6 +45,7 @@ object RoutineRowParser {
         var note: String = "",
         var isDeleted: Boolean = false,
         var hasEmptyExerciseMarker: Boolean = false,
+        var hasStableExerciseRows: Boolean = false,
         val exercises: MutableList<ParsedRoutineExercise> = mutableListOf(),
     )
 
@@ -84,7 +86,24 @@ object RoutineRowParser {
                 skippedRows++
                 return@forEach
             }
+            val rawExerciseId = row.cell(EXERCISE_ID)
+            val exerciseId = if (rawExerciseId.isEmpty()) {
+                null
+            } else {
+                canonicalSheetUuidOrNull(rawExerciseId) ?: run {
+                    skippedRows++
+                    return@forEach
+                }
+            }
+            if (exerciseId != null && !snapshot.hasStableExerciseRows) {
+                // При первом v2-ряду той же версии отбрасываем старые name-only строки.
+                snapshot.exercises.clear()
+                snapshot.hasStableExerciseRows = true
+            } else if (exerciseId == null && snapshot.hasStableExerciseRows) {
+                return@forEach
+            }
             snapshot.exercises += ParsedRoutineExercise(
+                syncId = exerciseId,
                 name = exerciseName,
                 muscleGroup = row.cell(MUSCLE_GROUP).toMuscleGroup(),
                 type = row.cell(TYPE).toExerciseType(),
@@ -115,7 +134,9 @@ object RoutineRowParser {
                     name = snapshot.name,
                     note = snapshot.note,
                     isDeleted = false,
-                    exercises = snapshot.exercises.sortedBy { it.position },
+                    exercises = snapshot.exercises
+                        .distinctBy { it.position to (it.syncId ?: it.name.lowercase()) }
+                        .sortedBy { it.position },
                 )
             }
         }
@@ -160,6 +181,7 @@ object RoutineRowParser {
     private const val TYPE = 8
     private const val REST_SECONDS = 9
     private const val PLANNED_SETS_JSON = 10
+    private const val EXERCISE_ID = 11
 
     private val JSON = Json { ignoreUnknownKeys = true }
 }

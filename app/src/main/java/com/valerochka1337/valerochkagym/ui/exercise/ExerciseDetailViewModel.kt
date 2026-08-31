@@ -10,13 +10,18 @@ import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseMuscleEntity
 import com.valerochka1337.valerochkagym.data.db.entity.Muscle
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleLoad
+import com.valerochka1337.valerochkagym.data.db.entity.withNextUpdatedAt
 import com.valerochka1337.valerochkagym.di.ComputeDispatcher
 import com.valerochka1337.valerochkagym.domain.ExerciseStatistics
 import com.valerochka1337.valerochkagym.domain.ExerciseStatisticsCalculator
+import com.valerochka1337.valerochkagym.domain.GymRepository
+import com.valerochka1337.valerochkagym.domain.NewExerciseConfiguration
+import com.valerochka1337.valerochkagym.domain.NoOpGymRepository
 import com.valerochka1337.valerochkagym.ui.library.ExerciseEditorState
 import com.valerochka1337.valerochkagym.ui.navigation.GymRoutes
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -42,6 +47,7 @@ class ExerciseDetailViewModel @Inject constructor(
     workoutDao: WorkoutDao,
     statisticsCalculator: ExerciseStatisticsCalculator,
     @ComputeDispatcher computeDispatcher: CoroutineDispatcher,
+    private val gymRepository: GymRepository = NoOpGymRepository,
 ) : ViewModel() {
 
     private val exerciseId: Long? = savedStateHandle[GymRoutes.EXERCISE_ID_ARG]
@@ -103,24 +109,56 @@ class ExerciseDetailViewModel @Inject constructor(
         loads: List<MuscleLoad>,
     ) {
         val current = _editor.value ?: return
+        if (current.isSaving) return
         val exerciseId = current.exerciseId ?: return
         val trimmed = name.trim()
         if (trimmed.isEmpty() || loads.isEmpty()) return
-        _editor.value = null
+        _editor.value = current.copy(
+            name = trimmed,
+            type = type,
+            loads = loads.associate { it.muscle to it.contribution },
+            isSaving = true,
+            saveError = null,
+        )
         viewModelScope.launch {
-            val existing = exerciseDao.getById(exerciseId) ?: return@launch
-            exerciseDao.update(
-                existing.copy(
-                    name = if (current.editableName) trimmed else existing.name,
-                    type = type,
-                ),
-            )
-            exerciseMuscleDao.replaceForExercise(
-                exerciseId = exerciseId,
-                rows = loads.map { load ->
-                    ExerciseMuscleEntity(exerciseId, load.muscle, load.contribution)
-                },
-            )
+            val existing = exerciseDao.getById(exerciseId)
+            if (existing == null) {
+                showSaveFailure()
+                return@launch
+            }
+            val updated = existing.copy(
+                name = if (current.editableName) trimmed else existing.name,
+                type = type,
+            ).withNextUpdatedAt()
+            val muscleRows = loads.map { load ->
+                ExerciseMuscleEntity(exerciseId, load.muscle, load.contribution)
+            }
+            val saved = try {
+                if (gymRepository === NoOpGymRepository) {
+                    // Fallback для прямых unit-тестов; production идёт через одну repo-транзакцию.
+                    exerciseDao.update(updated)
+                    exerciseMuscleDao.replaceForExercise(exerciseId, muscleRows)
+                    updated
+                } else {
+                    gymRepository.updateExerciseAndAssign(
+                        configuration = NewExerciseConfiguration(updated, muscleRows),
+                        gymIds = emptySet(),
+                    )
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                null
+            }
+            if (saved == null) return@launch showSaveFailure()
+            _editor.value = null
         }
+    }
+
+    private fun showSaveFailure() {
+        _editor.value = _editor.value?.copy(
+            isSaving = false,
+            saveError = "Не удалось сохранить упражнение. Попробуйте ещё раз.",
+        )
     }
 }

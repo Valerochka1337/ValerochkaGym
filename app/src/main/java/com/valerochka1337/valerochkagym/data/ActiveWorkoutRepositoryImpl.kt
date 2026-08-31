@@ -4,6 +4,7 @@ import androidx.room.withTransaction
 import com.valerochka1337.valerochkagym.data.db.GymDatabase
 import com.valerochka1337.valerochkagym.data.db.PlannedSet
 import com.valerochka1337.valerochkagym.data.db.dao.RoutineDao
+import com.valerochka1337.valerochkagym.data.db.dao.GymDao
 import com.valerochka1337.valerochkagym.data.db.dao.WorkoutDao
 import com.valerochka1337.valerochkagym.data.db.entity.WorkoutEntity
 import com.valerochka1337.valerochkagym.data.db.entity.WorkoutExerciseEntity
@@ -11,6 +12,8 @@ import com.valerochka1337.valerochkagym.data.db.entity.WorkoutSetEntity
 import com.valerochka1337.valerochkagym.data.db.relation.WorkoutExerciseWithSets
 import com.valerochka1337.valerochkagym.data.db.relation.WorkoutFull
 import com.valerochka1337.valerochkagym.domain.ActiveWorkoutRepository
+import com.valerochka1337.valerochkagym.domain.ActiveWorkoutUnavailableException
+import com.valerochka1337.valerochkagym.domain.RoutineGymConflictException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import java.util.UUID
@@ -23,6 +26,7 @@ class ActiveWorkoutRepositoryImpl @Inject constructor(
     private val database: GymDatabase,
     private val workoutDao: WorkoutDao,
     private val routineDao: RoutineDao,
+    private val gymDao: GymDao = database.gymDao(),
 ) : ActiveWorkoutRepository {
 
     override suspend fun startFromRoutine(routineId: Long): String = database.withTransaction {
@@ -30,6 +34,18 @@ class ActiveWorkoutRepositoryImpl @Inject constructor(
 
         val routine = routineDao.getRoutineWithExercises(routineId)
             ?: return@withTransaction startEmpty()
+        val gymIds = routine.gyms.map { it.id }
+        if (gymIds.isNotEmpty()) {
+            val availableIds = gymDao.getAvailableExercises(gymIds, gymIds.size)
+                .mapTo(hashSetOf()) { it.id }
+            val unavailable = routine.exercises
+                .map { it.exercise }
+                .filter { it.id !in availableIds }
+                .distinctBy { it.id }
+            if (unavailable.isNotEmpty()) {
+                throw RoutineGymConflictException(unavailable.map { it.name })
+            }
+        }
         val workoutId = newId()
         workoutDao.insertWorkout(
             WorkoutEntity(
@@ -40,6 +56,7 @@ class ActiveWorkoutRepositoryImpl @Inject constructor(
                 finishedAt = null,
             ),
         )
+        gymDao.replaceWorkoutGyms(workoutId, gymIds)
         routine.exercises
             .sortedBy { it.routineExercise.position }
             .forEachIndexed { position, item ->
@@ -112,6 +129,18 @@ class ActiveWorkoutRepositoryImpl @Inject constructor(
     override suspend fun deleteSet(setId: Long) = workoutDao.deleteSet(setId)
 
     override suspend fun addExercise(workoutId: String, exerciseId: Long): Long = database.withTransaction {
+        val workout = workoutDao.getWorkoutFull(workoutId)?.workout
+            ?.takeIf { it.finishedAt == null }
+            ?: throw ActiveWorkoutUnavailableException()
+        val gyms = gymDao.getGymsForWorkout(workoutId)
+        if (gyms.isNotEmpty()) {
+            val available = gymDao.getAvailableExercises(gyms.map { it.id }, gyms.size)
+                .any { it.id == exerciseId }
+            if (!available) {
+                val name = database.exerciseDao().getById(exerciseId)?.name ?: "Упражнение"
+                throw RoutineGymConflictException(listOf(name))
+            }
+        }
         val existing = workoutDao.getWorkoutExercises(workoutId)
         val position = (existing.maxOfOrNull { it.position } ?: -1) + 1
         val workoutExerciseId = workoutDao.insertWorkoutExercise(

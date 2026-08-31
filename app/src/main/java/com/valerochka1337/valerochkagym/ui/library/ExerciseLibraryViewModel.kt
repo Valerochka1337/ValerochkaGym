@@ -1,5 +1,6 @@
 package com.valerochka1337.valerochkagym.ui.library
 
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.valerochka1337.valerochkagym.data.ai.ExerciseAiGenerationResult
@@ -14,13 +15,23 @@ import com.valerochka1337.valerochkagym.data.db.entity.Muscle
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleGroup
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleLoad
 import com.valerochka1337.valerochkagym.data.db.entity.group
+import com.valerochka1337.valerochkagym.data.db.entity.withNextUpdatedAt
+import com.valerochka1337.valerochkagym.domain.GymRepository
+import com.valerochka1337.valerochkagym.domain.NewExerciseConfiguration
+import com.valerochka1337.valerochkagym.domain.NoOpGymRepository
+import com.valerochka1337.valerochkagym.ui.navigation.GymRoutes
+import com.valerochka1337.valerochkagym.worker.ConfigurationUploadScheduler
+import com.valerochka1337.valerochkagym.worker.NoOpConfigurationUploadScheduler
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -36,6 +47,7 @@ data class ExerciseLibraryUiState(
     val query: String = "",
     val selectedGroup: MuscleGroup? = null,
     val exercises: List<ExerciseEntity>? = null,
+    val gymNames: List<String> = emptyList(),
 ) {
     val isEmpty: Boolean get() = exercises?.isEmpty() == true
 }
@@ -55,6 +67,14 @@ data class ExerciseEditorState(
     val editableName: Boolean,
     /** ИИ сопоставил описание с записью библиотеки; редактор предупредит об изменении, а не создании. */
     val wasFoundByAi: Boolean = false,
+    /** Подтверждённое сохранением действие включит найденную запись во все выбранные залы. */
+    val assignToSelectedGyms: Boolean = false,
+    /** Контекст picker-а: после успешного сохранения запись сразу попадёт сюда. */
+    val selectionTarget: String? = null,
+    /** Человекочитаемый состав залов для явного предупреждения перед изменением конфигураций. */
+    val selectedGymNames: List<String> = emptyList(),
+    val isSaving: Boolean = false,
+    val saveError: String? = null,
 )
 
 /** Состояние первичной шторки создания упражнения по описанию. */
@@ -64,6 +84,11 @@ data class ExerciseAiCreationState(
     val aiConfigured: Boolean = false,
     val error: String? = null,
     val modelUnavailable: Boolean = false,
+)
+
+data class SavedExerciseResult(
+    val exercise: ExerciseEntity,
+    val addedToWorkout: Boolean,
 )
 
 /** Заглушка оставляет ручной путь доступным в прямых unit-тестах без Hilt. */
@@ -94,7 +119,18 @@ class ExerciseLibraryViewModel @Inject constructor(
     private val exerciseAiGenerator: ExerciseAiGenerator = NoOpExerciseAiGenerator,
     private val aiApiConfigurationProvider: AiApiConfigurationProvider =
         NoOpAiApiConfigurationProvider,
+    savedStateHandle: SavedStateHandle = SavedStateHandle(),
+    private val gymRepository: GymRepository = NoOpGymRepository,
+    private val configurationUploadScheduler: ConfigurationUploadScheduler =
+        NoOpConfigurationUploadScheduler,
 ) : ViewModel() {
+
+    private val selectedGymIds: Set<String> = savedStateHandle
+        .get<String>(GymRoutes.GYM_IDS_ARG)
+        .orEmpty()
+        .split(',')
+        .filterTo(linkedSetOf()) { it.isNotBlank() }
+    private val workoutId: String? = savedStateHandle.get<String>(GymRoutes.WORKOUT_ID_ARG)
 
     private val query = MutableStateFlow("")
     private val selectedGroup = MutableStateFlow<MuscleGroup?>(null)
@@ -104,14 +140,26 @@ class ExerciseLibraryViewModel @Inject constructor(
     private var generationJob: Job? = null
     private var generationId = 0L
 
+    private val _savedExercise = Channel<SavedExerciseResult>(Channel.BUFFERED)
+
+    /** Новая/найденная запись уже сохранена и должна сразу вернуться в вызывающий picker. */
+    val savedExercise = _savedExercise.receiveAsFlow()
+
     /** Открытая шторка редактора; `null` — закрыта. */
     val editor: StateFlow<ExerciseEditorState?> = _editor.asStateFlow()
 
     /** Открытая ИИ-шторка; `null` — создание сейчас не начато. */
     val aiCreation: StateFlow<ExerciseAiCreationState?> = _aiCreation.asStateFlow()
 
+    private val sourceExercises = if (selectedGymIds.isEmpty() || gymRepository === NoOpGymRepository) {
+        exerciseDao.getAll()
+    } else {
+        gymRepository.observeAvailableExercises(selectedGymIds)
+    }
+
     val uiState: StateFlow<ExerciseLibraryUiState> =
-        combine(exerciseDao.getAll(), query, selectedGroup) { all, currentQuery, group ->
+        combine(sourceExercises, query, selectedGroup, gymRepository.observeGyms()) {
+                all, currentQuery, group, gyms ->
             val trimmed = currentQuery.trim()
             val filtered = all.filter { exercise ->
                 (group == null || exercise.muscleGroup == group) &&
@@ -121,6 +169,7 @@ class ExerciseLibraryViewModel @Inject constructor(
                 query = currentQuery,
                 selectedGroup = group,
                 exercises = filtered,
+                gymNames = gyms.filter { it.id in selectedGymIds }.map { it.name },
             )
         }.stateIn(
             scope = viewModelScope,
@@ -201,6 +250,8 @@ class ExerciseLibraryViewModel @Inject constructor(
                         type = result.type,
                         loads = result.loads.associate { it.muscle to it.contribution },
                         editableName = true,
+                        selectionTarget = pickerTarget(),
+                        selectedGymNames = uiState.value.gymNames,
                     )
                 }
 
@@ -220,6 +271,8 @@ class ExerciseLibraryViewModel @Inject constructor(
         }
         val loads = exerciseMuscleDao.getForExercise(exercise.id)
             .associate { it.muscle to it.contribution }
+        val needsGymAssignment = selectedGymIds.isNotEmpty() &&
+            gymRepository.unavailableExercises(selectedGymIds, setOf(exercise.id)).isNotEmpty()
         if (generationId != this.generationId) return
         _aiCreation.value = null
         _editor.value = ExerciseEditorState(
@@ -229,6 +282,9 @@ class ExerciseLibraryViewModel @Inject constructor(
             loads = loads,
             editableName = exercise.isCustom,
             wasFoundByAi = true,
+            assignToSelectedGyms = needsGymAssignment,
+            selectionTarget = pickerTarget(),
+            selectedGymNames = uiState.value.gymNames,
         )
     }
 
@@ -253,6 +309,8 @@ class ExerciseLibraryViewModel @Inject constructor(
             type = ExerciseType.STRENGTH,
             loads = emptyMap(),
             editableName = true,
+            selectionTarget = pickerTarget(),
+            selectedGymNames = uiState.value.gymNames,
         )
 
     /** Открывает разметку существующего упражнения — текущая карта подгружается из базы. */
@@ -284,35 +342,106 @@ class ExerciseLibraryViewModel @Inject constructor(
      */
     fun saveEditor(name: String, type: ExerciseType, loads: List<MuscleLoad>) {
         val current = _editor.value ?: return
+        if (current.isSaving) return
         val trimmed = name.trim()
         if (trimmed.isEmpty() || loads.isEmpty()) return
-        _editor.value = null
+        val submittedLoads = loads.associate { it.muscle to it.contribution }
+        _editor.value = current.copy(
+            name = trimmed,
+            type = type,
+            loads = submittedLoads,
+            isSaving = true,
+            saveError = null,
+        )
         viewModelScope.launch {
-            val exerciseId = if (current.exerciseId == null) {
-                exerciseDao.insert(
-                    ExerciseEntity(
+            val saved = try {
+                if (current.exerciseId == null) {
+                    val exercise = ExerciseEntity(
                         name = trimmed,
                         muscleGroup = primaryGroup(loads),
                         type = type,
                         isCustom = true,
-                    ),
-                )
-            } else {
-                val existing = exerciseDao.getById(current.exerciseId) ?: return@launch
-                exerciseDao.update(
-                    existing.copy(
+                    )
+                    val muscleRows = loads.map {
+                        ExerciseMuscleEntity(exerciseId = 0, muscle = it.muscle, contribution = it.contribution)
+                    }
+                    if (gymRepository === NoOpGymRepository) {
+                        val exerciseId = exerciseDao.insert(exercise)
+                        exerciseMuscleDao.replaceForExercise(
+                            exerciseId,
+                            muscleRows.map { it.copy(exerciseId = exerciseId) },
+                        )
+                        exercise.copy(id = exerciseId)
+                    } else if (workoutId != null) {
+                        gymRepository.createExerciseAssignAndAddToWorkout(
+                            NewExerciseConfiguration(exercise, muscleRows),
+                            selectedGymIds,
+                            workoutId,
+                        )
+                    } else {
+                        gymRepository.createExerciseAndAssign(
+                            NewExerciseConfiguration(exercise, muscleRows),
+                            selectedGymIds,
+                        )
+                    }
+                } else {
+                    val existing = exerciseDao.getById(current.exerciseId)
+                        ?: return@launch showSaveFailure()
+                    val updated = existing.copy(
                         name = if (current.editableName) trimmed else existing.name,
                         type = type,
+                    ).withNextUpdatedAt()
+                    val muscleRows = loads.map {
+                        ExerciseMuscleEntity(existing.id, it.muscle, it.contribution)
+                    }
+                    if (gymRepository === NoOpGymRepository) {
+                        exerciseDao.update(updated)
+                        exerciseMuscleDao.replaceForExercise(existing.id, muscleRows)
+                        configurationUploadScheduler.scheduleExercise(updated.syncId)
+                        updated
+                    } else if (workoutId != null && current.wasFoundByAi) {
+                        gymRepository.updateExerciseAssignAndAddToWorkout(
+                            configuration = NewExerciseConfiguration(updated, muscleRows),
+                            gymIds = selectedGymIds,
+                            workoutId = workoutId,
+                        )
+                    } else {
+                        gymRepository.updateExerciseAndAssign(
+                            configuration = NewExerciseConfiguration(updated, muscleRows),
+                            gymIds = if (current.assignToSelectedGyms) selectedGymIds else emptySet(),
+                        )
+                    }
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                null
+            }
+            if (saved == null) return@launch showSaveFailure()
+            _editor.value = null
+            if (current.exerciseId == null || current.wasFoundByAi) {
+                _savedExercise.send(
+                    SavedExerciseResult(
+                        exercise = saved,
+                        addedToWorkout = workoutId != null && gymRepository !== NoOpGymRepository &&
+                            (current.exerciseId == null || current.wasFoundByAi),
                     ),
                 )
-                existing.id
             }
-            exerciseMuscleDao.replaceForExercise(
-                exerciseId = exerciseId,
-                rows = loads.map { ExerciseMuscleEntity(exerciseId, it.muscle, it.contribution) },
+        }
+    }
+
+    private fun showSaveFailure() {
+        _editor.update { state ->
+            state?.copy(
+                isSaving = false,
+                saveError = "Не удалось сохранить упражнение. Проверьте выбранные залы и повторите.",
             )
         }
     }
+
+    private fun pickerTarget(): String =
+        if (workoutId != null) "активную тренировку" else "текущую программу"
 
     private fun primaryGroup(loads: List<MuscleLoad>): MuscleGroup =
         loads.maxByOrNull { it.contribution }?.muscle?.group() ?: MuscleGroup.FULL_BODY

@@ -114,6 +114,7 @@ class Migration2To3Test {
                 GymDatabase.MIGRATION_4_5,
                 GymDatabase.MIGRATION_5_6,
                 GymDatabase.MIGRATION_6_7,
+                GymDatabase.MIGRATION_7_8,
             )
             .allowMainThreadQueries()
             .build()

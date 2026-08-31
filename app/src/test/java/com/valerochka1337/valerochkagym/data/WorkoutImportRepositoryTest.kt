@@ -134,7 +134,7 @@ class WorkoutImportRepositoryTest : RoomDaoTest() {
         val api = FakeSheetsApi(
             sheets = mutableListOf("Routines"),
             valuesByRange = mapOf(
-                "Routines!A:K" to listOf(
+                "Routines!A:L" to listOf(
                     RoutineRowMapper.HEADER_ROW,
                     listOf(
                         "routine-1",
@@ -175,7 +175,7 @@ class WorkoutImportRepositoryTest : RoomDaoTest() {
         val api = FakeSheetsApi(
             sheets = mutableListOf("Routines"),
             valuesByRange = mapOf(
-                "Routines!A:K" to listOf(
+                "Routines!A:L" to listOf(
                     RoutineRowMapper.HEADER_ROW,
                     RoutineRowMapper.deletion("routine-1", 200).map { it?.toString().orEmpty() },
                 ),

@@ -6,12 +6,19 @@ import com.valerochka1337.valerochkagym.data.db.dao.ExerciseDao
 import com.valerochka1337.valerochkagym.data.db.dao.RoutineDao
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
+import com.valerochka1337.valerochkagym.data.db.entity.GymEntity
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleGroup
 import com.valerochka1337.valerochkagym.data.db.entity.RoutineEntity
 import com.valerochka1337.valerochkagym.data.db.entity.RoutineExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.relation.RoutineExerciseWithExercise
 import com.valerochka1337.valerochkagym.data.db.relation.RoutineWithCount
 import com.valerochka1337.valerochkagym.data.db.relation.RoutineWithExercises
+import com.valerochka1337.valerochkagym.domain.DeleteGymResult
+import com.valerochka1337.valerochkagym.domain.GymConfiguration
+import com.valerochka1337.valerochkagym.domain.GymRepository
+import com.valerochka1337.valerochkagym.domain.RoutineConfigurationDraft
+import com.valerochka1337.valerochkagym.domain.SaveGymResult
+import com.valerochka1337.valerochkagym.domain.SaveRoutineConfigurationResult
 import com.valerochka1337.valerochkagym.ui.navigation.GymRoutes
 import com.valerochka1337.valerochkagym.ui.routine.RoutineEditorViewModel
 import com.valerochka1337.valerochkagym.util.MainDispatcherRule
@@ -93,6 +100,39 @@ class RoutineEditorViewModelTest {
             assertEquals(ExerciseType.STRENGTH, first.exerciseType)
             assertEquals(90, first.restSeconds)
             assertEquals(listOf(PlannedSet(reps = 5)), first.plannedSets)
+        }
+
+    @Test
+    fun `loading and saving an existing routine keeps its gym selection in the repository draft`() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val squat = exercise(id = 1, name = "Приседания")
+            val firstGym = gym("gym-first", "Первый", listOf(squat))
+            val secondGym = gym("gym-second", "Второй", listOf(squat))
+            val routine = RoutineWithExercises(
+                routine = RoutineEntity(id = 5, name = "День ног"),
+                exercises = listOf(
+                    routineExercise(squat, position = 0, restSeconds = 90, plannedSets = listOf(PlannedSet(reps = 5))),
+                ),
+                gyms = listOf(GymEntity(id = 10, syncId = firstGym.id, name = firstGym.name)),
+            )
+            val repository = FakeGymRepository(listOf(firstGym, secondGym))
+            val viewModel = RoutineEditorViewModel(
+                savedStateHandle = savedStateHandleFor(5),
+                routineDao = FakeRoutineDao(listOf(routine)),
+                exerciseDao = FakeExerciseDao(),
+                gymRepository = repository,
+            )
+            mainDispatcherRule.testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals(setOf("gym-first"), viewModel.uiState.value.selectedGymIds)
+
+            viewModel.toggleGym("gym-second")
+            viewModel.save()
+            mainDispatcherRule.testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals(setOf("gym-first", "gym-second"), repository.lastRoutineDraft?.gymIds)
+            assertEquals(5L, repository.lastRoutineDraft?.routine?.id)
+            assertEquals(listOf(1L), repository.lastRoutineDraft?.exercises?.map { it.exerciseId })
         }
 
     // endregion
@@ -251,6 +291,70 @@ class RoutineEditorViewModelTest {
     // region saving
 
     @Test
+    fun `selecting gyms with different catalogues exposes conflicts and blocks save`() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val squat = exercise(id = 1, name = "Приседания")
+            val legPress = exercise(id = 2, name = "Жим ногами")
+            val repository = FakeGymRepository(
+                listOf(
+                    gym("gym-full", "Полный", listOf(squat, legPress)),
+                    gym("gym-small", "Малый", listOf(squat)),
+                ),
+            )
+            val viewModel = RoutineEditorViewModel(
+                savedStateHandle = SavedStateHandle(),
+                routineDao = FakeRoutineDao(),
+                exerciseDao = FakeExerciseDao(),
+                gymRepository = repository,
+            )
+            mainDispatcherRule.testDispatcher.scheduler.advanceUntilIdle()
+            viewModel.setName("Ноги")
+            viewModel.addExercise(squat)
+            viewModel.addExercise(legPress)
+
+            viewModel.toggleGym("gym-full")
+            viewModel.toggleGym("gym-small")
+
+            val state = viewModel.uiState.value
+            assertEquals(listOf("Жим ногами"), state.conflictingExercises.map { it.exerciseName })
+            assertFalse(state.isValid)
+
+            viewModel.save()
+            mainDispatcherRule.testDispatcher.scheduler.advanceUntilIdle()
+
+            assertNull(repository.lastRoutineDraft)
+        }
+
+    @Test
+    fun `a repository conflict keeps the editor open and shows the unavailable exercises`() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val legPress = exercise(id = 2, name = "Жим ногами")
+            val repository = FakeGymRepository(
+                gyms = listOf(gym("gym", "Основной", listOf(legPress))),
+                routineSaveResult = SaveRoutineConfigurationResult.Conflict(listOf(legPress)),
+            )
+            val viewModel = RoutineEditorViewModel(
+                savedStateHandle = SavedStateHandle(),
+                routineDao = FakeRoutineDao(),
+                exerciseDao = FakeExerciseDao(),
+                gymRepository = repository,
+            )
+            mainDispatcherRule.testDispatcher.scheduler.advanceUntilIdle()
+            viewModel.setName("Ноги")
+            viewModel.addExercise(legPress)
+            viewModel.toggleGym("gym")
+
+            viewModel.save()
+            mainDispatcherRule.testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals(listOf("Жим ногами"), viewModel.uiState.value.conflictingExercises.map { it.exerciseName })
+            assertEquals(
+                "Некоторые упражнения недоступны во всех выбранных залах",
+                viewModel.uiState.value.saveError,
+            )
+        }
+
+    @Test
     fun `save on a new routine upserts a zero id and reindexes positions`() =
         runTest(mainDispatcherRule.testDispatcher.scheduler) {
             val routineDao = FakeRoutineDao()
@@ -314,6 +418,9 @@ class RoutineEditorViewModelTest {
 
     private fun exercise(id: Long, name: String, type: ExerciseType = ExerciseType.STRENGTH): ExerciseEntity =
         ExerciseEntity(id = id, name = name, muscleGroup = MuscleGroup.LEGS, type = type)
+
+    private fun gym(id: String, name: String, exercises: List<ExerciseEntity>): GymConfiguration =
+        GymConfiguration(id = id, name = name, exercises = exercises)
 
     private fun routineExercise(
         exercise: ExerciseEntity,
@@ -397,5 +504,40 @@ class RoutineEditorViewModelTest {
         override suspend fun count(): Int = items.size
         override suspend fun getById(id: Long): ExerciseEntity? = items.find { it.id == id }
         override suspend fun getAllOnce(): List<ExerciseEntity> = items
+    }
+
+    private class FakeGymRepository(
+        gyms: List<GymConfiguration>,
+        private val routineSaveResult: SaveRoutineConfigurationResult? = null,
+    ) : GymRepository {
+        private val gymsFlow = MutableStateFlow(gyms)
+
+        var lastRoutineDraft: RoutineConfigurationDraft? = null
+            private set
+
+        override fun observeGyms(): Flow<List<GymConfiguration>> = gymsFlow
+
+        override fun observeExerciseCatalog(): Flow<List<ExerciseEntity>> = MutableStateFlow(emptyList())
+
+        override suspend fun getGym(id: String): GymConfiguration? =
+            gymsFlow.value.find { it.id == id }
+
+        override suspend fun saveGym(
+            id: String?,
+            name: String,
+            exerciseIds: Set<Long>,
+        ): SaveGymResult = SaveGymResult.Failure
+
+        override suspend fun deleteGym(id: String): DeleteGymResult = DeleteGymResult.NotFound
+
+        override suspend fun saveRoutineConfiguration(
+            draft: RoutineConfigurationDraft,
+        ): SaveRoutineConfigurationResult {
+            lastRoutineDraft = draft
+            return routineSaveResult ?: SaveRoutineConfigurationResult.Saved(
+                routineId = draft.routine.id.takeUnless { it == 0L } ?: 1L,
+                routine = draft.routine,
+            )
+        }
     }
 }

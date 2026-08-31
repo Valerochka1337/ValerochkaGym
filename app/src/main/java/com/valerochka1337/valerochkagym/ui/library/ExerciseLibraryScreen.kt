@@ -31,6 +31,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -63,6 +64,7 @@ fun ExerciseLibraryScreen(
     onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier,
     onExerciseSelected: ((ExerciseEntity) -> Unit)? = null,
+    onExerciseAddedToWorkout: (() -> Unit)? = null,
     onExerciseInfo: ((ExerciseEntity) -> Unit)? = null,
     viewModel: ExerciseLibraryViewModel = hiltViewModel(),
 ) {
@@ -71,10 +73,29 @@ fun ExerciseLibraryScreen(
     val aiCreation by viewModel.aiCreation.collectAsStateWithLifecycle()
     val haptics = gymHaptics()
 
+    LaunchedEffect(viewModel, onExerciseSelected, onExerciseAddedToWorkout) {
+        viewModel.savedExercise.collect { result ->
+            if (result.addedToWorkout) {
+                onExerciseAddedToWorkout?.invoke()
+            } else {
+                onExerciseSelected?.invoke(result.exercise)
+            }
+        }
+    }
+
     GlowBackground(modifier = modifier) {
         Box(modifier = Modifier.fillMaxSize()) {
             Column(modifier = Modifier.fillMaxSize()) {
                 LibraryHeader(onBack = onBack)
+
+                if (state.gymNames.isNotEmpty()) {
+                    Text(
+                        text = "Доступно во всех: ${state.gymNames.joinToString()}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp),
+                    )
+                }
 
                 SearchField(
                     query = state.query,

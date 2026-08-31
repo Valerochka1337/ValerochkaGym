@@ -59,3 +59,13 @@ interface ActiveWorkoutRepository {
     /** Удаляет тренировку целиком (каскад по упражнениям и подходам). */
     suspend fun discard(workoutId: String)
 }
+
+/** Старт/добавление блокируется, пока упражнения не появятся во всех выбранных залах. */
+class RoutineGymConflictException(
+    val exerciseNames: List<String>,
+) : IllegalStateException(
+    "Упражнения недоступны во всех выбранных залах: ${exerciseNames.joinToString()}",
+)
+
+/** Отложенное действие не должно менять уже завершённую или удалённую тренировку. */
+class ActiveWorkoutUnavailableException : IllegalStateException("Активная тренировка уже завершена")

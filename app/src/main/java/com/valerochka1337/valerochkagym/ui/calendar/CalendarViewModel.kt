@@ -12,6 +12,7 @@ import com.valerochka1337.valerochkagym.data.google.ScheduleResult
 import com.valerochka1337.valerochkagym.data.schedule.WeeklySchedule
 import com.valerochka1337.valerochkagym.data.schedule.WeeklyScheduleRepository
 import com.valerochka1337.valerochkagym.domain.ActiveWorkoutRepository
+import com.valerochka1337.valerochkagym.domain.RoutineGymConflictException
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
@@ -200,15 +201,23 @@ class CalendarViewModel @Inject constructor(
 
     /** Старт наступившей ad-hoc тренировки: создаёт активную и удаляет запись+событие. */
     fun startAdHoc(item: AdHocUi) = launchStart {
-        activeWorkoutRepository.startFromRoutine(item.routineId)
-        _startEvents.send(Unit)
-        calendarRepository.cancel(item.scheduledId)
+        try {
+            activeWorkoutRepository.startFromRoutine(item.routineId)
+            _startEvents.send(Unit)
+            calendarRepository.cancel(item.scheduledId)
+        } catch (conflict: RoutineGymConflictException) {
+            _events.send("Нельзя начать: недоступно во всех залах — ${conflict.exerciseNames.joinToString()}")
+        }
     }
 
     /** Старт по правилу расписания: только создаёт активную тренировку (серию НЕ трогаем). */
     fun startRecurring(routineId: Long) = launchStart {
-        activeWorkoutRepository.startFromRoutine(routineId)
-        _startEvents.send(Unit)
+        try {
+            activeWorkoutRepository.startFromRoutine(routineId)
+            _startEvents.send(Unit)
+        } catch (conflict: RoutineGymConflictException) {
+            _events.send("Нельзя начать: недоступно во всех залах — ${conflict.exerciseNames.joinToString()}")
+        }
     }
 
     /** Сохраняет недельное расписание (замена серии). */

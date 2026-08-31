@@ -27,6 +27,8 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -74,6 +76,7 @@ fun WorkoutsScreen(
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     var pendingDeleteId by rememberSaveable { mutableStateOf<Long?>(null) }
+    val snackbarHostState = remember { SnackbarHostState() }
 
     val context = LocalContext.current
     // Отказ в разрешении не блокирует тренировку — таймер работает на экране, просто без уведомлений.
@@ -91,6 +94,9 @@ fun WorkoutsScreen(
             WorkoutSessionService.start(context)
             onStartWorkout()
         }
+    }
+    LaunchedEffect(Unit) {
+        viewModel.messages.collect(snackbarHostState::showSnackbar)
     }
 
     GlowBackground(modifier = modifier) {
@@ -157,6 +163,10 @@ fun WorkoutsScreen(
                     )
                 }
             }
+            SnackbarHost(
+                hostState = snackbarHostState,
+                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 96.dp),
+            )
         }
     }
 
@@ -214,6 +224,16 @@ private fun RoutineCard(
                 Text(
                     text = "${routine.exerciseCount} ${exercisesWord(routine.exerciseCount)} · ~${routine.estimatedMinutes} мин",
                     style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = if (routine.gymNames.isEmpty()) {
+                        "Без ограничений по залу"
+                    } else {
+                        routine.gymNames.joinToString()
+                    },
+                    style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }

@@ -52,6 +52,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.ripple
@@ -134,6 +136,7 @@ fun ActiveWorkoutScreen(
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val snackbarHostState = remember { SnackbarHostState() }
     val nearbyDevicesPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
     ) {
@@ -168,6 +171,7 @@ fun ActiveWorkoutScreen(
             when (event) {
                 is ActiveWorkoutEvent.NavigateToSummary -> onFinished(event.workoutId)
                 ActiveWorkoutEvent.NavigateHome -> onDiscarded()
+                is ActiveWorkoutEvent.ShowMessage -> snackbarHostState.showSnackbar(event.message)
             }
         }
     }
@@ -194,33 +198,39 @@ fun ActiveWorkoutScreen(
     }
 
     GlowBackground(modifier = modifier) {
-        val workout = state.workout
-        when {
-            workout != null -> FadeInContent {
-                ActiveWorkoutContent(
-                    state = state,
-                    elapsedSeconds = viewModel.elapsedSeconds,
-                    restTimer = viewModel.restTimer,
-                    heartRateState = viewModel.heartRateState,
-                    heartRateReading = viewModel.heartRateReading,
-                    setActions = setActions,
-                    onDeleteExercise = viewModel::deleteExercise,
-                    onReorderExercises = viewModel::reorderExercises,
-                    onAddExercise = onAddExercise,
-                    onExerciseClick = onExerciseClick,
-                    onFinish = viewModel::finish,
-                    onDiscard = viewModel::discard,
-                    onAddRestSeconds = viewModel::addRestSeconds,
-                    onSkipRest = viewModel::skipRest,
-                    onScanHeartRate = ::startHeartRateSearch,
-                    onConnectHeartRate = viewModel::connectHeartRate,
-                    onCancelHeartRateSelection = viewModel::cancelHeartRateSelection,
-                )
+        Box(Modifier.fillMaxSize()) {
+            val workout = state.workout
+            when {
+                workout != null -> FadeInContent {
+                    ActiveWorkoutContent(
+                        state = state,
+                        elapsedSeconds = viewModel.elapsedSeconds,
+                        restTimer = viewModel.restTimer,
+                        heartRateState = viewModel.heartRateState,
+                        heartRateReading = viewModel.heartRateReading,
+                        setActions = setActions,
+                        onDeleteExercise = viewModel::deleteExercise,
+                        onReorderExercises = viewModel::reorderExercises,
+                        onAddExercise = onAddExercise,
+                        onExerciseClick = onExerciseClick,
+                        onFinish = viewModel::finish,
+                        onDiscard = viewModel::discard,
+                        onAddRestSeconds = viewModel::addRestSeconds,
+                        onSkipRest = viewModel::skipRest,
+                        onScanHeartRate = ::startHeartRateSearch,
+                        onConnectHeartRate = viewModel::connectHeartRate,
+                        onCancelHeartRateSelection = viewModel::cancelHeartRateSelection,
+                    )
+                }
+
+                state.loading -> Unit
+
+                else -> FadeInContent { NoActiveWorkout(onNavigateBack = onNavigateBack) }
             }
-
-            state.loading -> Unit
-
-            else -> FadeInContent { NoActiveWorkout(onNavigateBack = onNavigateBack) }
+            SnackbarHost(
+                hostState = snackbarHostState,
+                modifier = Modifier.align(Alignment.BottomCenter).padding(24.dp),
+            )
         }
     }
 }
