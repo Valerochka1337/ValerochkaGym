@@ -89,9 +89,11 @@ fun RoutineEditorScreen(
     val haptics = gymHaptics()
     val lazyListState = rememberLazyListState()
     val reorderableLazyListState = rememberGymReorderableLazyListState(lazyListState) { from, to ->
-        if (from.index in state.exercises.indices && to.index in state.exercises.indices) {
+        val fromIndex = state.exercises.indexOfReorderKey(from.key)
+        val toIndex = state.exercises.indexOfReorderKey(to.key)
+        if (fromIndex >= 0 && toIndex >= 0 && fromIndex != toIndex) {
             // Reorderable expects the backing list to change before this callback returns.
-            viewModel.moveExercise(from.index, to.index)
+            viewModel.moveExercise(fromIndex, toIndex)
             haptics.stepFrequent()
         }
     }
@@ -441,6 +443,10 @@ private fun EditorExercise.compactSummary(): String {
     val rest = restSeconds?.let { "отдых $it сек" } ?: "отдых по умолчанию"
     return "$sets ${setsWord(sets)} · $rest"
 }
+
+/** Сопоставляет стабильный key карточки с индексом упражнения, игнорируя служебные item списка. */
+internal fun List<EditorExercise>.indexOfReorderKey(key: Any): Int =
+    indexOfFirst { exercise -> exercise.editorId == key }
 
 private fun setsWord(count: Int): String {
     val mod100 = count % 100

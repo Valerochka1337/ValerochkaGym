@@ -259,24 +259,12 @@ fun SettingsScreen(
 
 @Composable
 private fun GymsSettingsCard(onOpen: () -> Unit) {
-    val haptics = gymHaptics()
-    SectionCard(title = "Тренажёрные залы", icon = Icons.Rounded.FitnessCenter) {
-        Text(
-            text = "Настройте, какие упражнения доступны в каждом зале.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Spacer(Modifier.height(12.dp))
-        OutlinedButton(
-            onClick = {
-                haptics.tap()
-                onOpen()
-            },
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text("Настроить залы")
-        }
-    }
+    SettingsNavigationCard(
+        label = "Тренажёрные залы",
+        supportingText = "Упражнения, доступные в каждом зале",
+        icon = Icons.Rounded.FitnessCenter,
+        onClick = onOpen,
+    )
 }
 
 @Composable
@@ -307,42 +295,61 @@ private fun SettingsHeader(title: String, onBack: () -> Unit) {
 @Composable
 private fun SettingsCategoryList(onSelect: (SettingsCategory) -> Unit) {
     SettingsCategory.entries.forEach { category ->
-        GymCard(
-            modifier = Modifier.fillMaxWidth(),
+        SettingsNavigationCard(
+            label = category.label,
+            supportingText = category.supportingText,
+            icon = when (category) {
+                SettingsCategory.WORKOUT -> Icons.Rounded.Timer
+                SettingsCategory.CONNECTIONS -> Icons.Rounded.Link
+                SettingsCategory.APPEARANCE -> Icons.Rounded.Palette
+                SettingsCategory.DATA_APP -> Icons.Rounded.Storage
+            },
             onClick = { onSelect(category) },
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    imageVector = when (category) {
-                        SettingsCategory.WORKOUT -> Icons.Rounded.Timer
-                        SettingsCategory.CONNECTIONS -> Icons.Rounded.Link
-                        SettingsCategory.APPEARANCE -> Icons.Rounded.Palette
-                        SettingsCategory.DATA_APP -> Icons.Rounded.Storage
-                    },
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
+        )
+    }
+}
+
+@Composable
+private fun SettingsNavigationCard(
+    label: String,
+    supportingText: String,
+    icon: ImageVector,
+    onClick: () -> Unit,
+) {
+    val haptics = gymHaptics()
+    GymCard(
+        modifier = Modifier.fillMaxWidth(),
+        onClick = {
+            haptics.tap()
+            onClick()
+        },
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+            )
+            Spacer(Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface,
                 )
-                Spacer(Modifier.width(12.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = category.label,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
-                    Text(
-                        text = category.supportingText,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                Icon(
-                    imageVector = Icons.AutoMirrored.Rounded.ArrowForward,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                Text(
+                    text = supportingText,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+            Icon(
+                imageVector = Icons.AutoMirrored.Rounded.ArrowForward,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }
