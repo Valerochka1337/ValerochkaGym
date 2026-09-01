@@ -1,0 +1,44 @@
+name: Auto-assign reviewers
+
+on:
+  pull_request_target:
+    types:
+      - opened
+      - ready_for_review
+      - reopened
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: auto-assign-reviewers-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  assign:
+    name: Request reviews
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Request reviews from collaborators
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          reviewer_fields=()
+          for candidate in Valerochka1337 rurkk; do
+            if [[ "$candidate" != "$PR_AUTHOR" ]]; then
+              reviewer_fields+=(-f "reviewers[]=$candidate")
+            fi
+          done
+
+          gh api \
+            --method POST \
+            "repos/$REPOSITORY/pulls/$PR_NUMBER/requested_reviewers" \
+            "${reviewer_fields[@]}"
