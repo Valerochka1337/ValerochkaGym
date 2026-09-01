@@ -1,0 +1,7 @@
+interface:
+  display_name: "Android Feature Implementation"
+  short_description: "Android feature delivery with specialist agents"
+  default_prompt: "Use $android-feature-implementation to implement this Android feature end to end with research, planning, testing, and review."
+
+policy:
+  allow_implicit_invocation: true

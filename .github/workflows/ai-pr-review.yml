@@ -28,8 +28,8 @@ jobs:
         env:
           AI_BASE_URL: ${{ secrets.AI_BASE_URL }}
           AI_TOKEN: ${{ secrets.AI_TOKEN }}
-          AI_MODEL: ${{ vars.AI_MODEL }}
-          AI_REVIEW_LANGUAGE: ${{ vars.AI_REVIEW_LANGUAGE }}
+          AI_MODEL: ${{ vars.AI_MODEL || secrets.AI_MODEL }}
+          AI_REVIEW_LANGUAGE: ${{ vars.AI_REVIEW_LANGUAGE || secrets.AI_REVIEW_LANGUAGE }}
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
@@ -46,7 +46,9 @@ jobs:
             }
 
             if (!process.env.AI_MODEL) {
-              throw new Error("Variable AI_MODEL is not configured");
+              throw new Error(
+                "AI_MODEL is not configured as a repository variable or secret"
+              );
             }
 
             // Получаем изменения через GitHub API.
