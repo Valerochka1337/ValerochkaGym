@@ -1,6 +1,7 @@
 package com.valerochka1337.valerochkagym.data.google
 
 import android.app.Activity
+import android.accounts.Account
 import android.content.Context
 import androidx.credentials.ClearCredentialStateRequest
 import androidx.credentials.CredentialManager
@@ -18,6 +19,7 @@ import com.valerochka1337.valerochkagym.R
 import com.valerochka1337.valerochkagym.data.settings.SettingsRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.suspendCancellableCoroutine
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -41,7 +43,7 @@ private val REQUIRED_SCOPES = listOf(
 class GoogleAuthManager @Inject constructor(
     @param:ApplicationContext private val context: Context,
     private val settingsRepository: SettingsRepository,
-) : GoogleAuth {
+) : GoogleAuth, AccountBoundGoogleAuth {
 
     private val credentialManager: CredentialManager by lazy { CredentialManager.create(context) }
 
@@ -71,7 +73,9 @@ class GoogleAuthManager @Inject constructor(
 
     override suspend fun authorize(activity: Activity): AuthorizeOutcome =
         try {
-            val result = requestAuthorization(activity)
+            val expectedEmail = settingsRepository.settings.first().googleEmail
+                ?.trim()?.lowercase()?.takeIf(String::isNotEmpty)
+            val result = requestAuthorization(activity, expectedEmail)
             val pendingIntent = result.pendingIntent
             if (result.hasResolution() && pendingIntent != null) {
                 AuthorizeOutcome.NeedsConsent(pendingIntent)
@@ -85,8 +89,14 @@ class GoogleAuthManager @Inject constructor(
         }
 
     override suspend fun getAccessToken(): TokenResult =
+        getAccessTokenForExpectedAccount(expectedEmail = null)
+
+    override suspend fun getAccessTokenForAccount(expectedEmail: String): TokenResult =
+        getAccessTokenForExpectedAccount(expectedEmail.trim().lowercase())
+
+    private suspend fun getAccessTokenForExpectedAccount(expectedEmail: String?): TokenResult =
         try {
-            val result = requestAuthorization(context)
+            val result = requestAuthorization(context, expectedEmail)
             val token = result.accessToken
             when {
                 // Есть resolution → требуется согласие пользователя, токена пока нет.
@@ -112,11 +122,27 @@ class GoogleAuthManager @Inject constructor(
         settingsRepository.setGoogleEmail(null)
     }
 
-    private suspend fun requestAuthorization(authContext: Context): AuthorizationResult {
-        val request = AuthorizationRequest.Builder()
+    internal fun buildAuthorizationRequest(expectedEmail: String?): AuthorizationRequest =
+        AuthorizationRequest.Builder()
             .setRequestedScopes(REQUIRED_SCOPES)
+            .apply {
+                expectedEmail?.trim()?.lowercase()?.takeIf(String::isNotEmpty)?.let {
+                    setAccount(Account(it, GOOGLE_ACCOUNT_TYPE))
+                }
+            }
             .build()
-        return Identity.getAuthorizationClient(authContext).authorize(request).await()
+
+    private suspend fun requestAuthorization(
+        authContext: Context,
+        expectedEmail: String?,
+    ): AuthorizationResult {
+        return Identity.getAuthorizationClient(authContext)
+            .authorize(buildAuthorizationRequest(expectedEmail))
+            .await()
+    }
+
+    private companion object {
+        const val GOOGLE_ACCOUNT_TYPE = "com.google"
     }
 }
 

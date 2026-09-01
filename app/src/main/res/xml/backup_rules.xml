@@ -6,4 +6,5 @@
     <exclude domain="file" path="datastore/ai_secrets.preferences_pb" />
     <!-- Не переносим и оставшийся после обновления секрет прежней OpenRouter-интеграции. -->
     <exclude domain="file" path="datastore/openrouter_secrets.preferences_pb" />
+    <exclude domain="file" path="datastore/weekly_schedule_operations.preferences_pb" />
 </full-backup-content>

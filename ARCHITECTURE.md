@@ -109,6 +109,15 @@ InBody-значения вычисляются из сохранённых по�
   повторить вручную. `AppUpdateViewModel` общий для оболочки и экрана настроек, поэтому
   скачивание и прогресс не теряются при навигации. Выбор «Позже» живёт до смерти процесса;
   «Не напоминать» сохраняет тег в DataStore и не скрывает следующий тег.
+- **Восстановление недельного расписания** — уникальная цепочка
+  `weekly_schedule_recovery` с сетью и `APPEND_OR_REPLACE`. Активный шаблон остаётся SSOT в
+  `settings.preferences_pb`, а отдельный machine-local journal хранит фазу `CREATE_NEW`,
+  `CLEANUP_NEW` или `DELETE_OLD`. Новые Calendar event ID заранее генерируются как 32 lowercase
+  hex и повторяются после смерти процесса; insert 409 и delete 404/410 подтверждают
+  идемпотентный шаг. Terminal marker сначала локально применяет целевой active snapshot и только
+  затем очищает journal. Один singleton repository `Mutex` сериализует UI и worker. Journal
+  исключён из backup/device transfer, а active хранит nullable `ownerEmail`; legacy owner adoption
+  остаётся эвристикой, после которой OAuth token всегда запрашивается для конкретного аккаунта.
 
 ## Обновление APK
 

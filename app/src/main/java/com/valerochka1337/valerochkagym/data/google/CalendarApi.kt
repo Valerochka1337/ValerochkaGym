@@ -53,6 +53,8 @@ interface CalendarApi {
 @OptIn(ExperimentalSerializationApi::class)
 @Serializable
 data class CalendarEventDto(
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val id: String? = null,
     val summary: String,
     val start: EventDateTimeDto,
     val end: EventDateTimeDto,

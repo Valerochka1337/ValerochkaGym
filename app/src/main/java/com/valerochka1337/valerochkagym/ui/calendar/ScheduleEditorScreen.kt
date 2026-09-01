@@ -18,6 +18,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Switch
@@ -69,6 +70,7 @@ fun ScheduleEditorScreen(
 ) {
     val schedule by viewModel.weeklySchedule.collectAsStateWithLifecycle()
     val routines by viewModel.routines.collectAsStateWithLifecycle()
+    val isScheduleBusy by viewModel.isScheduleBusy.collectAsStateWithLifecycle()
 
     val drafts = remember { mutableStateMapOf<Int, DayDraft>() }
     val editedDays = remember { mutableStateMapOf<Int, Boolean>() }
@@ -144,15 +146,13 @@ fun ScheduleEditorScreen(
                     }
 
                     Spacer(Modifier.height(8.dp))
-                    TextButton(onClick = viewModel::clearSchedule) {
-                        Text("Очистить расписание", color = MaterialTheme.colorScheme.error)
-                    }
+                    ScheduleClearButton(enabled = !isScheduleBusy, onClick = viewModel::clearSchedule)
                     Spacer(Modifier.height(80.dp))
                 }
             }
 
-            PillButton(
-                text = "Сохранить",
+            ScheduleSaveButton(
+                enabled = !isScheduleBusy,
                 onClick = {
                     val rules = (1..7).mapNotNull { iso ->
                         val d = drafts[iso] ?: return@mapNotNull null
@@ -200,6 +200,26 @@ fun ScheduleEditorScreen(
             onDismiss = { timePickerForDay = null },
         )
     }
+}
+
+@Composable
+internal fun ScheduleClearButton(enabled: Boolean, onClick: () -> Unit) {
+    TextButton(
+        onClick = onClick,
+        enabled = enabled,
+        colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+    ) {
+        Text("Очистить расписание")
+    }
+}
+
+@Composable
+internal fun ScheduleSaveButton(
+    enabled: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    PillButton(text = "Сохранить", onClick = onClick, enabled = enabled, modifier = modifier)
 }
 
 @Composable

@@ -6,9 +6,11 @@
     <cloud-backup>
         <exclude domain="file" path="datastore/ai_secrets.preferences_pb" />
         <exclude domain="file" path="datastore/openrouter_secrets.preferences_pb" />
+        <exclude domain="file" path="datastore/weekly_schedule_operations.preferences_pb" />
     </cloud-backup>
     <device-transfer>
         <exclude domain="file" path="datastore/ai_secrets.preferences_pb" />
         <exclude domain="file" path="datastore/openrouter_secrets.preferences_pb" />
+        <exclude domain="file" path="datastore/weekly_schedule_operations.preferences_pb" />
     </device-transfer>
 </data-extraction-rules>
