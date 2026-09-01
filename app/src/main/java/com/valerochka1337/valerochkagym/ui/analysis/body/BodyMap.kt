@@ -38,9 +38,13 @@ import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.vector.PathParser
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.valerochka1337.valerochkagym.data.db.entity.Muscle
+import com.valerochka1337.valerochkagym.domain.displayName
 import com.valerochka1337.valerochkagym.ui.haptics.gymHaptics
 import com.valerochka1337.valerochkagym.ui.theme.GymMotion
 import kotlin.math.min
@@ -143,11 +147,28 @@ fun BodyMap(
     val surface = MaterialTheme.colorScheme.surfaceContainerHigh
     val outline = MaterialTheme.colorScheme.outline
     val selectionColor = MaterialTheme.colorScheme.onSurface
+    val accessibleMuscles = remember(parsed) { parsed.muscles.map { it.muscle }.distinct() }
 
     Canvas(
         modifier = modifier
             .aspectRatio(BODY_ASPECT)
-            .semantics { contentDescription = "Карта тела, ${view.title().lowercase()}" }
+            .semantics {
+                contentDescription = "Карта тела, ${view.title().lowercase()}"
+                stateDescription = selectedMuscle?.let { "Выбрано: ${it.displayName()}" }
+                    ?: "Мышца не выбрана"
+                if (onMuscleClick != null) {
+                    customActions = accessibleMuscles.map { muscle ->
+                        CustomAccessibilityAction("Выбрать ${muscle.displayName()}") {
+                            haptics.tap()
+                            onMuscleClick(muscle)
+                            true
+                        }
+                    } + CustomAccessibilityAction("Сбросить выбор") {
+                        onMuscleClick(null)
+                        true
+                    }
+                }
+            }
             .then(
                 if (onMuscleClick == null) {
                     Modifier

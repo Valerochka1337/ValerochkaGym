@@ -17,6 +17,11 @@ import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
@@ -72,6 +77,22 @@ fun ColumnChart(
         modifier = modifier
             .fillMaxWidth()
             .height(height)
+            .semantics {
+                contentDescription = "Столбчатый график, ${data.size} значений"
+                stateDescription = selectedIndex?.let { index ->
+                    data.getOrNull(index)?.let { item ->
+                        "Выбрано ${item.label}, ${valueFormatter(item.value)}"
+                    }
+                } ?: "Столбец не выбран"
+                customActions = data.mapIndexed { index, item ->
+                    CustomAccessibilityAction(
+                        label = "Выбрать ${item.label}: ${valueFormatter(item.value)}",
+                    ) {
+                        onSelect(index)
+                        true
+                    }
+                }
+            }
             .pointerInput(data) {
                 if (data.isEmpty()) return@pointerInput
                 detectTapGestures { offset ->

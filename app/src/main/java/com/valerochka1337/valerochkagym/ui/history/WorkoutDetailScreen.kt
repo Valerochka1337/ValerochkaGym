@@ -48,6 +48,7 @@ import com.valerochka1337.valerochkagym.data.db.entity.UploadStatus
 import com.valerochka1337.valerochkagym.domain.muscleGroupFrom
 import com.valerochka1337.valerochkagym.ui.components.ExerciseAvatar
 import com.valerochka1337.valerochkagym.ui.components.GlowBackground
+import com.valerochka1337.valerochkagym.ui.components.LoadingState
 import com.valerochka1337.valerochkagym.ui.components.GymCard
 import com.valerochka1337.valerochkagym.ui.haptics.gymHaptics
 
@@ -80,7 +81,10 @@ fun WorkoutDetailScreen(
                 onDelete = { showDeleteDialog = true },
             )
 
-            if (state.loading) return@GlowBackground
+            if (state.loading) {
+                LoadingState(label = "Загружаем тренировку…")
+                return@GlowBackground
+            }
 
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),

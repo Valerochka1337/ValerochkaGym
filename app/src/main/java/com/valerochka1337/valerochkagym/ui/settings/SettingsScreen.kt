@@ -5,15 +5,12 @@ import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -23,7 +20,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -31,6 +27,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.rounded.AccountCircle
 import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.automirrored.rounded.ArrowForward
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.CloudUpload
 import androidx.compose.material.icons.rounded.Download
@@ -47,6 +44,7 @@ import androidx.compose.material.icons.rounded.TouchApp
 import androidx.compose.material.icons.rounded.Vibration
 import androidx.compose.material.icons.automirrored.rounded.VolumeUp
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -68,14 +66,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.StrokeJoin
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -100,11 +91,22 @@ import java.time.format.DateTimeFormatter
 import com.valerochka1337.valerochkagym.ui.components.GymCard
 import com.valerochka1337.valerochkagym.ui.components.PillButton
 import com.valerochka1337.valerochkagym.ui.theme.AccentColor
-import com.valerochka1337.valerochkagym.ui.theme.LauncherIconBackground
+import com.valerochka1337.valerochkagym.ui.theme.PaletteMode
+import com.valerochka1337.valerochkagym.ui.theme.ThemeMode
 import com.valerochka1337.valerochkagym.ui.update.AppUpdateRetry
 import com.valerochka1337.valerochkagym.ui.update.AppUpdateStatus
 import com.valerochka1337.valerochkagym.ui.update.AppUpdateUiState
 import com.valerochka1337.valerochkagym.ui.update.formatUpdateBytes
+
+private enum class SettingsCategory(
+    val label: String,
+    val supportingText: String,
+) {
+    WORKOUT("Тренировка", "Отдых, пульс, звук и уведомления"),
+    CONNECTIONS("Подключения", "Google, Sheets и распознавание InBody"),
+    APPEARANCE("Вид и отклик", "Тема, палитра и виброотклик"),
+    DATA_APP("Данные и приложение", "Экспорт, обновления, версия и очистка"),
+}
 
 /** Шаг степпера отдыха по умолчанию (секунды) — совпадает с шагом внутри [SettingsViewModel]. */
 private const val REST_STEP_SECONDS = 15
@@ -130,6 +132,7 @@ fun SettingsScreen(
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val activity = LocalActivity.current
     val snackbarHostState = remember { SnackbarHostState() }
+    var selectedCategory by rememberSaveable { mutableStateOf<SettingsCategory?>(null) }
 
     LaunchedEffect(viewModel) {
         viewModel.messages.collect { snackbarHostState.showSnackbar(it) }
@@ -154,7 +157,12 @@ fun SettingsScreen(
     GlowBackground(modifier = modifier) {
         Box(modifier = Modifier.fillMaxSize()) {
             Column(modifier = Modifier.fillMaxSize()) {
-                SettingsHeader(onBack = onBack)
+                SettingsHeader(
+                    title = selectedCategory?.label ?: "Настройки",
+                    onBack = {
+                        if (selectedCategory == null) onBack() else selectedCategory = null
+                    },
+                )
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -165,63 +173,74 @@ fun SettingsScreen(
                 ) {
                     val settings = state.settings
                     if (settings != null) {
-                        GoogleAccountCard(
-                            email = settings.googleEmail,
-                            authBusy = state.authBusy,
-                            authError = state.authError,
-                            onSignIn = { activity?.let(viewModel::signIn) },
-                            onSignOut = viewModel::signOut,
-                        )
-                        SpreadsheetCard(
-                            currentId = settings.spreadsheetId,
-                            error = state.spreadsheetError,
-                            onSave = viewModel::setSpreadsheetInput,
-                            onExportAll = viewModel::exportAll,
-                        )
-                        AiSettingsCard(
-                            baseUrl = settings.aiBaseUrl,
-                            baseUrlError = state.aiBaseUrlError,
-                            keyConfigured = state.aiApiKeyConfigured,
-                            keyPreview = state.aiApiKeyPreview,
-                            selectedModelId = settings.aiModelId,
-                            models = state.aiModels,
-                            modelsLoading = state.aiModelsLoading,
-                            modelsLoadError = state.aiModelsLoadError,
-                            onSaveBaseUrl = viewModel::setAiBaseUrl,
-                            onSaveKey = viewModel::setAiApiKey,
-                            onClear = viewModel::clearAiApiKey,
-                            onSelectModel = viewModel::setAiModel,
-                            onRefreshModels = viewModel::refreshAiModels,
-                        )
-                        RestTimerCard(
-                            settings = settings,
-                            onChangeRest = viewModel::changeDefaultRest,
-                            onToggleAutostart = viewModel::toggleRestAutostart,
-                            onToggleHeartRateRest = viewModel::toggleHeartRateRest,
-                            onChangeHeartRateRestThreshold = viewModel::changeHeartRateRestThreshold,
-                            onChangeHeartRateRestHoldSeconds = viewModel::changeHeartRateRestHoldSeconds,
-                            onToggleSound = viewModel::toggleSound,
-                            onToggleVibration = viewModel::toggleVibration,
-                        )
-                        InterfaceCard(
-                            hapticsEnabled = settings.hapticsEnabled,
-                            onToggleHaptics = viewModel::toggleHaptics,
-                        )
-                        AccentCard(
-                            selected = settings.accent,
-                            onSelect = viewModel::setAccent,
-                        )
-                        AppUpdateCard(
-                            state = appUpdateState,
-                            onCheck = onCheckUpdate,
-                            onDownload = onDownloadUpdate,
-                            onInstall = onInstallUpdate,
-                            onRetry = onRetryUpdate,
-                        )
-                        DataCard(
-                            onExport = viewModel::exportDatabase,
-                            onClear = viewModel::clearAllData,
-                        )
+                        when (selectedCategory) {
+                            null -> SettingsCategoryList(
+                                onSelect = { selectedCategory = it },
+                            )
+
+                            SettingsCategory.WORKOUT -> RestTimerCard(
+                                settings = settings,
+                                onChangeRest = viewModel::changeDefaultRest,
+                                onToggleAutostart = viewModel::toggleRestAutostart,
+                                onToggleHeartRateRest = viewModel::toggleHeartRateRest,
+                                onChangeHeartRateRestThreshold = viewModel::changeHeartRateRestThreshold,
+                                onChangeHeartRateRestHoldSeconds = viewModel::changeHeartRateRestHoldSeconds,
+                                onToggleSound = viewModel::toggleSound,
+                                onToggleVibration = viewModel::toggleVibration,
+                            )
+
+                            SettingsCategory.CONNECTIONS -> {
+                                GoogleAccountCard(
+                                    email = settings.googleEmail,
+                                    authBusy = state.authBusy,
+                                    authError = state.authError,
+                                    onSignIn = { activity?.let(viewModel::signIn) },
+                                    onSignOut = viewModel::signOut,
+                                )
+                                SpreadsheetCard(
+                                    currentId = settings.spreadsheetId,
+                                    error = state.spreadsheetError,
+                                    onSave = viewModel::setSpreadsheetInput,
+                                    onExportAll = viewModel::exportAll,
+                                )
+                                AiSettingsCard(
+                                    baseUrl = settings.aiBaseUrl,
+                                    baseUrlError = state.aiBaseUrlError,
+                                    keyConfigured = state.aiApiKeyConfigured,
+                                    keyPreview = state.aiApiKeyPreview,
+                                    selectedModelId = settings.aiModelId,
+                                    models = state.aiModels,
+                                    modelsLoading = state.aiModelsLoading,
+                                    modelsLoadError = state.aiModelsLoadError,
+                                    onSaveBaseUrl = viewModel::setAiBaseUrl,
+                                    onSaveKey = viewModel::setAiApiKey,
+                                    onClear = viewModel::clearAiApiKey,
+                                    onSelectModel = viewModel::setAiModel,
+                                    onRefreshModels = viewModel::refreshAiModels,
+                                )
+                            }
+
+                            SettingsCategory.APPEARANCE -> AppearanceCard(
+                                settings = settings,
+                                onThemeModeChange = viewModel::setThemeMode,
+                                onPaletteModeChange = viewModel::setPaletteMode,
+                                onToggleHaptics = viewModel::toggleHaptics,
+                            )
+
+                            SettingsCategory.DATA_APP -> {
+                                AppUpdateCard(
+                                    state = appUpdateState,
+                                    onCheck = onCheckUpdate,
+                                    onDownload = onDownloadUpdate,
+                                    onInstall = onInstallUpdate,
+                                    onRetry = onRetryUpdate,
+                                )
+                                DataCard(
+                                    onExport = viewModel::exportDatabase,
+                                    onClear = viewModel::clearAllData,
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -234,7 +253,7 @@ fun SettingsScreen(
 }
 
 @Composable
-private fun SettingsHeader(onBack: () -> Unit) {
+private fun SettingsHeader(title: String, onBack: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -250,11 +269,54 @@ private fun SettingsHeader(onBack: () -> Unit) {
         }
         Spacer(Modifier.width(4.dp))
         Text(
-            text = "Настройки",
+            text = title,
             style = MaterialTheme.typography.headlineSmall,
             fontWeight = FontWeight.SemiBold,
             color = MaterialTheme.colorScheme.onBackground,
         )
+    }
+}
+
+@Composable
+private fun SettingsCategoryList(onSelect: (SettingsCategory) -> Unit) {
+    SettingsCategory.entries.forEach { category ->
+        GymCard(
+            modifier = Modifier.fillMaxWidth(),
+            onClick = { onSelect(category) },
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = when (category) {
+                        SettingsCategory.WORKOUT -> Icons.Rounded.Timer
+                        SettingsCategory.CONNECTIONS -> Icons.Rounded.Link
+                        SettingsCategory.APPEARANCE -> Icons.Rounded.Palette
+                        SettingsCategory.DATA_APP -> Icons.Rounded.Storage
+                    },
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+                Spacer(Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = category.label,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    Text(
+                        text = category.supportingText,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Icon(
+                    imageVector = Icons.AutoMirrored.Rounded.ArrowForward,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
     }
 }
 
@@ -740,15 +802,84 @@ private fun RestTimerCard(
 }
 
 @Composable
-private fun InterfaceCard(
-    hapticsEnabled: Boolean,
+private fun AppearanceCard(
+    settings: GymSettings,
+    onThemeModeChange: (ThemeMode) -> Unit,
+    onPaletteModeChange: (PaletteMode) -> Unit,
     onToggleHaptics: (Boolean) -> Unit,
 ) {
-    SectionCard(title = "Интерфейс", icon = Icons.Rounded.TouchApp) {
+    SectionCard(title = "Вид и отклик", icon = Icons.Rounded.Palette) {
+        Text(
+            text = "Тема",
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        FlowRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            ThemeMode.entries.forEach { mode ->
+                FilterChip(
+                    selected = settings.themeMode == mode,
+                    onClick = { onThemeModeChange(mode) },
+                    label = { Text(mode.label) },
+                    leadingIcon = if (settings.themeMode == mode) {
+                        {
+                            Icon(
+                                imageVector = Icons.Rounded.Check,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
+                    } else {
+                        null
+                    },
+                )
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+        Text(
+            text = "Палитра",
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        FlowRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            PaletteMode.entries.forEach { mode ->
+                FilterChip(
+                    selected = settings.paletteMode == mode,
+                    onClick = { onPaletteModeChange(mode) },
+                    label = { Text(mode.label) },
+                    leadingIcon = if (settings.paletteMode == mode) {
+                        {
+                            Icon(
+                                imageVector = Icons.Rounded.Check,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
+                    } else {
+                        null
+                    },
+                )
+            }
+        }
+        Text(
+            text = if (settings.paletteMode == PaletteMode.SYSTEM) {
+                "Системная палитра следует цветам обоев Material You."
+            } else {
+                "Фирменная палитра работает в светлом и тёмном режиме."
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(12.dp))
         ToggleRow(
             label = "Виброотклик",
             icon = Icons.Rounded.Vibration,
-            checked = hapticsEnabled,
+            checked = settings.hapticsEnabled,
             onCheckedChange = onToggleHaptics,
         )
         Spacer(Modifier.height(4.dp))
@@ -969,120 +1100,6 @@ private fun AppUpdateCard(
     }
 }
 
-/**
- * Выбор акцента. Варианты показаны так, как их увидит лаунчер — тем же силуэтом иконки на её
- * тёмной подложке: пользователь выбирает не абстрактный цвет, а конкретную иконку приложения.
- */
-@Composable
-private fun AccentCard(
-    selected: AccentColor,
-    onSelect: (AccentColor) -> Unit,
-) {
-    SectionCard(title = "Акцент", icon = Icons.Rounded.Palette) {
-        Text(
-            text = "Цвет интерфейса и иконки. Иконка на рабочем столе сменится, когда свернёте приложение.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Spacer(Modifier.height(12.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            AccentColor.entries.forEach { accent ->
-                AccentSwatch(
-                    accent = accent,
-                    selected = accent == selected,
-                    onClick = { onSelect(accent) },
-                    modifier = Modifier.weight(1f),
-                )
-            }
-        }
-    }
-}
-
-/** Уголок иконки в долях стороны — повторяет скругление адаптивной иконки в лаунчере. */
-private const val ICON_CORNER_PERCENT = 26
-
-@Composable
-private fun AccentSwatch(
-    accent: AccentColor,
-    selected: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val shape = RoundedCornerShape(percent = ICON_CORNER_PERCENT)
-    Box(
-        modifier = modifier
-            .aspectRatio(1f)
-            .clip(shape)
-            .background(LauncherIconBackground)
-            .border(
-                width = if (selected) 2.dp else 1.dp,
-                color = if (selected) {
-                    MaterialTheme.colorScheme.onSurface
-                } else {
-                    MaterialTheme.colorScheme.outline
-                },
-                shape = shape,
-            )
-            .selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
-            .semantics { contentDescription = accent.label },
-        contentAlignment = Alignment.Center,
-    ) {
-        LauncherGlyph(color = accent.primary, modifier = Modifier.fillMaxSize())
-    }
-}
-
-/** Размер вьюпорта и геометрия силуэта — те же числа, что в `drawable/ic_launcher_foreground.xml`. */
-private const val GLYPH_VIEWPORT = 1024f
-private const val GLYPH_CENTER = 512f
-private const val GLYPH_RING_RADIUS = 248f
-private const val GLYPH_RING_STROKE = 88f
-private const val GLYPH_V_STROKE = 84f
-
-/**
- * Масштаб силуэта: 0.7 — группа внутри самой иконки, 1.5 — переход от вьюпорта 108dp к безопасной
- * зоне 72dp, которую и показывает лаунчер после обрезки маской.
- */
-private const val GLYPH_SCALE = 0.7f * 1.5f
-
-/**
- * Силуэт иконки приложения. Рисуется на `Canvas`, а не `painterResource`: четыре превью — это
- * четыре инфляции векторного drawable, и карточка акцента заметно «доезжала» после остальных.
- */
-@Composable
-private fun LauncherGlyph(color: Color, modifier: Modifier = Modifier) {
-    Canvas(modifier) {
-        val k = GLYPH_SCALE * size.minDimension / GLYPH_VIEWPORT
-        fun point(x: Float, y: Float) =
-            Offset(center.x + (x - GLYPH_CENTER) * k, center.y + (y - GLYPH_CENTER) * k)
-
-        drawCircle(
-            color = color,
-            radius = GLYPH_RING_RADIUS * k,
-            center = center,
-            style = Stroke(width = GLYPH_RING_STROKE * k),
-        )
-        drawPath(
-            path = Path().apply {
-                val start = point(418f, 414f)
-                val bottom = point(512f, 602f)
-                val end = point(606f, 414f)
-                moveTo(start.x, start.y)
-                lineTo(bottom.x, bottom.y)
-                lineTo(end.x, end.y)
-            },
-            color = color,
-            style = Stroke(
-                width = GLYPH_V_STROKE * k,
-                cap = StrokeCap.Round,
-                join = StrokeJoin.Round,
-            ),
-        )
-    }
-}
-
 @Composable
 private fun ToggleRow(
     label: String,
@@ -1130,7 +1147,7 @@ private fun StepperButton(
             onClick()
         },
         modifier = Modifier
-            .size(44.dp)
+            .size(48.dp)
             .semantics { contentDescription = description },
     ) {
         Text(

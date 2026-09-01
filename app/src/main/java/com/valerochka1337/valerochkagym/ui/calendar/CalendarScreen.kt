@@ -34,6 +34,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.animation.AnimatedContent
@@ -54,6 +57,8 @@ import com.valerochka1337.valerochkagym.ui.components.GymTopBar
 import com.valerochka1337.valerochkagym.ui.theme.GymMotion
 import java.time.LocalDate
 import java.time.ZoneOffset
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 /** Порог горизонтального свайпа для смены месяца, px. */
 private const val SWIPE_THRESHOLD = 80f
@@ -285,6 +290,19 @@ private fun androidx.compose.foundation.layout.RowScope.DayCell(
     cell: DayCellUi,
     onClick: () -> Unit,
 ) {
+    val spokenDate = remember(cell.date) {
+        cell.date.format(
+            DateTimeFormatter.ofPattern("d MMMM yyyy, EEEE", Locale.forLanguageTag("ru")),
+        )
+    }
+    val spokenState = buildList {
+        if (cell.isToday) add("сегодня")
+        when (cell.dot) {
+            DotStyle.Completed -> add("тренировка проведена")
+            DotStyle.Planned -> add("тренировка запланирована")
+            DotStyle.None -> Unit
+        }
+    }.joinToString(", ").ifEmpty { "нет тренировок" }
     val todayBorder = if (cell.isToday) {
         Modifier.border(1.5.dp, MaterialTheme.colorScheme.primary, CircleShape)
     } else {
@@ -296,6 +314,10 @@ private fun androidx.compose.foundation.layout.RowScope.DayCell(
             .aspectRatio(1f)
             .clip(CircleShape)
             .then(todayBorder)
+            .semantics(mergeDescendants = true) {
+                contentDescription = spokenDate
+                stateDescription = spokenState
+            }
             .clickable(enabled = cell.inMonth, onClick = onClick),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,

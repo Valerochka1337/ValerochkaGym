@@ -267,7 +267,6 @@ fun GymNavGraph(
             RoutineEditorScreen(
                 onBack = { navController.popBackStack() },
                 onAddExercise = { navController.navigate(GymRoutes.LIBRARY) },
-                onExerciseClick = { id -> navController.navigate(GymRoutes.exerciseDetail(id)) },
                 viewModel = viewModel,
             )
         }

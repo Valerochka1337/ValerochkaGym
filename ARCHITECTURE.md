@@ -8,7 +8,7 @@
 
 ```
 ui/        экраны (Compose) + ViewModel'и; exercise/ (карточка упражнения и статистика),
-           theme/ (цвет, форма, типографика, GymMotion), haptics/ (GymHaptics),
+           theme/ (Material You, light/dark схемы, форма, типографика, GymMotion), haptics/ (GymHaptics),
            components/ (GymCard, PillButton, GymFilterChip, …)
 domain/    use case'ы и чистая логика (CompleteSetUseCase, WorkoutRowParser,
            ExerciseStatisticsCalculator, analysis/AnalyticsEngine — математика аналитики)
@@ -188,7 +188,8 @@ API key живёт в отдельном `ai_secrets.preferences_pb`: полны
 | Predictive back — только системный | seekable-переходы Navigation Compose не подключены; пружинные слайды играют как обычные pop'ы |
 | Бэкап включён почти целиком | история и обычные настройки переживают переустановку; отдельный зашифрованный API key исключён из бэкапа и переноса |
 | Строки UI захардкожены в Kotlin | приложение одноязычное и личное; `strings.xml` держит только `app_name` и OAuth client ID |
-| Dark-only, 4 акцента через activity-alias | Android не перекрашивает иконку — `AppIconManager` включает alias выбранного акцента, дождавшись ухода в фон (иначе система снесёт задачу) |
+| Material You + 4 фирменные палитры | Системная dynamic palette и System/Light/Dark — значения по умолчанию; фирменная палитра также выбирает launcher alias через `AppIconManager` после ухода приложения в фон |
+| Адаптивная оболочка | `NavigationSuiteScaffold` выбирает navigation bar/rail по окну, а экранный контент центрируется и ограничивается 960 dp |
 | Сервис не переживает смерть процесса | таймер in-memory; восстановление потребовало бы персистить сессию ради редкого случая |
 
 ## Тесты

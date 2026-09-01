@@ -1,5 +1,10 @@
 package com.valerochka1337.valerochkagym.ui.routine
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -12,6 +17,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -25,6 +31,8 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.rounded.ExpandLess
+import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -34,9 +42,13 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -49,6 +61,7 @@ import com.valerochka1337.valerochkagym.domain.displayName
 import com.valerochka1337.valerochkagym.ui.components.ExerciseAvatar
 import com.valerochka1337.valerochkagym.ui.components.DragHandle
 import com.valerochka1337.valerochkagym.ui.components.GlowBackground
+import com.valerochka1337.valerochkagym.ui.components.LoadingState
 import com.valerochka1337.valerochkagym.ui.components.GymCard
 import com.valerochka1337.valerochkagym.ui.components.GymCardShape
 import com.valerochka1337.valerochkagym.ui.components.NumberField
@@ -66,7 +79,6 @@ import sh.calvin.reorderable.ReorderableItem
 fun RoutineEditorScreen(
     onBack: () -> Unit,
     onAddExercise: () -> Unit,
-    onExerciseClick: (Long) -> Unit,
     modifier: Modifier = Modifier,
     viewModel: RoutineEditorViewModel = hiltViewModel(),
 ) {
@@ -94,9 +106,10 @@ fun RoutineEditorScreen(
                 onSave = viewModel::save,
             )
 
-            // Тело появляется только с готовыми данными — до этого показываем пустой фон, а не
-            // мигающую пустую форму. Для новой программы isLoading = false, тело сразу на месте.
-            if (state.isLoading) return@Column
+            if (state.isLoading) {
+                LoadingState(label = "Загружаем программу…", modifier = Modifier.weight(1f))
+                return@Column
+            }
 
             OutlinedTextField(
                 value = state.name,
@@ -179,7 +192,6 @@ fun RoutineEditorScreen(
                             onAddSet = { viewModel.addPlannedSet(index) },
                             onRemoveSet = { setIndex -> viewModel.removePlannedSet(index, setIndex) },
                             onSetChange = { setIndex, set -> viewModel.updatePlannedSet(index, setIndex, set) },
-                            onExerciseClick = { onExerciseClick(exercise.exerciseId) },
                         )
                     }
                 }
@@ -233,7 +245,7 @@ private fun EditorHeader(
 }
 
 @Composable
-private fun ExerciseCard(
+internal fun ExerciseCard(
     exercise: EditorExercise,
     dragHandle: @Composable () -> Unit,
     onRemove: () -> Unit,
@@ -241,10 +253,10 @@ private fun ExerciseCard(
     onAddSet: () -> Unit,
     onRemoveSet: (Int) -> Unit,
     onSetChange: (Int, PlannedSet) -> Unit,
-    onExerciseClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val haptics = gymHaptics()
+    var expanded by rememberSaveable(exercise.editorId) { mutableStateOf(false) }
     GymCard(
         modifier = modifier.fillMaxWidth(),
         contentPadding = PaddingValues(start = 16.dp, end = 8.dp, top = 12.dp, bottom = 14.dp),
@@ -253,15 +265,19 @@ private fun ExerciseCard(
             Row(
                 modifier = Modifier
                     .weight(1f)
+                    .heightIn(min = 48.dp)
+                    .semantics {
+                        stateDescription = if (expanded) "Подходы раскрыты" else "Подходы свернуты"
+                    }
                     .clickable {
                         haptics.tap()
-                        onExerciseClick()
+                        expanded = !expanded
                     },
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 ExerciseAvatar(name = exercise.exerciseName, type = exercise.exerciseType)
                 Spacer(Modifier.width(12.dp))
-                Column {
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = exercise.exerciseName,
                         style = MaterialTheme.typography.titleMedium,
@@ -273,9 +289,18 @@ private fun ExerciseCard(
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    Text(
+                        text = exercise.compactSummary(),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
+                Icon(
+                    imageVector = if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
-            dragHandle()
             IconButton(onClick = onRemove) {
                 Icon(
                     Icons.Default.Delete,
@@ -283,36 +308,62 @@ private fun ExerciseCard(
                     tint = MaterialTheme.colorScheme.error,
                 )
             }
+            dragHandle()
         }
 
-        Spacer(Modifier.height(8.dp))
+        AnimatedVisibility(
+            visible = expanded,
+            enter = expandVertically(GymMotion.spatialDefault()) + fadeIn(GymMotion.effectsFast()),
+            exit = shrinkVertically(GymMotion.spatialDefault()) + fadeOut(GymMotion.effectsFast()),
+        ) {
+            Column {
+                Spacer(Modifier.height(8.dp))
 
-        NumberField(
-            value = exercise.restSeconds.toField(),
-            onValueChange = { onRestChange(it.toIntOrNull()) },
-            modifier = Modifier.fillMaxWidth(),
-            label = "Отдых, сек",
-        )
+                NumberField(
+                    value = exercise.restSeconds.toField(),
+                    onValueChange = { onRestChange(it.toIntOrNull()) },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = "Отдых, сек",
+                )
 
-        Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(12.dp))
 
-        exercise.plannedSets.forEachIndexed { setIndex, set ->
-            PlannedSetRow(
-                type = exercise.exerciseType,
-                number = setIndex + 1,
-                set = set,
-                canRemove = exercise.plannedSets.size > 1,
-                onChange = { onSetChange(setIndex, it) },
-                onRemove = { onRemoveSet(setIndex) },
-            )
-            Spacer(Modifier.height(8.dp))
+                exercise.plannedSets.forEachIndexed { setIndex, set ->
+                    PlannedSetRow(
+                        type = exercise.exerciseType,
+                        number = setIndex + 1,
+                        set = set,
+                        canRemove = exercise.plannedSets.size > 1,
+                        onChange = { onSetChange(setIndex, it) },
+                        onRemove = { onRemoveSet(setIndex) },
+                    )
+                    Spacer(Modifier.height(8.dp))
+                }
+
+                TextButton(onClick = onAddSet) {
+                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Подход")
+                }
+            }
         }
+    }
+}
 
-        TextButton(onClick = onAddSet) {
-            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-            Spacer(Modifier.width(6.dp))
-            Text("Подход")
-        }
+private fun EditorExercise.compactSummary(): String {
+    val sets = plannedSets.size
+    val rest = restSeconds?.let { "отдых $it сек" } ?: "отдых по умолчанию"
+    return "$sets ${setsWord(sets)} · $rest"
+}
+
+private fun setsWord(count: Int): String {
+    val mod100 = count % 100
+    val mod10 = count % 10
+    return when {
+        mod100 in 11..14 -> "подходов"
+        mod10 == 1 -> "подход"
+        mod10 in 2..4 -> "подхода"
+        else -> "подходов"
     }
 }
 

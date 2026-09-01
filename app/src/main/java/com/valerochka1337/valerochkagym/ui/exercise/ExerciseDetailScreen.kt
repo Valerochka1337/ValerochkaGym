@@ -19,9 +19,13 @@ import androidx.compose.material.icons.rounded.EmojiEvents
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -66,7 +70,7 @@ fun ExerciseDetailScreen(
     GlowBackground(modifier = modifier) {
         Column(modifier = Modifier.fillMaxSize()) {
             ExerciseHeader(
-                canEdit = state.exercise != null,
+                exercise = state.exercise,
                 onBack = onBack,
                 onEdit = {
                     haptics.tap()
@@ -74,7 +78,13 @@ fun ExerciseDetailScreen(
                 },
             )
             when {
-                state.loading -> Unit
+                state.loading -> Column(
+                    modifier = Modifier.fillMaxSize(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    CircularProgressIndicator()
+                }
                 state.exercise == null -> MissingExercise()
                 else -> ExerciseDetailContent(
                     exercise = state.exercise!!,
@@ -95,39 +105,51 @@ fun ExerciseDetailScreen(
 }
 
 @Composable
+@OptIn(ExperimentalMaterial3Api::class)
 private fun ExerciseHeader(
-    canEdit: Boolean,
+    exercise: ExerciseEntity?,
     onBack: () -> Unit,
     onEdit: () -> Unit,
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(start = 8.dp, end = 16.dp, top = 12.dp, bottom = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        IconButton(onClick = onBack) {
-            Icon(
-                Icons.AutoMirrored.Rounded.ArrowBack,
-                contentDescription = "Назад",
-                tint = MaterialTheme.colorScheme.onBackground,
-            )
-        }
-        Spacer(Modifier.width(4.dp))
-        Text(
-            text = "Упражнение",
-            style = MaterialTheme.typography.headlineSmall,
-            color = MaterialTheme.colorScheme.onBackground,
-            modifier = Modifier.weight(1f),
-        )
-        if (canEdit) {
+    TopAppBar(
+        navigationIcon = {
+            IconButton(onClick = onBack) {
+                Icon(
+                    Icons.AutoMirrored.Rounded.ArrowBack,
+                    contentDescription = "Назад",
+                )
+            }
+        },
+        title = {
+            Column {
+                Text(
+                    text = exercise?.name ?: "Упражнение",
+                    style = MaterialTheme.typography.titleLarge,
+                    maxLines = 1,
+                )
+                exercise?.let {
+                    Text(
+                        text = "${it.muscleGroup.displayName()} · ${it.type.displayName()}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                    )
+                }
+            }
+        },
+        actions = {
+            if (exercise != null) {
             CircleIconButton(
                 icon = Icons.Rounded.Edit,
                 contentDescription = "Редактировать упражнение",
                 onClick = onEdit,
             )
-        }
-    }
+            }
+        },
+        colors = TopAppBarDefaults.topAppBarColors(
+            containerColor = MaterialTheme.colorScheme.background,
+        ),
+    )
 }
 
 @Composable
@@ -141,7 +163,6 @@ internal fun ExerciseDetailContent(
         contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = 4.dp, bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        item { ProfileCard(exercise) }
         item { MusclesCard(loads) }
         if (statistics != null) {
             if (statistics.hasData) {
