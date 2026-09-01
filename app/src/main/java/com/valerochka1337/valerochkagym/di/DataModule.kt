@@ -10,8 +10,10 @@ import com.valerochka1337.valerochkagym.data.backup.DatabaseExporter
 import com.valerochka1337.valerochkagym.data.db.GymDatabase
 import com.valerochka1337.valerochkagym.data.db.GymDatabaseCallback
 import com.valerochka1337.valerochkagym.data.db.dao.BodyMeasurementDao
+import com.valerochka1337.valerochkagym.data.db.dao.ConfigurationTombstoneDao
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseDao
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseMuscleDao
+import com.valerochka1337.valerochkagym.data.db.dao.GymDao
 import com.valerochka1337.valerochkagym.data.db.dao.RoutineDao
 import com.valerochka1337.valerochkagym.data.db.dao.ScheduledWorkoutDao
 import com.valerochka1337.valerochkagym.data.db.dao.WorkoutDao
@@ -70,6 +72,7 @@ object DataModule {
                 GymDatabase.MIGRATION_4_5,
                 GymDatabase.MIGRATION_5_6,
                 GymDatabase.MIGRATION_6_7,
+                GymDatabase.MIGRATION_7_8,
             )
             .build()
 
@@ -77,11 +80,18 @@ object DataModule {
     fun provideBodyMeasurementDao(database: GymDatabase): BodyMeasurementDao = database.bodyMeasurementDao()
 
     @Provides
+    fun provideConfigurationTombstoneDao(database: GymDatabase): ConfigurationTombstoneDao =
+        database.configurationTombstoneDao()
+
+    @Provides
     fun provideExerciseDao(database: GymDatabase): ExerciseDao = database.exerciseDao()
 
     @Provides
     fun provideExerciseMuscleDao(database: GymDatabase): ExerciseMuscleDao =
         database.exerciseMuscleDao()
+
+    @Provides
+    fun provideGymDao(database: GymDatabase): GymDao = database.gymDao()
 
     @Provides
     fun provideRoutineDao(database: GymDatabase): RoutineDao = database.routineDao()

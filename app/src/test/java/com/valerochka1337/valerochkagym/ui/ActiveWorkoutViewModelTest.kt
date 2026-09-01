@@ -25,6 +25,7 @@ import com.valerochka1337.valerochkagym.domain.ActiveWorkoutRepository
 import com.valerochka1337.valerochkagym.domain.CompleteSetUseCase
 import com.valerochka1337.valerochkagym.domain.PreviousSetsUseCase
 import com.valerochka1337.valerochkagym.domain.RestDurationResolver
+import com.valerochka1337.valerochkagym.domain.RoutineGymConflictException
 import com.valerochka1337.valerochkagym.domain.WorkoutSetMutator
 import com.valerochka1337.valerochkagym.service.RestTimerEngine
 import com.valerochka1337.valerochkagym.service.RestTimerState
@@ -235,6 +236,26 @@ class ActiveWorkoutViewModelTest {
         }
 
     @Test
+    fun `an unavailable picker result shows the conflicting exercise`() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val harness = harness(active = workoutFull(setId = 10L))
+            collectUiState(harness.viewModel)
+            val events = collectEvents(harness.viewModel)
+            harness.repository.addExerciseFailure = RoutineGymConflictException(listOf("Тяга"))
+
+            harness.viewModel.addExerciseById(7L)
+
+            assertEquals(
+                listOf(
+                    ActiveWorkoutEvent.ShowMessage(
+                        "Упражнение недоступно во всех выбранных залах: Тяга",
+                    ),
+                ),
+                events,
+            )
+        }
+
+    @Test
     fun `reordering exercises without an active workout is a no-op`() =
         runTest(mainDispatcherRule.testDispatcher.scheduler) {
             val harness = harness(active = null)
@@ -412,6 +433,7 @@ class ActiveWorkoutViewModelTest {
         val reorderedExercises = mutableListOf<Pair<String, List<Long>>>()
         val finishedIds = mutableListOf<String>()
         val discardedIds = mutableListOf<String>()
+        var addExerciseFailure: Exception? = null
 
         override fun observeActive(): Flow<WorkoutFull?> = active
 
@@ -442,6 +464,7 @@ class ActiveWorkoutViewModelTest {
         }
 
         override suspend fun addExercise(workoutId: String, exerciseId: Long): Long {
+            addExerciseFailure?.let { throw it }
             addedExercises += workoutId to exerciseId
             return 0
         }

@@ -8,6 +8,7 @@ import com.valerochka1337.valerochkagym.data.db.dao.RoutineDao
 import com.valerochka1337.valerochkagym.data.db.dao.WorkoutDao
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
+import com.valerochka1337.valerochkagym.data.db.entity.GymEntity
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleGroup
 import com.valerochka1337.valerochkagym.data.db.entity.RoutineEntity
 import com.valerochka1337.valerochkagym.data.db.entity.RoutineExerciseEntity
@@ -124,6 +125,38 @@ class ActiveWorkoutRepositoryTest : RoomDaoTest() {
         assertTrue(full.exercises.isEmpty())
     }
 
+    @Test
+    fun `startFromRoutine copies configured gyms into the active workout snapshot`() = runTest {
+        val squat = addExercise("Присед")
+        val routineId = addRoutine("Ноги")
+        addRoutineExercise(routineId, squat, position = 0, plannedSets = listOf(planned(80.0, 8)))
+        val gymId = db.gymDao().insertGym(GymEntity(name = "Альфа"))
+        db.gymDao().replaceGymExercises(gymId, listOf(squat))
+        db.gymDao().replaceRoutineGyms(routineId, listOf(gymId))
+
+        val workoutId = repository.startFromRoutine(routineId)
+
+        assertEquals(listOf("Альфа"), workoutFull(workoutId).gyms.map { it.name })
+    }
+
+    @Test
+    fun `startFromRoutine rejects a program incompatible with its gyms`() = runTest {
+        val squat = addExercise("Присед")
+        val routineId = addRoutine("Ноги")
+        addRoutineExercise(routineId, squat, position = 0, plannedSets = listOf(planned(80.0, 8)))
+        val gymId = db.gymDao().insertGym(GymEntity(name = "Альфа"))
+        db.gymDao().replaceRoutineGyms(routineId, listOf(gymId))
+
+        try {
+            repository.startFromRoutine(routineId)
+            fail("Incompatible routine must not start")
+        } catch (conflict: RoutineGymConflictException) {
+            assertEquals(listOf("Присед"), conflict.exerciseNames)
+        }
+
+        assertEquals(0, tableCount("workouts"))
+    }
+
     // endregion
 
     // region single active workout guard
@@ -214,6 +247,21 @@ class ActiveWorkoutRepositoryTest : RoomDaoTest() {
         assertEquals(90.0, set.weightKg!!, 0.0)
         assertEquals(5, set.reps)
         assertFalse(set.isCompleted)
+    }
+
+    @Test
+    fun `addExercise rejects an already finished workout`() = runTest {
+        val squat = addExercise("Присед")
+        insertWorkout("done", finishedAt = 777)
+
+        try {
+            repository.addExercise("done", squat)
+            fail("A finished workout must remain immutable")
+        } catch (_: ActiveWorkoutUnavailableException) {
+            // Expected: a stale picker result cannot mutate workout history.
+        }
+
+        assertTrue(workoutDao.getWorkoutExercises("done").isEmpty())
     }
 
     @Test

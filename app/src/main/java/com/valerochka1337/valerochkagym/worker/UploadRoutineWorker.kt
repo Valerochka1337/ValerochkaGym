@@ -11,8 +11,12 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
+import com.valerochka1337.valerochkagym.data.google.ConfigurationSheetsRepository
+import com.valerochka1337.valerochkagym.data.google.NoOpConfigurationSheetsRepository
 import com.valerochka1337.valerochkagym.data.google.SheetsRepository
 import com.valerochka1337.valerochkagym.data.google.UploadResult
+import com.valerochka1337.valerochkagym.data.db.dao.ConfigurationTombstoneDao
+import com.valerochka1337.valerochkagym.data.db.entity.ConfigurationTombstoneKind
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import java.util.concurrent.TimeUnit
@@ -27,6 +31,9 @@ class UploadRoutineWorker @AssistedInject constructor(
     @Assisted appContext: Context,
     @Assisted params: WorkerParameters,
     private val repository: SheetsRepository,
+    private val configurationRepository: ConfigurationSheetsRepository =
+        NoOpConfigurationSheetsRepository,
+    private val tombstoneDao: ConfigurationTombstoneDao? = null,
 ) : CoroutineWorker(appContext, params) {
 
     override suspend fun doWork(): Result {
@@ -35,12 +42,22 @@ class UploadRoutineWorker @AssistedInject constructor(
         val result = if (isDeletion) {
             val updatedAt = inputData.getLong(KEY_UPDATED_AT, MISSING_UPDATED_AT)
             if (updatedAt == MISSING_UPDATED_AT) return Result.failure()
-            repository.uploadRoutineDeletion(syncId, updatedAt)
+            repository.uploadRoutineDeletion(syncId, updatedAt).andThen {
+                configurationRepository.uploadRoutineGymsDeletion(syncId, updatedAt)
+            }
         } else {
-            repository.uploadRoutine(syncId)
+            repository.uploadRoutine(syncId).andThen {
+                configurationRepository.uploadRoutineGyms(syncId)
+            }
         }
         return when (result) {
-            UploadResult.Success -> Result.success()
+            UploadResult.Success -> {
+                if (isDeletion) {
+                    val updatedAt = inputData.getLong(KEY_UPDATED_AT, MISSING_UPDATED_AT)
+                    tombstoneDao?.delete(ConfigurationTombstoneKind.ROUTINE, syncId, updatedAt)
+                }
+                Result.success()
+            }
             is UploadResult.PermanentFailure -> Result.failure()
             is UploadResult.TransientFailure -> {
                 if (runAttemptCount < MAX_ATTEMPTS) Result.retry() else Result.failure()
@@ -96,3 +113,7 @@ class UploadRoutineWorker @AssistedInject constructor(
         }
     }
 }
+
+private suspend inline fun UploadResult.andThen(
+    next: suspend () -> UploadResult,
+): UploadResult = if (this == UploadResult.Success) next() else this

@@ -1,5 +1,6 @@
 package com.valerochka1337.valerochkagym.ui.navigation
 
+import android.net.Uri
 import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.AnimatedContentTransitionScope.SlideDirection
 import androidx.compose.animation.EnterTransition
@@ -25,6 +26,8 @@ import com.valerochka1337.valerochkagym.ui.calendar.CalendarScreen
 import com.valerochka1337.valerochkagym.ui.calendar.ScheduleEditorScreen
 import com.valerochka1337.valerochkagym.ui.exercise.ExerciseDetailScreen
 import com.valerochka1337.valerochkagym.ui.history.WorkoutDetailScreen
+import com.valerochka1337.valerochkagym.ui.gyms.GymEditorScreen
+import com.valerochka1337.valerochkagym.ui.gyms.GymsScreen
 import com.valerochka1337.valerochkagym.ui.library.ExerciseLibraryScreen
 import com.valerochka1337.valerochkagym.ui.measurements.MeasurementEditorScreen
 import com.valerochka1337.valerochkagym.ui.measurements.MeasurementsScreen
@@ -41,19 +44,23 @@ import com.valerochka1337.valerochkagym.ui.workouts.WorkoutsScreen
  * parameterized routes expose a builder that fills in the argument.
  */
 object GymRoutes {
+    const val GYM_IDS_ARG = "gymIds"
+    const val WORKOUT_ID_ARG = "workoutId"
     const val WORKOUTS = "workouts"
     const val CALENDAR = "calendar"
     const val ANALYSIS = "analysis"
     const val MEASUREMENTS = "measurements"
     const val SETTINGS = "settings"
-    const val LIBRARY = "library"
+    const val GYMS = "gyms"
+    const val LIBRARY =
+        "library?$GYM_IDS_ARG={$GYM_IDS_ARG}&$WORKOUT_ID_ARG={$WORKOUT_ID_ARG}"
     const val ACTIVE_WORKOUT = "active_workout"
     const val SCHEDULE_EDITOR = "schedule_editor"
 
     const val ROUTINE_ID_ARG = "routineId"
-    const val WORKOUT_ID_ARG = "workoutId"
     const val MEASUREMENT_ID_ARG = "measurementId"
     const val EXERCISE_ID_ARG = "exerciseId"
+    const val GYM_ID_ARG = "gymId"
 
     /** Ключ savedStateHandle, через который библиотека-пикер возвращает выбранное упражнение. */
     const val SELECTED_EXERCISE_ID = "selected_exercise_id"
@@ -63,6 +70,7 @@ object GymRoutes {
     const val WORKOUT_DETAIL = "workout_detail/{$WORKOUT_ID_ARG}"
     const val MEASUREMENT_EDITOR = "measurement_editor?$MEASUREMENT_ID_ARG={$MEASUREMENT_ID_ARG}"
     const val EXERCISE_DETAIL = "exercise_detail/{$EXERCISE_ID_ARG}"
+    const val GYM_EDITOR = "gym_editor?$GYM_ID_ARG={$GYM_ID_ARG}"
 
     fun routineEditor(routineId: String? = null) =
         if (routineId != null) "routine_editor?$ROUTINE_ID_ARG=$routineId" else "routine_editor"
@@ -71,6 +79,20 @@ object GymRoutes {
     fun exerciseDetail(exerciseId: Long) = "exercise_detail/$exerciseId"
     fun measurementEditor(measurementId: String? = null) =
         if (measurementId == null) "measurement_editor" else "measurement_editor?$MEASUREMENT_ID_ARG=$measurementId"
+    fun gymEditor(gymId: String? = null) =
+        if (gymId == null) "gym_editor" else "gym_editor?$GYM_ID_ARG=${Uri.encode(gymId)}"
+    fun library(
+        gymIds: Set<String> = emptySet(),
+        workoutId: String? = null,
+    ): String {
+        val arguments = buildList {
+            if (gymIds.isNotEmpty()) {
+                add("$GYM_IDS_ARG=${Uri.encode(gymIds.sorted().joinToString(","))}")
+            }
+            if (workoutId != null) add("$WORKOUT_ID_ARG=${Uri.encode(workoutId)}")
+        }
+        return if (arguments.isEmpty()) "library" else "library?${arguments.joinToString("&")}"
+    }
 }
 
 /** The tab root that the app opens on and that back navigation returns to. */
@@ -98,7 +120,8 @@ private fun isModalRoute(route: String?): Boolean = when (route) {
     GymRoutes.ROUTINE_EDITOR,
     GymRoutes.WORKOUT_SUMMARY,
     GymRoutes.SCHEDULE_EDITOR,
-    GymRoutes.MEASUREMENT_EDITOR -> true
+    GymRoutes.MEASUREMENT_EDITOR,
+    GymRoutes.GYM_EDITOR -> true
     else -> false
 }
 
@@ -189,6 +212,7 @@ fun GymNavGraph(
         composable(GymRoutes.SETTINGS) {
             SettingsScreen(
                 onBack = { navController.popBackStack() },
+                onOpenGyms = { navController.navigate(GymRoutes.GYMS) },
                 appUpdateState = appUpdateState,
                 onCheckUpdate = onCheckUpdate,
                 onDownloadUpdate = onDownloadUpdate,
@@ -197,7 +221,44 @@ fun GymNavGraph(
             )
         }
 
-        composable(GymRoutes.LIBRARY) {
+        composable(GymRoutes.GYMS) {
+            GymsScreen(
+                onBack = { navController.popBackStack() },
+                onCreateGym = { navController.navigate(GymRoutes.gymEditor()) },
+                onEditGym = { id -> navController.navigate(GymRoutes.gymEditor(id)) },
+            )
+        }
+
+        composable(
+            route = GymRoutes.GYM_EDITOR,
+            arguments = listOf(
+                navArgument(GymRoutes.GYM_ID_ARG) {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+            ),
+            enterTransition = { slideIntoContainer(SlideDirection.Up, NavSlideSpec) },
+            popExitTransition = { slideOutOfContainer(SlideDirection.Down, NavSlideSpec) },
+        ) {
+            GymEditorScreen(onBack = { navController.popBackStack() })
+        }
+
+        composable(
+            route = GymRoutes.LIBRARY,
+            arguments = listOf(
+                navArgument(GymRoutes.GYM_IDS_ARG) {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+                navArgument(GymRoutes.WORKOUT_ID_ARG) {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+            ),
+        ) {
             ExerciseLibraryScreen(
                 onBack = { navController.popBackStack() },
                 onOpenSettings = { navController.navigate(GymRoutes.SETTINGS) },
@@ -207,6 +268,7 @@ fun GymNavGraph(
                         ?.set(GymRoutes.SELECTED_EXERCISE_ID, exercise.id)
                     navController.popBackStack()
                 },
+                onExerciseAddedToWorkout = { navController.popBackStack() },
                 onExerciseInfo = { exercise ->
                     navController.navigate(GymRoutes.exerciseDetail(exercise.id))
                 },
@@ -235,7 +297,17 @@ fun GymNavGraph(
                 },
                 onDiscarded = { navController.popBackStack(GymRoutes.WORKOUTS, inclusive = false) },
                 onNavigateBack = { navController.popBackStack() },
-                onAddExercise = { navController.navigate(GymRoutes.LIBRARY) },
+                onAddExercise = {
+                    val gymIds = viewModel.uiState.value.workout?.gyms
+                        .orEmpty()
+                        .mapTo(linkedSetOf()) { it.syncId }
+                    navController.navigate(
+                        GymRoutes.library(
+                            gymIds = gymIds,
+                            workoutId = viewModel.uiState.value.workout?.workout?.id,
+                        ),
+                    )
+                },
                 onExerciseClick = { id -> navController.navigate(GymRoutes.exerciseDetail(id)) },
                 viewModel = viewModel,
             )
@@ -266,7 +338,9 @@ fun GymNavGraph(
             }
             RoutineEditorScreen(
                 onBack = { navController.popBackStack() },
-                onAddExercise = { navController.navigate(GymRoutes.LIBRARY) },
+                onAddExercise = {
+                    navController.navigate(GymRoutes.library(viewModel.uiState.value.selectedGymIds))
+                },
                 viewModel = viewModel,
             )
         }

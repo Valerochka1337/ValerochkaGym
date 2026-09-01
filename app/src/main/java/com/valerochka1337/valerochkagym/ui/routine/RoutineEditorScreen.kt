@@ -1,5 +1,6 @@
 package com.valerochka1337.valerochkagym.ui.routine
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -11,6 +12,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -64,6 +66,7 @@ import com.valerochka1337.valerochkagym.ui.components.GlowBackground
 import com.valerochka1337.valerochkagym.ui.components.LoadingState
 import com.valerochka1337.valerochkagym.ui.components.GymCard
 import com.valerochka1337.valerochkagym.ui.components.GymCardShape
+import com.valerochka1337.valerochkagym.ui.components.GymFilterChip
 import com.valerochka1337.valerochkagym.ui.components.NumberField
 import com.valerochka1337.valerochkagym.ui.components.rememberGymReorderableLazyListState
 import com.valerochka1337.valerochkagym.ui.haptics.gymHaptics
@@ -92,6 +95,7 @@ fun RoutineEditorScreen(
             haptics.stepFrequent()
         }
     }
+    BackHandler(enabled = state.isSaving) { }
 
     LaunchedEffect(Unit) {
         viewModel.saved.collect { onBack() }
@@ -102,6 +106,7 @@ fun RoutineEditorScreen(
             EditorHeader(
                 isNew = state.isNew,
                 canSave = state.isValid,
+                isSaving = state.isSaving,
                 onBack = onBack,
                 onSave = viewModel::save,
             )
@@ -118,6 +123,7 @@ fun RoutineEditorScreen(
                     .fillMaxWidth()
                     .padding(horizontal = 24.dp),
                 singleLine = true,
+                enabled = !state.isSaving,
                 label = { Text("Название программы") },
                 shape = MaterialTheme.shapes.medium,
             )
@@ -135,6 +141,13 @@ fun RoutineEditorScreen(
                 ),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
+                item {
+                    GymSelectionCard(
+                        state = state,
+                        onToggle = viewModel::toggleGym,
+                    )
+                }
+
                 itemsIndexed(
                     state.exercises,
                     // В программе одно и то же упражнение может встречаться несколько раз,
@@ -199,6 +212,7 @@ fun RoutineEditorScreen(
                 item {
                     TextButton(
                         onClick = onAddExercise,
+                        enabled = !state.isSaving,
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         Icon(Icons.Default.Add, contentDescription = null)
@@ -212,9 +226,81 @@ fun RoutineEditorScreen(
 }
 
 @Composable
+private fun GymSelectionCard(
+    state: RoutineEditorUiState,
+    onToggle: (String) -> Unit,
+) {
+    GymCard(
+        modifier = Modifier.fillMaxWidth(),
+        contentPadding = PaddingValues(18.dp),
+    ) {
+        Text(
+            text = "Залы",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            text = if (state.selectedGymIds.isEmpty()) {
+                "Без ограничений — доступен весь каталог"
+            } else {
+                "Доступны упражнения, которые есть сразу во всех выбранных залах"
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        if (state.gyms.isNotEmpty()) {
+            Spacer(Modifier.height(10.dp))
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                state.gyms.forEach { gym ->
+                    GymFilterChip(
+                        selected = gym.id in state.selectedGymIds,
+                        onClick = { onToggle(gym.id) },
+                        label = gym.name,
+                    )
+                }
+            }
+        } else {
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = "Залы можно создать в настройках",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        if (state.conflictingExercises.isNotEmpty()) {
+            Spacer(Modifier.height(12.dp))
+            Text(
+                text = "Недоступно: " + state.conflictingExercises.joinToString { it.exerciseName },
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.error,
+            )
+            Text(
+                text = "Уберите эти упражнения или измените выбранные залы.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        state.saveError?.let { error ->
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = error,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
+    }
+}
+
+@Composable
 private fun EditorHeader(
     isNew: Boolean,
     canSave: Boolean,
+    isSaving: Boolean,
     onBack: () -> Unit,
     onSave: () -> Unit,
 ) {
@@ -224,7 +310,7 @@ private fun EditorHeader(
             .padding(start = 8.dp, end = 16.dp, top = 12.dp, bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        IconButton(onClick = onBack) {
+        IconButton(onClick = onBack, enabled = !isSaving) {
             Icon(
                 Icons.AutoMirrored.Filled.ArrowBack,
                 contentDescription = "Назад",
@@ -239,7 +325,7 @@ private fun EditorHeader(
             modifier = Modifier.weight(1f),
         )
         TextButton(onClick = onSave, enabled = canSave) {
-            Text("Сохранить")
+            Text(if (isSaving) "Сохраняем…" else "Сохранить")
         }
     }
 }

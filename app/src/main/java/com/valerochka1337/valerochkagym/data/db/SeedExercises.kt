@@ -3,6 +3,7 @@ package com.valerochka1337.valerochkagym.data.db
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleGroup
+import com.valerochka1337.valerochkagym.data.db.entity.builtInExerciseSyncId
 
 private fun exercise(
     name: String,
@@ -13,6 +14,9 @@ private fun exercise(
     muscleGroup = group,
     type = type,
     isCustom = false,
+    syncId = builtInExerciseSyncId(name),
+    // Seed — базовая версия, чтобы recovery с любого реального backup всегда мог её заменить.
+    updatedAt = 1,
 )
 
 /** Built-in exercise catalogue seeded on first launch. */

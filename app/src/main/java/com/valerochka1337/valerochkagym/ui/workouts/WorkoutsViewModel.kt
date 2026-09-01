@@ -9,6 +9,9 @@ import com.valerochka1337.valerochkagym.data.db.entity.withNextUpdatedAt
 import com.valerochka1337.valerochkagym.data.db.relation.RoutineWithExercises
 import com.valerochka1337.valerochkagym.data.settings.SettingsRepository
 import com.valerochka1337.valerochkagym.domain.ActiveWorkoutRepository
+import com.valerochka1337.valerochkagym.domain.GymRepository
+import com.valerochka1337.valerochkagym.domain.NoOpGymRepository
+import com.valerochka1337.valerochkagym.domain.RoutineGymConflictException
 import com.valerochka1337.valerochkagym.worker.NoOpRoutineUploadScheduler
 import com.valerochka1337.valerochkagym.worker.RoutineUploadScheduler
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -33,6 +36,7 @@ data class RoutineCardUi(
     val name: String,
     val exerciseCount: Int,
     val estimatedMinutes: Int,
+    val gymNames: List<String> = emptyList(),
 )
 
 /**
@@ -57,6 +61,7 @@ class WorkoutsViewModel @Inject constructor(
     private val settingsRepository: SettingsRepository,
     private val activeWorkoutRepository: ActiveWorkoutRepository,
     private val routineUploadScheduler: RoutineUploadScheduler = NoOpRoutineUploadScheduler,
+    private val gymRepository: GymRepository = NoOpGymRepository,
 ) : ViewModel() {
 
     private val selectedRoutineId = MutableStateFlow<Long?>(null)
@@ -72,6 +77,9 @@ class WorkoutsViewModel @Inject constructor(
 
     /** Событие «тренировка создана» — экран навигирует на активную тренировку. */
     val startEvents = _startEvents.receiveAsFlow()
+
+    private val _messages = Channel<String>(Channel.BUFFERED)
+    val messages = _messages.receiveAsFlow()
 
     private val defaultRestSeconds = settingsRepository.settings.map { it.defaultRestSeconds }
 
@@ -97,8 +105,14 @@ class WorkoutsViewModel @Inject constructor(
 
     /** Старт тренировки по программе. Событие [startEvents] шлётся только при успешном создании. */
     fun startFromRoutine(routineId: Long) = launchStart {
-        activeWorkoutRepository.startFromRoutine(routineId)
-        _startEvents.send(Unit)
+        try {
+            activeWorkoutRepository.startFromRoutine(routineId)
+            _startEvents.send(Unit)
+        } catch (conflict: RoutineGymConflictException) {
+            _messages.send(
+                "Нельзя начать: недоступно во всех залах — ${conflict.exerciseNames.joinToString()}",
+            )
+        }
     }
 
     /** Старт пустой тренировки. */
@@ -125,6 +139,15 @@ class WorkoutsViewModel @Inject constructor(
 
     fun duplicate(id: Long) {
         viewModelScope.launch {
+            if (gymRepository !== NoOpGymRepository) {
+                val copy = gymRepository.duplicateRoutine(id)
+                if (copy == null) {
+                    _messages.send("Не удалось создать копию программы")
+                    return@launch
+                }
+                routineUploadScheduler.schedule(copy.syncId)
+                return@launch
+            }
             val source = routineDao.getRoutineWithExercises(id) ?: return@launch
             val copy = RoutineEntity(
                 name = "${source.routine.name} (копия)",
@@ -147,6 +170,15 @@ class WorkoutsViewModel @Inject constructor(
 
     fun delete(id: Long) {
         viewModelScope.launch {
+            if (gymRepository !== NoOpGymRepository) {
+                val deletion = gymRepository.deleteRoutine(id)
+                if (deletion == null) {
+                    _messages.send("Не удалось удалить программу")
+                    return@launch
+                }
+                routineUploadScheduler.scheduleDeletion(deletion.syncId, deletion.updatedAt)
+                return@launch
+            }
             val routine = routineDao.getRoutineWithExercises(id)?.routine ?: return@launch
             val deletedAt = routine.withNextUpdatedAt().updatedAt
             routineDao.deleteRoutine(id)
@@ -167,5 +199,6 @@ private fun RoutineWithExercises.toCardUi(defaultRestSeconds: Int): RoutineCardU
         name = routine.name,
         exerciseCount = exercises.size,
         estimatedMinutes = (totalSeconds / 60.0).roundToInt(),
+        gymNames = gyms.map { it.name }.sortedWith(String.CASE_INSENSITIVE_ORDER),
     )
 }

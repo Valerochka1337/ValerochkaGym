@@ -1,6 +1,7 @@
 package com.valerochka1337.valerochkagym.di
 
 import com.valerochka1337.valerochkagym.data.ActiveWorkoutRepositoryImpl
+import com.valerochka1337.valerochkagym.data.GymRepositoryImpl
 import com.valerochka1337.valerochkagym.data.ai.AiResponseLogger
 import com.valerochka1337.valerochkagym.data.ai.AndroidInBodyPhotoEncoder
 import com.valerochka1337.valerochkagym.data.ai.DebugAiResponseLogger
@@ -22,10 +23,13 @@ import com.valerochka1337.valerochkagym.data.settings.EncryptedAiApiKeyStore
 import com.valerochka1337.valerochkagym.data.settings.AiApiKeyStore
 import com.valerochka1337.valerochkagym.data.settings.SecretCipher
 import com.valerochka1337.valerochkagym.domain.ActiveWorkoutRepository
+import com.valerochka1337.valerochkagym.domain.GymRepository
 import com.valerochka1337.valerochkagym.worker.MeasurementUploadScheduler
+import com.valerochka1337.valerochkagym.worker.ConfigurationUploadScheduler
 import com.valerochka1337.valerochkagym.worker.RoutineUploadScheduler
 import com.valerochka1337.valerochkagym.worker.UploadScheduler
 import com.valerochka1337.valerochkagym.worker.WorkManagerMeasurementUploadScheduler
+import com.valerochka1337.valerochkagym.worker.WorkManagerConfigurationUploadScheduler
 import com.valerochka1337.valerochkagym.worker.WorkManagerRoutineUploadScheduler
 import com.valerochka1337.valerochkagym.worker.WorkManagerUploadScheduler
 import dagger.Binds
@@ -47,6 +51,10 @@ abstract class DomainModule {
 
     @Binds
     @Singleton
+    abstract fun bindGymRepository(impl: GymRepositoryImpl): GymRepository
+
+    @Binds
+    @Singleton
     abstract fun bindUploadScheduler(impl: WorkManagerUploadScheduler): UploadScheduler
 
     @Binds
@@ -60,6 +68,12 @@ abstract class DomainModule {
     abstract fun bindRoutineUploadScheduler(
         impl: WorkManagerRoutineUploadScheduler,
     ): RoutineUploadScheduler
+
+    @Binds
+    @Singleton
+    abstract fun bindConfigurationUploadScheduler(
+        impl: WorkManagerConfigurationUploadScheduler,
+    ): ConfigurationUploadScheduler
 
     @Binds
     @Singleton

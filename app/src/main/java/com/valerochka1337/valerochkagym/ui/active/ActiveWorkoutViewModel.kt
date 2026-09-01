@@ -4,8 +4,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.valerochka1337.valerochkagym.data.db.relation.WorkoutFull
 import com.valerochka1337.valerochkagym.domain.ActiveWorkoutRepository
+import com.valerochka1337.valerochkagym.domain.ActiveWorkoutUnavailableException
 import com.valerochka1337.valerochkagym.domain.CompleteSetUseCase
 import com.valerochka1337.valerochkagym.domain.PreviousSetsUseCase
+import com.valerochka1337.valerochkagym.domain.RoutineGymConflictException
 import com.valerochka1337.valerochkagym.domain.WorkoutSetMutator
 import com.valerochka1337.valerochkagym.service.RestTimerEngine
 import com.valerochka1337.valerochkagym.service.RestTimerState
@@ -16,6 +18,7 @@ import com.valerochka1337.valerochkagym.service.heartrate.HeartRateReading
 import com.valerochka1337.valerochkagym.worker.UploadScheduler
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -47,6 +50,7 @@ data class ActiveWorkoutUiState(
 sealed interface ActiveWorkoutEvent {
     data class NavigateToSummary(val workoutId: String) : ActiveWorkoutEvent
     data object NavigateHome : ActiveWorkoutEvent
+    data class ShowMessage(val message: String) : ActiveWorkoutEvent
 }
 
 /**
@@ -188,7 +192,24 @@ class ActiveWorkoutViewModel @Inject constructor(
     /** Добавляет упражнение по id (после выбора в библиотеке-пикере). */
     fun addExerciseById(exerciseId: Long) {
         val workoutId = activeWorkout.value?.workout?.id ?: return
-        viewModelScope.launch { repository.addExercise(workoutId, exerciseId) }
+        viewModelScope.launch {
+            try {
+                repository.addExercise(workoutId, exerciseId)
+            } catch (conflict: RoutineGymConflictException) {
+                _events.send(
+                    ActiveWorkoutEvent.ShowMessage(
+                        "Упражнение недоступно во всех выбранных залах: " +
+                            conflict.exerciseNames.joinToString(),
+                    ),
+                )
+            } catch (_: ActiveWorkoutUnavailableException) {
+                _events.send(ActiveWorkoutEvent.ShowMessage("Тренировка уже завершена"))
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                _events.send(ActiveWorkoutEvent.ShowMessage("Не удалось добавить упражнение"))
+            }
+        }
     }
 
     fun deleteExercise(workoutExerciseId: Long) {

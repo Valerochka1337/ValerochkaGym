@@ -182,12 +182,25 @@ class SheetsRepositoryImpl @Inject constructor(
         return try {
             ensureRoutinesSheet(bearer, spreadsheetId)
             val existing = readRows(bearer, spreadsheetId, ROUTINES_RANGE)
-            if (existing.isNotEmpty() && existing.first() != RoutineRowMapper.HEADER_ROW) {
-                return UploadResult.PermanentFailure(
-                    "Заголовок листа Routines изменён вручную — не удалось безопасно выгрузить программу",
-                )
+            if (existing.isNotEmpty()) {
+                when (existing.first()) {
+                    RoutineRowMapper.HEADER_ROW -> Unit
+                    RoutineRowMapper.LEGACY_HEADER_ROW -> api.updateValues(
+                        bearer = bearer,
+                        spreadsheetId = spreadsheetId,
+                        range = ROUTINE_EXERCISE_ID_HEADER_RANGE,
+                        body = UpdateValuesDto(jsonRows(listOf(listOf("exercise_id")))),
+                    )
+                    else -> return UploadResult.PermanentFailure(
+                        "Заголовок листа Routines изменён вручную — не удалось безопасно выгрузить программу",
+                    )
+                }
             }
-            if (existing.any { it.isRoutineVersion(routineSyncId, updatedAt, isDeleted) }) {
+            if (existing.any {
+                    it.isRoutineVersion(routineSyncId, updatedAt, isDeleted) &&
+                        (isDeleted || it.hasStableRoutineExerciseReference())
+                }
+            ) {
                 return UploadResult.Success
             }
             val rowsToAppend = if (existing.isEmpty()) {
@@ -415,6 +428,14 @@ class SheetsRepositoryImpl @Inject constructor(
             getOrNull(ROUTINE_UPDATED_AT_COLUMN)?.toLongOrNull() == updatedAt &&
             getOrNull(ROUTINE_DELETED_COLUMN).toBoolean() == isDeleted
 
+    /** Пустой routine не требует exercise id; непустой v2-снимок обязан иметь UUID в L. */
+    private fun List<String>.hasStableRoutineExerciseReference(): Boolean {
+        if (getOrNull(ROUTINE_EXERCISE_NAME_COLUMN).isNullOrBlank()) return true
+        val raw = getOrNull(ROUTINE_EXERCISE_ID_COLUMN) ?: return false
+        return runCatching { java.util.UUID.fromString(raw) }.getOrNull()?.toString()
+            ?.equals(raw, ignoreCase = true) == true
+    }
+
     private companion object {
         const val WORKOUTS_SHEET = "Workouts"
         const val MEASUREMENTS_SHEET = "Measurements"
@@ -425,12 +446,13 @@ class SheetsRepositoryImpl @Inject constructor(
 
         const val WORKOUT_ID_RANGE = "Workouts!A:A"
         const val MEASUREMENT_ID_RANGE = "Measurements!A:A"
-        const val ROUTINES_RANGE = "Routines!A:K"
+        const val ROUTINES_RANGE = "Routines!A:L"
 
         /** Workouts остаётся A:N, полный отчёт InBody занимает A:AP. */
         const val WORKOUT_APPEND_RANGE = "Workouts!A:N"
         const val MEASUREMENT_APPEND_RANGE = "Measurements!A:AP"
-        const val ROUTINE_APPEND_RANGE = "Routines!A:K"
+        const val ROUTINE_APPEND_RANGE = "Routines!A:L"
+        const val ROUTINE_EXERCISE_ID_HEADER_RANGE = "Routines!L1"
         const val MEASUREMENT_HEADER_RANGE = "Measurements!1:1"
         const val MEASUREMENT_EXTENSION_HEADER_RANGE = "Measurements!O1:AP1"
         const val LEGACY_MEASUREMENT_COLUMN_COUNT = 14
@@ -438,6 +460,8 @@ class SheetsRepositoryImpl @Inject constructor(
         const val ROUTINE_ID_COLUMN = 0
         const val ROUTINE_UPDATED_AT_COLUMN = 1
         const val ROUTINE_DELETED_COLUMN = 2
+        const val ROUTINE_EXERCISE_NAME_COLUMN = 6
+        const val ROUTINE_EXERCISE_ID_COLUMN = 11
 
         val EMPTY_CELL = JsonPrimitive("")
     }

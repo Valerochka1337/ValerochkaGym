@@ -32,6 +32,7 @@ import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.CloudUpload
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Favorite
+import androidx.compose.material.icons.rounded.FitnessCenter
 import androidx.compose.material.icons.rounded.Key
 import androidx.compose.material.icons.rounded.Link
 import androidx.compose.material.icons.rounded.Palette
@@ -121,6 +122,7 @@ private const val HEART_RATE_REST_HOLD_STEP_SECONDS = 5
 @Composable
 fun SettingsScreen(
     onBack: () -> Unit,
+    onOpenGyms: () -> Unit,
     appUpdateState: AppUpdateUiState,
     onCheckUpdate: () -> Unit,
     onDownloadUpdate: () -> Unit,
@@ -174,9 +176,12 @@ fun SettingsScreen(
                     val settings = state.settings
                     if (settings != null) {
                         when (selectedCategory) {
-                            null -> SettingsCategoryList(
-                                onSelect = { selectedCategory = it },
-                            )
+                            null -> {
+                                SettingsCategoryList(
+                                    onSelect = { selectedCategory = it },
+                                )
+                                GymsSettingsCard(onOpen = onOpenGyms)
+                            }
 
                             SettingsCategory.WORKOUT -> RestTimerCard(
                                 settings = settings,
@@ -248,6 +253,28 @@ fun SettingsScreen(
                 hostState = snackbarHostState,
                 modifier = Modifier.align(Alignment.BottomCenter),
             )
+        }
+    }
+}
+
+@Composable
+private fun GymsSettingsCard(onOpen: () -> Unit) {
+    val haptics = gymHaptics()
+    SectionCard(title = "Тренажёрные залы", icon = Icons.Rounded.FitnessCenter) {
+        Text(
+            text = "Настройте, какие упражнения доступны в каждом зале.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(12.dp))
+        OutlinedButton(
+            onClick = {
+                haptics.tap()
+                onOpen()
+            },
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text("Настроить залы")
         }
     }
 }

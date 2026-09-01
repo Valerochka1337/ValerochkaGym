@@ -1,5 +1,6 @@
 package com.valerochka1337.valerochkagym.ui
 
+import androidx.lifecycle.SavedStateHandle
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseDao
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseMuscleDao
 import com.valerochka1337.valerochkagym.data.ai.ExerciseAiGenerationResult
@@ -12,7 +13,14 @@ import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
 import com.valerochka1337.valerochkagym.data.db.entity.Muscle
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleGroup
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleLoad
+import com.valerochka1337.valerochkagym.domain.DeleteGymResult
+import com.valerochka1337.valerochkagym.domain.GymConfiguration
+import com.valerochka1337.valerochkagym.domain.GymRepository
+import com.valerochka1337.valerochkagym.domain.NewExerciseConfiguration
+import com.valerochka1337.valerochkagym.domain.SaveGymResult
 import com.valerochka1337.valerochkagym.ui.library.ExerciseLibraryViewModel
+import com.valerochka1337.valerochkagym.ui.library.SavedExerciseResult
+import com.valerochka1337.valerochkagym.ui.navigation.GymRoutes
 import com.valerochka1337.valerochkagym.util.MainDispatcherRule
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -215,6 +223,45 @@ class ExerciseLibraryViewModelTest {
                 muscleDao.rows[inserted.id]?.associate { it.muscle to it.contribution },
             )
             assertNull(viewModel.editor.value)
+        }
+
+    @Test
+    fun `saving a new picker exercise assigns it to selected gyms and emits it`() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val repository = FakePickerGymRepository()
+            val viewModel = ExerciseLibraryViewModel(
+                exerciseDao = FakeExerciseDao(),
+                exerciseMuscleDao = FakeExerciseMuscleDao(),
+                savedStateHandle = SavedStateHandle(
+                    mapOf(GymRoutes.GYM_IDS_ARG to "gym-first,gym-second"),
+                ),
+                gymRepository = repository,
+            )
+            val savedExercises = mutableListOf<SavedExerciseResult>()
+            backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+                viewModel.savedExercise.collect { savedExercises += it }
+            }
+
+            viewModel.openManualCreate()
+            viewModel.saveEditor(
+                name = "  Тяга сумо  ",
+                type = ExerciseType.STRENGTH,
+                loads = listOf(
+                    MuscleLoad(Muscle.GLUTES, 100),
+                    MuscleLoad(Muscle.LOWER_BACK, 70),
+                ),
+            )
+            mainDispatcherRule.testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals(setOf("gym-first", "gym-second"), repository.lastAssignedGymIds)
+            assertEquals("Тяга сумо", repository.lastCreation?.exercise?.name)
+            assertEquals(
+                mapOf(Muscle.GLUTES to 100, Muscle.LOWER_BACK to 70),
+                repository.lastCreation?.muscles?.associate { it.muscle to it.contribution },
+            )
+            assertEquals(listOf(42L), savedExercises.map { it.exercise.id })
+            assertEquals(listOf("Тяга сумо"), savedExercises.map { it.exercise.name })
+            assertEquals(listOf(false), savedExercises.map { it.addedToWorkout })
         }
 
     @Test
@@ -522,5 +569,38 @@ class ExerciseLibraryViewModelTest {
         override suspend fun connection() = null
 
         override suspend fun requestConfiguration() = null
+    }
+
+    private class FakePickerGymRepository : GymRepository {
+        var lastCreation: NewExerciseConfiguration? = null
+            private set
+        var lastAssignedGymIds: Set<String>? = null
+            private set
+
+        override fun observeGyms(): Flow<List<GymConfiguration>> = MutableStateFlow(emptyList())
+
+        override fun observeExerciseCatalog(): Flow<List<ExerciseEntity>> = MutableStateFlow(emptyList())
+
+        override fun observeAvailableExercises(gymIds: Set<String>): Flow<List<ExerciseEntity>> =
+            MutableStateFlow(emptyList())
+
+        override suspend fun getGym(id: String): GymConfiguration? = null
+
+        override suspend fun saveGym(
+            id: String?,
+            name: String,
+            exerciseIds: Set<Long>,
+        ): SaveGymResult = SaveGymResult.Failure
+
+        override suspend fun deleteGym(id: String): DeleteGymResult = DeleteGymResult.NotFound
+
+        override suspend fun createExerciseAndAssign(
+            configuration: NewExerciseConfiguration,
+            gymIds: Set<String>,
+        ): ExerciseEntity {
+            lastCreation = configuration
+            lastAssignedGymIds = gymIds
+            return configuration.exercise.copy(id = 42L)
+        }
     }
 }

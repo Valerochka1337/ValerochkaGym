@@ -23,6 +23,8 @@ import com.valerochka1337.valerochkagym.ui.theme.AccentColor
 import com.valerochka1337.valerochkagym.ui.theme.PaletteMode
 import com.valerochka1337.valerochkagym.ui.theme.ThemeMode
 import com.valerochka1337.valerochkagym.worker.MeasurementUploadScheduler
+import com.valerochka1337.valerochkagym.worker.ConfigurationUploadScheduler
+import com.valerochka1337.valerochkagym.worker.NoOpConfigurationUploadScheduler
 import com.valerochka1337.valerochkagym.worker.NoOpRoutineUploadScheduler
 import com.valerochka1337.valerochkagym.worker.RoutineUploadScheduler
 import com.valerochka1337.valerochkagym.worker.UploadScheduler
@@ -140,6 +142,8 @@ class SettingsViewModel @Inject constructor(
     private val routineUploadScheduler: RoutineUploadScheduler = NoOpRoutineUploadScheduler,
     private val aiApiKeyStore: AiApiKeyStore = NoOpAiApiKeyStore,
     private val aiModelCatalog: AiModelCatalog = NoOpAiModelCatalog,
+    private val configurationUploadScheduler: ConfigurationUploadScheduler =
+        NoOpConfigurationUploadScheduler,
 ) : ViewModel() {
 
     private val authBusy = MutableStateFlow(false)
@@ -394,6 +398,11 @@ class SettingsViewModel @Inject constructor(
             if (result.imported > 0) add("тренировок: ${result.imported}")
             if (result.importedMeasurements > 0) add("замеров: ${result.importedMeasurements}")
             if (result.importedRoutines > 0) add("программ: ${result.importedRoutines}")
+            if (result.importedExercises > 0) add("упражнений: ${result.importedExercises}")
+            if (result.importedGyms > 0) add("залов: ${result.importedGyms}")
+            if (result.importedRoutineGyms > 0) {
+                add("привязок программ: ${result.importedRoutineGyms}")
+            }
         }
         if (restored.isEmpty()) {
             append("Новых данных нет")
@@ -415,7 +424,8 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             val count = uploadScheduler.scheduleAllPending() +
                 measurementUploadScheduler.scheduleAllPending() +
-                routineUploadScheduler.scheduleAll()
+                routineUploadScheduler.scheduleAll() +
+                configurationUploadScheduler.scheduleAll()
             _messages.send("Поставлено в очередь: $count")
         }
     }

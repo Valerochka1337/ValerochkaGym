@@ -31,6 +31,7 @@ class RoutineRowParserTest {
         assertFalse(parsed.isDeleted)
         assertEquals(2, parsed.exercises.size)
         assertEquals(listOf("Присед", "Планка"), parsed.exercises.map { it.name })
+        assertTrue(parsed.exercises.all { it.syncId != null })
         assertEquals(90, parsed.exercises.first().restSeconds)
         assertEquals(
             listOf(PlannedSet(weightKg = 100.0, reps = 5), PlannedSet(weightKg = 100.0, reps = 5)),
@@ -68,6 +69,20 @@ class RoutineRowParserTest {
         assertTrue(parsed.isDeleted)
         assertEquals(200, parsed.updatedAt)
         assertTrue(parsed.exercises.isEmpty())
+    }
+
+    @Test
+    fun `legacy routine rows without exercise ids remain readable by name`() {
+        val routine = routine(updatedAt = 100)
+        val rows = listOf(RoutineRowMapper.LEGACY_HEADER_ROW) +
+            RoutineRowMapper.rows(routine).map { it.dropLast(1) }
+
+        val parsed = RoutineRowParser.parse(
+            rows.map { row -> row.map { it?.toString().orEmpty() } },
+        ).routines.single()
+
+        assertEquals(listOf("Присед", "Планка"), parsed.exercises.map { it.name })
+        assertTrue(parsed.exercises.all { it.syncId == null })
     }
 
     private fun routine(updatedAt: Long, name: String = "Ноги"): RoutineWithExercises {
