@@ -7,6 +7,16 @@ on:
       - synchronize
       - reopened
       - ready_for_review
+    paths:
+      - "app/**"
+      - "build.gradle.kts"
+      - "settings.gradle.kts"
+      - "gradle.properties"
+      - "gradle/**"
+      - "gradlew"
+      - "gradlew.bat"
+      - "buildSrc/**"
+      - "build-logic/**"
 
 concurrency:
   group: ai-review-${{ github.event.pull_request.number }}
