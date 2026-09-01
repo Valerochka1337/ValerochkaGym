@@ -1,28 +1,19 @@
 package com.valerochka1337.valerochkagym.ui.components
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 
@@ -41,28 +32,22 @@ fun PillButton(
     leadingIcon: ImageVector? = null,
     compact: Boolean = false,
 ) {
-    val interactionSource = remember { MutableInteractionSource() }
-    Row(
+    Button(
+        onClick = onClick,
+        enabled = enabled,
         modifier = modifier
-            .heightIn(min = if (compact) 40.dp else 56.dp)
-            .clip(CircleShape)
-            .alpha(if (enabled) 1f else 0.5f)
-            .background(MaterialTheme.colorScheme.primary)
-            .clickable(
-                interactionSource = interactionSource,
-                indication = ripple(),
-                enabled = enabled,
-                role = Role.Button,
-                onClick = onClick,
-            )
-            .padding(
-                horizontal = if (compact) 16.dp else 24.dp,
-                vertical = if (compact) 10.dp else 16.dp,
-            ),
-        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
-        verticalAlignment = Alignment.CenterVertically,
+            .heightIn(min = if (compact) 48.dp else 56.dp),
+        shape = CircleShape,
+        colors = ButtonDefaults.buttonColors(
+            containerColor = MaterialTheme.colorScheme.primary,
+            contentColor = MaterialTheme.colorScheme.onPrimary,
+        ),
+        contentPadding = ButtonDefaults.ContentPadding,
     ) {
-        CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onPrimary) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             if (leadingIcon != null) {
                 Icon(
                     imageVector = leadingIcon,

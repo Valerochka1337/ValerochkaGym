@@ -22,6 +22,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -42,6 +43,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
@@ -59,8 +63,8 @@ import com.valerochka1337.valerochkagym.ui.haptics.gymHaptics
 import com.valerochka1337.valerochkagym.ui.theme.GymMotion
 
 /**
- * Вкладка «Тренировки»: список программ и быстрый старт. Тап по карточке выбирает
- * программу (обводка primary), меню карточки — редактирование/дублирование/удаление.
+ * Вкладка «Тренировки»: тап по программе выбирает её, а закреплённый снизу блок запускает
+ * выбранную или пустую тренировку. Меню карточки отвечает за вторичные действия.
  *
  * Старт тренировки создаётся в [WorkoutsViewModel] (single-flight); по событию
  * [WorkoutsViewModel.startEvents] экран навигирует на активную тренировку через [onStartWorkout].
@@ -77,22 +81,27 @@ fun WorkoutsScreen(
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     var pendingDeleteId by rememberSaveable { mutableStateOf<Long?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
+    var showNotificationRationale by rememberSaveable { mutableStateOf(false) }
 
     val context = LocalContext.current
-    // Отказ в разрешении не блокирует тренировку — таймер работает на экране, просто без уведомлений.
+    val continueToWorkout = {
+        WorkoutSessionService.start(context)
+        onStartWorkout()
+    }
+    // Отказ не блокирует тренировку — таймер остаётся на экране, но не переживёт сворачивание.
     val notificationPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
-    ) { /* результат не важен */ }
+    ) { continueToWorkout() }
 
     LaunchedEffect(Unit) {
         viewModel.startEvents.collect {
             if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS)
                 != PackageManager.PERMISSION_GRANTED
             ) {
-                notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+                showNotificationRationale = true
+            } else {
+                continueToWorkout()
             }
-            WorkoutSessionService.start(context)
-            onStartWorkout()
         }
     }
     LaunchedEffect(Unit) {
@@ -117,8 +126,12 @@ fun WorkoutsScreen(
 
                 val routines = state.routines
                 when {
-                    // Ещё не загружено: ничего не показываем (Room отдаёт быстро).
-                    routines == null -> Unit
+                    routines == null -> Box(
+                        modifier = Modifier.fillMaxSize().weight(1f),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        CircularProgressIndicator()
+                    }
                     routines.isEmpty() -> FadeInContent(modifier = Modifier.weight(1f)) {
                         EmptyState(
                             onCreateRoutine = onCreateRoutine,
@@ -182,6 +195,38 @@ fun WorkoutsScreen(
             onDismiss = { pendingDeleteId = null },
         )
     }
+
+    if (showNotificationRationale) {
+        AlertDialog(
+            onDismissRequest = {
+                showNotificationRationale = false
+                continueToWorkout()
+            },
+            title = { Text("Показывать таймер отдыха в уведомлении?") },
+            text = {
+                Text(
+                    "Разрешение нужно, чтобы видеть таймер и вернуться к тренировке после " +
+                        "сворачивания. Без него тренировка и таймер на экране продолжат работать.",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showNotificationRationale = false
+                    notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+                }) {
+                    Text("Разрешить")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    showNotificationRationale = false
+                    continueToWorkout()
+                }) {
+                    Text("Не сейчас")
+                }
+            },
+        )
+    }
 }
 
 @Composable
@@ -194,35 +239,33 @@ private fun RoutineCard(
     onDelete: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    // Рамка выделения проявляется цветом, а не скачком: ширина постоянная, анимируется цвет.
     val borderColor by animateColorAsState(
         targetValue = if (selected) MaterialTheme.colorScheme.primary else Color.Transparent,
         animationSpec = GymMotion.effectsFast(),
         label = "routine-border",
     )
     GymCard(
-        modifier = modifier.fillMaxWidth().border(2.dp, borderColor, GymCardShape),
+        modifier = modifier
+            .fillMaxWidth()
+            .border(2.dp, borderColor, GymCardShape)
+            .semantics {
+                this.selected = selected
+                stateDescription = if (selected) "Выбрано" else "Не выбрано"
+            },
         onClick = onClick,
         contentPadding = PaddingValues(start = 18.dp, end = 6.dp, top = 14.dp, bottom = 14.dp),
     ) {
         Row(verticalAlignment = Alignment.Top) {
             Column(modifier = Modifier.weight(1f).padding(top = 4.dp)) {
                 Text(
-                    text = "ПРОГРАММА",
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-                Spacer(Modifier.height(4.dp))
-                Text(
                     text = routine.name,
-                    style = MaterialTheme.typography.titleMedium,
+                    style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
-                Spacer(Modifier.height(2.dp))
+                Spacer(Modifier.height(4.dp))
                 Text(
-                    text = "${routine.exerciseCount} ${exercisesWord(routine.exerciseCount)} · ~${routine.estimatedMinutes} мин",
+                    text = "${routine.exerciseCount} ${exercisesWord(routine.exerciseCount)} · около ${routine.estimatedMinutes} мин",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -242,6 +285,30 @@ private fun RoutineCard(
                 onDuplicate = onDuplicate,
                 onDelete = onDelete,
             )
+        }
+    }
+}
+
+@Composable
+private fun StartBar(
+    startEnabled: Boolean,
+    onStart: () -> Unit,
+    onEmpty: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 24.dp, end = 24.dp, top = 8.dp, bottom = 16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        PillButton(
+            text = "Начать тренировку",
+            onClick = onStart,
+            enabled = startEnabled,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        TextButton(onClick = onEmpty) {
+            Text("Пустая тренировка")
         }
     }
 }
@@ -283,30 +350,6 @@ private fun RoutineCardMenu(
                     onDelete()
                 },
             )
-        }
-    }
-}
-
-@Composable
-private fun StartBar(
-    startEnabled: Boolean,
-    onStart: () -> Unit,
-    onEmpty: () -> Unit,
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(start = 24.dp, end = 24.dp, top = 8.dp, bottom = 16.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        PillButton(
-            text = "Начать тренировку",
-            onClick = onStart,
-            enabled = startEnabled,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        TextButton(onClick = onEmpty) {
-            Text("Пустая тренировка")
         }
     }
 }

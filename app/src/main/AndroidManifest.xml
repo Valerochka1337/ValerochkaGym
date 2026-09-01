@@ -18,8 +18,7 @@
     <uses-permission android:name="android.permission.POST_PROMOTED_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.VIBRATE" />
 
-    <!-- Xiaomi Wear SDK binds to Mi Fitness / Xiaomi Wear. Declared explicitly rather than relying
-         on the AAR manifest merge, so package visibility remains part of our app contract. -->
+    <!-- Внешние пакеты и системные обработчики, которые приложение должно уметь разрешать. -->
     <queries>
         <package android:name="com.mi.health" />
         <package android:name="com.xiaomi.wearable" />
@@ -56,17 +55,11 @@
                 android:resource="@xml/inbody_import_paths" />
         </provider>
 
-        <!-- Временный проверенный APK обновления. Доступ системному установщику выдаётся только
-             на конкретный content URI и только на время Intent-а установки. -->
-        <provider
-            android:name="androidx.core.content.FileProvider"
-            android:authorities="${applicationId}.updates"
-            android:exported="false"
-            android:grantUriPermissions="true">
-            <meta-data
-                android:name="android.support.FILE_PROVIDER_PATHS"
-                android:resource="@xml/app_update_paths" />
-        </provider>
+        <!-- Явный callback PackageInstaller.Session. Не экспортируется; система вызывает его
+             только через созданный приложением mutable PendingIntent. -->
+        <receiver
+            android:name=".data.update.AppUpdateInstallStatusReceiver"
+            android:exported="false" />
 
         <!-- Иконки под акценты. Включён ровно один; переключает AppIconManager по настройке.
              Порядок и имена связаны с AccentColor.aliasName — менять только вместе. -->

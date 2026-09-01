@@ -46,6 +46,7 @@ import com.valerochka1337.valerochkagym.domain.displayName
 import com.valerochka1337.valerochkagym.ui.components.ExerciseAvatar
 import com.valerochka1337.valerochkagym.ui.components.FadeInContent
 import com.valerochka1337.valerochkagym.ui.components.GlowBackground
+import com.valerochka1337.valerochkagym.ui.components.LoadingState
 import com.valerochka1337.valerochkagym.ui.components.GymCard
 import com.valerochka1337.valerochkagym.ui.components.GymFilterChip
 import com.valerochka1337.valerochkagym.ui.haptics.gymHaptics
@@ -117,8 +118,10 @@ fun ExerciseLibraryScreen(
 
                 val exercises = state.exercises
                 when {
-                    // Not loaded yet: show nothing (Room emits quickly).
-                    exercises == null -> Unit
+                    exercises == null -> LoadingState(
+                        label = "Загружаем упражнения…",
+                        modifier = Modifier.weight(1f),
+                    )
                     exercises.isEmpty() -> FadeInContent { EmptyState(modifier = Modifier.fillMaxSize()) }
                     else -> FadeInContent {
                         LazyColumn(

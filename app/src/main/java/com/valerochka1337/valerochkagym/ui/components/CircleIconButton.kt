@@ -1,14 +1,12 @@
 package com.valerochka1337.valerochkagym.ui.components
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
+import androidx.compose.material3.FilledTonalIconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
@@ -25,12 +23,13 @@ fun CircleIconButton(
     modifier: Modifier = Modifier,
     tint: Color = MaterialTheme.colorScheme.onSurfaceVariant,
 ) {
-    IconButton(
+    FilledTonalIconButton(
         onClick = onClick,
-        modifier = modifier
-            .size(44.dp)
-            .clip(CircleShape)
-            .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+        modifier = modifier.size(48.dp),
+        colors = IconButtonDefaults.filledTonalIconButtonColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+            contentColor = tint,
+        ),
     ) {
         Icon(
             imageVector = icon,

@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
@@ -233,7 +234,7 @@ private fun MuscleBulletRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(36.dp)
+            .heightIn(min = 48.dp)
             .padding(vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -249,7 +250,7 @@ private fun MuscleBulletRow(
         Box(
             modifier = Modifier
                 .weight(1f)
-                .height(28.dp)
+                .heightIn(min = 48.dp)
                 .clickable {
                     haptics.tap()
                     onClick()

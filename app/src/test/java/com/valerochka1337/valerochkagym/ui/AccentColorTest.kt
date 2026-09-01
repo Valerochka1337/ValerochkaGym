@@ -8,6 +8,8 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.test.core.app.ApplicationProvider
 import com.valerochka1337.valerochkagym.ui.theme.AccentColor
 import com.valerochka1337.valerochkagym.ui.theme.GymTheme
+import com.valerochka1337.valerochkagym.ui.theme.PaletteMode
+import com.valerochka1337.valerochkagym.ui.theme.ThemeMode
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -55,31 +57,29 @@ class AccentColorTest {
     // region тема
 
     @Test
-    fun `theme paints the accent roles with the chosen accent`() {
+    fun `theme paints distinct roles for every brand palette`() {
         // setContent на правиле вызывается один раз, поэтому все варианты темы собираются
         // в одной композиции — соседними GymTheme, каждый со своим акцентом.
         val roles = mutableMapOf<AccentColor, List<Color>>()
 
         composeRule.setContent {
             AccentColor.entries.forEach { accent ->
-                GymTheme(accent = accent) {
+                GymTheme(
+                    themeMode = ThemeMode.DARK,
+                    paletteMode = PaletteMode.fromAccent(accent),
+                    accent = accent,
+                ) {
                     roles[accent] = listOf(
                         MaterialTheme.colorScheme.primary,
-                        MaterialTheme.colorScheme.onPrimary,
                         MaterialTheme.colorScheme.primaryContainer,
+                        MaterialTheme.colorScheme.onPrimaryContainer,
                     )
                 }
             }
         }
         composeRule.waitForIdle()
 
-        AccentColor.entries.forEach { accent ->
-            assertEquals(
-                "акцент «${accent.label}» не доехал до схемы цветов",
-                listOf(accent.primary, accent.ink, accent.container),
-                roles[accent],
-            )
-        }
+        assertEquals(AccentColor.entries.size, roles.values.toSet().size)
     }
 
     // endregion

@@ -9,7 +9,7 @@
 ```
 ui/        экраны (Compose) + ViewModel'и; exercise/ (карточка упражнения и статистика),
            gyms/ (каталог залов и их упражнений),
-           theme/ (цвет, форма, типографика, GymMotion), haptics/ (GymHaptics),
+           theme/ (Material You, light/dark схемы, форма, типографика, GymMotion), haptics/ (GymHaptics),
            components/ (GymCard, PillButton, GymFilterChip, …)
 domain/    use case'ы и чистая логика (CompleteSetUseCase, WorkoutRowParser,
            ExerciseStatisticsCalculator, analysis/AnalyticsEngine — математика аналитики)
@@ -117,7 +117,12 @@ InBody-значения вычисляются из сохранённых по�
 100 МБ и завершается только при совпадении размера и SHA-256 из GitHub API. Затем
 `AndroidAppUpdateInstaller` проверяет package name, `versionName`, строго больший `versionCode` и
 криптографически подтверждённую подпись APK против подписи установленного приложения. Лишь после
-этого private-файл выдаётся системному Package Installer через отдельный scoped `FileProvider`.
+этого байты private-файла записываются прямо в `PackageInstaller.Session`: наружу не публикуется
+ни файл, ни `content://` URI. Сессия помечается как пользовательская установка скачанного файла,
+содержит исходные GitHub URL и всегда требует явного подтверждения. `Session.commit()` возвращает
+статусы через приватный mutable `PendingIntent`; `STATUS_PENDING_USER_ACTION` передаёт системный
+экран подтверждения, а блокировки и ошибки преобразуются в безопасный для UI текст. Такой путь не
+зависит от передачи URI-grant между внутренними компонентами установщика ColorOS/OxygenOS.
 
 Android требует специальный доступ «Установка неизвестных приложений» именно для ValerochkaGym:
 если его нет, UI открывает `ACTION_MANAGE_UNKNOWN_APP_SOURCES`, а после возврата продолжает
@@ -204,7 +209,8 @@ API key живёт в отдельном `ai_secrets.preferences_pb`: полны
 | Predictive back — только системный | seekable-переходы Navigation Compose не подключены; пружинные слайды играют как обычные pop'ы |
 | Бэкап включён почти целиком | история и обычные настройки переживают переустановку; отдельный зашифрованный API key исключён из бэкапа и переноса |
 | Строки UI захардкожены в Kotlin | приложение одноязычное и личное; `strings.xml` держит только `app_name` и OAuth client ID |
-| Dark-only, 4 акцента через activity-alias | Android не перекрашивает иконку — `AppIconManager` включает alias выбранного акцента, дождавшись ухода в фон (иначе система снесёт задачу) |
+| Material You + 4 фирменные палитры | Системная dynamic palette и System/Light/Dark — значения по умолчанию; фирменная палитра также выбирает launcher alias через `AppIconManager` после ухода приложения в фон |
+| Адаптивная оболочка | `NavigationSuiteScaffold` выбирает navigation bar/rail по окну, а экранный контент центрируется и ограничивается 960 dp |
 | Сервис не переживает смерть процесса | таймер in-memory; восстановление потребовало бы персистить сессию ради редкого случая |
 
 ## Тесты

@@ -9,14 +9,17 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.SheetValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -44,11 +47,16 @@ internal fun DayModalBottomSheet(
 ) {
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        sheetState = rememberModalBottomSheetState(),
+        sheetState = rememberBottomSheetState(
+            initialValue = SheetValue.Hidden,
+            enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded),
+        ),
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .heightIn(max = 640.dp)
+                .verticalScroll(rememberScrollState())
                 .padding(horizontal = 24.dp)
                 .padding(bottom = 32.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -137,7 +145,10 @@ internal fun RoutinePickerSheet(
 ) {
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        sheetState = rememberModalBottomSheetState(),
+        sheetState = rememberBottomSheetState(
+            initialValue = SheetValue.Hidden,
+            enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded),
+        ),
     ) {
         Column(
             modifier = Modifier

@@ -20,6 +20,8 @@ import com.valerochka1337.valerochkagym.data.settings.GymSettings
 import com.valerochka1337.valerochkagym.data.settings.AiApiKeyStore
 import com.valerochka1337.valerochkagym.data.settings.SettingsRepository
 import com.valerochka1337.valerochkagym.ui.theme.AccentColor
+import com.valerochka1337.valerochkagym.ui.theme.PaletteMode
+import com.valerochka1337.valerochkagym.ui.theme.ThemeMode
 import com.valerochka1337.valerochkagym.worker.MeasurementUploadScheduler
 import com.valerochka1337.valerochkagym.worker.ConfigurationUploadScheduler
 import com.valerochka1337.valerochkagym.worker.NoOpConfigurationUploadScheduler
@@ -503,5 +505,13 @@ class SettingsViewModel @Inject constructor(
      */
     fun setAccent(accent: AccentColor) {
         viewModelScope.launch { settingsRepository.setAccent(accent) }
+    }
+
+    fun setThemeMode(mode: ThemeMode) {
+        viewModelScope.launch { settingsRepository.setThemeMode(mode) }
+    }
+
+    fun setPaletteMode(mode: PaletteMode) {
+        viewModelScope.launch { settingsRepository.setPaletteMode(mode) }
     }
 }

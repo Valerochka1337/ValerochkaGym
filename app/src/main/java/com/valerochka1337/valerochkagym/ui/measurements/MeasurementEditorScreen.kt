@@ -20,6 +20,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.ExpandLess
+import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.MonitorWeight
 import androidx.compose.material.icons.rounded.PhotoCamera
 import androidx.compose.material.icons.rounded.PhotoLibrary
@@ -82,6 +84,9 @@ fun MeasurementEditorScreen(
     var showDeleteDialog by remember { mutableStateOf(false) }
     var showImportSources by remember { mutableStateOf(false) }
     var pendingCameraFile by remember { mutableStateOf<File?>(null) }
+    var showFullReport by remember { mutableStateOf(false) }
+    var showSegments by remember { mutableStateOf(false) }
+    var showCircumferences by remember { mutableStateOf(false) }
 
     val galleryLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia(),
@@ -118,7 +123,22 @@ fun MeasurementEditorScreen(
                     { showDeleteDialog = true }
                 },
             )
-            if (state.isLoading) return@Column
+            if (state.isLoading) {
+                Column(
+                    modifier = Modifier.fillMaxSize(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    CircularWavyProgressIndicator()
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        text = "Загружаем замер…",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                return@Column
+            }
 
             Column(
                 modifier = Modifier
@@ -147,9 +167,30 @@ fun MeasurementEditorScreen(
                     },
                 )
                 InBodyCard(state, viewModel)
-                FullInBodyReportCard(state, viewModel)
-                SegmentalInBodyCard(state, viewModel)
-                CircumferencesCard(state, viewModel)
+                OptionalEditorSection(
+                    title = "Полный отчёт InBody",
+                    filledCount = state.fullReportFilledCount(),
+                    totalCount = 8,
+                    expanded = showFullReport,
+                    onToggle = { showFullReport = !showFullReport },
+                )
+                if (showFullReport) FullInBodyReportCard(state, viewModel)
+                OptionalEditorSection(
+                    title = "Сегментный анализ",
+                    filledCount = state.segmentFilledCount(),
+                    totalCount = InBodySegment.entries.size * 4,
+                    expanded = showSegments,
+                    onToggle = { showSegments = !showSegments },
+                )
+                if (showSegments) SegmentalInBodyCard(state, viewModel)
+                OptionalEditorSection(
+                    title = "Обхваты",
+                    filledCount = state.circumferenceFilledCount(),
+                    totalCount = 5,
+                    expanded = showCircumferences,
+                    onToggle = { showCircumferences = !showCircumferences },
+                )
+                if (showCircumferences) CircumferencesCard(state, viewModel)
                 if (!state.isNew) {
                     GymCard(modifier = Modifier.fillMaxWidth()) {
                         Text(
@@ -166,38 +207,15 @@ fun MeasurementEditorScreen(
                         )
                     }
                 }
-                Spacer(Modifier.height(4.dp))
-                PillButton(
-                    text = if (state.isSaving) {
-                        "Сохраняю…"
-                    } else if (state.isNew) {
-                        "Сохранить замер"
-                    } else {
-                        "Сохранить изменения"
-                    },
-                    onClick = {
-                        haptics.confirm()
-                        viewModel.save()
-                    },
-                    enabled = state.canSave && !state.isBusy,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                state.saveError?.let { error ->
-                    Text(
-                        text = error,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error,
-                    )
-                }
-                if (!state.canSave) {
-                    Text(
-                        text = "Укажите хотя бы один показатель.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                Spacer(Modifier.height(24.dp))
+                Spacer(Modifier.height(12.dp))
             }
+            MeasurementSaveBar(
+                state = state,
+                onSave = {
+                    haptics.confirm()
+                    viewModel.save()
+                },
+            )
         }
     }
 
@@ -261,6 +279,108 @@ fun MeasurementEditorScreen(
         )
     }
 }
+
+@Composable
+private fun OptionalEditorSection(
+    title: String,
+    filledCount: Int,
+    totalCount: Int,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+) {
+    GymCard(
+        modifier = Modifier.fillMaxWidth(),
+        onClick = onToggle,
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Text(
+                    text = if (filledCount == 0) {
+                        "Необязательно · не заполнено"
+                    } else {
+                        "Заполнено $filledCount из $totalCount"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Icon(
+                imageVector = if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                contentDescription = if (expanded) "Свернуть" else "Развернуть",
+            )
+        }
+    }
+}
+
+@Composable
+private fun MeasurementSaveBar(
+    state: MeasurementEditorUiState,
+    onSave: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp, vertical = 12.dp),
+    ) {
+        PillButton(
+            text = when {
+                state.isSaving -> "Сохраняю…"
+                state.isNew -> "Сохранить замер"
+                else -> "Сохранить изменения"
+            },
+            onClick = onSave,
+            enabled = state.canSave && !state.isBusy,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        state.saveError?.let { error ->
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = error,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
+        if (!state.canSave) {
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = "Укажите хотя бы один показатель.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+private fun MeasurementEditorUiState.fullReportFilledCount(): Int = listOf(
+    inBodyScore,
+    totalBodyWaterLiters,
+    proteinKg,
+    mineralsKg,
+    bodyMassIndex,
+    fatFreeMassKg,
+    basalMetabolicRateKcal,
+    recommendedCalorieIntakeKcal,
+).count(String::isNotBlank)
+
+private fun MeasurementEditorUiState.segmentFilledCount(): Int = segments.values.sumOf { input ->
+    listOf(input.leanMassKg, input.leanPercentage, input.fatMassKg, input.fatPercentage)
+        .count(String::isNotBlank)
+}
+
+private fun MeasurementEditorUiState.circumferenceFilledCount(): Int = listOf(
+    waistCm,
+    chestCm,
+    hipsCm,
+    rightRelaxedArmCm,
+    rightThighCm,
+).count(String::isNotBlank)
 
 @Composable
 private fun MeasurementEditorHeader(

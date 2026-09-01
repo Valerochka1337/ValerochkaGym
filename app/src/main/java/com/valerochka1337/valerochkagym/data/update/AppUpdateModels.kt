@@ -2,6 +2,7 @@ package com.valerochka1337.valerochkagym.data.update
 
 import android.content.Intent
 import java.io.File
+import kotlinx.coroutines.flow.Flow
 
 data class AppReleaseAsset(
     val name: String,
@@ -36,11 +37,20 @@ interface AppUpdateRepository {
     ): File
 }
 
-/** Проверка APK и создание системных Intent-ов вынесены за интерфейс для unit-тестов ViewModel. */
+/** Результат, который системный Package Installer возвращает после commit install-сессии. */
+sealed interface AppUpdateInstallEvent {
+    data class UserActionRequired(val intent: Intent) : AppUpdateInstallEvent
+    data class Failed(val message: String) : AppUpdateInstallEvent
+    data object Cancelled : AppUpdateInstallEvent
+    data object Succeeded : AppUpdateInstallEvent
+}
+
+/** Проверка APK и взаимодействие с Package Installer вынесены за интерфейс для unit-тестов. */
 interface AppUpdateInstaller {
+    val installEvents: Flow<AppUpdateInstallEvent>
+
     fun verify(file: File, release: AppRelease)
     fun canRequestPackageInstalls(): Boolean
     fun unknownSourcesSettingsIntent(): Intent
-    fun installIntent(file: File): Intent
+    suspend fun startInstallation(file: File, release: AppRelease)
 }
-

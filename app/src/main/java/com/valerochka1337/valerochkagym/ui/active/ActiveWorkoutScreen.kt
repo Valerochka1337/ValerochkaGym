@@ -31,21 +31,28 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
@@ -137,6 +144,7 @@ fun ActiveWorkoutScreen(
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
+    var showNearbyDevicesRationale by rememberSaveable { mutableStateOf(false) }
     val nearbyDevicesPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
     ) {
@@ -157,12 +165,7 @@ fun ActiveWorkoutScreen(
         if (hasScan && hasConnect) {
             viewModel.scanHeartRate()
         } else {
-            nearbyDevicesPermission.launch(
-                arrayOf(
-                    Manifest.permission.BLUETOOTH_SCAN,
-                    Manifest.permission.BLUETOOTH_CONNECT,
-                ),
-            )
+            showNearbyDevicesRationale = true
         }
     }
 
@@ -223,7 +226,12 @@ fun ActiveWorkoutScreen(
                     )
                 }
 
-                state.loading -> Unit
+                state.loading -> Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    CircularProgressIndicator()
+                }
 
                 else -> FadeInContent { NoActiveWorkout(onNavigateBack = onNavigateBack) }
             }
@@ -232,6 +240,37 @@ fun ActiveWorkoutScreen(
                 modifier = Modifier.align(Alignment.BottomCenter).padding(24.dp),
             )
         }
+    }
+
+    if (showNearbyDevicesRationale) {
+        AlertDialog(
+            onDismissRequest = { showNearbyDevicesRationale = false },
+            title = { Text("Подключить датчик пульса?") },
+            text = {
+                Text(
+                    "Доступ к устройствам поблизости нужен только для поиска и подключения " +
+                        "Bluetooth-датчика. Тренировка полностью работает и без него.",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showNearbyDevicesRationale = false
+                    nearbyDevicesPermission.launch(
+                        arrayOf(
+                            Manifest.permission.BLUETOOTH_SCAN,
+                            Manifest.permission.BLUETOOTH_CONNECT,
+                        ),
+                    )
+                }) {
+                    Text("Продолжить")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showNearbyDevicesRationale = false }) {
+                    Text("Не сейчас")
+                }
+            },
+        )
     }
 }
 
@@ -353,6 +392,8 @@ internal fun ActiveWorkoutContent(
             onScanHeartRate = onScanHeartRate,
             onConnectHeartRate = onConnectHeartRate,
             onCancelHeartRateSelection = onCancelHeartRateSelection,
+            onFinish = { showFinishDialog = true },
+            onDiscard = { showDiscardDialog = true },
         )
 
         LazyColumn(
@@ -449,15 +490,11 @@ internal fun ActiveWorkoutContent(
                 onAddRestSeconds = onAddRestSeconds,
                 onSkipRest = onSkipRest,
             )
-            PillButton(
-                text = "Завершить",
-                onClick = { showFinishDialog = true },
-                leadingIcon = Icons.Default.Check,
-                modifier = Modifier.fillMaxWidth(),
+            CurrentSetPrimaryAction(
+                restTimer = restTimer,
+                activeSetId = activeSetId,
+                onComplete = setActions.complete,
             )
-            TextButton(onClick = { showDiscardDialog = true }) {
-                Text("Отменить тренировку", color = MaterialTheme.colorScheme.error)
-            }
         }
     }
 
@@ -570,6 +607,7 @@ private fun HeartRateBubble(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
                     .padding(horizontal = 24.dp)
                     .padding(bottom = 32.dp),
             ) {
@@ -741,9 +779,12 @@ private fun ActiveWorkoutHeader(
     onScanHeartRate: () -> Unit,
     onConnectHeartRate: (HeartRateDevice) -> Unit,
     onCancelHeartRateSelection: () -> Unit,
+    onFinish: () -> Unit,
+    onDiscard: () -> Unit,
 ) {
     // Собираем таймер только здесь, чтобы посекундный тик не рекомпозил список подходов.
     val elapsed by elapsedSeconds.collectAsStateWithLifecycle()
+    var menuExpanded by remember { mutableStateOf(false) }
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -767,6 +808,38 @@ private fun ActiveWorkoutHeader(
                 onSelectDevice = onConnectHeartRate,
                 onDismissSelection = onCancelHeartRateSelection,
             )
+            Box {
+                IconButton(onClick = { menuExpanded = true }) {
+                    Icon(
+                        imageVector = Icons.Default.MoreVert,
+                        contentDescription = "Действия тренировки",
+                    )
+                }
+                DropdownMenu(
+                    expanded = menuExpanded,
+                    onDismissRequest = { menuExpanded = false },
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("Завершить тренировку") },
+                        onClick = {
+                            menuExpanded = false
+                            onFinish()
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                text = "Отменить тренировку",
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                        },
+                        onClick = {
+                            menuExpanded = false
+                            onDiscard()
+                        },
+                    )
+                }
+            }
         }
         Spacer(Modifier.height(4.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -813,6 +886,7 @@ private fun ExerciseSection(
             Row(
                 modifier = Modifier
                     .weight(1f)
+                    .heightIn(min = 48.dp)
                     .clickable {
                         haptics.tap()
                         onExerciseClick()
@@ -972,14 +1046,25 @@ private fun CurrentSetCard(
             }
         }
 
-        Spacer(Modifier.height(14.dp))
+    }
+}
 
+/** Контекстная закреплённая кнопка: во время отдыха её место занимают controls таймера. */
+@Composable
+private fun CurrentSetPrimaryAction(
+    restTimer: StateFlow<RestTimerState?>,
+    activeSetId: Long?,
+    onComplete: (Long) -> Unit,
+) {
+    val rest by restTimer.collectAsStateWithLifecycle()
+    val setId = activeSetId
+    if (rest == null && setId != null) {
         val haptics = gymHaptics()
         PillButton(
             text = "Подход выполнен",
             onClick = {
                 haptics.confirm()
-                actions.complete(set.id)
+                onComplete(setId)
             },
             leadingIcon = Icons.Default.Check,
             modifier = Modifier.fillMaxWidth(),

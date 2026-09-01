@@ -37,12 +37,12 @@ import org.junit.Rule
 import org.junit.Test
 
 /**
- * Unit tests for [WorkoutsViewModel]. Duration estimation and selection handling happen in memory in
+ * Unit tests for [WorkoutsViewModel]. Duration estimation and selection happen in memory in
  * the view model, so a [FakeRoutineDao] backed by a [MutableStateFlow] plus a real
  * [SettingsRepository] over an in-memory [DataStore] is enough — no Room, no Robolectric. `uiState`
  * is produced by `stateIn(WhileSubscribed(5000))`, which stays cold until it has a subscriber; every
  * test that reads it first attaches a live collector via [collectUiState] so the upstream `combine`
- * keeps running and `uiState.value` reflects the latest routines and selection.
+ * keeps running and `uiState.value` reflects the latest routines.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class WorkoutsViewModelTest {
@@ -87,7 +87,7 @@ class WorkoutsViewModelTest {
     // region selection
 
     @Test
-    fun `selecting a routine and re-selecting it toggles the selection off`() =
+    fun `selecting a routine and reselecting it clears the selection`() =
         runTest(mainDispatcherRule.testDispatcher.scheduler) {
             val viewModel = WorkoutsViewModel(
                 FakeRoutineDao(listOf(routineWithExercises(id = 1, name = "День ног"))),
@@ -104,7 +104,7 @@ class WorkoutsViewModelTest {
         }
 
     @Test
-    fun `the selection is cleared when the selected routine is deleted`() =
+    fun `deleting the selected routine clears the selection`() =
         runTest(mainDispatcherRule.testDispatcher.scheduler) {
             val routineDao = FakeRoutineDao(listOf(routineWithExercises(id = 1, name = "День ног")))
             val viewModel = WorkoutsViewModel(routineDao, settingsRepository(), FakeActiveWorkoutRepository())

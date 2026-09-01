@@ -22,6 +22,8 @@ import com.valerochka1337.valerochkagym.data.settings.SettingsRepository
 import com.valerochka1337.valerochkagym.ui.settings.AI_MODEL_CATALOG_TIMEOUT_MILLIS
 import com.valerochka1337.valerochkagym.ui.settings.SettingsViewModel
 import com.valerochka1337.valerochkagym.ui.theme.AccentColor
+import com.valerochka1337.valerochkagym.ui.theme.PaletteMode
+import com.valerochka1337.valerochkagym.ui.theme.ThemeMode
 import com.valerochka1337.valerochkagym.util.MainDispatcherRule
 import com.valerochka1337.valerochkagym.worker.UploadScheduler
 import com.valerochka1337.valerochkagym.worker.MeasurementUploadScheduler
@@ -375,6 +377,38 @@ class SettingsViewModelTest {
 
         assertEquals(AccentColor.GREEN, viewModel.uiState.value.settings?.accent)
     }
+
+    @Test
+    fun `appearance defaults to system theme and system palette`() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val viewModel = SettingsViewModel(settingsRepository(), FakeGoogleAuth(), FakeUploadScheduler(), FakeImportRepository(), FakeDatabaseExporter(), FakeClearData())
+            collectUiState(viewModel)
+
+            assertEquals(ThemeMode.SYSTEM, viewModel.uiState.value.settings?.themeMode)
+            assertEquals(PaletteMode.SYSTEM, viewModel.uiState.value.settings?.paletteMode)
+        }
+
+    @Test
+    fun `setThemeMode persists the choice`() = runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val viewModel = SettingsViewModel(settingsRepository(), FakeGoogleAuth(), FakeUploadScheduler(), FakeImportRepository(), FakeDatabaseExporter(), FakeClearData())
+        collectUiState(viewModel)
+
+        viewModel.setThemeMode(ThemeMode.LIGHT)
+
+        assertEquals(ThemeMode.LIGHT, viewModel.uiState.value.settings?.themeMode)
+    }
+
+    @Test
+    fun `setPaletteMode persists the palette and matching launcher accent`() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val viewModel = SettingsViewModel(settingsRepository(), FakeGoogleAuth(), FakeUploadScheduler(), FakeImportRepository(), FakeDatabaseExporter(), FakeClearData())
+            collectUiState(viewModel)
+
+            viewModel.setPaletteMode(PaletteMode.CORAL)
+
+            assertEquals(PaletteMode.CORAL, viewModel.uiState.value.settings?.paletteMode)
+            assertEquals(AccentColor.CORAL, viewModel.uiState.value.settings?.accent)
+        }
 
     // endregion
 

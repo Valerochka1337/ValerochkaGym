@@ -1,7 +1,6 @@
 package com.valerochka1337.valerochkagym.service.heartrate
 
 import android.Manifest
-import android.annotation.SuppressLint
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCallback
@@ -9,12 +8,14 @@ import android.bluetooth.BluetoothGattCharacteristic
 import android.bluetooth.BluetoothGattDescriptor
 import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothProfile
+import android.bluetooth.BluetoothStatusCodes
 import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
 import android.bluetooth.le.BluetoothLeScanner
 import android.content.Context
+import android.content.pm.PackageManager
 import android.os.ParcelUuid
 import androidx.core.content.ContextCompat
 import com.valerochka1337.valerochkagym.di.ApplicationScope
@@ -142,6 +143,12 @@ class BleHeartRateMonitor @Inject constructor(
             connectionError("Не удалось выбрать пульсометр")
             return
         }
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            _state.value = HeartRateConnectionState.PermissionRequired
+            return
+        }
         gatt = runCatching {
             // BluetoothGattConnectionSettings появился в свежем SDK, но отсутствует на части
             // прошивок телефонов. Этот overload стабилен с API 23 и явно оставляет LE transport.
@@ -172,7 +179,6 @@ class BleHeartRateMonitor @Inject constructor(
         lifecycle.fail(message)
     }
 
-    @SuppressLint("MissingPermission")
     private fun finishScan() {
         if (!scanning) return
         stopScan()
@@ -188,26 +194,30 @@ class BleHeartRateMonitor @Inject constructor(
         }
     }
 
-    @SuppressLint("MissingPermission")
     private fun stopScan() {
         scanTimeoutJob?.cancel()
         scanTimeoutJob = null
-        if (scanning) {
+        if (scanning && ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_SCAN) ==
+            PackageManager.PERMISSION_GRANTED
+        ) {
             runCatching { scanner?.stopScan(scanCallback) }
         }
         scanning = false
         scanner = null
     }
 
-    @SuppressLint("MissingPermission")
     private fun closeGatt() {
         val activeGatt = gatt
         gatt = null
         connectedDevice = null
         if (activeGatt == null) return
-        runCatching {
-            activeGatt.disconnect()
-            activeGatt.close()
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT) ==
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            runCatching {
+                activeGatt.disconnect()
+                activeGatt.close()
+            }
         }
     }
 
@@ -222,13 +232,21 @@ class BleHeartRateMonitor @Inject constructor(
     }
 
     private fun hasBluetoothPermissions(): Boolean =
+        hasBluetoothScanPermission() && hasBluetoothConnectPermission()
+
+    private fun hasBluetoothScanPermission(): Boolean =
         ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_SCAN) ==
-            android.content.pm.PackageManager.PERMISSION_GRANTED &&
-            ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT) ==
-            android.content.pm.PackageManager.PERMISSION_GRANTED
+            PackageManager.PERMISSION_GRANTED
+
+    private fun hasBluetoothConnectPermission(): Boolean =
+        ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT) ==
+            PackageManager.PERMISSION_GRANTED
 
     private fun deviceFrom(result: ScanResult): HeartRateDevice? {
         val address = result.device.address ?: return null
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT) !=
+            PackageManager.PERMISSION_GRANTED
+        ) return null
         val name = runCatching { result.device.name }.getOrNull()
         return HeartRateDevice(address = address, name = name, rssi = result.rssi)
     }
@@ -253,6 +271,12 @@ class BleHeartRateMonitor @Inject constructor(
 
     private fun enableMeasurements(callbackGatt: BluetoothGatt) {
         val device = connectedDevice ?: return
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            _state.value = HeartRateConnectionState.PermissionRequired
+            return
+        }
         val configured = runCatching {
             val characteristic = callbackGatt
                 .getService(HEART_RATE_SERVICE_UUID)
@@ -271,7 +295,7 @@ class BleHeartRateMonitor @Inject constructor(
             val descriptor = characteristic.getDescriptor(CLIENT_CHARACTERISTIC_CONFIGURATION_UUID)
                 ?: return@runCatching false
             callbackGatt.setCharacteristicNotification(characteristic, true) &&
-                callbackGatt.writeDescriptor(descriptor, notificationValue) == BluetoothGatt.GATT_SUCCESS
+                callbackGatt.writeDescriptor(descriptor, notificationValue) == BluetoothStatusCodes.SUCCESS
         }.getOrDefault(false)
         if (!configured) {
             connectionError("Не удалось включить передачу пульса")
@@ -302,6 +326,12 @@ class BleHeartRateMonitor @Inject constructor(
                 }
 
                 newState == BluetoothProfile.STATE_CONNECTED -> {
+                    if (ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT) !=
+                        PackageManager.PERMISSION_GRANTED
+                    ) {
+                        _state.value = HeartRateConnectionState.PermissionRequired
+                        return
+                    }
                     val startedDiscovery = runCatching { callbackGatt.discoverServices() }
                         .getOrDefault(false)
                     if (!startedDiscovery) {

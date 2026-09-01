@@ -17,6 +17,11 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
@@ -75,6 +80,22 @@ fun TrendLineChart(
         modifier = modifier
             .fillMaxWidth()
             .height(height)
+            .semantics {
+                contentDescription = "График тренда, ${points.size} точек"
+                stateDescription = selectedIndex?.let { index ->
+                    points.getOrNull(index)?.let { point ->
+                        "Выбрано ${point.xLabel}, ${valueFormatter(point.y)}"
+                    }
+                } ?: "Точка не выбрана"
+                customActions = points.mapIndexed { index, point ->
+                    CustomAccessibilityAction(
+                        label = "Выбрать ${point.xLabel}: ${valueFormatter(point.y)}",
+                    ) {
+                        onSelect(index)
+                        true
+                    }
+                }
+            }
             .pointerInput(points) {
                 if (points.isEmpty()) return@pointerInput
                 detectTapGestures { offset ->

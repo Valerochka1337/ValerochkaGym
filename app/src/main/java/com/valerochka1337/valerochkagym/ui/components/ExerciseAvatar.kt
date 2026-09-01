@@ -41,9 +41,9 @@ fun ExerciseAvatar(
 @Composable
 fun ExerciseAvatar(
     name: String,
+    modifier: Modifier = Modifier,
     type: ExerciseType? = null,
     group: MuscleGroup? = null,
-    modifier: Modifier = Modifier,
     tint: Color = MaterialTheme.colorScheme.onSurfaceVariant,
 ) {
     ExerciseAvatarBox(iconResFor(name, type, group), modifier, tint)

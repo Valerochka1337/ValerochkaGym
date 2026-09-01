@@ -42,7 +42,6 @@ data class RoutineCardUi(
 /**
  * Состояние вкладки «Тренировки». [routines] == null означает «ещё не загружено»
  * (в отличие от загруженного пустого списка), чтобы не мигало пустое состояние.
- * [selectedRoutineId] — выбранная карточка для кнопки старта.
  */
 data class WorkoutsUiState(
     val routines: List<RoutineCardUi>? = null,
@@ -52,7 +51,7 @@ data class WorkoutsUiState(
 }
 
 /**
- * Бэкенд вкладки «Тренировки»: список программ с оценкой длительности, выбор программы,
+ * Бэкенд вкладки «Тренировки»: список программ с оценкой длительности,
  * дублирование и удаление. Оценка считается в памяти, т.к. plannedSets лежат в JSON.
  * Планирование тренировок вынесено на вкладку «Календарь».
  */
@@ -91,7 +90,6 @@ class WorkoutsViewModel @Inject constructor(
             selectedRoutineId,
         ) { routines, defaultRest, selected ->
             val cards = routines.map { it.toCardUi(defaultRest) }
-            // Сбрасываем выбор, если выбранная программа исчезла (удалена).
             val validSelected = selected?.takeIf { id -> cards.any { it.id == id } }
             WorkoutsUiState(routines = cards, selectedRoutineId = validSelected)
         }.stateIn(
@@ -100,7 +98,7 @@ class WorkoutsViewModel @Inject constructor(
             initialValue = WorkoutsUiState(),
         )
 
-    /** Выбор программы: повторный тап по выбранной снимает выбор. */
+    /** Повторный тап по выбранной программе снимает выбор. */
     fun onRoutineSelected(id: Long) {
         selectedRoutineId.value = if (selectedRoutineId.value == id) null else id
     }

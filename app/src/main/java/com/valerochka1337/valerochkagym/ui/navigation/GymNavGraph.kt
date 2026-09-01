@@ -341,7 +341,6 @@ fun GymNavGraph(
                 onAddExercise = {
                     navController.navigate(GymRoutes.library(viewModel.uiState.value.selectedGymIds))
                 },
-                onExerciseClick = { id -> navController.navigate(GymRoutes.exerciseDetail(id)) },
                 viewModel = viewModel,
             )
         }

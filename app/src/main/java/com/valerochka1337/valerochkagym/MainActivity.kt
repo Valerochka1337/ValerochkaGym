@@ -16,8 +16,6 @@ import com.valerochka1337.valerochkagym.ui.navigation.MainScaffold
 import com.valerochka1337.valerochkagym.ui.theme.GymTheme
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 
 @AndroidEntryPoint
@@ -38,21 +36,20 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         readRequestedRoute(intent)
         setContent {
-            val accentFlow = remember {
-                settingsRepository.settings.map { it.accent }.distinctUntilChanged()
-            }
-            val hapticsFlow = remember {
-                settingsRepository.settings.map { it.hapticsEnabled }.distinctUntilChanged()
-            }
-            // Пока акцент не прочитан из DataStore, не рисуем ничего: показать интерфейс дефолтным
-            // цветом и перекрасить его через кадр заметнее, чем короткий тёмный фон окна.
-            val accent by accentFlow.collectAsStateWithLifecycle(initialValue = null)
-            val hapticsEnabled by hapticsFlow.collectAsStateWithLifecycle(initialValue = true)
+            val settingsFlow = remember { settingsRepository.settings }
+            // Пока appearance не прочитан из DataStore, не рисуем промежуточную палитру.
+            val settings by settingsFlow.collectAsStateWithLifecycle(initialValue = null)
             val route by requestedRoute.collectAsStateWithLifecycle()
-            accent?.let {
-                GymTheme(accent = it) {
+            settings?.let { currentSettings ->
+                GymTheme(
+                    themeMode = currentSettings.themeMode,
+                    paletteMode = currentSettings.paletteMode,
+                    accent = currentSettings.accent,
+                ) {
                     CompositionLocalProvider(
-                        LocalGymHaptics provides rememberGymHaptics(enabled = hapticsEnabled),
+                        LocalGymHaptics provides rememberGymHaptics(
+                            enabled = currentSettings.hapticsEnabled,
+                        ),
                     ) {
                         MainScaffold(
                             requestedRoute = route,

@@ -8,6 +8,7 @@ import com.valerochka1337.valerochkagym.data.settings.SettingsRepository
 import com.valerochka1337.valerochkagym.data.update.AppRelease
 import com.valerochka1337.valerochkagym.data.update.AppReleaseAsset
 import com.valerochka1337.valerochkagym.data.update.AppUpdateException
+import com.valerochka1337.valerochkagym.data.update.AppUpdateInstallEvent
 import com.valerochka1337.valerochkagym.data.update.AppUpdateInstaller
 import com.valerochka1337.valerochkagym.data.update.AppUpdateRepository
 import com.valerochka1337.valerochkagym.ui.update.AppUpdateExternalAction
@@ -16,9 +17,11 @@ import com.valerochka1337.valerochkagym.ui.update.AppUpdateStatus
 import com.valerochka1337.valerochkagym.ui.update.AppUpdateViewModel
 import com.valerochka1337.valerochkagym.util.MainDispatcherRule
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -94,7 +97,7 @@ class AppUpdateViewModelTest {
         }
 
     @Test
-    fun `verified download opens installer when permission is already granted`() =
+    fun `verified download starts a session and opens its system confirmation`() =
         runTest(mainDispatcherRule.testDispatcher.scheduler) {
             val installer = FakeInstaller(canInstall = true)
             val viewModel = viewModel(release = release("1.3.0"), installer = installer)
@@ -103,7 +106,24 @@ class AppUpdateViewModelTest {
             viewModel.downloadAvailableUpdate()
 
             assertTrue(viewModel.externalActions.first() is AppUpdateExternalAction.OpenInstaller)
-            assertEquals(1, installer.installIntentCalls)
+            assertEquals(1, installer.startInstallationCalls)
+        }
+
+    @Test
+    fun `system installation failure remains retryable with a friendly message`() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val installer = FakeInstaller(canInstall = true)
+            val viewModel = viewModel(release = release("1.3.0"), installer = installer)
+            viewModel.checkForUpdate()
+            viewModel.downloadAvailableUpdate()
+            viewModel.externalActions.first()
+
+            installer.emit(AppUpdateInstallEvent.Failed("Защита устройства остановила установку"))
+
+            val status = viewModel.uiState.value.status as AppUpdateStatus.Failed
+            assertEquals(AppUpdateRetry.INSTALL, status.retry)
+            assertEquals("Защита устройства остановила установку", status.message)
+            assertEquals(status.message, viewModel.uiState.value.errorDialogMessage)
         }
 
     @Test
@@ -168,7 +188,10 @@ class AppUpdateViewModelTest {
     private class FakeInstaller(
         var canInstall: Boolean = true,
     ) : AppUpdateInstaller {
-        var installIntentCalls = 0
+        private val eventChannel = Channel<AppUpdateInstallEvent>(Channel.BUFFERED)
+        override val installEvents: Flow<AppUpdateInstallEvent> = eventChannel.receiveAsFlow()
+
+        var startInstallationCalls = 0
             private set
 
         override fun verify(file: File, release: AppRelease) = Unit
@@ -177,9 +200,15 @@ class AppUpdateViewModelTest {
 
         override fun unknownSourcesSettingsIntent(): Intent = Intent("test.unknown.sources")
 
-        override fun installIntent(file: File): Intent {
-            installIntentCalls++
-            return Intent("test.install")
+        override suspend fun startInstallation(file: File, release: AppRelease) {
+            startInstallationCalls++
+            eventChannel.send(
+                AppUpdateInstallEvent.UserActionRequired(Intent("test.install")),
+            )
+        }
+
+        fun emit(event: AppUpdateInstallEvent) {
+            eventChannel.trySend(event)
         }
     }
 
@@ -195,4 +224,3 @@ class AppUpdateViewModelTest {
         }
     }
 }
-

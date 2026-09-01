@@ -60,8 +60,8 @@ android {
         applicationId = "com.valerochka1337.valerochkagym"
         minSdk = 36
         targetSdk = 37
-        versionCode = testVersionCode ?: 3
-        versionName = testVersionName ?: "1.2.0"
+        versionCode = testVersionCode ?: 8
+        versionName = testVersionName ?: "1.3.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -146,6 +146,7 @@ dependencies {
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.ui)
     implementation(libs.androidx.material3)
+    implementation(libs.androidx.material3.adaptive.navigation.suite)
     implementation(libs.androidx.material.icons.core)
     implementation(libs.androidx.material.icons.extended)
     implementation(libs.androidx.ui.tooling.preview)

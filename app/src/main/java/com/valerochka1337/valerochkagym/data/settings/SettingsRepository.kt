@@ -9,6 +9,8 @@ import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import com.valerochka1337.valerochkagym.data.ai.AiModel
 import com.valerochka1337.valerochkagym.ui.theme.AccentColor
+import com.valerochka1337.valerochkagym.ui.theme.PaletteMode
+import com.valerochka1337.valerochkagym.ui.theme.ThemeMode
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
@@ -36,6 +38,8 @@ data class GymSettings(
     val aiBaseUrl: String? = null,
     /** Модель, общая для генерации упражнений и распознавания фото InBody. */
     val aiModelId: String? = null,
+    val themeMode: ThemeMode = ThemeMode.SYSTEM,
+    val paletteMode: PaletteMode = PaletteMode.SYSTEM,
     val accent: AccentColor = AccentColor.DEFAULT,
     /** GitHub Release, для которого пользователь выбрал «Не напоминать». */
     val ignoredUpdateTag: String? = null,
@@ -65,6 +69,8 @@ class SettingsRepository @Inject constructor(
         val HEART_RATE_REST_HOLD_SECONDS = intPreferencesKey("heart_rate_rest_hold_seconds")
         val AI_BASE_URL = stringPreferencesKey("ai_base_url")
         val AI_MODEL_ID = stringPreferencesKey("ai_model_id")
+        val THEME_MODE = stringPreferencesKey("theme_mode")
+        val PALETTE_MODE = stringPreferencesKey("palette_mode")
         val ACCENT_COLOR = stringPreferencesKey("accent_color")
         val IGNORED_UPDATE_TAG = stringPreferencesKey("ignored_update_tag")
     }
@@ -93,6 +99,8 @@ class SettingsRepository @Inject constructor(
             ),
             aiBaseUrl = prefs[Keys.AI_BASE_URL]?.takeIf { it.isNotBlank() },
             aiModelId = prefs[Keys.AI_MODEL_ID]?.takeIf { it.isNotBlank() },
+            themeMode = ThemeMode.fromId(prefs[Keys.THEME_MODE]),
+            paletteMode = PaletteMode.fromId(prefs[Keys.PALETTE_MODE]),
             accent = AccentColor.fromId(prefs[Keys.ACCENT_COLOR]),
             ignoredUpdateTag = prefs[Keys.IGNORED_UPDATE_TAG],
         )
@@ -158,6 +166,15 @@ class SettingsRepository @Inject constructor(
 
     suspend fun setAccent(value: AccentColor) = dataStore.edit { prefs ->
         prefs[Keys.ACCENT_COLOR] = value.id
+    }
+
+    suspend fun setThemeMode(value: ThemeMode) = dataStore.edit { prefs ->
+        prefs[Keys.THEME_MODE] = value.id
+    }
+
+    suspend fun setPaletteMode(value: PaletteMode) = dataStore.edit { prefs ->
+        prefs[Keys.PALETTE_MODE] = value.id
+        value.accent?.let { prefs[Keys.ACCENT_COLOR] = it.id }
     }
 
     suspend fun setIgnoredUpdateTag(value: String?) = dataStore.edit { prefs ->

@@ -13,10 +13,18 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.MonitorWeight
 import androidx.compose.material3.Icon
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -31,6 +39,12 @@ import com.valerochka1337.valerochkagym.ui.components.GymTopBar
 import com.valerochka1337.valerochkagym.ui.components.PillButton
 import com.valerochka1337.valerochkagym.ui.haptics.gymHaptics
 
+private enum class AnalysisSection(val label: String) {
+    OVERVIEW("Обзор"),
+    LOAD("Нагрузка"),
+    PROGRESS("Прогресс"),
+}
+
 /**
  * Вкладка «Анализы»: тепловая карта нагрузки по мышцам, недельный объём, прогресс силы по
  * упражнениям и производные показатели (скачок нагрузки, баланс, частота, рекорды).
@@ -42,6 +56,7 @@ import com.valerochka1337.valerochkagym.ui.haptics.gymHaptics
  * означал бы, что графики на экране показывают разные срезы и их нельзя сравнивать.
  */
 @Composable
+@OptIn(ExperimentalMaterial3Api::class)
 fun AnalysisScreen(
     onOpenSettings: () -> Unit,
     onOpenMeasurements: () -> Unit,
@@ -51,11 +66,12 @@ fun AnalysisScreen(
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val haptics = gymHaptics()
+    var section by rememberSaveable { mutableStateOf(AnalysisSection.OVERVIEW) }
 
     GlowBackground(modifier = modifier) {
         Column(modifier = Modifier.fillMaxSize()) {
             GymTopBar(
-                title = "Анализы",
+                title = "Анализ",
                 onOpenSettings = onOpenSettings,
                 actions = {
                     PillButton(
@@ -89,7 +105,41 @@ fun AnalysisScreen(
                         },
                     )
                 }
-                if (!state.loading && !state.report.hasData) {
+                item {
+                    SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                        AnalysisSection.entries.forEachIndexed { index, item ->
+                            SegmentedButton(
+                                selected = section == item,
+                                onClick = {
+                                    haptics.tap()
+                                    section = item
+                                },
+                                shape = SegmentedButtonDefaults.itemShape(
+                                    index = index,
+                                    count = AnalysisSection.entries.size,
+                                ),
+                            ) {
+                                Text(item.label)
+                            }
+                        }
+                    }
+                }
+                if (state.loading && !state.report.hasData) {
+                    item {
+                        Column(
+                            modifier = Modifier.fillMaxWidth().padding(40.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            CircularProgressIndicator()
+                            Spacer(Modifier.height(12.dp))
+                            Text(
+                                text = "Собираем данные…",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                } else if (!state.report.hasData) {
                     item { EmptyState(hasHistory = state.report.records.isNotEmpty()) }
                     if (state.report.records.isNotEmpty()) {
                         item {
@@ -102,39 +152,64 @@ fun AnalysisScreen(
                             )
                         }
                     }
-                } else if (state.report.hasData) {
-                    item { SummaryCard(state) }
-                    item { MuscleHeatmapCard(state = state, onMuscleClicked = viewModel::onMuscleClicked) }
-                    item { MuscleVolumeCard(state = state, onMuscleClicked = viewModel::onMuscleClicked) }
-                    item { MuscleFrequencyCard(state) }
-                    item {
-                        WeeklyVolumeCard(
-                            state = state,
-                            onMetricSelected = viewModel::onWeeklyMetricSelected,
-                            onWeekSelected = viewModel::onWeekSelected,
-                        )
-                    }
-                    item { WorkloadCard(state.report.workload, state.report.range.endInclusive) }
-                    item { BalanceCard(state.report.balances) }
-                    item {
-                        ExerciseProgressCard(
-                            state = state,
-                            onExerciseSelected = viewModel::onExerciseSelected,
-                            onSessionSelected = viewModel::onSessionSelected,
-                            onExerciseClick = {
-                                haptics.tap()
-                                onExerciseClick(it)
-                            },
-                        )
-                    }
-                    item {
-                        RecordsCard(
-                            state = state,
-                            onExerciseClick = {
-                                haptics.tap()
-                                onExerciseClick(it)
-                            },
-                        )
+                } else {
+                    when (section) {
+                        AnalysisSection.OVERVIEW -> {
+                            item { SummaryCard(state) }
+                            item {
+                                WorkloadCard(
+                                    state.report.workload,
+                                    state.report.range.endInclusive,
+                                )
+                            }
+                            item {
+                                RecordsCard(
+                                    state = state,
+                                    onExerciseClick = {
+                                        haptics.tap()
+                                        onExerciseClick(it)
+                                    },
+                                )
+                            }
+                        }
+
+                        AnalysisSection.LOAD -> {
+                            item {
+                                MuscleHeatmapCard(
+                                    state = state,
+                                    onMuscleClicked = viewModel::onMuscleClicked,
+                                )
+                            }
+                            item {
+                                MuscleVolumeCard(
+                                    state = state,
+                                    onMuscleClicked = viewModel::onMuscleClicked,
+                                )
+                            }
+                            item { MuscleFrequencyCard(state) }
+                            item { BalanceCard(state.report.balances) }
+                        }
+
+                        AnalysisSection.PROGRESS -> {
+                            item {
+                                WeeklyVolumeCard(
+                                    state = state,
+                                    onMetricSelected = viewModel::onWeeklyMetricSelected,
+                                    onWeekSelected = viewModel::onWeekSelected,
+                                )
+                            }
+                            item {
+                                ExerciseProgressCard(
+                                    state = state,
+                                    onExerciseSelected = viewModel::onExerciseSelected,
+                                    onSessionSelected = viewModel::onSessionSelected,
+                                    onExerciseClick = {
+                                        haptics.tap()
+                                        onExerciseClick(it)
+                                    },
+                                )
+                            }
+                        }
                     }
                 }
             }

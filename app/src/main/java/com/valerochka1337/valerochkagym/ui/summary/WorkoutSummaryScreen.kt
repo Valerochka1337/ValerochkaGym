@@ -39,6 +39,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.valerochka1337.valerochkagym.domain.PrResult
 import com.valerochka1337.valerochkagym.ui.components.ExerciseAvatar
 import com.valerochka1337.valerochkagym.ui.components.GlowBackground
+import com.valerochka1337.valerochkagym.ui.components.LoadingState
 import com.valerochka1337.valerochkagym.ui.components.GymCard
 import com.valerochka1337.valerochkagym.ui.components.PillButton
 import com.valerochka1337.valerochkagym.ui.haptics.gymHaptics
@@ -66,7 +67,10 @@ fun WorkoutSummaryScreen(
     }
 
     GlowBackground(modifier = modifier) {
-        if (state.loading) return@GlowBackground
+        if (state.loading) {
+            LoadingState(label = "Подводим итоги…")
+            return@GlowBackground
+        }
 
         Column(modifier = Modifier.fillMaxSize()) {
             Text(

@@ -10,7 +10,9 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -234,13 +236,20 @@ private fun DayRow(
                     text = routineName ?: "Выберите программу",
                     style = MaterialTheme.typography.bodyLarge,
                     color = if (routineName != null) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.weight(1f).clickable(onClick = onPickRoutine),
+                    modifier = Modifier
+                        .weight(1f)
+                        .heightIn(min = 48.dp)
+                        .wrapContentHeight(Alignment.CenterVertically)
+                        .clickable(onClick = onPickRoutine),
                 )
                 Text(
                     text = "%02d:%02d".format(draft.hour, draft.minute),
                     style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.clickable(onClick = onPickTime),
+                    modifier = Modifier
+                        .heightIn(min = 48.dp)
+                        .wrapContentHeight(Alignment.CenterVertically)
+                        .clickable(onClick = onPickTime),
                 )
             }
         }

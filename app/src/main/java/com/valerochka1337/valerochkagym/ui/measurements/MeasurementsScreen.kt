@@ -21,21 +21,26 @@ import androidx.compose.material.icons.automirrored.rounded.List
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.MonitorWeight
-import androidx.compose.material.icons.rounded.ShowChart
+import androidx.compose.material.icons.automirrored.rounded.ShowChart
 import androidx.compose.material.icons.rounded.Straighten
 import androidx.compose.material.icons.rounded.TableChart
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -68,6 +73,12 @@ import com.valerochka1337.valerochkagym.ui.components.PillButton
 import com.valerochka1337.valerochkagym.ui.components.UploadStatusBadge
 import com.valerochka1337.valerochkagym.ui.haptics.gymHaptics
 
+private enum class MeasurementsSection(val label: String) {
+    OVERVIEW("Обзор"),
+    INBODY("InBody"),
+    CIRCUMFERENCES("Обхваты"),
+}
+
 /**
  * Pushed-раздел «Замеры»: единый период, независимые одновалюстные тренды и история. Каждая
  * карточка графика переключает только метрику своей группы, поэтому кг, см, проценты и уровень
@@ -85,6 +96,7 @@ fun MeasurementsScreen(
     val haptics = gymHaptics()
     var showAllMeasurements by remember { mutableStateOf(false) }
     var pendingDeletion by remember { mutableStateOf<BodyMeasurementEntity?>(null) }
+    var section by rememberSaveable { mutableStateOf(MeasurementsSection.OVERVIEW) }
 
     GlowBackground(modifier = modifier) {
         Column(modifier = Modifier.fillMaxSize()) {
@@ -104,7 +116,22 @@ fun MeasurementsScreen(
                 },
             )
 
-            if (state.loading) return@Column
+            if (state.loading) {
+                Column(
+                    modifier = Modifier.fillMaxSize(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    CircularProgressIndicator()
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        text = "Загружаем замеры…",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                return@Column
+            }
             if (!state.hasMeasurements) {
                 EmptyMeasurementsState(onAdd = {
                     haptics.tap()
@@ -130,6 +157,25 @@ fun MeasurementsScreen(
                         },
                     )
                 }
+                item {
+                    SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                        MeasurementsSection.entries.forEachIndexed { index, item ->
+                            SegmentedButton(
+                                selected = section == item,
+                                onClick = {
+                                    haptics.tap()
+                                    section = item
+                                },
+                                shape = SegmentedButtonDefaults.itemShape(
+                                    index = index,
+                                    count = MeasurementsSection.entries.size,
+                                ),
+                            ) {
+                                Text(item.label)
+                            }
+                        }
+                    }
+                }
 
                 if (measurements.isEmpty()) {
                     item {
@@ -141,103 +187,84 @@ fun MeasurementsScreen(
                         )
                     }
                 } else {
-                    item { LatestSummaryCard(state.summary) }
-                    item {
-                        MetricTrendCard(
-                            title = "Состав тела",
-                            subtitle = "InBody сравнивайте на одном аппарате и в похожих условиях.",
-                            icon = Icons.Rounded.MonitorWeight,
-                            metrics = metricsFor(MeasurementChartGroup.COMPOSITION),
-                            selectedMetric = state.compositionMetric,
-                            measurements = measurements,
-                            selectedMeasurementId = state.selectedMeasurementId,
-                            zoneLabel = state.zone,
-                            onMetricSelected = {
-                                haptics.tap()
-                                viewModel.onCompositionMetricSelected(it)
-                            },
-                            onMeasurementSelected = {
-                                haptics.tap()
-                                viewModel.onMeasurementSelected(it)
-                            },
-                        )
-                    }
-                    item {
-                        MetricTrendCard(
-                            title = "Показатели InBody",
-                            subtitle = "Балл, ИМТ и энергия — фактические значения аппарата, полезные в динамике.",
-                            icon = Icons.Rounded.TableChart,
-                            metrics = metricsFor(MeasurementChartGroup.INBODY),
-                            selectedMetric = state.inBodyMetric,
-                            measurements = measurements,
-                            selectedMeasurementId = state.selectedMeasurementId,
-                            zoneLabel = state.zone,
-                            onMetricSelected = {
-                                haptics.tap()
-                                viewModel.onInBodyMetricSelected(it)
-                            },
-                            onMeasurementSelected = {
-                                haptics.tap()
-                                viewModel.onMeasurementSelected(it)
-                            },
-                        )
-                    }
-                    item {
-                        MetricTrendCard(
-                            title = "Обхваты",
-                            subtitle = "Повторяйте один и тот же способ измерения; талия — самостоятельный ориентир.",
-                            icon = Icons.Rounded.Straighten,
-                            metrics = metricsFor(MeasurementChartGroup.CIRCUMFERENCES),
-                            selectedMetric = state.circumferenceMetric,
-                            measurements = measurements,
-                            selectedMeasurementId = state.selectedMeasurementId,
-                            zoneLabel = state.zone,
-                            onMetricSelected = {
-                                haptics.tap()
-                                viewModel.onCircumferenceMetricSelected(it)
-                            },
-                            onMeasurementSelected = {
-                                haptics.tap()
-                                viewModel.onMeasurementSelected(it)
-                            },
-                        )
-                    }
-                    item {
-                        MetricTrendCard(
-                            title = "WHR / висцеральный жир",
-                            subtitle = "Показатели InBody полезнее читать как тренд, а не как точный диагноз.",
-                            icon = Icons.Rounded.ShowChart,
-                            metrics = metricsFor(MeasurementChartGroup.RISK),
-                            selectedMetric = state.riskMetric,
-                            measurements = measurements,
-                            selectedMeasurementId = state.selectedMeasurementId,
-                            zoneLabel = state.zone,
-                            onMetricSelected = {
-                                haptics.tap()
-                                viewModel.onRiskMetricSelected(it)
-                            },
-                            onMeasurementSelected = {
-                                haptics.tap()
-                                viewModel.onMeasurementSelected(it)
-                            },
-                        )
-                    }
-                    item { SelectedMeasurementCard(state.selectedMeasurement, state.zone) }
-                    item { InBodyReportCard(state.selectedMeasurement) }
-                    item { InBodySegmentalCard(state.selectedMeasurement) }
-                    item {
-                        MeasurementHistoryCard(
-                            measurements = measurements,
-                            zone = state.zone,
-                            onEdit = { measurement ->
-                                haptics.tap()
-                                onEditMeasurement(measurement.id)
-                            },
-                            onRetry = { id ->
-                                haptics.tap()
-                                viewModel.retryUpload(id)
-                            },
-                        )
+                    when (section) {
+                        MeasurementsSection.OVERVIEW -> {
+                            item { LatestSummaryCard(state.summary) }
+                            item {
+                                MetricTrendCard(
+                                    title = "Главный тренд",
+                                    subtitle = "Выберите показатель состава тела для сравнения.",
+                                    icon = Icons.Rounded.MonitorWeight,
+                                    metrics = metricsFor(MeasurementChartGroup.COMPOSITION),
+                                    selectedMetric = state.compositionMetric,
+                                    measurements = measurements,
+                                    selectedMeasurementId = state.selectedMeasurementId,
+                                    zoneLabel = state.zone,
+                                    onMetricSelected = viewModel::onCompositionMetricSelected,
+                                    onMeasurementSelected = viewModel::onMeasurementSelected,
+                                )
+                            }
+                            item {
+                                MeasurementHistoryCard(
+                                    measurements = measurements.take(3),
+                                    zone = state.zone,
+                                    onEdit = { onEditMeasurement(it.id) },
+                                    onRetry = viewModel::retryUpload,
+                                )
+                            }
+                        }
+
+                        MeasurementsSection.INBODY -> {
+                            item {
+                                MetricTrendCard(
+                                    title = "Показатели InBody",
+                                    subtitle = "Сравнивайте замеры на одном аппарате и в похожих условиях.",
+                                    icon = Icons.Rounded.TableChart,
+                                    metrics = metricsFor(MeasurementChartGroup.INBODY),
+                                    selectedMetric = state.inBodyMetric,
+                                    measurements = measurements,
+                                    selectedMeasurementId = state.selectedMeasurementId,
+                                    zoneLabel = state.zone,
+                                    onMetricSelected = viewModel::onInBodyMetricSelected,
+                                    onMeasurementSelected = viewModel::onMeasurementSelected,
+                                )
+                            }
+                            item {
+                                MetricTrendCard(
+                                    title = "WHR / висцеральный жир",
+                                    subtitle = "Читайте эти показатели как тренд, а не диагноз.",
+                                    icon = Icons.AutoMirrored.Rounded.ShowChart,
+                                    metrics = metricsFor(MeasurementChartGroup.RISK),
+                                    selectedMetric = state.riskMetric,
+                                    measurements = measurements,
+                                    selectedMeasurementId = state.selectedMeasurementId,
+                                    zoneLabel = state.zone,
+                                    onMetricSelected = viewModel::onRiskMetricSelected,
+                                    onMeasurementSelected = viewModel::onMeasurementSelected,
+                                )
+                            }
+                            item { SelectedMeasurementCard(state.selectedMeasurement, state.zone) }
+                            item { InBodyReportCard(state.selectedMeasurement) }
+                            item { InBodySegmentalCard(state.selectedMeasurement) }
+                        }
+
+                        MeasurementsSection.CIRCUMFERENCES -> {
+                            item {
+                                MetricTrendCard(
+                                    title = "Обхваты",
+                                    subtitle = "Повторяйте один и тот же способ измерения.",
+                                    icon = Icons.Rounded.Straighten,
+                                    metrics = metricsFor(MeasurementChartGroup.CIRCUMFERENCES),
+                                    selectedMetric = state.circumferenceMetric,
+                                    measurements = measurements,
+                                    selectedMeasurementId = state.selectedMeasurementId,
+                                    zoneLabel = state.zone,
+                                    onMetricSelected = viewModel::onCircumferenceMetricSelected,
+                                    onMeasurementSelected = viewModel::onMeasurementSelected,
+                                )
+                            }
+                            item { SelectedMeasurementCard(state.selectedMeasurement, state.zone) }
+                        }
                     }
                 }
             }
@@ -602,6 +629,7 @@ private fun MeasurementHistoryRow(
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            .heightIn(min = 48.dp)
             .clickable { onEdit(measurement) }
             .padding(vertical = 2.dp),
     ) {

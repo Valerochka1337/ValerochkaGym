@@ -1,22 +1,30 @@
 package com.valerochka1337.valerochkagym.data.update
 
-import android.content.ClipData
+import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageInstaller
 import android.content.pm.PackageManager
 import android.content.pm.SigningInfo
 import android.net.Uri
+import android.os.Process
 import android.provider.Settings
-import androidx.core.content.FileProvider
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.withContext
 
 @Singleton
 class AndroidAppUpdateInstaller @Inject constructor(
     @param:ApplicationContext private val context: Context,
+    private val eventBus: AppUpdateInstallEventBus,
 ) : AppUpdateInstaller {
+
+    override val installEvents: Flow<AppUpdateInstallEvent> = eventBus.events
 
     override fun verify(file: File, release: AppRelease) {
         val packageManager = context.packageManager
@@ -62,18 +70,68 @@ class AndroidAppUpdateInstaller @Inject constructor(
         Uri.parse("package:${context.packageName}"),
     )
 
-    override fun installIntent(file: File): Intent {
-        val uri = FileProvider.getUriForFile(
-            context,
-            "${context.packageName}.updates",
-            file,
-        )
-        return Intent(Intent.ACTION_VIEW).apply {
-            setDataAndType(uri, APK_MIME_TYPE)
-            clipData = ClipData.newRawUri("APK обновления", uri)
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    override suspend fun startInstallation(file: File, release: AppRelease) =
+        withContext(Dispatchers.IO) {
+            if (!file.isFile || file.length() <= 0L) {
+                throw AppUpdateException("Файл обновления больше недоступен")
+            }
+
+            val packageInstaller = context.packageManager.packageInstaller
+            val params = PackageInstaller.SessionParams(
+                PackageInstaller.SessionParams.MODE_FULL_INSTALL,
+            ).apply {
+                setAppPackageName(context.packageName)
+                setSize(file.length())
+                setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_REQUIRED)
+                setPackageSource(PackageInstaller.PACKAGE_SOURCE_DOWNLOADED_FILE)
+                setOriginatingUid(Process.myUid())
+                setOriginatingUri(Uri.parse(release.apk.downloadUrl))
+                setReferrerUri(Uri.parse(release.pageUrl))
+            }
+
+            val sessionId = try {
+                packageInstaller.createSession(params)
+            } catch (e: Exception) {
+                throw AppUpdateException(
+                    "Не удалось подготовить обновление к установке",
+                    e,
+                )
+            }
+
+            var committed = false
+            try {
+                packageInstaller.openSession(sessionId).use { session ->
+                    file.inputStream().use { input ->
+                        session.openWrite(BASE_APK_NAME, 0L, file.length()).use { output ->
+                            input.copyTo(output)
+                            session.fsync(output)
+                        }
+                    }
+
+                    val callbackIntent = Intent(
+                        context,
+                        AppUpdateInstallStatusReceiver::class.java,
+                    ).apply {
+                        action = AppUpdateInstallStatusReceiver.ACTION_INSTALL_STATUS
+                        addFlags(Intent.FLAG_RECEIVER_FOREGROUND)
+                    }
+                    val callback = PendingIntent.getBroadcast(
+                        context,
+                        sessionId,
+                        callbackIntent,
+                        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE,
+                    )
+                    session.commit(callback.intentSender)
+                    committed = true
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                throw AppUpdateException("Не удалось передать обновление системе", e)
+            } finally {
+                if (!committed) runCatching { packageInstaller.abandonSession(sessionId) }
+            }
         }
-    }
 }
 
-private const val APK_MIME_TYPE = "application/vnd.android.package-archive"
+private const val BASE_APK_NAME = "base.apk"

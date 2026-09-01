@@ -1,21 +1,16 @@
 package com.valerochka1337.valerochkagym.ui.components
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Shape
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 
 /** Default card shape — a single symmetric large radius, shared with border usages. */
@@ -34,22 +29,17 @@ fun GymCard(
     contentPadding: PaddingValues = PaddingValues(20.dp),
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    val clickModifier = if (onClick != null) {
-        Modifier.clickable(
-            interactionSource = remember { MutableInteractionSource() },
-            indication = ripple(),
-            role = Role.Button,
-            onClick = onClick,
-        )
-    } else {
-        Modifier
-    }
-    Column(
-        modifier = modifier
-            .clip(shape)
-            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-            .then(clickModifier)
-            .padding(contentPadding),
-        content = content,
+    val colors = CardDefaults.cardColors(
+        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+        contentColor = MaterialTheme.colorScheme.onSurface,
     )
+    if (onClick != null) {
+        Card(onClick = onClick, modifier = modifier, shape = shape, colors = colors) {
+            Column(modifier = Modifier.padding(contentPadding), content = content)
+        }
+    } else {
+        Card(modifier = modifier, shape = shape, colors = colors) {
+            Column(modifier = Modifier.padding(contentPadding), content = content)
+        }
+    }
 }
