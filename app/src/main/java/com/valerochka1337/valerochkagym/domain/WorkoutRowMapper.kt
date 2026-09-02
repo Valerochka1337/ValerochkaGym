@@ -50,6 +50,11 @@ object WorkoutRowMapper {
         "speed_kmh",
         "incline_pct",
         "volume",
+        "section_id",
+        "section_position",
+        "exercise_id",
+        "variant_id",
+        "variant_name_snapshot",
     )
 
     /** Строки Sheets по выполненным подходам, упорядоченные по позиции упражнения и индексу подхода. */
@@ -95,6 +100,11 @@ object WorkoutRowMapper {
                             set.speedKmh,
                             set.inclinePct,
                             volume,
+                            exercise.workoutExercise.sectionId,
+                            exercise.workoutExercise.position,
+                            exercise.exercise.syncId,
+                            exercise.workoutExercise.variantSyncId,
+                            exercise.workoutExercise.variantNameSnapshot,
                         )
                     }
             }

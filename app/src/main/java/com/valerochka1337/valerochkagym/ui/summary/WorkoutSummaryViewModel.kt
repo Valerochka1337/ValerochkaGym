@@ -24,6 +24,8 @@ data class ExerciseSummaryUi(
     val id: Long,
     val exerciseId: Long,
     val name: String,
+    val variantName: String? = null,
+    val variantSyncId: String? = null,
     val setsSummary: String,
 )
 
@@ -90,6 +92,8 @@ class WorkoutSummaryViewModel @Inject constructor(
                     id = exercise.workoutExercise.id,
                     exerciseId = exercise.exercise.id,
                     name = exercise.exercise.name,
+                    variantName = exercise.workoutExercise.variantNameSnapshot,
+                    variantSyncId = exercise.workoutExercise.variantSyncId,
                     setsSummary = previousSetsUseCase.formatSummary(
                         exercise.sets.filter { it.isCompleted },
                         exercise.exercise.type,

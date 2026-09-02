@@ -70,6 +70,7 @@ import com.valerochka1337.valerochkagym.ui.components.GymFilterChip
 import com.valerochka1337.valerochkagym.ui.components.NumberField
 import com.valerochka1337.valerochkagym.ui.components.rememberGymReorderableLazyListState
 import com.valerochka1337.valerochkagym.ui.haptics.gymHaptics
+import com.valerochka1337.valerochkagym.ui.active.ExerciseVariantSelectionSheet
 import com.valerochka1337.valerochkagym.ui.theme.GymMotion
 import sh.calvin.reorderable.ReorderableItem
 
@@ -86,6 +87,7 @@ fun RoutineEditorScreen(
     viewModel: RoutineEditorViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val pendingVariantSelection by viewModel.pendingVariantSelection.collectAsStateWithLifecycle()
     val haptics = gymHaptics()
     val lazyListState = rememberLazyListState()
     val reorderableLazyListState = rememberGymReorderableLazyListState(lazyListState) { from, to ->
@@ -101,6 +103,15 @@ fun RoutineEditorScreen(
 
     LaunchedEffect(Unit) {
         viewModel.saved.collect { onBack() }
+    }
+
+    pendingVariantSelection?.let { pending ->
+        ExerciseVariantSelectionSheet(
+            exerciseName = pending.exercise.name,
+            variants = pending.variants,
+            onChoose = viewModel::chooseVariant,
+            onDismiss = viewModel::cancelVariantSelection,
+        )
     }
 
     GlowBackground(modifier = modifier) {
@@ -377,6 +388,13 @@ internal fun ExerciseCard(
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    exercise.variantName?.let { variant ->
+                        Text(
+                            "Вариант: $variant${if (exercise.variantArchived) " · в архиве" else ""}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                     Text(
                         text = exercise.compactSummary(),
                         style = MaterialTheme.typography.bodySmall,

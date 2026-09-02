@@ -2,6 +2,7 @@ package com.valerochka1337.valerochkagym.di
 
 import com.valerochka1337.valerochkagym.data.ActiveWorkoutRepositoryImpl
 import com.valerochka1337.valerochkagym.data.GymRepositoryImpl
+import com.valerochka1337.valerochkagym.data.ExerciseVariantRepositoryImpl
 import com.valerochka1337.valerochkagym.data.ai.AiResponseLogger
 import com.valerochka1337.valerochkagym.data.ai.AndroidInBodyPhotoEncoder
 import com.valerochka1337.valerochkagym.data.ai.DebugAiResponseLogger
@@ -24,6 +25,7 @@ import com.valerochka1337.valerochkagym.data.settings.AiApiKeyStore
 import com.valerochka1337.valerochkagym.data.settings.SecretCipher
 import com.valerochka1337.valerochkagym.domain.ActiveWorkoutRepository
 import com.valerochka1337.valerochkagym.domain.GymRepository
+import com.valerochka1337.valerochkagym.domain.ExerciseVariantRepository
 import com.valerochka1337.valerochkagym.worker.MeasurementUploadScheduler
 import com.valerochka1337.valerochkagym.worker.ConfigurationUploadScheduler
 import com.valerochka1337.valerochkagym.worker.RoutineUploadScheduler
@@ -52,6 +54,12 @@ abstract class DomainModule {
     @Binds
     @Singleton
     abstract fun bindGymRepository(impl: GymRepositoryImpl): GymRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindExerciseVariantRepository(
+        impl: ExerciseVariantRepositoryImpl,
+    ): ExerciseVariantRepository
 
     @Binds
     @Singleton

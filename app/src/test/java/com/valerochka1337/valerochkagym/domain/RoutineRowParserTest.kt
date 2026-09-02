@@ -75,7 +75,7 @@ class RoutineRowParserTest {
     fun `legacy routine rows without exercise ids remain readable by name`() {
         val routine = routine(updatedAt = 100)
         val rows = listOf(RoutineRowMapper.LEGACY_HEADER_ROW) +
-            RoutineRowMapper.rows(routine).map { it.dropLast(1) }
+            RoutineRowMapper.rows(routine).map { it.dropLast(2) }
 
         val parsed = RoutineRowParser.parse(
             rows.map { row -> row.map { it?.toString().orEmpty() } },

@@ -2,11 +2,14 @@ package com.valerochka1337.valerochkagym.data.google
 
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseDao
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseMuscleDao
+import com.valerochka1337.valerochkagym.data.db.dao.ExerciseVariantDao
 import com.valerochka1337.valerochkagym.data.db.dao.GymDao
 import com.valerochka1337.valerochkagym.data.db.dao.RoutineDao
 import com.valerochka1337.valerochkagym.data.settings.SettingsRepository
 import com.valerochka1337.valerochkagym.domain.ExerciseSheetRecord
 import com.valerochka1337.valerochkagym.domain.ExerciseSheetRowMapper
+import com.valerochka1337.valerochkagym.domain.ExerciseVariantSheetRecord
+import com.valerochka1337.valerochkagym.domain.ExerciseVariantSheetRowMapper
 import com.valerochka1337.valerochkagym.domain.GymSheetRecord
 import com.valerochka1337.valerochkagym.domain.GymSheetRowMapper
 import com.valerochka1337.valerochkagym.domain.RoutineGymsSheetRecord
@@ -45,6 +48,7 @@ class ConfigurationSheetsRepositoryImpl @Inject constructor(
     private val exerciseMuscleDao: ExerciseMuscleDao,
     private val gymDao: GymDao,
     private val routineDao: RoutineDao,
+    private val variantDao: ExerciseVariantDao? = null,
 ) : ConfigurationSheetsRepository {
 
     override suspend fun uploadExercise(syncId: String): UploadResult {
@@ -52,7 +56,7 @@ class ConfigurationSheetsRepositoryImpl @Inject constructor(
             ?: return UploadResult.PermanentFailure("Упражнение не найдено")
         val muscles = exerciseMuscleDao.getForExercise(exercise.id)
             .associate { it.muscle to it.contribution }
-        return uploadVersion(
+        val exerciseResult = uploadVersion(
             sheetName = ExerciseSheetRowMapper.SHEET_NAME,
             range = ExerciseSheetRowMapper.RANGE,
             header = ExerciseSheetRowMapper.HEADER_ROW,
@@ -71,6 +75,28 @@ class ConfigurationSheetsRepositoryImpl @Inject constructor(
                 ),
             ),
         )
+        if (exerciseResult != UploadResult.Success) return exerciseResult
+        return variantDao?.getForExercise(exercise.id).orEmpty().fold<_, UploadResult>(UploadResult.Success) { result, variant ->
+            if (result != UploadResult.Success) result else uploadVersion(
+                sheetName = ExerciseVariantSheetRowMapper.SHEET_NAME,
+                range = ExerciseVariantSheetRowMapper.RANGE,
+                header = ExerciseVariantSheetRowMapper.HEADER_ROW,
+                syncId = variant.syncId,
+                updatedAt = variant.updatedAt,
+                isDeleted = false,
+                rows = listOf(
+                    ExerciseVariantSheetRowMapper.row(
+                        ExerciseVariantSheetRecord(
+                            syncId = variant.syncId,
+                            exerciseSyncId = exercise.syncId,
+                            updatedAt = variant.updatedAt,
+                            name = variant.name,
+                            isArchived = variant.isArchived,
+                        ),
+                    ),
+                ),
+            )
+        }
     }
 
     override suspend fun uploadGym(syncId: String): UploadResult {

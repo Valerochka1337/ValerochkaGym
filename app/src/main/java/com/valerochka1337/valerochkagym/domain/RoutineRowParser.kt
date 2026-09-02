@@ -17,6 +17,7 @@ data class ParsedRoutine(
 
 data class ParsedRoutineExercise(
     val syncId: String? = null,
+    val variantSyncId: String? = null,
     val name: String,
     val muscleGroup: MuscleGroup,
     val type: ExerciseType,
@@ -95,6 +96,11 @@ object RoutineRowParser {
                     return@forEach
                 }
             }
+            val rawVariantId = row.cell(VARIANT_ID)
+            val variantId = if (rawVariantId.isEmpty()) null else canonicalSheetUuidOrNull(rawVariantId) ?: run {
+                skippedRows++
+                return@forEach
+            }
             if (exerciseId != null && !snapshot.hasStableExerciseRows) {
                 // При первом v2-ряду той же версии отбрасываем старые name-only строки.
                 snapshot.exercises.clear()
@@ -104,6 +110,7 @@ object RoutineRowParser {
             }
             snapshot.exercises += ParsedRoutineExercise(
                 syncId = exerciseId,
+                variantSyncId = variantId,
                 name = exerciseName,
                 muscleGroup = row.cell(MUSCLE_GROUP).toMuscleGroup(),
                 type = row.cell(TYPE).toExerciseType(),
@@ -182,6 +189,7 @@ object RoutineRowParser {
     private const val REST_SECONDS = 9
     private const val PLANNED_SETS_JSON = 10
     private const val EXERCISE_ID = 11
+    private const val VARIANT_ID = 12
 
     private val JSON = Json { ignoreUnknownKeys = true }
 }
