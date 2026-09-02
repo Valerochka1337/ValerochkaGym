@@ -20,6 +20,9 @@ import com.valerochka1337.valerochkagym.domain.NewExerciseConfiguration
 import com.valerochka1337.valerochkagym.domain.SaveGymResult
 import com.valerochka1337.valerochkagym.domain.ExerciseCatalogFilters
 import com.valerochka1337.valerochkagym.domain.ExerciseCatalogOrigin
+import com.valerochka1337.valerochkagym.domain.ExerciseCatalogRepository
+import com.valerochka1337.valerochkagym.domain.ExerciseCatalogRepositoryState
+import com.valerochka1337.valerochkagym.domain.ExerciseCatalogSnapshot
 import com.valerochka1337.valerochkagym.domain.ExerciseCatalogSort
 import com.valerochka1337.valerochkagym.domain.ExerciseCatalogTypeFilter
 import com.valerochka1337.valerochkagym.ui.library.ExerciseLibraryViewModel
@@ -32,7 +35,10 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.TestDispatcher
+import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -106,6 +112,64 @@ class ExerciseLibraryViewModelTest {
         val state = viewModel.uiState.value
         assertEquals("", state.query)
         assertEquals(catalogue().size, state.exercises?.size)
+    }
+
+    @Test
+    fun `rapid query changes stay immediate while repository projection reaches the last query`() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val viewModel = repositoryLibraryViewModel(
+                computeDispatcher = StandardTestDispatcher(testScheduler),
+            )
+            collectUiState(viewModel)
+
+            viewModel.onQueryChange("п")
+            viewModel.onQueryChange("по")
+            viewModel.onQueryChange("под")
+
+            assertEquals("под", viewModel.query.value)
+
+            advanceUntilIdle()
+
+            assertEquals("под", viewModel.uiState.value.query)
+            assertEquals(listOf("Подтягивания"), viewModel.uiState.value.exercises?.map { it.name })
+        }
+
+    @Test
+    fun `repository catalog controls restore and reset`() = runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val handle = SavedStateHandle(
+            mapOf(
+                "catalog_query" to "жим",
+                "catalog_group" to MuscleGroup.LEGS.name,
+                "catalog_type" to ExerciseCatalogTypeFilter.STRENGTH.name,
+                "catalog_origin" to ExerciseCatalogOrigin.BUILT_IN.name,
+                "catalog_sort" to ExerciseCatalogSort.ALPHABETICAL.name,
+            ),
+        )
+        val viewModel = repositoryLibraryViewModel(
+            computeDispatcher = StandardTestDispatcher(testScheduler),
+            savedStateHandle = handle,
+        )
+        collectUiState(viewModel)
+
+        assertEquals("жим", viewModel.query.value)
+        advanceUntilIdle()
+        assertEquals(ExerciseCatalogFilters(MuscleGroup.LEGS, ExerciseCatalogTypeFilter.STRENGTH, ExerciseCatalogOrigin.BUILT_IN), viewModel.uiState.value.filters)
+        assertEquals(ExerciseCatalogSort.ALPHABETICAL, viewModel.uiState.value.sort)
+        assertEquals(listOf("Жим ногами"), viewModel.uiState.value.exercises?.map { it.name })
+
+        viewModel.onQueryChange("под")
+        viewModel.clearQuery()
+        viewModel.setSort(ExerciseCatalogSort.FREQUENT)
+        viewModel.setOrigin(ExerciseCatalogOrigin.CUSTOM)
+        viewModel.resetCatalog()
+
+        assertEquals("", viewModel.query.value)
+        advanceUntilIdle()
+        assertEquals(ExerciseCatalogFilters(), viewModel.uiState.value.filters)
+        assertEquals(ExerciseCatalogSort.RECENT, viewModel.uiState.value.sort)
+        assertEquals(catalogue().size, viewModel.uiState.value.exercises?.size)
+        assertEquals("", handle.get<String>("catalog_query"))
+        assertEquals(ExerciseCatalogSort.RECENT.name, handle.get<String>("catalog_sort"))
     }
 
     // endregion
@@ -541,6 +605,17 @@ class ExerciseLibraryViewModelTest {
         }
     }
 
+    private fun repositoryLibraryViewModel(
+        computeDispatcher: TestDispatcher,
+        savedStateHandle: SavedStateHandle = SavedStateHandle(),
+    ): ExerciseLibraryViewModel = ExerciseLibraryViewModel(
+        exerciseDao = FakeExerciseDao(),
+        exerciseMuscleDao = FakeExerciseMuscleDao(),
+        savedStateHandle = savedStateHandle,
+        catalogRepository = FakeExerciseCatalogRepository(catalogue()),
+        computeDispatcher = computeDispatcher,
+    )
+
     private fun catalogue(): List<ExerciseEntity> = listOf(
         ExerciseEntity(id = 1, name = "Жим штанги лёжа", muscleGroup = MuscleGroup.CHEST, type = ExerciseType.STRENGTH),
         ExerciseEntity(id = 2, name = "Жим ногами", muscleGroup = MuscleGroup.LEGS, type = ExerciseType.STRENGTH),
@@ -613,6 +688,19 @@ class ExerciseLibraryViewModelTest {
         override suspend fun deleteForExercise(exerciseId: Long) {
             rows.remove(exerciseId)
         }
+    }
+
+    /** Production catalog path backed by an in-memory source, without falling back to the exercise DAO. */
+    private class FakeExerciseCatalogRepository(exercises: List<ExerciseEntity>) : ExerciseCatalogRepository {
+
+        private val state = MutableStateFlow(
+            ExerciseCatalogRepositoryState(
+                snapshot = ExerciseCatalogSnapshot(exercises, emptyList(), emptyList()),
+                gymNames = emptyList(),
+            ),
+        )
+
+        override fun observeCatalog(gymIds: Set<String>): Flow<ExerciseCatalogRepositoryState> = state
     }
 
     private class FakeExerciseAiGenerator(
