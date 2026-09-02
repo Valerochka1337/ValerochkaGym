@@ -7,7 +7,7 @@ Read this reference when researching, planning, implementing, testing, or review
 - Preserve the single `:app` module unless the user explicitly requests modularization.
 - Trace each `AC-###` through a plan task, implementation evidence, an automated check where feasible, and review status.
 - Prefer the smallest reliable test layer and add tests during implementation, not only after it.
-- Keep final verification sequential in one checkout: `./gradlew :app:testDebugUnitTest`, then `./gradlew :app:assembleDebug`.
+- Keep final verification sequential in one checkout: `./gradlew :app:testDebugUnitTest`, then `./gradlew :app:assembleDebug`. Run this pair once after the final stable diff; earlier agents use targeted gates only.
 - Do not add logs, mock libraries, destructive database fallback, or dependencies that the feature does not require.
 
 ## Architecture, Flow, and coroutines
