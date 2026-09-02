@@ -173,6 +173,7 @@ class ExerciseDetailViewModelTest {
     }
 
     private class FakeWorkoutDao(namedNewer: Boolean = false) : WorkoutDao {
+        override fun observeFinishedExerciseHistory() = flowOf(emptyList<com.valerochka1337.valerochkagym.data.db.relation.ExerciseWorkoutHistoryRow>())
         private val completed = MutableStateFlow(
             listOf(
                 AnalyticsSetRow(

@@ -164,6 +164,7 @@ class WorkoutSummaryViewModelTest {
         RoutineWithExercises(routine = RoutineEntity(id = id, name = "Программа"), exercises = exercises)
 
     private class FakeWorkoutDao(private val full: WorkoutFull?) : WorkoutDao {
+        override fun observeFinishedExerciseHistory() = flowOf(emptyList<com.valerochka1337.valerochkagym.data.db.relation.ExerciseWorkoutHistoryRow>())
         override suspend fun getWorkoutFull(id: String): WorkoutFull? = full
         override suspend fun maxCompletedWeight(exerciseId: Long, excludeWorkoutId: String): Double? = null
         override suspend fun maxCompletedWeightForKey(exerciseId: Long, variantSyncId: String?, excludeWorkoutId: String): Double? = null

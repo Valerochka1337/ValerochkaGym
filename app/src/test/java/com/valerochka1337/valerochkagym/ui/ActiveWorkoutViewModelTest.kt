@@ -497,6 +497,7 @@ class ActiveWorkoutViewModelTest {
 
     /** [WorkoutDao] для [PreviousSetsUseCase]: отдаёт заданные «прошлые» подходы, остальное — заглушки. */
     private class FakeWorkoutDao(private val previousSets: List<WorkoutSetEntity>) : WorkoutDao {
+        override fun observeFinishedExerciseHistory() = flowOf(emptyList<com.valerochka1337.valerochkagym.data.db.relation.ExerciseWorkoutHistoryRow>())
         override suspend fun lastCompletedSetsForExercise(exerciseId: Long): List<WorkoutSetEntity> = previousSets
         override suspend fun lastCompletedSetsForKey(exerciseId: Long, variantSyncId: String?): List<WorkoutSetEntity> = previousSets
         override suspend fun completedSetCount(workoutExerciseId: Long): Int = 0

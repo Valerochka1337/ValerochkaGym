@@ -18,6 +18,9 @@ import com.valerochka1337.valerochkagym.domain.GymConfiguration
 import com.valerochka1337.valerochkagym.domain.GymRepository
 import com.valerochka1337.valerochkagym.domain.NewExerciseConfiguration
 import com.valerochka1337.valerochkagym.domain.SaveGymResult
+import com.valerochka1337.valerochkagym.domain.ExerciseCatalogLevel
+import com.valerochka1337.valerochkagym.domain.ExerciseCatalogOrigin
+import com.valerochka1337.valerochkagym.domain.ExerciseCatalogSort
 import com.valerochka1337.valerochkagym.ui.library.ExerciseLibraryViewModel
 import com.valerochka1337.valerochkagym.ui.library.SavedExerciseResult
 import com.valerochka1337.valerochkagym.ui.navigation.GymRoutes
@@ -105,6 +108,51 @@ class ExerciseLibraryViewModelTest {
     }
 
     // endregion
+
+    @Test
+    fun `single choice facets reset and back stay presentation only`() = runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val viewModel = ExerciseLibraryViewModel(FakeExerciseDao(catalogue()), FakeExerciseMuscleDao())
+        collectUiState(viewModel)
+
+        viewModel.toggleGroupFacet(MuscleGroup.LEGS)
+        viewModel.toggleType(ExerciseType.STRENGTH)
+        viewModel.setOrigin(ExerciseCatalogOrigin.BUILT_IN)
+        viewModel.setSort(ExerciseCatalogSort.ALPHABETICAL)
+        viewModel.openGroup(MuscleGroup.LEGS)
+
+        assertEquals(MuscleGroup.LEGS, viewModel.uiState.value.filters.group)
+        assertEquals(ExerciseType.STRENGTH, viewModel.uiState.value.filters.type)
+        assertFalse(viewModel.onBack())
+        assertEquals(ExerciseCatalogLevel.Overview, viewModel.uiState.value.level)
+        viewModel.resetCatalog()
+        assertEquals("", viewModel.uiState.value.query)
+        assertEquals(ExerciseCatalogOrigin.ALL, viewModel.uiState.value.filters.origin)
+        assertEquals(ExerciseCatalogSort.RECENT, viewModel.uiState.value.sort)
+        assertTrue(viewModel.onBack())
+    }
+
+    @Test
+    fun `restored unavailable group normalizes to overview before rendering`() = runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val handle = SavedStateHandle(mapOf("catalog_level" to "group", "catalog_level_group" to "CARDIO"))
+        val viewModel = ExerciseLibraryViewModel(FakeExerciseDao(catalogue()), FakeExerciseMuscleDao(), savedStateHandle = handle)
+        collectUiState(viewModel)
+
+        assertEquals(ExerciseCatalogLevel.Overview, viewModel.uiState.value.level)
+    }
+
+    @Test
+    fun `unavailable selected type persists and exposes resettable empty state`() = runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val viewModel = ExerciseLibraryViewModel(FakeExerciseDao(catalogue()), FakeExerciseMuscleDao())
+        collectUiState(viewModel)
+
+        viewModel.toggleType(ExerciseType.CARDIO)
+
+        assertEquals(ExerciseType.CARDIO, viewModel.uiState.value.filters.type)
+        assertTrue(viewModel.uiState.value.isEmpty)
+        assertTrue(viewModel.uiState.value.hasActiveConstraints)
+        viewModel.resetCatalog()
+        assertNull(viewModel.uiState.value.filters.type)
+    }
 
     // region group filtering
 

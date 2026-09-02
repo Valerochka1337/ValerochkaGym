@@ -95,6 +95,7 @@ class UploadSchedulerTest {
     private class FakeWorkoutDao(
         private val finishedNotUploaded: List<String> = emptyList(),
     ) : WorkoutDao {
+        override fun observeFinishedExerciseHistory() = flowOf(emptyList<com.valerochka1337.valerochkagym.data.db.relation.ExerciseWorkoutHistoryRow>())
         val statusUpdates = mutableListOf<Pair<String, UploadStatus>>()
 
         override suspend fun getFinishedNotUploaded(): List<String> = finishedNotUploaded

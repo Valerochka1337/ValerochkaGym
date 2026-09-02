@@ -10,11 +10,27 @@ import com.valerochka1337.valerochkagym.data.db.entity.WorkoutEntity
 import com.valerochka1337.valerochkagym.data.db.entity.WorkoutExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.WorkoutSetEntity
 import com.valerochka1337.valerochkagym.data.db.relation.AnalyticsSetRow
+import com.valerochka1337.valerochkagym.data.db.relation.ExerciseWorkoutHistoryRow
 import com.valerochka1337.valerochkagym.data.db.relation.WorkoutFull
 import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface WorkoutDao {
+
+    /**
+     * Read-only catalog history. A row represents a base exercise once per finished workout,
+     * and requires at least one completed set so abandoned exercise rows cannot affect ranking.
+     */
+    @Query(
+        """
+        SELECT DISTINCT we.exerciseId AS exerciseId, w.id AS workoutId, w.finishedAt AS finishedAt
+        FROM workout_exercises we
+        JOIN workouts w ON w.id = we.workoutId
+        JOIN workout_sets ws ON ws.workoutExerciseId = we.id
+        WHERE w.finishedAt IS NOT NULL AND ws.isCompleted = 1
+        """,
+    )
+    fun observeFinishedExerciseHistory(): Flow<List<ExerciseWorkoutHistoryRow>>
 
     @Insert
     suspend fun insertWorkout(workout: WorkoutEntity)

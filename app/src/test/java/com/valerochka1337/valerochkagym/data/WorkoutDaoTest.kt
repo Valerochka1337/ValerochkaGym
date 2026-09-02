@@ -24,6 +24,25 @@ class WorkoutDaoTest : RoomDaoTest() {
         exerciseDao = db.exerciseDao()
     }
 
+    @Test
+    fun `finished exercise history has one row per completed exercise workout and excludes active`() = runTest {
+        val exerciseId = addExercise()
+        insertWorkout("finished", startedAt = 1_000, finishedAt = 9_000)
+        val row = insertWorkoutExercise("finished", exerciseId)
+        insertSet(row, setIndex = 0, isCompleted = true)
+        insertSet(row, setIndex = 1, isCompleted = true)
+        insertWorkout("active", startedAt = 10_000, finishedAt = null)
+        val active = insertWorkoutExercise("active", exerciseId)
+        insertSet(active, setIndex = 0, isCompleted = true)
+
+        val history = workoutDao.observeFinishedExerciseHistory().first()
+
+        assertEquals(1, history.size)
+        assertEquals(exerciseId, history.single().exerciseId)
+        assertEquals("finished", history.single().workoutId)
+        assertEquals(9_000L, history.single().finishedAt)
+    }
+
     // region lastCompletedSetsForExercise
 
     @Test

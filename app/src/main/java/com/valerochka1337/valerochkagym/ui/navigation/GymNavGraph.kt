@@ -146,6 +146,7 @@ private fun AnimatedContentTransitionScope<NavBackStackEntry>.isTabSwitch(): Boo
 fun GymNavGraph(
     navController: NavHostController,
     modifier: Modifier = Modifier,
+    windowWidthClass: GymWindowWidthClass = GymWindowWidthClass.Compact,
     appUpdateState: AppUpdateUiState,
     onCheckUpdate: () -> Unit,
     onDownloadUpdate: () -> Unit,
@@ -265,6 +266,7 @@ fun GymNavGraph(
             ExerciseLibraryScreen(
                 onBack = { navController.popBackStack() },
                 onOpenSettings = { navController.navigate(GymRoutes.SETTINGS) },
+                windowWidthClass = windowWidthClass,
                 // Открыта из редактора программы: возвращаем выбранное упражнение назад.
                 onExerciseSelected = { exercise ->
                     navController.previousBackStackEntry?.savedStateHandle
