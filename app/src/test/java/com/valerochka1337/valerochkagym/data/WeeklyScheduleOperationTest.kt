@@ -63,7 +63,7 @@ class WeeklyScheduleOperationTest {
     }
 
     @Test
-    fun `journal datastore io is typed unreadable`() = runTest {
+    fun `journal datastore io is typed retryable`() = runTest {
         val store = object : DataStore<Preferences> {
             override val data: Flow<Preferences> = flow { throw IOException("read failed") }
             override suspend fun updateData(
@@ -71,7 +71,7 @@ class WeeklyScheduleOperationTest {
             ): Preferences = throw IOException("write failed")
         }
 
-        assertTrue(WeeklyScheduleOperationJournal(store, json).read() is WeeklyScheduleOperationRead.Unreadable)
+        assertTrue(WeeklyScheduleOperationJournal(store, json).read() is WeeklyScheduleOperationRead.Retryable)
     }
 
     private fun operation(): WeeklyScheduleOperation {

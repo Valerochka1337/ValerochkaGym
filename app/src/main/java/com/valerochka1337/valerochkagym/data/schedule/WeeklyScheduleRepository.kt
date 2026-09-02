@@ -108,6 +108,7 @@ class WeeklyScheduleRepositoryImpl @Inject constructor(
         try {
             when (val read = journal.read()) {
                 WeeklyScheduleOperationRead.Absent -> WeeklyScheduleRecoveryResult.NothingPending
+                is WeeklyScheduleOperationRead.Retryable -> WeeklyScheduleRecoveryResult.Retry(LOCAL_STATE_ERROR)
                 is WeeklyScheduleOperationRead.Unreadable -> WeeklyScheduleRecoveryResult.Paused(JOURNAL_UNREADABLE)
                 is WeeklyScheduleOperationRead.Present -> executionToRecoveryResult(
                     execute(read.operation, ExecutionOrigin.RECOVERY),
@@ -157,6 +158,9 @@ class WeeklyScheduleRepositoryImpl @Inject constructor(
     /** null means the previous journal was absent or completed and a new operation may start. */
     private suspend fun finishPendingInteractive(): ScheduleResult? = when (val read = journal.read()) {
         WeeklyScheduleOperationRead.Absent -> null
+        is WeeklyScheduleOperationRead.Retryable -> ScheduleResult.Failure(LOCAL_STATE_ERROR).also {
+            recoveryScheduler.enqueue()
+        }
         is WeeklyScheduleOperationRead.Unreadable -> ScheduleResult.Failure(JOURNAL_UNREADABLE)
         is WeeklyScheduleOperationRead.Present -> when (
             val result = execute(read.operation, ExecutionOrigin.INTERACTIVE)

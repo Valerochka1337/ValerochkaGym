@@ -653,6 +653,7 @@ Hilt Worker/WorkManager и R8. Если release signing inputs недоступ�
 | Два UI action или UI + worker | общий ViewModel gate + singleton repository Mutex + unique APPEND_OR_REPLACE chain |
 | Enqueue в конце running worker | successor append-ится и повторно читает journal после завершения predecessor |
 | Повреждённый JSON journal | active не трогать, не начинать новую операцию, вернуть paused/permanent UI error; не молча очищать |
+| Временный I/O сбой чтения journal | отличать от corruption, вернуть worker Retry и повторно прочитать тот же durable marker |
 | Stale journal восстановлен на другом device | dedicated journal file исключён из cloud backup и device transfer; active переносится с owner |
 | Удалённая ручная правка события | delete 404/410 закрывает pending; prepared snapshot не зависит от чтения remote event |
 | Release shrinker удалит serializer/worker wiring | targeted unit tests + обязательный assembleRelease |

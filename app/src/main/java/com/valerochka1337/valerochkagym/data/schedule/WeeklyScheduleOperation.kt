@@ -42,6 +42,7 @@ internal data class WeeklyScheduleOperation(
 internal sealed interface WeeklyScheduleOperationRead {
     data object Absent : WeeklyScheduleOperationRead
     data class Present(val operation: WeeklyScheduleOperation) : WeeklyScheduleOperationRead
+    data class Retryable(val cause: IOException) : WeeklyScheduleOperationRead
     data class Unreadable(val cause: Throwable) : WeeklyScheduleOperationRead
 }
 
@@ -58,7 +59,7 @@ internal class WeeklyScheduleOperationJournal(
     } catch (cancellation: CancellationException) {
         throw cancellation
     } catch (error: IOException) {
-        WeeklyScheduleOperationRead.Unreadable(error)
+        WeeklyScheduleOperationRead.Retryable(error)
     } catch (error: Exception) {
         WeeklyScheduleOperationRead.Unreadable(error)
     }

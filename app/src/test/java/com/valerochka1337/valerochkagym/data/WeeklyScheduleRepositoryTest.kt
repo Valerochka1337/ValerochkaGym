@@ -30,6 +30,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
@@ -410,6 +412,35 @@ class WeeklyScheduleRepositoryTest : RoomDaoTest() {
     }
 
     @Test
+    fun `journal io failure retries and next recovery completes the pending operation`() = runTest {
+        val routine = seedRoutine("Ноги")
+        val settings = FakeDataStore()
+        val operations = FakeDataStore()
+        val operation = replaceOperation(
+            phase = WeeklyScheduleOperationPhase.CREATE_NEW,
+            old = WeeklySchedule(),
+            routineId = routine,
+            pendingCreateIds = listOf(CLIENT_ID),
+            cleanupNewIds = emptyList(),
+        )
+        writeOperation(operations, operation)
+        operations.readFailures = 1
+        val api = FakeCalendarApi()
+        val repo = repository(api, settings, operations)
+
+        val first = repo.resumePendingOperation()
+
+        assertTrue(first is WeeklyScheduleRecoveryResult.Retry)
+        assertTrue(api.calls.isEmpty())
+
+        val recovered = repo.resumePendingOperation()
+
+        assertEquals(WeeklyScheduleRecoveryResult.Completed, recovered)
+        assertEquals(listOf("insert"), api.calls)
+        assertEquals(operation.targetSchedule, repo.observe().first())
+    }
+
+    @Test
     fun `middle insert failure cleans attempted ids but excludes unattempted id`() = runTest {
         val routine = seedRoutine("Ноги")
         val old = ownedSchedule(routine, "old-event")
@@ -686,13 +717,21 @@ class WeeklyScheduleRepositoryTest : RoomDaoTest() {
         email: String? = EMAIL,
     ) : DataStore<Preferences> {
         var failure: Exception? = null
+        var readFailures = 0
         private val state = MutableStateFlow<Preferences>(
             mutablePreferencesOf().apply {
                 initial?.let { this[SCHEDULE_KEY] = json.encodeToString(it) }
                 email?.let { this[EMAIL_KEY] = it }
             },
         )
-        override val data: Flow<Preferences> = state
+        override val data: Flow<Preferences>
+            get() = flow {
+                if (readFailures > 0) {
+                    readFailures--
+                    throw IOException("read failed")
+                }
+                emitAll(state)
+            }
         override suspend fun updateData(transform: suspend (Preferences) -> Preferences): Preferences {
             failure?.let { throw it }
             state.value = transform(state.value)

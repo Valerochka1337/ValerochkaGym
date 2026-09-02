@@ -87,6 +87,9 @@
 | PR follow-up review 2 | `./gradlew :app:testDebugUnitTest --tests "*WeeklyScheduleRepositoryTest" --tests "*GoogleAuthManagerTest" --tests "*WeeklyScheduleOperationTest"` | passed | recovery сохраняет transient cleanup как Retry; email нормализуется независимо от locale |
 | PR follow-up review 2 | `./gradlew :app:testDebugUnitTest` | passed | полный unit-регрессионный прогон после F-025/F-026 |
 | PR follow-up review 2 | `./gradlew :app:assembleDebug` | passed | debug build после F-025/F-026 |
+| PR follow-up review 3 | `./gradlew :app:testDebugUnitTest --tests "*WeeklyScheduleOperationTest" --tests "*WeeklyScheduleRepositoryTest" --tests "*WeeklyScheduleRecoveryWorkerTest"` | passed | journal IOException типизирован как retryable; следующий recovery завершает сохранённую operation; worker mapping Retry проверен |
+| PR follow-up review 3 | `./gradlew :app:testDebugUnitTest` | passed | полный unit-регрессионный прогон после F-027 |
+| PR follow-up review 3 | `./gradlew :app:assembleDebug` | passed | debug build после F-027 |
 
 ## Findings
 
@@ -118,6 +121,7 @@
 | F-024 | P2 | PR follow-up review | APPEND_OR_REPLACE wake после consent мог остаться за retry/backoff старой работы | Scheduler разделён на durable `enqueue()`/APPEND_OR_REPLACE и user-driven `wake()`/REPLACE; WorkManager test проверяет CANCELLED old + ENQUEUED replacement | resolved |
 | F-025 | P2 | PR follow-up review 2 | Retry компенсационного удаления после insert failure превращался в InsertFailed, и worker завершал unique work | `failInsertAndCleanup` сохраняет `Execution.Retry`; regression проверяет durable CLEANUP_NEW и успешный следующий recovery без повторного insert | resolved |
 | F-026 | P3 | PR follow-up review 2 | `lowercase()` для email зависел от текущей locale и ломал латинскую I в Turkish locale | Все добавленные email normalization paths используют `Locale.ROOT`; regression связывает normalized email с AuthorizationRequest account | resolved |
+| F-027 | P2 | PR follow-up review 3 | Временный IOException чтения journal считался corruption/Paused, поэтому worker завершался без retry | Journal различает `Retryable(IOException)` и `Unreadable`; repository возвращает recovery Retry, а regression завершает ту же operation после успешного следующего чтения | resolved |
 
 ## Plan-review finding verification
 
@@ -154,6 +158,7 @@ agent.
 | PR inline | two Medium findings fixed | none | F-022/F-023 resolved | unconstrained recovery + consent wake-up, executable regressions | full unit/debug passed; release signing blocker unchanged |
 | PR follow-up inline | one Medium finding fixed | none | F-024 resolved | separate APPEND_OR_REPLACE enqueue and REPLACE wake | targeted + full unit/debug passed |
 | PR follow-up inline 2 | one Medium and one Low finding fixed | none | F-025; F-026 P3 | preserve cleanup Retry; locale-independent account normalization | targeted + full unit/debug passed |
+| PR follow-up inline 3 | one Medium finding fixed | none | F-027 resolved | retryable journal I/O separated from corruption | targeted + full unit/debug passed |
 
 ## Git/PR checklist (main agent only)
 
