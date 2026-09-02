@@ -7,77 +7,37 @@ import com.valerochka1337.valerochkagym.data.db.entity.Muscle
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleGroup
 import com.valerochka1337.valerochkagym.data.db.relation.ExerciseWorkoutHistoryRow
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ExerciseCatalogProjectionTest {
     @Test
-    fun `muscle leaves separate direct and secondary loads without changing exercise ids`() {
-        val projection = project()
-
-        val result = projection.results("", ExerciseCatalogFilters(), ExerciseCatalogSort.ALPHABETICAL,
-            ExerciseCatalogLevel.MuscleLeaf(MuscleGroup.CHEST, Muscle.CHEST))
-
-        assertEquals(listOf(1L), result.primary.map { it.id })
-        assertEquals(listOf(2L), result.secondary.map { it.id })
-        assertFalse(result.exercises.any { it.id == 3L })
-    }
-
-    @Test
-    fun `top group follows stored group and cardio has no fabricated muscle leaves`() {
-        val projection = project()
-
-        assertEquals(listOf(Muscle.CHEST), projection.groups.single { it.group == MuscleGroup.CHEST }.muscles)
-        assertTrue(projection.groups.single { it.group == MuscleGroup.CARDIO }.muscles.isEmpty())
-    }
-
-    @Test
     fun `search and filters combine as and without duplicates`() {
         val projection = project()
-        val filters = ExerciseCatalogFilters(type = ExerciseType.STRENGTH, origin = ExerciseCatalogOrigin.BUILT_IN)
+        val filters = ExerciseCatalogFilters(type = ExerciseCatalogTypeFilter.STRENGTH, origin = ExerciseCatalogOrigin.BUILT_IN)
 
         assertEquals(listOf(1L, 2L, 3L), projection.results("груд", filters, ExerciseCatalogSort.ALPHABETICAL).exercises.map { it.id })
         assertEquals(listOf(4L), projection.results("кардио", ExerciseCatalogFilters(), ExerciseCatalogSort.ALPHABETICAL).exercises.map { it.id })
     }
 
     @Test
-    fun `recent and frequent use distinct finished workouts`() {
+    fun `recent and frequent use distinct finished workouts for the flat catalog`() {
         val projection = project()
 
-        assertEquals(listOf(2L, 1L), projection.quickSections().recent.map { it.id })
-        assertTrue(projection.quickSections().frequent.isEmpty())
+        assertEquals(listOf(2L, 1L, 4L, 5L, 3L), projection.results("", ExerciseCatalogFilters(), ExerciseCatalogSort.RECENT).exercises.map { it.id })
+        assertEquals(listOf(1L, 2L, 4L, 5L, 3L), projection.results("", ExerciseCatalogFilters(), ExerciseCatalogSort.FREQUENT).exercises.map { it.id })
     }
 
     @Test
-    fun `quick sections are capped and frequent excludes recent ids`() {
-        val exercises = (1L..8L).map { exercise(it, "Упражнение $it", MuscleGroup.CHEST) }
-        val projection = ExerciseCatalogProjector.project(
-            ExerciseCatalogSnapshot(
-                exercises,
-                emptyList(),
-                exercises.flatMapIndexed { index, exercise ->
-                    listOf(ExerciseWorkoutHistoryRow(exercise.id, "w$index", index.toLong()))
-                },
-            ),
-        )
-
-        val quick = projection.quickSections()
-        assertEquals(5, quick.recent.size)
-        assertEquals(3, quick.frequent.size)
-        assertTrue(quick.recent.map { it.id }.intersect(quick.frequent.map { it.id }.toSet()).isEmpty())
-    }
-
-    @Test
-    fun `under twenty five contribution is excluded from search facets and leaves`() {
+    fun `all origin sorting changes the flat result order`() {
         val projection = project()
 
-        assertTrue(projection.results("грудь", ExerciseCatalogFilters(muscle = Muscle.CHEST), ExerciseCatalogSort.ALPHABETICAL)
-            .exercises.none { it.id == 3L })
+        assertEquals(listOf(4L, 1L, 2L, 5L, 3L), projection.results("", ExerciseCatalogFilters(), ExerciseCatalogSort.ALPHABETICAL).exercises.map { it.id })
+        assertEquals(listOf(2L, 1L, 4L, 5L, 3L), projection.results("", ExerciseCatalogFilters(), ExerciseCatalogSort.RECENT).exercises.map { it.id })
+        assertEquals(listOf(1L, 2L, 4L, 5L, 3L), projection.results("", ExerciseCatalogFilters(), ExerciseCatalogSort.FREQUENT).exercises.map { it.id })
     }
 
     @Test
-    fun `no history hides both quick sections while unmapped and full body stay in all group`() {
+    fun `unmapped and full body rows remain available in the flat catalog`() {
         val projection = ExerciseCatalogProjector.project(
             ExerciseCatalogSnapshot(
                 exercises = listOf(
@@ -88,11 +48,18 @@ class ExerciseCatalogProjectionTest {
             ),
         )
 
-        assertTrue(projection.quickSections().recent.isEmpty())
-        assertTrue(projection.quickSections().frequent.isEmpty())
-        assertEquals(listOf(10L), projection.results("", ExerciseCatalogFilters(), ExerciseCatalogSort.ALPHABETICAL,
-            ExerciseCatalogLevel.Group(MuscleGroup.CHEST)).exercises.map { it.id })
-        assertTrue(projection.groups.single { it.group == MuscleGroup.FULL_BODY }.muscles.isEmpty())
+        assertEquals(listOf(10L, 11L), projection.results("", ExerciseCatalogFilters(), ExerciseCatalogSort.ALPHABETICAL).exercises.map { it.id })
+    }
+
+    @Test
+    fun `type family joins cardio and timed and facet counts ignore their own dimension`() {
+        val timed = exercise(6, "Планка", MuscleGroup.CORE, ExerciseType.TIMED)
+        val projection = ExerciseCatalogProjector.project(project().snapshot.copy(exercises = project().snapshot.exercises + timed))
+        val filters = ExerciseCatalogFilters(group = MuscleGroup.CHEST)
+
+        assertEquals(listOf(4L, 6L), projection.results("", ExerciseCatalogFilters(type = ExerciseCatalogTypeFilter.CARDIO_OR_TIMED), ExerciseCatalogSort.ALPHABETICAL).exercises.map { it.id })
+        assertEquals(4, projection.facetCounts("", filters, ExerciseCatalogSort.ALPHABETICAL).groups[MuscleGroup.CHEST])
+        assertEquals(0, projection.facetCounts("нет", filters, ExerciseCatalogSort.ALPHABETICAL).groups[MuscleGroup.CHEST])
     }
 
     private fun project(): ExerciseCatalogProjection = ExerciseCatalogProjector.project(

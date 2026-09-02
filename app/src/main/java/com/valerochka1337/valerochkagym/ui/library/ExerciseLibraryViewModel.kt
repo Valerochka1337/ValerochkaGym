@@ -18,14 +18,14 @@ import com.valerochka1337.valerochkagym.data.db.entity.group
 import com.valerochka1337.valerochkagym.data.db.entity.withNextUpdatedAt
 import com.valerochka1337.valerochkagym.domain.GymRepository
 import com.valerochka1337.valerochkagym.domain.ExerciseCatalogFilters
-import com.valerochka1337.valerochkagym.domain.ExerciseCatalogLevel
 import com.valerochka1337.valerochkagym.domain.ExerciseCatalogOrigin
 import com.valerochka1337.valerochkagym.domain.ExerciseCatalogProjector
-import com.valerochka1337.valerochkagym.domain.ExerciseCatalogProjection
 import com.valerochka1337.valerochkagym.domain.ExerciseCatalogRepository
 import com.valerochka1337.valerochkagym.domain.ExerciseCatalogRepositoryState
 import com.valerochka1337.valerochkagym.domain.ExerciseCatalogSnapshot
 import com.valerochka1337.valerochkagym.domain.ExerciseCatalogSort
+import com.valerochka1337.valerochkagym.domain.ExerciseCatalogTypeFilter
+import com.valerochka1337.valerochkagym.domain.ExerciseCatalogFacetCounts
 import com.valerochka1337.valerochkagym.di.ComputeDispatcher
 import com.valerochka1337.valerochkagym.domain.NewExerciseConfiguration
 import com.valerochka1337.valerochkagym.domain.NoOpGymRepository
@@ -43,7 +43,6 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
@@ -53,19 +52,17 @@ import javax.inject.Inject
 
 /**
  * Screen state for the exercise library. [exercises] is already filtered by
- * [query] and [selectedGroup]; a null value means the list hasn't loaded yet
+ * [query] and [filters]; a null value means the list hasn't loaded yet
  * (distinct from a loaded-but-empty result), so the UI can suppress the empty
  * state until the first emission. [isEmpty] is true only for a loaded empty list.
  */
 data class ExerciseLibraryUiState(
     val query: String = "",
-    val selectedGroup: MuscleGroup? = null,
     val exercises: List<ExerciseEntity>? = null,
     val gymNames: List<String> = emptyList(),
-    val projection: ExerciseCatalogProjection? = null,
-    val level: ExerciseCatalogLevel = ExerciseCatalogLevel.Overview,
     val filters: ExerciseCatalogFilters = ExerciseCatalogFilters(),
     val sort: ExerciseCatalogSort = ExerciseCatalogSort.RECENT,
+    val facetCounts: ExerciseCatalogFacetCounts? = null,
 ) {
     val isEmpty: Boolean get() = exercises?.isEmpty() == true
     val hasActiveConstraints: Boolean get() = query.isNotBlank() || filters != ExerciseCatalogFilters()
@@ -159,12 +156,13 @@ class ExerciseLibraryViewModel @Inject constructor(
             group = savedStateHandle.get<String>(CATALOG_GROUP)?.let { value ->
                 MuscleGroup.entries.firstOrNull { it.name == value }
             },
-            muscle = savedStateHandle.get<String>(CATALOG_MUSCLE)?.let { value ->
-                Muscle.entries.firstOrNull { it.name == value }
-            },
             type = savedStateHandle.get<String>(CATALOG_TYPE)?.let { value ->
-                ExerciseType.entries.firstOrNull { it.name == value }
-            },
+                ExerciseCatalogTypeFilter.entries.firstOrNull { it.name == value } ?: when (value) {
+                    ExerciseType.STRENGTH.name -> ExerciseCatalogTypeFilter.STRENGTH
+                    ExerciseType.CARDIO.name, ExerciseType.TIMED.name -> ExerciseCatalogTypeFilter.CARDIO_OR_TIMED
+                    else -> ExerciseCatalogTypeFilter.ALL
+                }
+            } ?: ExerciseCatalogTypeFilter.ALL,
             origin = savedStateHandle.get<String>(CATALOG_ORIGIN)?.let { value ->
                 ExerciseCatalogOrigin.entries.firstOrNull { it.name == value }
             } ?: ExerciseCatalogOrigin.ALL,
@@ -175,7 +173,6 @@ class ExerciseLibraryViewModel @Inject constructor(
             ExerciseCatalogSort.entries.firstOrNull { it.name == value }
         } ?: ExerciseCatalogSort.RECENT,
     )
-    private val level = MutableStateFlow<ExerciseCatalogLevel>(savedLevel(savedStateHandle))
     private val _editor = MutableStateFlow<ExerciseEditorState?>(null)
     private val _aiCreation = MutableStateFlow<ExerciseAiCreationState?>(null)
     private val aiConfigured = MutableStateFlow(false)
@@ -209,24 +206,16 @@ class ExerciseLibraryViewModel @Inject constructor(
     }
 
     val uiState: StateFlow<ExerciseLibraryUiState> =
-        combine(catalogSource, query, filters, sort, level) { source, currentQuery, currentFilters, currentSort, requestedLevel ->
+        combine(catalogSource, query, filters, sort) { source, currentQuery, currentFilters, currentSort ->
             val projection = ExerciseCatalogProjector.project(source.snapshot)
-            val normalisedLevel = projection.normalise(requestedLevel)
-            if (normalisedLevel != requestedLevel) {
-                level.value = normalisedLevel
-                saveLevel(normalisedLevel, savedStateHandle)
-            }
-            val results = projection.results(currentQuery, currentFilters, currentSort, normalisedLevel)
+            val results = projection.results(currentQuery, currentFilters, currentSort)
             ExerciseLibraryUiState(
                 query = currentQuery,
-                selectedGroup = (normalisedLevel as? ExerciseCatalogLevel.Group)?.group
-                    ?: (normalisedLevel as? ExerciseCatalogLevel.MuscleLeaf)?.group,
                 exercises = results.exercises,
                 gymNames = source.gymNames,
-                projection = projection,
-                level = normalisedLevel,
                 filters = currentFilters,
                 sort = currentSort,
+                facetCounts = projection.facetCounts(currentQuery, currentFilters, currentSort),
             )
         }.let { flow -> if (catalogRepository != null) flow.flowOn(computeDispatcher) else flow }.stateIn(
             scope = viewModelScope,
@@ -252,35 +241,20 @@ class ExerciseLibraryViewModel @Inject constructor(
         onQueryChange("")
     }
 
-    /** Top group is navigation; facets remain independently resettable presentation state. */
-    fun onGroupClicked(group: MuscleGroup) {
-        if (level.value == ExerciseCatalogLevel.Group(group)) setLevel(ExerciseCatalogLevel.Overview)
-        else openGroup(group)
-    }
-
-    fun openGroup(group: MuscleGroup) = setLevel(ExerciseCatalogLevel.Group(group))
-    fun openAllGroupExercises(group: MuscleGroup) = setLevel(ExerciseCatalogLevel.Group(group))
-    fun openMuscle(group: MuscleGroup, muscle: Muscle) = setLevel(ExerciseCatalogLevel.MuscleLeaf(group, muscle))
-
-    /** Returns true only at overview, where the navigation host should close the picker. */
-    fun onBack(): Boolean = when (level.value) {
-        is ExerciseCatalogLevel.MuscleLeaf -> { setLevel(ExerciseCatalogLevel.Group((level.value as ExerciseCatalogLevel.MuscleLeaf).group)); false }
-        is ExerciseCatalogLevel.Group -> { setLevel(ExerciseCatalogLevel.Overview); false }
-        ExerciseCatalogLevel.Overview -> true
-    }
-
     fun resetCatalog() {
         query.value = ""
-        filters.value = ExerciseCatalogFilters()
         sort.value = ExerciseCatalogSort.RECENT
-        level.value = ExerciseCatalogLevel.Overview
         savedStateHandle[CATALOG_QUERY] = ""
-        savedStateHandle[CATALOG_GROUP] = null
-        savedStateHandle[CATALOG_MUSCLE] = null
-        savedStateHandle[CATALOG_TYPE] = null
-        savedStateHandle[CATALOG_ORIGIN] = ExerciseCatalogOrigin.ALL.name
         savedStateHandle[CATALOG_SORT] = ExerciseCatalogSort.RECENT.name
-        saveLevel(ExerciseCatalogLevel.Overview, savedStateHandle)
+        resetFilters()
+    }
+
+    /** Clears filter fields without altering the search, sort, or picker context. */
+    fun resetFilters() {
+        filters.value = ExerciseCatalogFilters()
+        savedStateHandle[CATALOG_GROUP] = null
+        savedStateHandle[CATALOG_TYPE] = ExerciseCatalogTypeFilter.ALL.name
+        savedStateHandle[CATALOG_ORIGIN] = ExerciseCatalogOrigin.ALL.name
     }
 
     fun setOrigin(origin: ExerciseCatalogOrigin) {
@@ -288,24 +262,21 @@ class ExerciseLibraryViewModel @Inject constructor(
         savedStateHandle[CATALOG_ORIGIN] = origin.name
     }
 
-    fun toggleType(type: ExerciseType) {
-        val selected = if (filters.value.type == type) null else type
+    fun setTypeFilter(type: ExerciseCatalogTypeFilter) {
+        val selected = if (filters.value.type == type) ExerciseCatalogTypeFilter.ALL else type
         filters.value = filters.value.copy(type = selected)
-        savedStateHandle[CATALOG_TYPE] = selected?.name
-    }
-
-    fun toggleMuscle(muscle: Muscle) {
-        val selected = if (filters.value.muscle == muscle) null else muscle
-        filters.value = filters.value.copy(muscle = selected)
-        savedStateHandle[CATALOG_MUSCLE] = selected?.name
+        savedStateHandle[CATALOG_TYPE] = selected.name
     }
 
     fun toggleGroupFacet(group: MuscleGroup) {
         val selected = if (filters.value.group == group) null else group
-        val muscle = filters.value.muscle?.takeIf { it.group() == selected }
-        filters.value = filters.value.copy(group = selected, muscle = muscle)
+        filters.value = filters.value.copy(group = selected)
         savedStateHandle[CATALOG_GROUP] = selected?.name
-        savedStateHandle[CATALOG_MUSCLE] = muscle?.name
+    }
+
+    fun clearGroupFacet() {
+        filters.value = filters.value.copy(group = null)
+        savedStateHandle[CATALOG_GROUP] = null
     }
 
     fun setSort(value: ExerciseCatalogSort) {
@@ -313,58 +284,12 @@ class ExerciseLibraryViewModel @Inject constructor(
         savedStateHandle[CATALOG_SORT] = value.name
     }
 
-    private fun setLevel(value: ExerciseCatalogLevel) {
-        level.value = value
-        saveLevel(value, savedStateHandle)
-    }
-
     private companion object {
         const val CATALOG_QUERY = "catalog_query"
         const val CATALOG_GROUP = "catalog_group"
-        const val CATALOG_MUSCLE = "catalog_muscle"
         const val CATALOG_TYPE = "catalog_type"
         const val CATALOG_ORIGIN = "catalog_origin"
         const val CATALOG_SORT = "catalog_sort"
-        const val CATALOG_LEVEL = "catalog_level"
-        const val CATALOG_LEVEL_GROUP = "catalog_level_group"
-        const val CATALOG_LEVEL_MUSCLE = "catalog_level_muscle"
-
-        fun savedLevel(handle: SavedStateHandle): ExerciseCatalogLevel {
-            val group = handle.get<String>(CATALOG_LEVEL_GROUP)?.let { stored ->
-                MuscleGroup.entries.firstOrNull { it.name == stored }
-            }
-            return when (handle.get<String>(CATALOG_LEVEL)) {
-                "muscle" -> {
-                    val muscle = handle.get<String>(CATALOG_LEVEL_MUSCLE)?.let { stored ->
-                        Muscle.entries.firstOrNull { it.name == stored }
-                    }
-                    if (group != null && muscle != null) ExerciseCatalogLevel.MuscleLeaf(group, muscle)
-                    else ExerciseCatalogLevel.Overview
-                }
-                "group" -> group?.let(ExerciseCatalogLevel::Group) ?: ExerciseCatalogLevel.Overview
-                else -> ExerciseCatalogLevel.Overview
-            }
-        }
-
-        fun saveLevel(level: ExerciseCatalogLevel, handle: SavedStateHandle) {
-            when (level) {
-                ExerciseCatalogLevel.Overview -> {
-                    handle[CATALOG_LEVEL] = "overview"
-                    handle[CATALOG_LEVEL_GROUP] = null
-                    handle[CATALOG_LEVEL_MUSCLE] = null
-                }
-                is ExerciseCatalogLevel.Group -> {
-                    handle[CATALOG_LEVEL] = "group"
-                    handle[CATALOG_LEVEL_GROUP] = level.group.name
-                    handle[CATALOG_LEVEL_MUSCLE] = null
-                }
-                is ExerciseCatalogLevel.MuscleLeaf -> {
-                    handle[CATALOG_LEVEL] = "muscle"
-                    handle[CATALOG_LEVEL_GROUP] = level.group.name
-                    handle[CATALOG_LEVEL_MUSCLE] = level.muscle.name
-                }
-            }
-        }
     }
 
     fun openCreate() {
