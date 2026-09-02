@@ -18,9 +18,10 @@ import com.valerochka1337.valerochkagym.domain.GymConfiguration
 import com.valerochka1337.valerochkagym.domain.GymRepository
 import com.valerochka1337.valerochkagym.domain.NewExerciseConfiguration
 import com.valerochka1337.valerochkagym.domain.SaveGymResult
-import com.valerochka1337.valerochkagym.domain.ExerciseCatalogLevel
+import com.valerochka1337.valerochkagym.domain.ExerciseCatalogFilters
 import com.valerochka1337.valerochkagym.domain.ExerciseCatalogOrigin
 import com.valerochka1337.valerochkagym.domain.ExerciseCatalogSort
+import com.valerochka1337.valerochkagym.domain.ExerciseCatalogTypeFilter
 import com.valerochka1337.valerochkagym.ui.library.ExerciseLibraryViewModel
 import com.valerochka1337.valerochkagym.ui.library.SavedExerciseResult
 import com.valerochka1337.valerochkagym.ui.navigation.GymRoutes
@@ -110,34 +111,55 @@ class ExerciseLibraryViewModelTest {
     // endregion
 
     @Test
-    fun `single choice facets reset and back stay presentation only`() = runTest(mainDispatcherRule.testDispatcher.scheduler) {
-        val viewModel = ExerciseLibraryViewModel(FakeExerciseDao(catalogue()), FakeExerciseMuscleDao())
-        collectUiState(viewModel)
-
-        viewModel.toggleGroupFacet(MuscleGroup.LEGS)
-        viewModel.toggleType(ExerciseType.STRENGTH)
-        viewModel.setOrigin(ExerciseCatalogOrigin.BUILT_IN)
-        viewModel.setSort(ExerciseCatalogSort.ALPHABETICAL)
-        viewModel.openGroup(MuscleGroup.LEGS)
-
-        assertEquals(MuscleGroup.LEGS, viewModel.uiState.value.filters.group)
-        assertEquals(ExerciseType.STRENGTH, viewModel.uiState.value.filters.type)
-        assertFalse(viewModel.onBack())
-        assertEquals(ExerciseCatalogLevel.Overview, viewModel.uiState.value.level)
-        viewModel.resetCatalog()
-        assertEquals("", viewModel.uiState.value.query)
-        assertEquals(ExerciseCatalogOrigin.ALL, viewModel.uiState.value.filters.origin)
-        assertEquals(ExerciseCatalogSort.RECENT, viewModel.uiState.value.sort)
-        assertTrue(viewModel.onBack())
-    }
-
-    @Test
-    fun `restored unavailable group normalizes to overview before rendering`() = runTest(mainDispatcherRule.testDispatcher.scheduler) {
-        val handle = SavedStateHandle(mapOf("catalog_level" to "group", "catalog_level_group" to "CARDIO"))
+    fun `reset filters preserves query and sort`() = runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val handle = SavedStateHandle()
         val viewModel = ExerciseLibraryViewModel(FakeExerciseDao(catalogue()), FakeExerciseMuscleDao(), savedStateHandle = handle)
         collectUiState(viewModel)
 
-        assertEquals(ExerciseCatalogLevel.Overview, viewModel.uiState.value.level)
+        viewModel.onQueryChange("жим")
+        viewModel.toggleGroupFacet(MuscleGroup.LEGS)
+        viewModel.setTypeFilter(ExerciseCatalogTypeFilter.STRENGTH)
+        viewModel.setOrigin(ExerciseCatalogOrigin.BUILT_IN)
+        viewModel.setSort(ExerciseCatalogSort.ALPHABETICAL)
+
+        viewModel.resetFilters()
+
+        assertEquals(ExerciseCatalogFilters(), viewModel.uiState.value.filters)
+        assertEquals("жим", viewModel.uiState.value.query)
+        assertEquals(ExerciseCatalogSort.ALPHABETICAL, viewModel.uiState.value.sort)
+        assertNull(handle.get<String>("catalog_group"))
+        assertEquals(ExerciseCatalogTypeFilter.ALL.name, handle.get<String>("catalog_type"))
+        assertEquals(ExerciseCatalogOrigin.ALL.name, handle.get<String>("catalog_origin"))
+    }
+
+    @Test
+    fun `legacy saved type values restore to their compatible type families`() = runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        fun restoredType(value: String): ExerciseCatalogTypeFilter {
+            val viewModel = ExerciseLibraryViewModel(
+                FakeExerciseDao(catalogue()),
+                FakeExerciseMuscleDao(),
+                savedStateHandle = SavedStateHandle(mapOf("catalog_type" to value)),
+            )
+            collectUiState(viewModel)
+            return viewModel.uiState.value.filters.type
+        }
+
+        assertEquals(ExerciseCatalogTypeFilter.CARDIO_OR_TIMED, restoredType(ExerciseType.CARDIO.name))
+        assertEquals(ExerciseCatalogTypeFilter.CARDIO_OR_TIMED, restoredType(ExerciseType.TIMED.name))
+        assertEquals(ExerciseCatalogTypeFilter.STRENGTH, restoredType(ExerciseType.STRENGTH.name))
+    }
+
+    @Test
+    fun `legacy muscle facet state no longer constrains the visible catalog`() = runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val viewModel = ExerciseLibraryViewModel(
+            FakeExerciseDao(catalogue()),
+            FakeExerciseMuscleDao(),
+            savedStateHandle = SavedStateHandle(mapOf("catalog_muscle" to "CHEST")),
+        )
+        collectUiState(viewModel)
+
+        assertEquals(ExerciseCatalogFilters(), viewModel.uiState.value.filters)
+        assertEquals(catalogue().size, viewModel.uiState.value.exercises?.size)
     }
 
     @Test
@@ -145,13 +167,13 @@ class ExerciseLibraryViewModelTest {
         val viewModel = ExerciseLibraryViewModel(FakeExerciseDao(catalogue()), FakeExerciseMuscleDao())
         collectUiState(viewModel)
 
-        viewModel.toggleType(ExerciseType.CARDIO)
+        viewModel.setTypeFilter(ExerciseCatalogTypeFilter.CARDIO_OR_TIMED)
 
-        assertEquals(ExerciseType.CARDIO, viewModel.uiState.value.filters.type)
+        assertEquals(ExerciseCatalogTypeFilter.CARDIO_OR_TIMED, viewModel.uiState.value.filters.type)
         assertTrue(viewModel.uiState.value.isEmpty)
         assertTrue(viewModel.uiState.value.hasActiveConstraints)
         viewModel.resetCatalog()
-        assertNull(viewModel.uiState.value.filters.type)
+        assertEquals(ExerciseCatalogTypeFilter.ALL, viewModel.uiState.value.filters.type)
     }
 
     // region group filtering
@@ -162,11 +184,11 @@ class ExerciseLibraryViewModelTest {
         val viewModel = ExerciseLibraryViewModel(dao, FakeExerciseMuscleDao())
         collectUiState(viewModel)
 
-        viewModel.onGroupClicked(MuscleGroup.LEGS)
+        viewModel.toggleGroupFacet(MuscleGroup.LEGS)
 
         val state = viewModel.uiState.value
         val exercises = state.exercises!!
-        assertEquals(MuscleGroup.LEGS, state.selectedGroup)
+        assertEquals(MuscleGroup.LEGS, state.filters.group)
         assertTrue(exercises.all { it.muscleGroup == MuscleGroup.LEGS })
         assertEquals(listOf("Жим ногами", "Приседания"), exercises.map { it.name }.sorted())
     }
@@ -177,11 +199,11 @@ class ExerciseLibraryViewModelTest {
         val viewModel = ExerciseLibraryViewModel(dao, FakeExerciseMuscleDao())
         collectUiState(viewModel)
 
-        viewModel.onGroupClicked(MuscleGroup.LEGS)
-        viewModel.onGroupClicked(MuscleGroup.LEGS)
+        viewModel.toggleGroupFacet(MuscleGroup.LEGS)
+        viewModel.toggleGroupFacet(MuscleGroup.LEGS)
 
         val state = viewModel.uiState.value
-        assertNull(state.selectedGroup)
+        assertNull(state.filters.group)
         assertEquals(catalogue().size, state.exercises?.size)
     }
 
@@ -195,7 +217,7 @@ class ExerciseLibraryViewModelTest {
         val viewModel = ExerciseLibraryViewModel(dao, FakeExerciseMuscleDao())
         collectUiState(viewModel)
 
-        viewModel.onGroupClicked(MuscleGroup.LEGS)
+        viewModel.toggleGroupFacet(MuscleGroup.LEGS)
         viewModel.onQueryChange("жим")
 
         val names = viewModel.uiState.value.exercises?.map { it.name }

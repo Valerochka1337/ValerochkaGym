@@ -12,31 +12,40 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.Sort
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.rounded.Info
+import androidx.compose.material.icons.rounded.FilterList
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -47,9 +56,10 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleGroup
 import com.valerochka1337.valerochkagym.domain.displayName
-import com.valerochka1337.valerochkagym.domain.ExerciseCatalogLevel
+import com.valerochka1337.valerochkagym.domain.ExerciseCatalogFilters
 import com.valerochka1337.valerochkagym.domain.ExerciseCatalogOrigin
 import com.valerochka1337.valerochkagym.domain.ExerciseCatalogSort
+import com.valerochka1337.valerochkagym.domain.ExerciseCatalogTypeFilter
 import com.valerochka1337.valerochkagym.ui.components.ExerciseAvatar
 import com.valerochka1337.valerochkagym.ui.components.FadeInContent
 import com.valerochka1337.valerochkagym.ui.components.GlowBackground
@@ -58,6 +68,7 @@ import com.valerochka1337.valerochkagym.ui.components.GymCard
 import com.valerochka1337.valerochkagym.ui.components.GymFilterChip
 import com.valerochka1337.valerochkagym.ui.haptics.gymHaptics
 import com.valerochka1337.valerochkagym.ui.navigation.GymWindowWidthClass
+import com.valerochka1337.valerochkagym.ui.theme.GymMotion
 
 /**
  * The exercise library: search field, muscle-group filter chips and a list of
@@ -82,8 +93,13 @@ fun ExerciseLibraryScreen(
     val editor by viewModel.editor.collectAsStateWithLifecycle()
     val aiCreation by viewModel.aiCreation.collectAsStateWithLifecycle()
     val haptics = gymHaptics()
+    var filterSheetOpen by rememberSaveable { mutableStateOf(false) }
+    var sortSheetOpen by rememberSaveable { mutableStateOf(false) }
+    val exerciseListState = rememberLazyListState()
 
-    BackHandler { if (viewModel.onBack()) onBack() }
+    LaunchedEffect(state.sort, state.filters) {
+        if (!state.exercises.isNullOrEmpty()) exerciseListState.scrollToItem(0)
+    }
 
     LaunchedEffect(viewModel, onExerciseSelected, onExerciseAddedToWorkout) {
         viewModel.savedExercise.collect { result ->
@@ -104,7 +120,7 @@ fun ExerciseLibraryScreen(
                     .align(Alignment.TopCenter),
             ) {
                 val horizontalPadding = if (windowWidthClass == GymWindowWidthClass.Compact) 16.dp else 24.dp
-                LibraryHeader(onBack = { if (viewModel.onBack()) onBack() }, level = state.level)
+                LibraryHeader(onBack = onBack)
 
                 if (state.gymNames.isNotEmpty()) {
                     Text(
@@ -119,21 +135,13 @@ fun ExerciseLibraryScreen(
                     query = state.query,
                     onQueryChange = viewModel::onQueryChange,
                     onClear = viewModel::clearQuery,
+                    onOpenFilters = { filterSheetOpen = true },
+                    onOpenSort = { sortSheetOpen = true },
+                    filtersActive = state.filters != ExerciseCatalogFilters(),
+                    sortActive = state.sort != ExerciseCatalogSort.RECENT,
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = horizontalPadding),
-                )
-
-                Spacer(Modifier.height(12.dp))
-
-                CatalogFacetRows(
-                    state = state,
-                    padding = horizontalPadding,
-                    onSort = viewModel::setSort,
-                    onOrigin = viewModel::setOrigin,
-                    onType = viewModel::toggleType,
-                    onGroup = viewModel::toggleGroupFacet,
-                    onMuscle = viewModel::toggleMuscle,
                 )
 
                 Spacer(Modifier.height(12.dp))
@@ -152,10 +160,9 @@ fun ExerciseLibraryScreen(
                         )
                     }
                     else -> FadeInContent {
-                        val leaf = state.level as? ExerciseCatalogLevel.MuscleLeaf
-                        val leafResults = leaf?.let { state.projection?.results("", state.filters, state.sort, it) }
                         LazyColumn(
                             modifier = Modifier.fillMaxSize(),
+                            state = exerciseListState,
                             contentPadding = PaddingValues(
                                 start = horizontalPadding,
                                 end = horizontalPadding,
@@ -164,76 +171,17 @@ fun ExerciseLibraryScreen(
                             ),
                             verticalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
-                            if (!state.hasActiveConstraints && state.level == ExerciseCatalogLevel.Overview) {
-                                val quick = state.projection?.quickSections()
-                                if (!quick?.recent.isNullOrEmpty()) {
-                                    item(key = "recent-heading") { SectionHeading("Недавние") }
-                                    items(quick!!.recent, key = { "recent-${it.id}" }) { exercise ->
-                                        ExerciseRow(exercise, onExerciseSelected?.let { callback -> { callback(exercise) } } ?: { viewModel.openEdit(exercise) }, onExerciseInfo?.let { callback -> { haptics.tap(); callback(exercise) } })
-                                    }
-                                }
-                                if (!quick?.frequent.isNullOrEmpty()) {
-                                    item(key = "frequent-heading") { SectionHeading("Частые") }
-                                    items(quick!!.frequent, key = { "frequent-${it.id}" }) { exercise ->
-                                        ExerciseRow(exercise, onExerciseSelected?.let { callback -> { callback(exercise) } } ?: { viewModel.openEdit(exercise) }, onExerciseInfo?.let { callback -> { haptics.tap(); callback(exercise) } })
-                                    }
-                                }
-                                item(key = "groups-heading") { SectionHeading("Все упражнения по группам") }
-                                state.projection?.groups?.forEach { group ->
-                                    item(key = "group-${group.group.name}") {
-                                        GroupRow(group.group, group.count) { viewModel.openGroup(group.group) }
-                                    }
-                                }
-                                item(key = "all-heading") { SectionHeading("Полный каталог · ${exercises.size}") }
-                            }
-                            if (state.level is ExerciseCatalogLevel.Group && !state.hasActiveConstraints) {
-                                val group = (state.level as ExerciseCatalogLevel.Group).group
-                                item(key = "all-group") { SectionHeading("Все упражнения · ${group.displayName()}") }
-                                state.projection?.groups?.firstOrNull { it.group == group }?.muscles?.forEach { muscle ->
-                                    item(key = "muscle-${group.name}-${muscle.name}") {
-                                        MuscleRow(muscle) { viewModel.openMuscle(group, muscle) }
-                                    }
-                                }
-                                item(key = "group-results") { SectionHeading("Все упражнения · ${exercises.size}") }
-                            }
-                            if (leafResults != null && !state.hasActiveConstraints) {
-                                if (leafResults.primary.isNotEmpty()) {
-                                    item(key = "primary-heading") { SectionHeading("Основная нагрузка") }
-                                    items(leafResults.primary, key = { "primary-${it.id}" }) { exercise ->
-                                        ExerciseRow(
-                                            exercise = exercise,
-                                            onClick = onExerciseSelected?.let { callback -> { callback(exercise) } } ?: { viewModel.openEdit(exercise) },
-                                            onInfo = onExerciseInfo?.let { callback -> { haptics.tap(); callback(exercise) } },
-                                            modifier = Modifier.animateItem(),
-                                        )
-                                    }
-                                }
-                                if (leafResults.secondary.isNotEmpty()) {
-                                    item(key = "secondary-heading") { SectionHeading("Дополнительная нагрузка") }
-                                    items(leafResults.secondary, key = { "secondary-${it.id}" }) { exercise ->
-                                        ExerciseRow(
-                                            exercise = exercise,
-                                            onClick = onExerciseSelected?.let { callback -> { callback(exercise) } } ?: { viewModel.openEdit(exercise) },
-                                            onInfo = onExerciseInfo?.let { callback -> { haptics.tap(); callback(exercise) } },
-                                            modifier = Modifier.animateItem(),
-                                        )
-                                    }
-                                }
-                            }
-                            if (state.hasActiveConstraints) item(key = "result-count") { SectionHeading("Найдено: ${exercises.size}") }
-                            if (leafResults == null || state.hasActiveConstraints) {
-                                items(exercises, key = { it.id }) { exercise ->
-                                    ExerciseRow(
-                                        exercise = exercise,
-                                        onClick = onExerciseSelected
-                                            ?.let { callback -> { callback(exercise) } }
-                                            ?: { viewModel.openEdit(exercise) },
-                                        onInfo = onExerciseInfo?.let { callback ->
-                                            { haptics.tap(); callback(exercise) }
-                                        },
-                                        modifier = Modifier.animateItem(),
-                                    )
-                                }
+                            items(exercises, key = { it.id }) { exercise ->
+                                ExerciseRow(
+                                    exercise = exercise,
+                                    onClick = onExerciseSelected
+                                        ?.let { callback -> { callback(exercise) } }
+                                        ?: { viewModel.openEdit(exercise) },
+                                    onInfo = onExerciseInfo?.let { callback ->
+                                        { haptics.tap(); callback(exercise) }
+                                    },
+                                    modifier = Modifier.animateItem(placementSpec = GymMotion.spatialFast()),
+                                )
                             }
                         }
                     }
@@ -254,6 +202,25 @@ fun ExerciseLibraryScreen(
                 Icon(Icons.Default.Add, contentDescription = "Создать упражнение")
             }
         }
+    }
+
+    if (filterSheetOpen) {
+        FilterSheet(
+            state = state,
+            onDismiss = { filterSheetOpen = false },
+            onType = viewModel::setTypeFilter,
+            onOrigin = viewModel::setOrigin,
+            onGroup = viewModel::toggleGroupFacet,
+            onClearGroup = viewModel::clearGroupFacet,
+            onReset = viewModel::resetFilters,
+        )
+    }
+    if (sortSheetOpen) {
+        SortSheet(
+            state = state,
+            onDismiss = { sortSheetOpen = false },
+            onSort = { sort -> viewModel.setSort(sort); sortSheetOpen = false },
+        )
     }
 
     editor?.let { initial ->
@@ -286,7 +253,7 @@ fun ExerciseLibraryScreen(
 }
 
 @Composable
-private fun LibraryHeader(onBack: () -> Unit, level: ExerciseCatalogLevel) {
+private fun LibraryHeader(onBack: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -302,11 +269,7 @@ private fun LibraryHeader(onBack: () -> Unit, level: ExerciseCatalogLevel) {
         }
         Spacer(Modifier.width(4.dp))
         Text(
-            text = when (level) {
-                ExerciseCatalogLevel.Overview -> "Упражнения"
-                is ExerciseCatalogLevel.Group -> level.group.displayName()
-                is ExerciseCatalogLevel.MuscleLeaf -> level.muscle.displayName()
-            },
+            text = "Упражнения",
             style = MaterialTheme.typography.headlineLarge,
             color = MaterialTheme.colorScheme.onBackground,
         )
@@ -318,6 +281,10 @@ private fun SearchField(
     query: String,
     onQueryChange: (String) -> Unit,
     onClear: () -> Unit,
+    onOpenFilters: () -> Unit,
+    onOpenSort: () -> Unit,
+    filtersActive: Boolean,
+    sortActive: Boolean,
     modifier: Modifier = Modifier,
 ) {
     OutlinedTextField(
@@ -328,9 +295,25 @@ private fun SearchField(
         placeholder = { Text("Поиск упражнения") },
         leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
         trailingIcon = {
-            if (query.isNotEmpty()) {
-                IconButton(onClick = onClear) {
-                    Icon(Icons.Default.Close, contentDescription = "Очистить")
+            Row {
+                if (query.isNotEmpty()) {
+                    IconButton(onClick = onClear) {
+                        Icon(Icons.Default.Close, contentDescription = "Очистить")
+                    }
+                }
+                IconButton(onClick = onOpenFilters) {
+                    Icon(
+                        Icons.Rounded.FilterList,
+                        contentDescription = if (filtersActive) "Фильтры: активны" else "Фильтры",
+                        tint = if (filtersActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                IconButton(onClick = onOpenSort) {
+                    Icon(
+                        Icons.AutoMirrored.Rounded.Sort,
+                        contentDescription = if (sortActive) "Сортировка: активна" else "Сортировка",
+                        tint = if (sortActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
             }
         },
@@ -341,122 +324,99 @@ private fun SearchField(
 }
 
 @Composable
-private fun GroupFilterRow(
-    selectedGroup: MuscleGroup?,
-    onGroupClicked: (MuscleGroup) -> Unit,
-) {
-    LazyRow(
-        modifier = Modifier.fillMaxWidth(),
-        contentPadding = PaddingValues(horizontal = 24.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        items(MuscleGroup.entries, key = { it.name }) { group ->
-            val selected = group == selectedGroup
-            GymFilterChip(
-                selected = selected,
-                onClick = { onGroupClicked(group) },
-                label = group.displayName(),
-            )
-        }
-    }
-}
-
-@Composable
-private fun CatalogFacetRows(
+@OptIn(ExperimentalMaterial3Api::class)
+private fun FilterSheet(
     state: ExerciseLibraryUiState,
-    padding: androidx.compose.ui.unit.Dp,
-    onSort: (ExerciseCatalogSort) -> Unit,
+    onDismiss: () -> Unit,
     onOrigin: (ExerciseCatalogOrigin) -> Unit,
-    onType: (com.valerochka1337.valerochkagym.data.db.entity.ExerciseType) -> Unit,
+    onType: (ExerciseCatalogTypeFilter) -> Unit,
     onGroup: (MuscleGroup) -> Unit,
-    onMuscle: (com.valerochka1337.valerochkagym.data.db.entity.Muscle) -> Unit,
+    onClearGroup: () -> Unit,
+    onReset: () -> Unit,
 ) {
-    LazyRow(
-        modifier = Modifier.fillMaxWidth(),
-        contentPadding = PaddingValues(horizontal = padding),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        items(ExerciseCatalogSort.entries, key = { "sort-${it.name}" }) { sort ->
-            GymFilterChip(
-                selected = state.sort == sort,
-                onClick = { onSort(sort) },
-                label = when (sort) {
-                    ExerciseCatalogSort.ALPHABETICAL -> "А-Я"
-                    ExerciseCatalogSort.RECENT -> "Недавние"
-                    ExerciseCatalogSort.FREQUENT -> "Частые"
-                },
-            )
-        }
-        items(ExerciseCatalogOrigin.entries, key = { "origin-${it.name}" }) { origin ->
-            GymFilterChip(
-                selected = state.filters.origin == origin,
-                onClick = { onOrigin(origin) },
-                label = when (origin) {
-                    ExerciseCatalogOrigin.ALL -> "Все"
-                    ExerciseCatalogOrigin.BUILT_IN -> "Встроенные"
-                    ExerciseCatalogOrigin.CUSTOM -> "Свои"
-                },
-            )
-        }
-        items(com.valerochka1337.valerochkagym.data.db.entity.ExerciseType.entries, key = { "type-${it.name}" }) { type ->
-            GymFilterChip(
-                selected = type == state.filters.type,
-                onClick = { onType(type) },
-                label = type.displayName(),
-            )
-        }
-        state.projection?.groups?.forEach { group ->
-            item(key = "facet-group-${group.group.name}") {
-                GymFilterChip(
-                    selected = state.filters.group == group.group,
-                    onClick = { onGroup(group.group) },
-                    label = group.group.displayName(),
-                )
+    val counts = state.facetCounts ?: return
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState()) {
+        Column(Modifier.verticalScroll(rememberScrollState())) {
+            Row(modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Rounded.FilterList, contentDescription = null)
+                Spacer(Modifier.width(12.dp))
+                Text("Фильтры", style = MaterialTheme.typography.titleLarge)
+                Spacer(Modifier.weight(1f))
+                if (state.filters != ExerciseCatalogFilters()) {
+                    TextButton(onClick = onReset) { Text("Сбросить") }
+                }
             }
-        }
-        val visibleMuscles = state.projection?.groups
-            ?.filter { state.filters.group == null || it.group == state.filters.group }
-            ?.flatMap { it.muscles }
-            ?.distinct()
-            .orEmpty()
-        visibleMuscles.forEach { muscle ->
-            item(key = "facet-muscle-${muscle.name}") {
-                GymFilterChip(
-                    selected = state.filters.muscle == muscle,
-                    onClick = { onMuscle(muscle) },
-                    label = muscle.displayName(),
-                )
+            SheetChipRow("Тип") {
+                ExerciseCatalogTypeFilter.entries.forEach { type ->
+                    GymFilterChip(type == state.filters.type, { onType(type) }, type.typeLabel(), counts.types[type])
+                }
             }
+            SheetChipRow("Каталог") {
+                ExerciseCatalogOrigin.entries.forEach { origin ->
+                    GymFilterChip(origin == state.filters.origin, { onOrigin(origin) }, origin.originLabel(), counts.origins[origin])
+                }
+            }
+            SheetChipRow("Группа мышц") {
+                GymFilterChip(state.filters.group == null, onClearGroup, "Все", counts.groups[null])
+                MuscleGroup.entries.forEach { group ->
+                    GymFilterChip(group == state.filters.group, { onGroup(group) }, group.displayName(), counts.groups[group])
+                }
+            }
+            Spacer(Modifier.height(20.dp))
         }
     }
 }
 
 @Composable
-private fun SectionHeading(text: String) {
-    Text(
-        text = text,
-        style = MaterialTheme.typography.titleLarge,
-        color = MaterialTheme.colorScheme.onBackground,
-        modifier = Modifier.padding(top = 10.dp, bottom = 2.dp),
-    )
-}
-
-@Composable
-private fun GroupRow(group: MuscleGroup, count: Int, onClick: () -> Unit) {
-    GymCard(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(group.displayName(), modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
-            Text("$count", color = MaterialTheme.colorScheme.onSurfaceVariant)
+@OptIn(ExperimentalMaterial3Api::class)
+private fun SortSheet(
+    state: ExerciseLibraryUiState,
+    onDismiss: () -> Unit,
+    onSort: (ExerciseCatalogSort) -> Unit,
+) {
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState()) {
+        Column(Modifier.verticalScroll(rememberScrollState())) {
+            Row(modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.AutoMirrored.Rounded.Sort, contentDescription = null)
+                Spacer(Modifier.width(12.dp))
+                Text("Сортировка", style = MaterialTheme.typography.titleLarge)
+            }
+            SheetChipRow("Порядок") {
+                ExerciseCatalogSort.entries.forEach { sort ->
+                    GymFilterChip(sort == state.sort, { onSort(sort) }, sort.sortLabel())
+                }
+            }
+            Spacer(Modifier.height(20.dp))
         }
     }
 }
 
 @Composable
-private fun MuscleRow(muscle: com.valerochka1337.valerochkagym.data.db.entity.Muscle, onClick: () -> Unit) {
-    OutlinedButton(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
-        Text(muscle.displayName(), modifier = Modifier.weight(1f))
-        Text("Открыть")
+private fun SheetChipRow(label: String, content: @Composable () -> Unit) {
+    Column {
+        Text(label, style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp))
+        LazyRow(
+            modifier = Modifier.fillMaxWidth(),
+            contentPadding = PaddingValues(horizontal = 24.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) { item { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { content() } } }
     }
+}
+
+private fun ExerciseCatalogTypeFilter.typeLabel() = when (this) {
+    ExerciseCatalogTypeFilter.ALL -> "Все"
+    ExerciseCatalogTypeFilter.STRENGTH -> "Силовое"
+    ExerciseCatalogTypeFilter.CARDIO_OR_TIMED -> "Кардио / время"
+}
+private fun ExerciseCatalogOrigin.originLabel() = when (this) {
+    ExerciseCatalogOrigin.ALL -> "Все"
+    ExerciseCatalogOrigin.CUSTOM -> "Свои"
+    ExerciseCatalogOrigin.BUILT_IN -> "Встроенные"
+}
+private fun ExerciseCatalogSort.sortLabel() = when (this) {
+    ExerciseCatalogSort.ALPHABETICAL -> "А–Я"
+    ExerciseCatalogSort.RECENT -> "Недавние"
+    ExerciseCatalogSort.FREQUENT -> "Частые"
 }
 
 @Composable
