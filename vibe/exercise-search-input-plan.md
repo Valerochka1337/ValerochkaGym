@@ -16,6 +16,7 @@ Scope: `ExerciseLibraryViewModel`, `ExerciseLibraryScreen`, их VM regression t
 | AC-002 | Последний query асинхронно проецирует каталог; задержка не меняет уже введённый текст. | T-001,T-002; controlled-dispatcher VM regression |
 | AC-003 | Clear/reset, filters/sort и SavedState restoration сохраняют контракт. | T-001,T-002; existing + added VM tests |
 | AC-004 | Тяжёлая проекция остаётся на `@ComputeDispatcher`. | T-001,T-002; controlled-dispatcher VM regression/review |
+| AC-005 | После применения нового поискового запроса каталог показывает начало соответствующей выдачи. | T-003; Compose scroll regression |
 
 ## Current and target flow
 
@@ -64,6 +65,18 @@ Room/repository remain SSOT for persisted catalog data. ViewModel owns query, sa
 | Done condition | `OutlinedTextField.value` comes only from read-only query flow; production-path tests fail under the old binding/conditional `flowOn` and pass with the fix; no existing behavior test is weakened. |
 | AC | AC-001, AC-002, AC-003, AC-004 |
 
+### T-003 — Reset catalog scroll after the applied query changes
+
+| Field | Detail |
+|---|---|
+| Owner | Single implementation writer |
+| Dependencies | T-001,T-002 |
+| Exact files | `app/src/main/java/com/valerochka1337/valerochkagym/ui/library/ExerciseLibraryScreen.kt`; `app/src/test/java/com/valerochka1337/valerochkagym/ui/library/ExerciseLibraryScreenTest.kt` |
+| Actions | Add projected `state.query` to the scroll effect key, preserving the immediate query only for text input. Inject the screen `LazyListState` for a Robolectric Compose regression that scrolls a large catalog, enters a query retaining dozens of rows, waits for the matching projected result, and asserts index zero. |
+| Automated verification | `./gradlew :app:testDebugUnitTest --tests '*ExerciseLibraryScreenTest'` |
+| Done condition | Search input does not reset scroll before projection, and the corresponding non-empty result resets `firstVisibleItemIndex` to zero. |
+| AC | AC-005 |
+
 ## File ownership and execution waves
 
 One writer owns every implementation file: ViewModel and screen form the shared interaction choke point, and the regression test shares its constructor contract. No parallel implementer.
@@ -74,6 +87,8 @@ One writer owns every implementation file: ViewModel and screen form the shared 
 | `ExerciseLibraryScreen.kt`, `ExerciseLibraryViewModelTest.kt` | T-002 |
 
 Wave 1: T-001. Wave 2: T-002 and its targeted test. Wave 3: stable-diff final gates and tracker update. Do not run Gradle while another writer edits these files.
+
+Follow-up wave: T-003 and its targeted Compose regression, then the final gates again on the updated stable diff.
 
 ## Quality gates
 

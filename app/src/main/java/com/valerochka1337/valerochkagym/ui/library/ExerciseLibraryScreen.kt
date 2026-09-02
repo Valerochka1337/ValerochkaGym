@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -48,6 +49,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
@@ -70,6 +72,8 @@ import com.valerochka1337.valerochkagym.ui.haptics.gymHaptics
 import com.valerochka1337.valerochkagym.ui.navigation.GymWindowWidthClass
 import com.valerochka1337.valerochkagym.ui.theme.GymMotion
 
+internal const val EXERCISE_CATALOG_LIST_TAG = "exercise_catalog_list"
+
 /**
  * The exercise library: search field, muscle-group filter chips and a list of
  * exercises. A FAB opens the editor sheet for creating a custom exercise.
@@ -84,6 +88,7 @@ fun ExerciseLibraryScreen(
     onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier,
     windowWidthClass: GymWindowWidthClass = GymWindowWidthClass.Compact,
+    exerciseListState: LazyListState = rememberLazyListState(),
     onExerciseSelected: ((ExerciseEntity) -> Unit)? = null,
     onExerciseAddedToWorkout: (() -> Unit)? = null,
     onExerciseInfo: ((ExerciseEntity) -> Unit)? = null,
@@ -96,9 +101,8 @@ fun ExerciseLibraryScreen(
     val haptics = gymHaptics()
     var filterSheetOpen by rememberSaveable { mutableStateOf(false) }
     var sortSheetOpen by rememberSaveable { mutableStateOf(false) }
-    val exerciseListState = rememberLazyListState()
 
-    LaunchedEffect(state.sort, state.filters) {
+    LaunchedEffect(state.query, state.sort, state.filters) {
         if (!state.exercises.isNullOrEmpty()) exerciseListState.scrollToItem(0)
     }
 
@@ -162,7 +166,9 @@ fun ExerciseLibraryScreen(
                     }
                     else -> FadeInContent {
                         LazyColumn(
-                            modifier = Modifier.fillMaxSize(),
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .testTag(EXERCISE_CATALOG_LIST_TAG),
                             state = exerciseListState,
                             contentPadding = PaddingValues(
                                 start = horizontalPadding,
