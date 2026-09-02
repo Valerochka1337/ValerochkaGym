@@ -6,6 +6,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -126,20 +127,24 @@ fun MainScaffold(
     }
 
     val destinationContent: @Composable () -> Unit = {
-        MainDestinationContent(
-            showResumeBanner = showResumeBanner,
-            banner = banner,
-            onResumeWorkout = { navController.navigate(GymRoutes.ACTIVE_WORKOUT) },
-        ) { modifier ->
-            GymNavGraph(
-                navController = navController,
-                modifier = modifier,
-                appUpdateState = appUpdateState,
-                onCheckUpdate = appUpdateViewModel::checkForUpdate,
-                onDownloadUpdate = appUpdateViewModel::downloadAvailableUpdate,
-                onInstallUpdate = appUpdateViewModel::requestInstallation,
-                onRetryUpdate = appUpdateViewModel::retryFailedAction,
-            )
+        BoxWithConstraints(Modifier.fillMaxSize()) {
+            val windowWidthClass = GymWindowWidthClass.from(maxWidth)
+            MainDestinationContent(
+                showResumeBanner = showResumeBanner,
+                banner = banner,
+                onResumeWorkout = { navController.navigate(GymRoutes.ACTIVE_WORKOUT) },
+            ) { modifier ->
+                GymNavGraph(
+                    navController = navController,
+                    modifier = modifier,
+                    windowWidthClass = windowWidthClass,
+                    appUpdateState = appUpdateState,
+                    onCheckUpdate = appUpdateViewModel::checkForUpdate,
+                    onDownloadUpdate = appUpdateViewModel::downloadAvailableUpdate,
+                    onInstallUpdate = appUpdateViewModel::requestInstallation,
+                    onRetryUpdate = appUpdateViewModel::retryFailedAction,
+                )
+            }
         }
     }
     if (showBottomBar) {

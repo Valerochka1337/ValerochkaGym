@@ -345,6 +345,7 @@ class CalendarViewModelTest {
         RoutineWithCount(routine = RoutineEntity(id = id, name = name), exerciseCount = 0)
 
     private class FakeWorkoutDao(private val finished: List<WorkoutEntity>) : WorkoutDao {
+        override fun observeFinishedExerciseHistory() = flowOf(emptyList<com.valerochka1337.valerochkagym.data.db.relation.ExerciseWorkoutHistoryRow>())
         override fun observeFinishedWorkouts(): Flow<List<WorkoutEntity>> = MutableStateFlow(finished)
         override suspend fun insertWorkout(workout: WorkoutEntity) = Unit
         override suspend fun insertWorkoutExercise(workoutExercise: WorkoutExerciseEntity): Long = 0

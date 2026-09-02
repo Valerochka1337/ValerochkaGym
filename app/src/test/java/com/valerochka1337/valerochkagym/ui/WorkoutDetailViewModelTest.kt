@@ -153,6 +153,7 @@ class WorkoutDetailViewModelTest {
     )
 
     private class FakeWorkoutDao(val full: WorkoutFull?) : WorkoutDao {
+        override fun observeFinishedExerciseHistory() = flowOf(emptyList<com.valerochka1337.valerochkagym.data.db.relation.ExerciseWorkoutHistoryRow>())
         val workoutStream = MutableStateFlow(full?.workout)
         val deletedWorkouts = mutableListOf<String>()
 

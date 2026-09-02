@@ -129,6 +129,7 @@ class UploadWorkoutWorkerTest {
     }
 
     private class FakeWorkoutDao : WorkoutDao {
+        override fun observeFinishedExerciseHistory() = flowOf(emptyList<com.valerochka1337.valerochkagym.data.db.relation.ExerciseWorkoutHistoryRow>())
         val statusUpdates = mutableListOf<Triple<String, UploadStatus, String?>>()
 
         override suspend fun setUploadStatus(workoutId: String, status: UploadStatus, error: String?) {
