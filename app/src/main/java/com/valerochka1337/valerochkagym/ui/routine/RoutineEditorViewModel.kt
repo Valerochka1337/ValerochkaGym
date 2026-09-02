@@ -16,6 +16,9 @@ import com.valerochka1337.valerochkagym.domain.GymRepository
 import com.valerochka1337.valerochkagym.domain.NoOpGymRepository
 import com.valerochka1337.valerochkagym.domain.RoutineConfigurationDraft
 import com.valerochka1337.valerochkagym.domain.SaveRoutineConfigurationResult
+import com.valerochka1337.valerochkagym.domain.ExerciseVariantRepository
+import com.valerochka1337.valerochkagym.domain.NoOpExerciseVariantRepository
+import com.valerochka1337.valerochkagym.data.db.entity.ExerciseVariantEntity
 import com.valerochka1337.valerochkagym.ui.navigation.GymRoutes
 import com.valerochka1337.valerochkagym.worker.NoOpRoutineUploadScheduler
 import com.valerochka1337.valerochkagym.worker.RoutineUploadScheduler
@@ -27,6 +30,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -40,6 +44,9 @@ data class EditorExercise(
     val exerciseId: Long,
     val exerciseName: String,
     val exerciseType: ExerciseType,
+    val variantSyncId: String? = null,
+    val variantName: String? = null,
+    val variantArchived: Boolean = false,
     val restSeconds: Int?,
     val plannedSets: List<PlannedSet>,
 )
@@ -83,6 +90,7 @@ class RoutineEditorViewModel @Inject constructor(
     private val exerciseDao: ExerciseDao,
     private val routineUploadScheduler: RoutineUploadScheduler = NoOpRoutineUploadScheduler,
     private val gymRepository: GymRepository = NoOpGymRepository,
+    private val variantRepository: ExerciseVariantRepository = NoOpExerciseVariantRepository,
 ) : ViewModel() {
 
     private val routineId: Long? =
@@ -92,6 +100,8 @@ class RoutineEditorViewModel @Inject constructor(
         RoutineEditorUiState(isNew = routineId == null, isLoading = routineId != null),
     )
     val uiState: StateFlow<RoutineEditorUiState> = _uiState.asStateFlow()
+    private val _pendingVariantSelection = MutableStateFlow<PendingRoutineVariantSelection?>(null)
+    val pendingVariantSelection: StateFlow<PendingRoutineVariantSelection?> = _pendingVariantSelection
 
     private val _saved = Channel<Unit>(Channel.BUFFERED)
     val saved = _saved.receiveAsFlow()
@@ -114,6 +124,10 @@ class RoutineEditorViewModel @Inject constructor(
             _uiState.update { it.copy(isLoading = false) }
             return
         }
+        val variantsByExercise = full.exercises
+            .map { it.exercise.id }
+            .distinct()
+            .associateWith { exerciseId -> variantRepository.observeForExercise(exerciseId).first().associateBy { it.syncId } }
         _uiState.update { current ->
             RoutineEditorUiState(
                 isNew = false,
@@ -128,6 +142,13 @@ class RoutineEditorViewModel @Inject constructor(
                             exerciseId = item.exercise.id,
                             exerciseName = item.exercise.name,
                             exerciseType = item.exercise.type,
+                            variantSyncId = item.routineExercise.variantSyncId,
+                            variantName = item.routineExercise.variantSyncId?.let { variantId ->
+                                variantsByExercise[item.exercise.id]?.get(variantId)?.name
+                            },
+                            variantArchived = item.routineExercise.variantSyncId?.let { variantId ->
+                                variantsByExercise[item.exercise.id]?.get(variantId)?.isArchived
+                            } ?: false,
                             restSeconds = item.routineExercise.restSeconds,
                             plannedSets = item.routineExercise.plannedSets,
                         )
@@ -155,16 +176,33 @@ class RoutineEditorViewModel @Inject constructor(
     fun addExerciseById(exerciseId: Long) {
         viewModelScope.launch {
             val exercise = exerciseDao.getById(exerciseId) ?: return@launch
-            addExercise(exercise)
+            val variants = variantRepository.activeForExercise(exerciseId)
+            if (variants.isEmpty()) addExercise(exercise) else {
+                _pendingVariantSelection.value = PendingRoutineVariantSelection(exercise, variants)
+            }
         }
     }
 
-    fun addExercise(exercise: ExerciseEntity) {
+    fun chooseVariant(variantSyncId: String?) {
+        val pending = _pendingVariantSelection.value ?: return
+        _pendingVariantSelection.value = null
+        addExercise(
+            exercise = pending.exercise,
+            variantSyncId = variantSyncId,
+            variantName = pending.variants.firstOrNull { it.syncId == variantSyncId }?.name,
+        )
+    }
+
+    fun cancelVariantSelection() { _pendingVariantSelection.value = null }
+
+    fun addExercise(exercise: ExerciseEntity, variantSyncId: String? = null, variantName: String? = null) {
         val setCount = if (exercise.type == ExerciseType.STRENGTH) DEFAULT_STRENGTH_SETS else 1
         val editorExercise = EditorExercise(
             exerciseId = exercise.id,
             exerciseName = exercise.name,
             exerciseType = exercise.type,
+            variantSyncId = variantSyncId,
+            variantName = variantName,
             restSeconds = null,
             plannedSets = List(setCount) { PlannedSet() },
         )
@@ -261,6 +299,7 @@ class RoutineEditorViewModel @Inject constructor(
                 RoutineExerciseEntity(
                     routineId = routineId ?: 0,
                     exerciseId = exercise.exerciseId,
+                    variantSyncId = exercise.variantSyncId,
                     position = index,
                     restSeconds = exercise.restSeconds,
                     plannedSets = exercise.plannedSets,
@@ -325,6 +364,11 @@ class RoutineEditorViewModel @Inject constructor(
         _saved.send(Unit)
     }
 }
+
+data class PendingRoutineVariantSelection(
+    val exercise: ExerciseEntity,
+    val variants: List<ExerciseVariantEntity>,
+)
 
 private fun RoutineEditorUiState.withGyms(value: List<GymConfiguration>): RoutineEditorUiState {
     val existingIds = value.mapTo(hashSetOf()) { it.id }

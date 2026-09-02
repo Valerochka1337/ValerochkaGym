@@ -12,6 +12,7 @@ import com.valerochka1337.valerochkagym.domain.analysis.AnalyticsInput
 import com.valerochka1337.valerochkagym.domain.analysis.AnalyticsReport
 import com.valerochka1337.valerochkagym.domain.analysis.ExerciseProgress
 import com.valerochka1337.valerochkagym.domain.analysis.MuscleLoadSummary
+import com.valerochka1337.valerochkagym.domain.ExerciseExecutionKey
 import com.valerochka1337.valerochkagym.di.ComputeDispatcher
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CoroutineDispatcher
@@ -37,12 +38,14 @@ data class AnalysisUiState(
     val report: AnalyticsReport = AnalyticsReport.empty(AnalysisPeriod.LAST_7_DAYS),
     val period: AnalysisPeriod = AnalysisPeriod.LAST_7_DAYS,
     val selectedMuscle: Muscle? = null,
-    val selectedExerciseId: Long? = null,
+    val selectedExercise: ExerciseExecutionKey? = null,
     val weeklyMetric: WeeklyMetric = WeeklyMetric.SETS,
     val selectedWeekIndex: Int? = null,
     val selectedSessionIndex: Int? = null,
     val zone: ZoneId = ZoneId.systemDefault(),
 ) {
+    /** Compatibility/readability projection; grouping itself always uses [selectedExercise]. */
+    val selectedExerciseId: Long? get() = selectedExercise?.exerciseId
     /** Подробности выбранной мышцы — источник чисел под картой тела. */
     val selectedMuscleLoad: MuscleLoadSummary?
         get() = selectedMuscle?.let { muscle -> report.muscleLoads.firstOrNull { it.muscle == muscle } }
@@ -52,7 +55,9 @@ data class AnalysisUiState(
      * бы пустой до первого тапа, хотя данные уже есть.
      */
     val shownExercise: ExerciseProgress?
-        get() = report.exercises.firstOrNull { it.exerciseId == selectedExerciseId }
+        get() = report.exercises.firstOrNull {
+            ExerciseExecutionKey(it.exerciseId, it.variantSyncId) == selectedExercise
+        }
             ?: report.exercises.firstOrNull()
 }
 
@@ -76,19 +81,19 @@ class AnalysisViewModel @Inject constructor(
     // Намеренно не SavedStateHandle и не DataStore: новый экран всегда начинает с последних 7 дней.
     private val period = MutableStateFlow<AnalysisPeriod>(AnalysisPeriod.LAST_7_DAYS)
     private val selectedMuscle = MutableStateFlow<Muscle?>(null)
-    private val selectedExerciseId = MutableStateFlow<Long?>(null)
+    private val selectedExercise = MutableStateFlow<ExerciseExecutionKey?>(null)
     private val weeklyMetric = MutableStateFlow(WeeklyMetric.SETS)
     private val selectedWeekIndex = MutableStateFlow<Int?>(null)
     private val selectedSessionIndex = MutableStateFlow<Int?>(null)
 
     private val selection = combine(
         selectedMuscle,
-        selectedExerciseId,
+        selectedExercise,
         weeklyMetric,
         selectedWeekIndex,
         selectedSessionIndex,
-    ) { muscle, exerciseId, metric, weekIndex, sessionIndex ->
-        Selection(muscle, exerciseId, metric, weekIndex, sessionIndex)
+    ) { muscle, exercise, metric, weekIndex, sessionIndex ->
+        Selection(muscle, exercise, metric, weekIndex, sessionIndex)
     }
 
     private val reportFlow = combine(
@@ -122,7 +127,7 @@ class AnalysisViewModel @Inject constructor(
                 report = report,
                 period = report.period,
                 selectedMuscle = current.muscle,
-                selectedExerciseId = current.exerciseId,
+                selectedExercise = current.exercise,
                 weeklyMetric = current.metric,
                 selectedWeekIndex = current.weekIndex,
                 selectedSessionIndex = current.sessionIndex,
@@ -150,8 +155,8 @@ class AnalysisViewModel @Inject constructor(
         selectedMuscle.value = if (muscle == null || selectedMuscle.value == muscle) null else muscle
     }
 
-    fun onExerciseSelected(exerciseId: Long) {
-        selectedExerciseId.value = exerciseId
+    fun onExerciseSelected(key: ExerciseExecutionKey) {
+        selectedExercise.value = key
         selectedSessionIndex.value = null
     }
 
@@ -170,7 +175,7 @@ class AnalysisViewModel @Inject constructor(
 
     private data class Selection(
         val muscle: Muscle?,
-        val exerciseId: Long?,
+        val exercise: ExerciseExecutionKey?,
         val metric: WeeklyMetric,
         val weekIndex: Int?,
         val sessionIndex: Int?,

@@ -266,12 +266,12 @@ class AnalyticsEngine @Inject constructor() {
 
     private fun exerciseProgress(sets: List<AnalyticsSetRow>): List<ExerciseProgress> =
         sets.filter { it.exerciseType == ExerciseType.STRENGTH }
-            .groupBy { it.exerciseId }
-            .map { (exerciseId, exerciseSets) -> progressFor(exerciseId, exerciseSets) }
+            .groupBy { it.exerciseId to it.variantSyncId }
+            .map { (key, exerciseSets) -> progressFor(key.first, key.second, exerciseSets) }
             .filter { it.points.isNotEmpty() }
             .sortedWith(compareByDescending<ExerciseProgress> { it.points.size }.thenBy { it.name })
 
-    private fun progressFor(exerciseId: Long, sets: List<AnalyticsSetRow>): ExerciseProgress {
+    private fun progressFor(exerciseId: Long, variantSyncId: String?, sets: List<AnalyticsSetRow>): ExerciseProgress {
         val points = sets.groupBy { it.workoutId }
             .mapNotNull { (workoutId, sessionSets) ->
                 val bestE1rm = sessionSets.mapNotNull { OneRepMax.epley(it.weightKg, it.reps) }.maxOrNull()
@@ -297,6 +297,8 @@ class AnalyticsEngine @Inject constructor() {
         return ExerciseProgress(
             exerciseId = exerciseId,
             name = sets.first().exerciseName,
+            variantSyncId = variantSyncId,
+            variantNameSnapshot = sets.first().variantNameSnapshot,
             points = points,
             repMaxes = repMaxes(sets),
             bestE1rm = points.maxOfOrNull { it.bestE1rm },
@@ -364,15 +366,17 @@ class AnalyticsEngine @Inject constructor() {
 
     private fun records(sets: List<AnalyticsSetRow>): List<ExerciseRecord> =
         sets.filter { it.exerciseType == ExerciseType.STRENGTH }
-            .groupBy { it.exerciseId }
-            .mapNotNull { (exerciseId, exerciseSets) ->
+            .groupBy { it.exerciseId to it.variantSyncId }
+            .mapNotNull { (key, exerciseSets) ->
                 val best = exerciseSets
                     .mapNotNull { set -> OneRepMax.epley(set.weightKg, set.reps)?.let { set to it } }
                     .maxByOrNull { it.second }
                     ?: return@mapNotNull null
                 ExerciseRecord(
-                    exerciseId = exerciseId,
+                    exerciseId = key.first,
                     name = best.first.exerciseName,
+                    variantSyncId = key.second,
+                    variantNameSnapshot = best.first.variantNameSnapshot,
                     bestE1rm = best.second,
                     weightKg = best.first.weightKg ?: 0.0,
                     reps = best.first.reps ?: 0,

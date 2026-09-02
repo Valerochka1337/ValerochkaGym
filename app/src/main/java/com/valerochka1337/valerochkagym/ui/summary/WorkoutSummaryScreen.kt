@@ -37,6 +37,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.valerochka1337.valerochkagym.domain.PrResult
+import com.valerochka1337.valerochkagym.domain.ExerciseExecutionKey
 import com.valerochka1337.valerochkagym.ui.components.ExerciseAvatar
 import com.valerochka1337.valerochkagym.ui.components.GlowBackground
 import com.valerochka1337.valerochkagym.ui.components.LoadingState
@@ -54,7 +55,7 @@ import java.math.BigDecimal
 @Composable
 fun WorkoutSummaryScreen(
     onDone: () -> Unit,
-    onExerciseClick: (Long) -> Unit,
+    onExerciseClick: (Long, String?) -> Unit,
     modifier: Modifier = Modifier,
     viewModel: WorkoutSummaryViewModel = hiltViewModel(),
 ) {
@@ -108,12 +109,18 @@ fun WorkoutSummaryScreen(
                             color = MaterialTheme.colorScheme.onBackground,
                         )
                     }
-                    items(state.prs, key = { it.exerciseId }) { pr ->
+                    items(state.prs, key = { ExerciseExecutionKey(it.exerciseId, it.variantSyncId) }) { pr ->
                         PrCard(
                             pr = pr,
+                            groupLabel = state.exercises
+                                .filter { it.exerciseId == pr.exerciseId }
+                                .map { it.variantSyncId }
+                                .distinct()
+                                .takeIf { it.size > 1 }
+                                ?.let { pr.variantNameSnapshot ?: "Без варианта" },
                             onClick = {
                                 haptics.tap()
-                                onExerciseClick(pr.exerciseId)
+                                onExerciseClick(pr.exerciseId, pr.variantSyncId)
                             },
                         )
                     }
@@ -128,12 +135,12 @@ fun WorkoutSummaryScreen(
                             color = MaterialTheme.colorScheme.onBackground,
                         )
                     }
-                    items(state.exercises, key = { it.id }) { exercise ->
+                    items(state.exercises, key = { ExerciseExecutionKey(it.exerciseId, it.variantSyncId) }) { exercise ->
                         GymCard(
                             modifier = Modifier.fillMaxWidth().animateItem(),
                             onClick = {
                                 haptics.tap()
-                                onExerciseClick(exercise.exerciseId)
+                                onExerciseClick(exercise.exerciseId, exercise.variantSyncId)
                             },
                             contentPadding = PaddingValues(horizontal = 18.dp, vertical = 14.dp),
                         ) {
@@ -146,6 +153,16 @@ fun WorkoutSummaryScreen(
                                     fontWeight = FontWeight.SemiBold,
                                     color = MaterialTheme.colorScheme.onSurface,
                                 )
+                                if (
+                                    state.exercises.filter { it.exerciseId == exercise.exerciseId }
+                                        .map { it.variantSyncId }.distinct().size > 1
+                                ) {
+                                    Text(
+                                        "Вариант: ${exercise.variantName ?: "Без варианта"}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
                             }
                             if (exercise.setsSummary.isNotEmpty()) {
                                 Spacer(Modifier.height(2.dp))
@@ -241,7 +258,7 @@ private fun StatTile(
 }
 
 @Composable
-private fun PrCard(pr: PrResult, onClick: () -> Unit) {
+private fun PrCard(pr: PrResult, groupLabel: String?, onClick: () -> Unit) {
     // Каждая строка рекорда «впрыгивает» отдельно (expressive bouncy scale + затухание) —
     // акцент на достижении. Анимация запускается один раз при первом появлении карточки.
     val appear = remember { MutableTransitionState(false).apply { targetState = true } }
@@ -262,13 +279,21 @@ private fun PrCard(pr: PrResult, onClick: () -> Unit) {
                     tint = MaterialTheme.colorScheme.primary,
                 )
                 Spacer(Modifier.width(12.dp))
-                Text(
-                    text = pr.exerciseName,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.weight(1f),
-                )
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = pr.exerciseName,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    groupLabel?.let { label ->
+                        Text(
+                            text = "Вариант: $label",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
                 Text(
                     text = "${formatNumber(pr.weightKg)} кг",
                     style = MaterialTheme.typography.titleMedium,

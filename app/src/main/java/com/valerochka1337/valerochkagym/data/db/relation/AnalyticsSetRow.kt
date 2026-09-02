@@ -15,6 +15,8 @@ data class AnalyticsSetRow(
     val exerciseId: Long,
     val exerciseName: String,
     val exerciseType: ExerciseType,
+    val variantSyncId: String? = null,
+    val variantNameSnapshot: String? = null,
     val weightKg: Double?,
     val reps: Int?,
     val durationSec: Int?,
