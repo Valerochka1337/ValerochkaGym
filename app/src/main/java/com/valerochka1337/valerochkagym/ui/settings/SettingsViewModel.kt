@@ -276,7 +276,7 @@ class SettingsViewModel @Inject constructor(
             is AuthorizeOutcome.NeedsConsent -> _consentRequests.send(outcome.pendingIntent.intentSender)
             is AuthorizeOutcome.Failed -> authError.value = AUTH_ERROR_MESSAGE
             AuthorizeOutcome.Granted -> {
-                weeklyScheduleRecoveryScheduler.enqueue()
+                weeklyScheduleRecoveryScheduler.wake()
                 importHistoryIfConfigured()
             }
         }

@@ -119,8 +119,12 @@ Google Calendar, пока все новые RRULE-события не подтв
     локальный terminal marker завершается офлайн, а реально сетевой шаг возвращает `Retry`. Текущий
     `androidx.work:work-runtime:2.11.2` проверен и содержит enum value; append исключает lost wakeup,
     если enqueue происходит после последнего journal read, но до finish текущего worker.
-    `REPLACE` допустим только как записанное deviation при фактической compile incompatibility и
-    требует теста cancellation/replacement над durable journal.
+    Обычный enqueue не заменяется на `REPLACE`: это потребовало бы отдельного
+    cancellation/replacement-контракта над durable journal. Явный `wake()` после успешной
+    пользовательской авторизации использует
+    `REPLACE`, чтобы отменить ожидающий backoff и немедленно повторить recovery. App-start и
+    обычные durable continuation по-прежнему используют `APPEND_OR_REPLACE`, поэтому запуск
+    процесса самим worker не отменяет текущую работу.
 16. Ручная Save/Clear перед созданием новой операции сначала пытается завершить существующий
     journal. Пока он не завершён/не очищен, новая операция не создаётся.
 17. Чтение journal возвращает sealed `Absent`, `Present(validOperation)`, `Unreadable(cause)`.
@@ -330,8 +334,8 @@ val id: String? = null
 InputData и всегда читает его через repository. Scheduler создаёт one-time request без network
 constraint, с exponential 30 s и
 `enqueueUniqueWork("weekly_schedule_recovery", APPEND_OR_REPLACE, request)`.
-После `AuthorizeOutcome.Granted` настройки явно enqueue-ят recovery, чтобы paused journal
-продолжился без перезапуска приложения.
+После `AuthorizeOutcome.Granted` настройки вызывают отдельный recovery `wake()` с `REPLACE`,
+чтобы paused journal продолжился без перезапуска приложения и без ожидания старого backoff.
 Новый enqueue всегда остаётся за уже running worker, поэтому последний read не может поглотить
 wakeup. Worker не имеет
 жёсткого лимита попыток, потому что journal — источник истины; permanent/interactive блокировки
@@ -457,7 +461,8 @@ Save или Clear только при atomic смене false -> true и сбр�
   - новый `app/src/test/java/com/valerochka1337/valerochkagym/data/WeeklyScheduleBackupRulesTest.kt`.
 - **Dependencies:** T-002.
 - **Actions:** создать qualified singleton dedicated journal DataStore; внедрить его в repository;
-  добавить Hilt worker и unique unconstrained APPEND_OR_REPLACE scheduler; enqueue в
+  добавить Hilt worker и unique unconstrained scheduler: обычный enqueue использует
+  APPEND_OR_REPLACE, а user-driven wake после consent — REPLACE; enqueue в
   `GymApplication.onCreate`, после незавершённого интерактивного шага и успешного Google consent;
   исключить ровно
   `datastore/weekly_schedule_operations.preferences_pb` из legacy backup и обеих API 31+ секций.
@@ -467,7 +472,8 @@ Save или Clear только при atomic смене false -> true и сбр�
 - **Done:** worker map `Completed/NothingPending -> success`, transient `Retry -> retry`,
   `Paused -> success` без очистки journal; scheduler создаёт ровно одну работу
   `weekly_schedule_recovery` chain с NOT_REQUIRED/APPEND_OR_REPLACE/backoff. Тест подтверждает,
-  что локальный terminal marker не блокируется офлайн, а успешный consent будит paused recovery.
+  что локальный terminal marker не блокируется офлайн, а успешный consent заменяет ожидающий
+  backoff и немедленно будит paused recovery.
   Adversarial test ставит
   новый journal+enqueue после последнего read первого worker, но до его finish, и доказывает запуск
   successor. Robolectric startup test подтверждает `GymApplication.onCreate` enqueue и сохранение

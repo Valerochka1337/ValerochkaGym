@@ -69,12 +69,14 @@ class SettingsRecoverySchedulingTest {
             viewModel.signIn(activity)
             runCurrent()
             assertEquals(0, recovery.enqueues)
+            assertEquals(0, recovery.wakes)
 
             viewModel.consentResolved(activity)
             runCurrent()
 
             assertEquals(2, auth.authorizeCalls)
-            assertEquals(1, recovery.enqueues)
+            assertEquals(0, recovery.enqueues)
+            assertEquals(1, recovery.wakes)
         }
 
     private class ConsentThenGrantedGoogleAuth(
@@ -101,9 +103,15 @@ class SettingsRecoverySchedulingTest {
     private class FakeWeeklyScheduleRecoveryScheduler : WeeklyScheduleRecoveryScheduler {
         var enqueues = 0
             private set
+        var wakes = 0
+            private set
 
         override fun enqueue() {
             enqueues++
+        }
+
+        override fun wake() {
+            wakes++
         }
     }
 

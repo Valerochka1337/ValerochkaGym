@@ -7,16 +7,26 @@ import androidx.work.WorkManager
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 
-interface WeeklyScheduleRecoveryScheduler { fun enqueue() }
+interface WeeklyScheduleRecoveryScheduler {
+    /** Ensure durable recovery is queued without cancelling a currently running worker. */
+    fun enqueue()
+
+    /** Explicit user-driven wake-up that replaces a worker waiting in exponential backoff. */
+    fun wake() = enqueue()
+}
 
 class WorkManagerWeeklyScheduleRecoveryScheduler @Inject constructor(
     private val workManager: WorkManager,
 ) : WeeklyScheduleRecoveryScheduler {
-    override fun enqueue() {
+    override fun enqueue() = enqueue(ExistingWorkPolicy.APPEND_OR_REPLACE)
+
+    override fun wake() = enqueue(ExistingWorkPolicy.REPLACE)
+
+    private fun enqueue(policy: ExistingWorkPolicy) {
         val request = OneTimeWorkRequestBuilder<WeeklyScheduleRecoveryWorker>()
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, BACKOFF_SECONDS, TimeUnit.SECONDS)
             .build()
-        workManager.enqueueUniqueWork(UNIQUE_WORK_NAME, ExistingWorkPolicy.APPEND_OR_REPLACE, request)
+        workManager.enqueueUniqueWork(UNIQUE_WORK_NAME, policy, request)
     }
 
     companion object {

@@ -9,7 +9,7 @@
 |---|---|---|---|---|---|
 | T-001 Wire/journal/auth contracts | done | android_feature_implementer | — | AC-003, AC-005, AC-009, AC-010 | DTO omits nullable id; journal validation/typed read; 32-hex IDs; account-bound token/consent request tests pass |
 | T-002 Durable repository state machine | done | android_feature_implementer | T-001 | AC-001, AC-002, AC-003, AC-004, AC-005, AC-006, AC-008, AC-010 | Fault/recreation/owner/unreadable tests pass; old active preserved; cancellation replays same ID as 409 |
-| T-003 DataStore + WorkManager + backup recovery | done | android_feature_implementer | T-002 | AC-002, AC-004, AC-005, AC-006, AC-007, AC-010 | Dedicated qualified DataStore; unconstrained APPEND_OR_REPLACE worker chain can finish local markers offline; startup enqueue; journal-only exclusions |
+| T-003 DataStore + WorkManager + backup recovery | done | android_feature_implementer | T-002 | AC-002, AC-004, AC-005, AC-006, AC-007, AC-010 | Dedicated qualified DataStore; unconstrained APPEND_OR_REPLACE continuation finishes local markers offline; explicit auth wake uses REPLACE; startup enqueue; journal-only exclusions |
 | T-004 UI busy/messages | done | android_feature_implementer | T-002, T-003 | AC-001, AC-007, AC-008, AC-009, AC-010 | Shared ViewModel gate tested under suspension; successful Google consent wakes paused recovery; both actions consume the same busy state and repository messages pass through |
 | T-005 Architecture + version 11/1.3.3 | done | android_feature_implementer | T-001..T-004 | AC-005 | ARCHITECTURE updated; base version exactly 11/1.3.3; testVersion overrides untouched |
 | T-006 Full gates, review, Git/PR | done | tester + reviewer + main agent | T-005 | AC-001..AC-010 | 717/717 unit tests + debug passed; Gate T/V passed без P0/P1/P2; release blocked только отсутствующими signing inputs; version 11/1.3.3 fresh vs main 10/1.3.2; commit/push/PR выполняет main agent |
@@ -41,7 +41,7 @@
 | D-006 | State machine: CREATE_NEW -> CLEANUP_NEW или DELETE_OLD | frozen |
 | D-007 | Insert 409 same ID; delete 2xx/404/410 — confirmed success | frozen |
 | D-008 | Pending delete ID убирается только после confirmed success | frozen |
-| D-009 | App-start + unique unconstrained WorkManager APPEND_OR_REPLACE/backoff chain: local terminal markers finish offline, network steps return Retry; REPLACE only compile fallback + test | frozen |
+| D-009 | App-start/durable continuation uses unique unconstrained WorkManager APPEND_OR_REPLACE/backoff chain; explicit user-auth wake uses REPLACE so it bypasses old backoff; local markers finish offline, network steps return Retry | frozen |
 | D-010 | Singleton repository Mutex сериализует UI/worker; CancellationException propagates | frozen |
 | D-011 | `WeeklySchedule.ownerEmail`; atomic legacy adopt; separate `AccountBoundGoogleAuth` via `AuthorizationRequest.setAccount`; mismatch/sign-out pause | frozen |
 | D-012 | Clear использует DELETE_OLD и commit empty только после remote completion | frozen |
@@ -81,6 +81,9 @@
 | PR review follow-up | `./gradlew :app:testDebugUnitTest` | passed | полный unit-регрессионный прогон после inline-review fixes |
 | PR review follow-up | `./gradlew :app:assembleDebug` | passed | Hilt/ViewModel и WorkManager wiring собраны после fixes |
 | PR review follow-up | `./gradlew :app:assembleRelease` | blocked | тот же внешний blocker `:app:validateSigningRelease`: release signing inputs отсутствуют; `kspReleaseKotlin` прошёл |
+| PR follow-up review | `./gradlew :app:testDebugUnitTest --tests "*WeeklyScheduleRecoverySchedulerTest" --tests "*SettingsRecoverySchedulingTest" --tests "*WeeklyScheduleRepositoryTest"` | passed | user-driven wake использует REPLACE: прежний ID удалён, replacement не BLOCKED; consent вызывает wake |
+| PR follow-up review | `./gradlew :app:testDebugUnitTest` | passed | полный unit-регрессионный прогон после F-024 |
+| PR follow-up review | `./gradlew :app:assembleDebug` | passed | debug build после F-024 |
 
 ## Findings
 
@@ -108,7 +111,8 @@
 | F-020 | P2 | Review pass 1 | Недоставало executable fault/status/concurrency/UI evidence | Добавлены middle insert, failed cleanup recreation, applied delete timeout, terminal after-commit, 401/403/429/IO, clear cancellation/save-empty, UI busy variants и UI-worker Mutex tests | resolved |
 | F-021 | P3 | Review pass 1 | Disabled Clear сохранял явный error text color | Error задан через `ButtonDefaults.textButtonColors`; disabled color наследуется из Material button colors | resolved |
 | F-022 | P2 | PR inline review | `NetworkType.CONNECTED` не запускал worker офлайн для чисто локального terminal commit | Recovery work теперь без network constraint; API-нужда возвращает Retry; scheduler test требует `NetworkType.NOT_REQUIRED` | resolved |
-| F-023 | P2 | PR inline review | После `Paused(NeedsConsent)` успешный consent в том же процессе не будил journal recovery | `SettingsViewModel` enqueue-ит recovery на `AuthorizeOutcome.Granted`; Robolectric regression проходит NeedsConsent -> Granted без restart | resolved |
+| F-023 | P2 | PR inline review | После `Paused(NeedsConsent)` успешный consent в том же процессе не будил journal recovery | `SettingsViewModel` вызывает recovery `wake()` на `AuthorizeOutcome.Granted`; Robolectric regression проходит NeedsConsent -> Granted без restart | resolved |
+| F-024 | P2 | PR follow-up review | APPEND_OR_REPLACE wake после consent мог остаться за retry/backoff старой работы | Scheduler разделён на durable `enqueue()`/APPEND_OR_REPLACE и user-driven `wake()`/REPLACE; WorkManager test проверяет CANCELLED old + ENQUEUED replacement | resolved |
 
 ## Plan-review finding verification
 
@@ -143,6 +147,7 @@ agent.
 | 1 | initial Gate T/V: revise | F-017/F-018 | F-019/F-020; F-021 P3 | origin split, marker normalization, safe interactive boundary, expanded tests, disabled colors | fix pass 1 выполнен |
 | 2 | Gate T/V: pass | none | none | повторных исправлений не потребовалось | 717/717 unit, debug build, independent review passed; release signing blocker documented |
 | PR inline | two Medium findings fixed | none | F-022/F-023 resolved | unconstrained recovery + consent wake-up, executable regressions | full unit/debug passed; release signing blocker unchanged |
+| PR follow-up inline | one Medium finding fixed | none | F-024 resolved | separate APPEND_OR_REPLACE enqueue and REPLACE wake | targeted + full unit/debug passed |
 
 ## Git/PR checklist (main agent only)
 
