@@ -110,7 +110,9 @@ InBody-значения вычисляются из сохранённых по�
   скачивание и прогресс не теряются при навигации. Выбор «Позже» живёт до смерти процесса;
   «Не напоминать» сохраняет тег в DataStore и не скрывает следующий тег.
 - **Восстановление недельного расписания** — уникальная цепочка
-  `weekly_schedule_recovery` с сетью и `APPEND_OR_REPLACE`. Активный шаблон остаётся SSOT в
+  `weekly_schedule_recovery` без network constraint и с `APPEND_OR_REPLACE`: worker может офлайн
+  завершить локальный terminal marker, а при реально нужной сети возвращает retry. Успешная
+  авторизация в настройках явно будит recovery в том же процессе. Активный шаблон остаётся SSOT в
   `settings.preferences_pb`, а отдельный machine-local journal хранит фазу `CREATE_NEW`,
   `CLEANUP_NEW` или `DELETE_OLD`. Новые Calendar event ID заранее генерируются как 32 lowercase
   hex и повторяются после смерти процесса; insert 409 и delete 404/410 подтверждают

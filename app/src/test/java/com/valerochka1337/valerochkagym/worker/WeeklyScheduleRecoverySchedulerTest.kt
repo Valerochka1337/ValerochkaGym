@@ -17,19 +17,18 @@ import org.robolectric.annotation.Config
 @Config(application = android.app.Application::class)
 class WeeklyScheduleRecoverySchedulerTest {
     @Test
-    fun `enqueue appends a connected successor to the unique chain`() = runTest {
+    fun `enqueue creates unconstrained work so local terminal state can finish offline`() = runTest {
         val context = ApplicationProvider.getApplicationContext<Context>()
         WorkManagerTestInitHelper.initializeTestWorkManager(context, Configuration.Builder().build())
         val workManager = WorkManager.getInstance(context)
         val scheduler = WorkManagerWeeklyScheduleRecoveryScheduler(workManager)
 
         scheduler.enqueue()
-        scheduler.enqueue()
 
         val work = workManager.getWorkInfosForUniqueWork(
             WorkManagerWeeklyScheduleRecoveryScheduler.UNIQUE_WORK_NAME,
         ).get()
-        assertEquals(2, work.size)
-        work.forEach { assertEquals(NetworkType.CONNECTED, it.constraints.requiredNetworkType) }
+        assertEquals(1, work.size)
+        work.forEach { assertEquals(NetworkType.NOT_REQUIRED, it.constraints.requiredNetworkType) }
     }
 }

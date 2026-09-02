@@ -115,7 +115,8 @@ Google Calendar, пока все новые RRULE-события не подтв
     expectedEmail)` допустим как более явный эквивалент, если implementation path требует передать
     owner из weekly UI; оба пути обязаны иметь request-account test.
 15. WorkManager имеет единственное имя `weekly_schedule_recovery`, policy
-    `APPEND_OR_REPLACE`, constraint `NetworkType.CONNECTED` и exponential backoff. Текущий
+    `APPEND_OR_REPLACE`, не имеет network constraint и использует exponential backoff. Поэтому
+    локальный terminal marker завершается офлайн, а реально сетевой шаг возвращает `Retry`. Текущий
     `androidx.work:work-runtime:2.11.2` проверен и содержит enum value; append исключает lost wakeup,
     если enqueue происходит после последнего journal read, но до finish текущего worker.
     `REPLACE` допустим только как записанное deviation при фактической compile incompatibility и
@@ -205,7 +206,7 @@ ScheduleEditor events
       -> WeeklyScheduleRecoveryScheduler (при незавершённом результате)
 
 GymApplication.onCreate
-  -> enqueueUniqueWork(weekly_schedule_recovery, APPEND_OR_REPLACE, network)
+  -> enqueueUniqueWork(weekly_schedule_recovery, APPEND_OR_REPLACE)
   -> WeeklyScheduleRecoveryWorker
   -> same @Singleton repository Mutex -> resumePendingOperation()
 ```
@@ -326,8 +327,11 @@ val id: String? = null
 ### WorkManager contract
 
 `WeeklyScheduleRecoveryWorker` — `@HiltWorker CoroutineWorker`; `doWork` не принимает journal в
-InputData и всегда читает его через repository. Scheduler создаёт one-time request с CONNECTED,
-exponential 30 s и `enqueueUniqueWork("weekly_schedule_recovery", APPEND_OR_REPLACE, request)`.
+InputData и всегда читает его через repository. Scheduler создаёт one-time request без network
+constraint, с exponential 30 s и
+`enqueueUniqueWork("weekly_schedule_recovery", APPEND_OR_REPLACE, request)`.
+После `AuthorizeOutcome.Granted` настройки явно enqueue-ят recovery, чтобы paused journal
+продолжился без перезапуска приложения.
 Новый enqueue всегда остаётся за уже running worker, поэтому последний read не может поглотить
 wakeup. Worker не имеет
 жёсткого лимита попыток, потому что journal — источник истины; permanent/interactive блокировки
@@ -351,9 +355,10 @@ Save или Clear только при atomic смене false -> true и сбр�
 - **DI/scopes:** оба DataStore singleton; journal отличает qualifier
   `@WeeklyScheduleOperations`. Repository singleton уже задан `GoogleModule` и владеет Mutex.
   Worker получает тот же interface через Hilt.
-- **WorkManager:** persistent deferrable recovery, уникальная `APPEND_OR_REPLACE` chain, сеть и
-  backoff; retries идемпотентны за счёт preassigned IDs и durable pending-наборов, а enqueue в
-  финальном окне running worker не теряется.
+- **WorkManager:** persistent deferrable recovery, уникальная unconstrained
+  `APPEND_OR_REPLACE` chain и backoff; retries идемпотентны за счёт preassigned IDs и durable
+  pending-наборов, локальные terminal markers завершаются офлайн, а enqueue в финальном окне
+  running worker не теряется.
 - **Room:** не затронут, миграции и schema export не нужны.
 - **Permissions/security:** Calendar OAuth scope уже существует; новых разрешений/manifest
   components нет. Journal содержит email, request summary/time/routine ID и event IDs в private
@@ -452,15 +457,18 @@ Save или Clear только при atomic смене false -> true и сбр�
   - новый `app/src/test/java/com/valerochka1337/valerochkagym/data/WeeklyScheduleBackupRulesTest.kt`.
 - **Dependencies:** T-002.
 - **Actions:** создать qualified singleton dedicated journal DataStore; внедрить его в repository;
-  добавить Hilt worker и unique constrained APPEND_OR_REPLACE scheduler; enqueue в
-  `GymApplication.onCreate` и после незавершённого интерактивного шага; исключить ровно
+  добавить Hilt worker и unique unconstrained APPEND_OR_REPLACE scheduler; enqueue в
+  `GymApplication.onCreate`, после незавершённого интерактивного шага и успешного Google consent;
+  исключить ровно
   `datastore/weekly_schedule_operations.preferences_pb` из legacy backup и обеих API 31+ секций.
   Не менять manifest и dependency catalog.
 - **Automated verification:**
   `./gradlew :app:testDebugUnitTest --tests "*WeeklyScheduleRecoveryWorkerTest" --tests "*WeeklyScheduleRecoverySchedulerTest" --tests "*GymApplicationTest" --tests "*WeeklyScheduleBackupRulesTest"`
 - **Done:** worker map `Completed/NothingPending -> success`, transient `Retry -> retry`,
   `Paused -> success` без очистки journal; scheduler создаёт ровно одну работу
-  `weekly_schedule_recovery` chain с CONNECTED/APPEND_OR_REPLACE/backoff. Adversarial test ставит
+  `weekly_schedule_recovery` chain с NOT_REQUIRED/APPEND_OR_REPLACE/backoff. Тест подтверждает,
+  что локальный terminal marker не блокируется офлайн, а успешный consent будит paused recovery.
+  Adversarial test ставит
   новый journal+enqueue после последнего read первого worker, но до его finish, и доказывает запуск
   successor. Robolectric startup test подтверждает `GymApplication.onCreate` enqueue и сохранение
   `HiltWorkerFactory` в Configuration. XML test подтверждает exclusion journal в cloud/transfer и
@@ -473,14 +481,17 @@ Save или Clear только при atomic смене false -> true и сбр�
 - **Файлы:**
   - `app/src/main/java/com/valerochka1337/valerochkagym/ui/calendar/CalendarViewModel.kt`;
   - `app/src/main/java/com/valerochka1337/valerochkagym/ui/calendar/ScheduleEditorScreen.kt`;
+  - `app/src/main/java/com/valerochka1337/valerochkagym/ui/settings/SettingsViewModel.kt`;
   - `app/src/test/java/com/valerochka1337/valerochkagym/ui/CalendarViewModelTest.kt`;
-  - новый `app/src/test/java/com/valerochka1337/valerochkagym/ui/ScheduleEditorScreenTest.kt`.
+  - новый `app/src/test/java/com/valerochka1337/valerochkagym/ui/ScheduleEditorScreenTest.kt`;
+  - новый `app/src/test/java/com/valerochka1337/valerochkagym/ui/SettingsRecoverySchedulingTest.kt`.
 - **Dependencies:** T-002, T-003.
 - **Actions:** единый atomic/job gate Save/Clear, immutable busy flow, `finally` reset; отключить обе
   кнопки при busy; сохранить hardcoded UI strings и вывести точные repository messages для
-  deferred cleanup/delete/account mismatch. Не менять ad-hoc actions, drafts или navigation.
+  deferred cleanup/delete/account mismatch; после успешного Google consent enqueue-ить paused
+  recovery. Не менять ad-hoc actions, drafts или navigation.
 - **Automated verification:**
-  `./gradlew :app:testDebugUnitTest --tests "*CalendarViewModelTest" --tests "*ScheduleEditorScreenTest"`
+  `./gradlew :app:testDebugUnitTest --tests "*CalendarViewModelTest" --tests "*ScheduleEditorScreenTest" --tests "*SettingsRecoverySchedulingTest"`
 - **Done:** suspended fake доказывает, что rapid Save+Clear/Save+Save вызывает repository один раз,
   обе команды снова доступны после success/failure/cancellation; тесты различают save/clear success
   и минимум один deferred failure message. Robolectric Compose semantics test кликает Save на
