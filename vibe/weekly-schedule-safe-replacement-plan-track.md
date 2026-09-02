@@ -84,6 +84,9 @@
 | PR follow-up review | `./gradlew :app:testDebugUnitTest --tests "*WeeklyScheduleRecoverySchedulerTest" --tests "*SettingsRecoverySchedulingTest" --tests "*WeeklyScheduleRepositoryTest"` | passed | user-driven wake использует REPLACE: прежний ID удалён, replacement не BLOCKED; consent вызывает wake |
 | PR follow-up review | `./gradlew :app:testDebugUnitTest` | passed | полный unit-регрессионный прогон после F-024 |
 | PR follow-up review | `./gradlew :app:assembleDebug` | passed | debug build после F-024 |
+| PR follow-up review 2 | `./gradlew :app:testDebugUnitTest --tests "*WeeklyScheduleRepositoryTest" --tests "*GoogleAuthManagerTest" --tests "*WeeklyScheduleOperationTest"` | passed | recovery сохраняет transient cleanup как Retry; email нормализуется независимо от locale |
+| PR follow-up review 2 | `./gradlew :app:testDebugUnitTest` | passed | полный unit-регрессионный прогон после F-025/F-026 |
+| PR follow-up review 2 | `./gradlew :app:assembleDebug` | passed | debug build после F-025/F-026 |
 
 ## Findings
 
@@ -113,6 +116,8 @@
 | F-022 | P2 | PR inline review | `NetworkType.CONNECTED` не запускал worker офлайн для чисто локального terminal commit | Recovery work теперь без network constraint; API-нужда возвращает Retry; scheduler test требует `NetworkType.NOT_REQUIRED` | resolved |
 | F-023 | P2 | PR inline review | После `Paused(NeedsConsent)` успешный consent в том же процессе не будил journal recovery | `SettingsViewModel` вызывает recovery `wake()` на `AuthorizeOutcome.Granted`; Robolectric regression проходит NeedsConsent -> Granted без restart | resolved |
 | F-024 | P2 | PR follow-up review | APPEND_OR_REPLACE wake после consent мог остаться за retry/backoff старой работы | Scheduler разделён на durable `enqueue()`/APPEND_OR_REPLACE и user-driven `wake()`/REPLACE; WorkManager test проверяет CANCELLED old + ENQUEUED replacement | resolved |
+| F-025 | P2 | PR follow-up review 2 | Retry компенсационного удаления после insert failure превращался в InsertFailed, и worker завершал unique work | `failInsertAndCleanup` сохраняет `Execution.Retry`; regression проверяет durable CLEANUP_NEW и успешный следующий recovery без повторного insert | resolved |
+| F-026 | P3 | PR follow-up review 2 | `lowercase()` для email зависел от текущей locale и ломал латинскую I в Turkish locale | Все добавленные email normalization paths используют `Locale.ROOT`; regression связывает normalized email с AuthorizationRequest account | resolved |
 
 ## Plan-review finding verification
 
@@ -148,6 +153,7 @@ agent.
 | 2 | Gate T/V: pass | none | none | повторных исправлений не потребовалось | 717/717 unit, debug build, independent review passed; release signing blocker documented |
 | PR inline | two Medium findings fixed | none | F-022/F-023 resolved | unconstrained recovery + consent wake-up, executable regressions | full unit/debug passed; release signing blocker unchanged |
 | PR follow-up inline | one Medium finding fixed | none | F-024 resolved | separate APPEND_OR_REPLACE enqueue and REPLACE wake | targeted + full unit/debug passed |
+| PR follow-up inline 2 | one Medium and one Low finding fixed | none | F-025; F-026 P3 | preserve cleanup Retry; locale-independent account normalization | targeted + full unit/debug passed |
 
 ## Git/PR checklist (main agent only)
 

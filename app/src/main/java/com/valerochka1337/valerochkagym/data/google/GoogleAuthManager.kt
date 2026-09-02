@@ -21,6 +21,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.suspendCancellableCoroutine
+import java.util.Locale
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.coroutines.resume
@@ -74,7 +75,7 @@ class GoogleAuthManager @Inject constructor(
     override suspend fun authorize(activity: Activity): AuthorizeOutcome =
         try {
             val expectedEmail = settingsRepository.settings.first().googleEmail
-                ?.trim()?.lowercase()?.takeIf(String::isNotEmpty)
+                ?.trim()?.lowercase(Locale.ROOT)?.takeIf(String::isNotEmpty)
             val result = requestAuthorization(activity, expectedEmail)
             val pendingIntent = result.pendingIntent
             if (result.hasResolution() && pendingIntent != null) {
@@ -92,7 +93,7 @@ class GoogleAuthManager @Inject constructor(
         getAccessTokenForExpectedAccount(expectedEmail = null)
 
     override suspend fun getAccessTokenForAccount(expectedEmail: String): TokenResult =
-        getAccessTokenForExpectedAccount(expectedEmail.trim().lowercase())
+        getAccessTokenForExpectedAccount(expectedEmail.trim().lowercase(Locale.ROOT))
 
     private suspend fun getAccessTokenForExpectedAccount(expectedEmail: String?): TokenResult =
         try {
@@ -126,7 +127,7 @@ class GoogleAuthManager @Inject constructor(
         AuthorizationRequest.Builder()
             .setRequestedScopes(REQUIRED_SCOPES)
             .apply {
-                expectedEmail?.trim()?.lowercase()?.takeIf(String::isNotEmpty)?.let {
+                expectedEmail?.trim()?.lowercase(Locale.ROOT)?.takeIf(String::isNotEmpty)?.let {
                     setAccount(Account(it, GOOGLE_ACCOUNT_TYPE))
                 }
             }

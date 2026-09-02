@@ -10,6 +10,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.io.IOException
+import java.util.Locale
 
 @Serializable
 internal enum class WeeklyScheduleOperationKind { REPLACE, CLEAR }
@@ -114,7 +115,7 @@ internal fun validateWeeklyScheduleOperation(operation: WeeklyScheduleOperation)
 
 internal fun WeeklySchedule.eventIds(): List<String> = rules.mapNotNull { it.calendarEventId }.distinct()
 
-internal fun normalizeEmail(email: String?): String = email?.trim()?.lowercase().orEmpty()
+internal fun normalizeEmail(email: String?): String = email?.trim()?.lowercase(Locale.ROOT).orEmpty()
 
 private fun <T> List<T>.isDistinct(): Boolean = size == distinct().size
 

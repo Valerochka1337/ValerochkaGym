@@ -278,9 +278,11 @@ class WeeklyScheduleRepositoryImpl @Inject constructor(
             failureMessage = failure,
         )
         journal.write(cleanup)
-        return when (cleanupNew(cleanup, bearer, origin)) {
+        return when (val cleanupResult = cleanupNew(cleanup, bearer, origin)) {
             Execution.Completed -> Execution.InsertFailed(INSERT_FAILED_OLD_PRESERVED)
-            else -> Execution.InsertFailed(INSERT_FAILED_CLEANUP_DEFERRED)
+            is Execution.Retry -> cleanupResult
+            is Execution.Paused -> Execution.Paused(INSERT_FAILED_CLEANUP_DEFERRED)
+            else -> error("Unexpected cleanup result: $cleanupResult")
         }
     }
 

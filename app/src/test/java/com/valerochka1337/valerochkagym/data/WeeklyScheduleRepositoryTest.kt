@@ -21,6 +21,7 @@ import com.valerochka1337.valerochkagym.data.schedule.WeeklyScheduleOperation
 import com.valerochka1337.valerochkagym.data.schedule.WeeklyScheduleOperationJournal
 import com.valerochka1337.valerochkagym.data.schedule.WeeklyScheduleOperationKind
 import com.valerochka1337.valerochkagym.data.schedule.WeeklyScheduleOperationPhase
+import com.valerochka1337.valerochkagym.data.schedule.WeeklyScheduleOperationRead
 import com.valerochka1337.valerochkagym.data.schedule.WeeklyScheduleRecoveryResult
 import com.valerochka1337.valerochkagym.data.schedule.WeeklyScheduleRepositoryImpl
 import com.valerochka1337.valerochkagym.worker.WeeklyScheduleRecoveryScheduler
@@ -366,6 +367,46 @@ class WeeklyScheduleRepositoryTest : RoomDaoTest() {
             }
             assertEquals(0, scheduler.enqueues)
         }
+    }
+
+    @Test
+    fun `recovery retries cleanup when insert and compensating delete are transiently unavailable`() = runTest {
+        val routine = seedRoutine("Ноги")
+        val old = ownedSchedule(routine, "old-event")
+        val settings = FakeDataStore(old)
+        val operations = FakeDataStore()
+        writeOperation(
+            operations,
+            replaceOperation(
+                phase = WeeklyScheduleOperationPhase.CREATE_NEW,
+                old = old,
+                routineId = routine,
+                pendingCreateIds = listOf(CLIENT_ID),
+                cleanupNewIds = emptyList(),
+            ),
+        )
+        val api = FakeCalendarApi(
+            insertFailure = IOException("insert timeout"),
+            deleteResponses = ArrayDeque(listOf(500, 204)),
+        )
+        val repo = repository(api, settings, operations)
+
+        val first = repo.resumePendingOperation()
+
+        assertTrue(first is WeeklyScheduleRecoveryResult.Retry)
+        val pending = WeeklyScheduleOperationJournal(operations, json).read()
+        assertTrue(pending is WeeklyScheduleOperationRead.Present)
+        pending as WeeklyScheduleOperationRead.Present
+        assertEquals(WeeklyScheduleOperationPhase.CLEANUP_NEW, pending.operation.phase)
+        assertEquals(listOf(CLIENT_ID), pending.operation.cleanupNewIds)
+
+        api.insertFailure = null
+        val recovered = repo.resumePendingOperation()
+
+        assertEquals(WeeklyScheduleRecoveryResult.Completed, recovered)
+        assertEquals(1, api.insertedBodies.size)
+        assertEquals(listOf(CLIENT_ID, CLIENT_ID), api.deletedEventIds)
+        assertEquals(old, repo.observe().first())
     }
 
     @Test

@@ -645,7 +645,9 @@ Hilt Worker/WorkManager и R8. Если release signing inputs недоступ�
 | Crash между active commit и journal clear | journal с empty pending остаётся terminal marker; commit повторяется идемпотентно |
 | Новые события созданы, old delete временно упал | active остаётся old; journal DELETE_OLD хранит target и remaining old IDs; retry не insert-ит |
 | Failed insert с неопределённым сетевым исходом | attempted ID заранее в cleanupNewIds; cleanup delete безопасен даже при 404 |
+| Сеть недоступна и для insert, и для компенсационного delete | journal остаётся в CLEANUP_NEW, worker получает Retry и повторяет только cleanup после backoff |
 | Пользователь сменил Google account | snapshot email mismatch ставит операцию на паузу до исходного аккаунта, исключая удаление чужих событий |
+| Locale устройства меняет Unicode case mapping | email и account binding нормализуются через `lowercase(Locale.ROOT)` |
 | Legacy non-empty active не имеет owner | Adoption текущего persisted email — backward-compat heuristic, не доказательство исторического владельца; если remote series была A, а первый upgrade operation запущен под B, A может остаться orphan |
 | Persisted email меняется во время token request | weekly auth request закрепляет `Account(expectedEmail, "com.google")`; returned token не следует новой настройке |
 | Два UI action или UI + worker | общий ViewModel gate + singleton repository Mutex + unique APPEND_OR_REPLACE chain |

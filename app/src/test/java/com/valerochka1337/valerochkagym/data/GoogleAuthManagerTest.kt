@@ -5,6 +5,7 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.mutablePreferencesOf
 import androidx.test.core.app.ApplicationProvider
 import com.valerochka1337.valerochkagym.data.google.GoogleAuthManager
+import com.valerochka1337.valerochkagym.data.schedule.normalizeEmail
 import com.valerochka1337.valerochkagym.data.settings.SettingsRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -13,6 +14,7 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import java.util.Locale
 
 @RunWith(RobolectricTestRunner::class)
 class GoogleAuthManagerTest {
@@ -31,6 +33,23 @@ class GoogleAuthManagerTest {
     @Test
     fun `legacy token request has no forced account`() {
         assertNull(manager.buildAuthorizationRequest(null).account)
+    }
+
+    @Test
+    fun `email normalization stays stable in turkish locale`() {
+        val previousLocale = Locale.getDefault()
+        try {
+            Locale.setDefault(Locale.forLanguageTag("tr-TR"))
+            val rawEmail = " TRAINING@EXAMPLE.COM "
+
+            val normalized = normalizeEmail(rawEmail)
+            val requestedAccount = manager.buildAuthorizationRequest(rawEmail).account
+
+            assertEquals("training@example.com", normalized)
+            assertEquals(normalized, requestedAccount?.name)
+        } finally {
+            Locale.setDefault(previousLocale)
+        }
     }
 
     private class FakeDataStore : DataStore<Preferences> {
