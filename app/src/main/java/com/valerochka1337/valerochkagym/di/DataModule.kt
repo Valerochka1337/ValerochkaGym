@@ -33,6 +33,9 @@ private val Context.settingsDataStore: DataStore<Preferences> by preferencesData
 private val Context.aiApiSecretsDataStore: DataStore<Preferences> by preferencesDataStore(
     name = "ai_secrets",
 )
+private val Context.weeklyScheduleOperationsDataStore: DataStore<Preferences> by preferencesDataStore(
+    name = "weekly_schedule_operations",
+)
 
 @Module
 @InstallIn(SingletonComponent::class)
@@ -114,6 +117,13 @@ object DataModule {
     fun provideAiApiSecretsDataStore(
         @ApplicationContext context: Context,
     ): DataStore<Preferences> = context.aiApiSecretsDataStore
+
+    @Provides
+    @Singleton
+    @WeeklyScheduleOperations
+    fun provideWeeklyScheduleOperationsDataStore(
+        @ApplicationContext context: Context,
+    ): DataStore<Preferences> = context.weeklyScheduleOperationsDataStore
 
     @Provides
     @Singleton

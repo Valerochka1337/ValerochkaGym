@@ -20,11 +20,14 @@ import com.valerochka1337.valerochkagym.data.google.ScheduleResult
 import com.valerochka1337.valerochkagym.data.schedule.DayRule
 import com.valerochka1337.valerochkagym.data.schedule.WeeklySchedule
 import com.valerochka1337.valerochkagym.data.schedule.WeeklyScheduleRepository
+import com.valerochka1337.valerochkagym.data.schedule.WeeklyScheduleRecoveryResult
 import com.valerochka1337.valerochkagym.domain.ActiveWorkoutRepository
 import com.valerochka1337.valerochkagym.ui.calendar.CalendarViewModel
 import com.valerochka1337.valerochkagym.ui.calendar.DotStyle
 import com.valerochka1337.valerochkagym.util.MainDispatcherRule
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
@@ -33,7 +36,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.runCurrent
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -226,6 +231,78 @@ class CalendarViewModelTest {
             assertEquals(schedule, vm.weeklySchedule.value)
         }
 
+    @Test
+    fun `rapid save and clear share one busy gate`() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val weekly = FakeWeeklyScheduleRepository(suspendSave = true)
+            val vm = viewModel(weeklyRepo = weekly)
+
+            vm.saveSchedule(WeeklySchedule(listOf(DayRule(1, 2, 18, 0))))
+            runCurrent()
+            assertTrue(vm.isScheduleBusy.value)
+            vm.clearSchedule()
+            runCurrent()
+            assertEquals(1, weekly.saveCalls)
+            assertEquals(0, weekly.clearCalls)
+
+            weekly.releaseSave.complete(Unit)
+            runCurrent()
+            assertTrue(!vm.isScheduleBusy.value)
+        }
+
+    @Test
+    fun `rapid save and save invoke repository once`() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val weekly = FakeWeeklyScheduleRepository(suspendSave = true)
+            val vm = viewModel(weeklyRepo = weekly)
+            val schedule = WeeklySchedule(listOf(DayRule(1, 2, 18, 0)))
+
+            vm.saveSchedule(schedule)
+            vm.saveSchedule(schedule)
+            runCurrent()
+
+            assertEquals(1, weekly.saveCalls)
+            weekly.releaseSave.complete(Unit)
+            runCurrent()
+            assertFalse(vm.isScheduleBusy.value)
+        }
+
+    @Test
+    fun `rapid clear and clear invoke repository once`() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val weekly = FakeWeeklyScheduleRepository(suspendClear = true)
+            val vm = viewModel(weeklyRepo = weekly)
+
+            vm.clearSchedule()
+            vm.clearSchedule()
+            runCurrent()
+
+            assertEquals(1, weekly.clearCalls)
+            weekly.releaseClear.complete(Unit)
+            runCurrent()
+            assertFalse(vm.isScheduleBusy.value)
+        }
+
+    @Test
+    fun `schedule busy resets after repository failure and cancellation`() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val failureRepo = FakeWeeklyScheduleRepository(
+                saveResult = ScheduleResult.Failure("Старое расписание сохранено"),
+            )
+            val failureVm = viewModel(weeklyRepo = failureRepo)
+            failureVm.saveSchedule(WeeklySchedule(listOf(DayRule(1, 2, 18, 0))))
+            assertEquals("Старое расписание сохранено", failureVm.events.first())
+            assertFalse(failureVm.isScheduleBusy.value)
+
+            val cancelledRepo = FakeWeeklyScheduleRepository(
+                saveThrowable = CancellationException("cancelled"),
+            )
+            val cancelledVm = viewModel(weeklyRepo = cancelledRepo)
+            cancelledVm.saveSchedule(WeeklySchedule(listOf(DayRule(1, 2, 18, 0))))
+            runCurrent()
+            assertFalse(cancelledVm.isScheduleBusy.value)
+        }
+
     // endregion
 
     // region harness
@@ -331,23 +408,37 @@ class CalendarViewModelTest {
         initial: WeeklySchedule = WeeklySchedule(),
         private val saveResult: ScheduleResult = ScheduleResult.Success,
         private val clearResult: ScheduleResult = ScheduleResult.Success,
+        private val suspendSave: Boolean = false,
+        private val suspendClear: Boolean = false,
+        private val saveThrowable: Throwable? = null,
     ) : WeeklyScheduleRepository {
         private val state = MutableStateFlow(initial)
         var saved: WeeklySchedule? = null
             private set
         var cleared = false
             private set
+        var saveCalls = 0
+        var clearCalls = 0
+        val releaseSave = CompletableDeferred<Unit>()
+        val releaseClear = CompletableDeferred<Unit>()
         override fun observe(): Flow<WeeklySchedule> = state
         override suspend fun save(schedule: WeeklySchedule): ScheduleResult {
+            saveCalls++
             saved = schedule
+            if (suspendSave) releaseSave.await()
+            saveThrowable?.let { throw it }
             state.value = schedule
             return saveResult
         }
         override suspend fun clear(): ScheduleResult {
+            clearCalls++
             cleared = true
+            if (suspendClear) releaseClear.await()
             state.value = WeeklySchedule()
             return clearResult
         }
+        override suspend fun resumePendingOperation(): WeeklyScheduleRecoveryResult =
+            WeeklyScheduleRecoveryResult.NothingPending
     }
 
     private class FakeActiveWorkoutRepository : ActiveWorkoutRepository {

@@ -27,4 +27,5 @@ data class DayRule(
 @Serializable
 data class WeeklySchedule(
     val rules: List<DayRule> = emptyList(),
+    val ownerEmail: String? = null,
 )

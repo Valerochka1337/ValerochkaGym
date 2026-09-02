@@ -28,6 +28,7 @@ import com.valerochka1337.valerochkagym.worker.NoOpConfigurationUploadScheduler
 import com.valerochka1337.valerochkagym.worker.NoOpRoutineUploadScheduler
 import com.valerochka1337.valerochkagym.worker.RoutineUploadScheduler
 import com.valerochka1337.valerochkagym.worker.UploadScheduler
+import com.valerochka1337.valerochkagym.worker.WeeklyScheduleRecoveryScheduler
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.CancellationException
@@ -60,6 +61,11 @@ private object NoOpMeasurementUploadScheduler : MeasurementUploadScheduler {
     override fun schedule(measurementId: String) = Unit
     override suspend fun retry(measurementId: String) = Unit
     override suspend fun scheduleAllPending(): Int = 0
+}
+
+/** Совместимый с прямыми unit-тестами no-op; Hilt внедряет WorkManager-планировщик. */
+private object NoOpWeeklyScheduleRecoveryScheduler : WeeklyScheduleRecoveryScheduler {
+    override fun enqueue() = Unit
 }
 
 /** Совместимая с прямыми unit-тестами заглушка для API key. */
@@ -144,6 +150,8 @@ class SettingsViewModel @Inject constructor(
     private val aiModelCatalog: AiModelCatalog = NoOpAiModelCatalog,
     private val configurationUploadScheduler: ConfigurationUploadScheduler =
         NoOpConfigurationUploadScheduler,
+    private val weeklyScheduleRecoveryScheduler: WeeklyScheduleRecoveryScheduler =
+        NoOpWeeklyScheduleRecoveryScheduler,
 ) : ViewModel() {
 
     private val authBusy = MutableStateFlow(false)
@@ -267,7 +275,10 @@ class SettingsViewModel @Inject constructor(
         when (val outcome = googleAuth.authorize(activity)) {
             is AuthorizeOutcome.NeedsConsent -> _consentRequests.send(outcome.pendingIntent.intentSender)
             is AuthorizeOutcome.Failed -> authError.value = AUTH_ERROR_MESSAGE
-            AuthorizeOutcome.Granted -> importHistoryIfConfigured()
+            AuthorizeOutcome.Granted -> {
+                weeklyScheduleRecoveryScheduler.wake()
+                importHistoryIfConfigured()
+            }
         }
     }
 

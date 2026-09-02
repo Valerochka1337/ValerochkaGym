@@ -17,6 +17,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -113,6 +114,9 @@ class CalendarViewModel @Inject constructor(
     private val selectedDate = MutableStateFlow<LocalDate?>(null)
 
     private var startInFlight = false
+    private var scheduleActionInFlight = false
+    private val _isScheduleBusy = MutableStateFlow(false)
+    val isScheduleBusy: StateFlow<Boolean> = _isScheduleBusy.asStateFlow()
 
     private val _startEvents = Channel<Unit>(Channel.BUFFERED)
 
@@ -222,15 +226,29 @@ class CalendarViewModel @Inject constructor(
 
     /** Сохраняет недельное расписание (замена серии). */
     fun saveSchedule(schedule: WeeklySchedule) {
-        viewModelScope.launch {
+        launchScheduleAction {
             _events.send(scheduleResultMessage(weeklyScheduleRepository.save(schedule), success = "Расписание сохранено"))
         }
     }
 
     /** Очищает недельное расписание (удаляет серию). */
     fun clearSchedule() {
-        viewModelScope.launch {
+        launchScheduleAction {
             _events.send(scheduleResultMessage(weeklyScheduleRepository.clear(), success = "Расписание очищено"))
+        }
+    }
+
+    private inline fun launchScheduleAction(crossinline block: suspend () -> Unit) {
+        if (scheduleActionInFlight) return
+        scheduleActionInFlight = true
+        _isScheduleBusy.value = true
+        viewModelScope.launch {
+            try {
+                block()
+            } finally {
+                scheduleActionInFlight = false
+                _isScheduleBusy.value = false
+            }
         }
     }
 

@@ -14,7 +14,7 @@ import org.junit.Test
  * Contract test for [CalendarEventDto] serialization. The shared `Json` in `NetworkModule` uses
  * `encodeDefaults = true`, so without the `@EncodeDefault(NEVER)` on [CalendarEventDto.recurrence]
  * a single (ad-hoc) event would emit `"recurrence": null` and break Google's `events.insert`. These
- * tests pin the behaviour: single events omit the field, recurring events include it.
+ * tests pin the behaviour: single events omit id/recurrence, recurring events include them.
  */
 class CalendarEventDtoTest {
 
@@ -39,14 +39,20 @@ class CalendarEventDtoTest {
         val encoded = json.encodeToString(event(recurrence = null))
 
         assertFalse("recurrence must not appear for single events: $encoded", encoded.contains("recurrence"))
+        assertFalse("id must not appear for single events: $encoded", encoded.contains("\"id\""))
         assertFalse("timeZone must not appear for single events: $encoded", encoded.contains("timeZone"))
     }
 
     @Test
     fun `recurring event includes the RRULE`() {
-        val encoded = json.encodeToString(event(recurrence = listOf("RRULE:FREQ=WEEKLY;BYDAY=MO")))
+        val encoded = json.encodeToString(
+            event(recurrence = listOf("RRULE:FREQ=WEEKLY;BYDAY=MO")).copy(
+                id = "0123456789abcdef0123456789abcdef",
+            ),
+        )
 
         assertTrue(encoded.contains("\"recurrence\""))
         assertTrue(encoded.contains("RRULE:FREQ=WEEKLY;BYDAY=MO"))
+        assertTrue(encoded.contains("\"id\":\"0123456789abcdef0123456789abcdef\""))
     }
 }
