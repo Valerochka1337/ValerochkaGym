@@ -89,6 +89,7 @@ fun ExerciseLibraryScreen(
     onExerciseInfo: ((ExerciseEntity) -> Unit)? = null,
     viewModel: ExerciseLibraryViewModel = hiltViewModel(),
 ) {
+    val query by viewModel.query.collectAsStateWithLifecycle()
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val editor by viewModel.editor.collectAsStateWithLifecycle()
     val aiCreation by viewModel.aiCreation.collectAsStateWithLifecycle()
@@ -132,7 +133,7 @@ fun ExerciseLibraryScreen(
                 }
 
                 SearchField(
-                    query = state.query,
+                    query = query,
                     onQueryChange = viewModel::onQueryChange,
                     onClear = viewModel::clearQuery,
                     onOpenFilters = { filterSheetOpen = true },
@@ -154,7 +155,7 @@ fun ExerciseLibraryScreen(
                     )
                     exercises.isEmpty() -> FadeInContent {
                         EmptyState(
-                            resetVisible = state.hasActiveConstraints,
+                            resetVisible = query.isNotBlank() || state.filters != ExerciseCatalogFilters(),
                             onReset = viewModel::resetCatalog,
                             modifier = Modifier.fillMaxSize(),
                         )

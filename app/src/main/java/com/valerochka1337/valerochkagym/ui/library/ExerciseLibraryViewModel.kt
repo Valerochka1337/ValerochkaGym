@@ -150,7 +150,9 @@ class ExerciseLibraryViewModel @Inject constructor(
         .filterTo(linkedSetOf()) { it.isNotBlank() }
     private val workoutId: String? = savedStateHandle.get<String>(GymRoutes.WORKOUT_ID_ARG)
 
-    private val query = MutableStateFlow(savedStateHandle[CATALOG_QUERY] ?: "")
+    private val _query = MutableStateFlow(savedStateHandle[CATALOG_QUERY] ?: "")
+    /** Immediate, restorable text input state; catalog results may arrive later on the compute dispatcher. */
+    val query: StateFlow<String> = _query.asStateFlow()
     private val filters = MutableStateFlow(
         ExerciseCatalogFilters(
             group = savedStateHandle.get<String>(CATALOG_GROUP)?.let { value ->
@@ -233,7 +235,7 @@ class ExerciseLibraryViewModel @Inject constructor(
     }
 
     fun onQueryChange(value: String) {
-        query.value = value
+        _query.value = value
         savedStateHandle[CATALOG_QUERY] = value
     }
 
@@ -242,7 +244,7 @@ class ExerciseLibraryViewModel @Inject constructor(
     }
 
     fun resetCatalog() {
-        query.value = ""
+        _query.value = ""
         sort.value = ExerciseCatalogSort.RECENT
         savedStateHandle[CATALOG_QUERY] = ""
         savedStateHandle[CATALOG_SORT] = ExerciseCatalogSort.RECENT.name
