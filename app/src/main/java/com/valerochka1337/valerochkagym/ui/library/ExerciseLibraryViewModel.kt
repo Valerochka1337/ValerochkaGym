@@ -17,6 +17,16 @@ import com.valerochka1337.valerochkagym.data.db.entity.MuscleLoad
 import com.valerochka1337.valerochkagym.data.db.entity.group
 import com.valerochka1337.valerochkagym.data.db.entity.withNextUpdatedAt
 import com.valerochka1337.valerochkagym.domain.GymRepository
+import com.valerochka1337.valerochkagym.domain.ExerciseCatalogFilters
+import com.valerochka1337.valerochkagym.domain.ExerciseCatalogOrigin
+import com.valerochka1337.valerochkagym.domain.ExerciseCatalogProjector
+import com.valerochka1337.valerochkagym.domain.ExerciseCatalogRepository
+import com.valerochka1337.valerochkagym.domain.ExerciseCatalogRepositoryState
+import com.valerochka1337.valerochkagym.domain.ExerciseCatalogSnapshot
+import com.valerochka1337.valerochkagym.domain.ExerciseCatalogSort
+import com.valerochka1337.valerochkagym.domain.ExerciseCatalogTypeFilter
+import com.valerochka1337.valerochkagym.domain.ExerciseCatalogFacetCounts
+import com.valerochka1337.valerochkagym.di.ComputeDispatcher
 import com.valerochka1337.valerochkagym.domain.NewExerciseConfiguration
 import com.valerochka1337.valerochkagym.domain.NoOpGymRepository
 import com.valerochka1337.valerochkagym.ui.navigation.GymRoutes
@@ -25,12 +35,15 @@ import com.valerochka1337.valerochkagym.worker.NoOpConfigurationUploadScheduler
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -39,17 +52,20 @@ import javax.inject.Inject
 
 /**
  * Screen state for the exercise library. [exercises] is already filtered by
- * [query] and [selectedGroup]; a null value means the list hasn't loaded yet
+ * [query] and [filters]; a null value means the list hasn't loaded yet
  * (distinct from a loaded-but-empty result), so the UI can suppress the empty
  * state until the first emission. [isEmpty] is true only for a loaded empty list.
  */
 data class ExerciseLibraryUiState(
     val query: String = "",
-    val selectedGroup: MuscleGroup? = null,
     val exercises: List<ExerciseEntity>? = null,
     val gymNames: List<String> = emptyList(),
+    val filters: ExerciseCatalogFilters = ExerciseCatalogFilters(),
+    val sort: ExerciseCatalogSort = ExerciseCatalogSort.RECENT,
+    val facetCounts: ExerciseCatalogFacetCounts? = null,
 ) {
     val isEmpty: Boolean get() = exercises?.isEmpty() == true
+    val hasActiveConstraints: Boolean get() = query.isNotBlank() || filters != ExerciseCatalogFilters()
 }
 
 /**
@@ -119,8 +135,10 @@ class ExerciseLibraryViewModel @Inject constructor(
     private val exerciseAiGenerator: ExerciseAiGenerator = NoOpExerciseAiGenerator,
     private val aiApiConfigurationProvider: AiApiConfigurationProvider =
         NoOpAiApiConfigurationProvider,
-    savedStateHandle: SavedStateHandle = SavedStateHandle(),
+    private val savedStateHandle: SavedStateHandle = SavedStateHandle(),
     private val gymRepository: GymRepository = NoOpGymRepository,
+    private val catalogRepository: ExerciseCatalogRepository? = null,
+    @param:ComputeDispatcher private val computeDispatcher: CoroutineDispatcher = Dispatchers.Default,
     private val configurationUploadScheduler: ConfigurationUploadScheduler =
         NoOpConfigurationUploadScheduler,
 ) : ViewModel() {
@@ -132,8 +150,31 @@ class ExerciseLibraryViewModel @Inject constructor(
         .filterTo(linkedSetOf()) { it.isNotBlank() }
     private val workoutId: String? = savedStateHandle.get<String>(GymRoutes.WORKOUT_ID_ARG)
 
-    private val query = MutableStateFlow("")
-    private val selectedGroup = MutableStateFlow<MuscleGroup?>(null)
+    private val _query = MutableStateFlow(savedStateHandle[CATALOG_QUERY] ?: "")
+    /** Immediate, restorable text input state; catalog results may arrive later on the compute dispatcher. */
+    val query: StateFlow<String> = _query.asStateFlow()
+    private val filters = MutableStateFlow(
+        ExerciseCatalogFilters(
+            group = savedStateHandle.get<String>(CATALOG_GROUP)?.let { value ->
+                MuscleGroup.entries.firstOrNull { it.name == value }
+            },
+            type = savedStateHandle.get<String>(CATALOG_TYPE)?.let { value ->
+                ExerciseCatalogTypeFilter.entries.firstOrNull { it.name == value } ?: when (value) {
+                    ExerciseType.STRENGTH.name -> ExerciseCatalogTypeFilter.STRENGTH
+                    ExerciseType.CARDIO.name, ExerciseType.TIMED.name -> ExerciseCatalogTypeFilter.CARDIO_OR_TIMED
+                    else -> ExerciseCatalogTypeFilter.ALL
+                }
+            } ?: ExerciseCatalogTypeFilter.ALL,
+            origin = savedStateHandle.get<String>(CATALOG_ORIGIN)?.let { value ->
+                ExerciseCatalogOrigin.entries.firstOrNull { it.name == value }
+            } ?: ExerciseCatalogOrigin.ALL,
+        ),
+    )
+    private val sort = MutableStateFlow(
+        savedStateHandle.get<String>(CATALOG_SORT)?.let { value ->
+            ExerciseCatalogSort.entries.firstOrNull { it.name == value }
+        } ?: ExerciseCatalogSort.RECENT,
+    )
     private val _editor = MutableStateFlow<ExerciseEditorState?>(null)
     private val _aiCreation = MutableStateFlow<ExerciseAiCreationState?>(null)
     private val aiConfigured = MutableStateFlow(false)
@@ -151,27 +192,34 @@ class ExerciseLibraryViewModel @Inject constructor(
     /** Открытая ИИ-шторка; `null` — создание сейчас не начато. */
     val aiCreation: StateFlow<ExerciseAiCreationState?> = _aiCreation.asStateFlow()
 
-    private val sourceExercises = if (selectedGymIds.isEmpty() || gymRepository === NoOpGymRepository) {
-        exerciseDao.getAll()
-    } else {
-        gymRepository.observeAvailableExercises(selectedGymIds)
+    private val catalogSource = catalogRepository?.observeCatalog(selectedGymIds) ?: combine(
+        if (selectedGymIds.isEmpty() || gymRepository === NoOpGymRepository) {
+            exerciseDao.getAll()
+        } else {
+            gymRepository.observeAvailableExercises(selectedGymIds)
+        },
+        exerciseMuscleDao.observeAll(),
+        gymRepository.observeGyms(),
+    ) { exercises, muscles, gyms ->
+        ExerciseCatalogRepositoryState(
+            snapshot = ExerciseCatalogSnapshot(exercises, muscles, emptyList()),
+            gymNames = gyms.filter { it.id in selectedGymIds }.map { it.name },
+        )
     }
 
     val uiState: StateFlow<ExerciseLibraryUiState> =
-        combine(sourceExercises, query, selectedGroup, gymRepository.observeGyms()) {
-                all, currentQuery, group, gyms ->
-            val trimmed = currentQuery.trim()
-            val filtered = all.filter { exercise ->
-                (group == null || exercise.muscleGroup == group) &&
-                    (trimmed.isEmpty() || exercise.name.contains(trimmed, ignoreCase = true))
-            }
+        combine(catalogSource, query, filters, sort) { source, currentQuery, currentFilters, currentSort ->
+            val projection = ExerciseCatalogProjector.project(source.snapshot)
+            val results = projection.results(currentQuery, currentFilters, currentSort)
             ExerciseLibraryUiState(
                 query = currentQuery,
-                selectedGroup = group,
-                exercises = filtered,
-                gymNames = gyms.filter { it.id in selectedGymIds }.map { it.name },
+                exercises = results.exercises,
+                gymNames = source.gymNames,
+                filters = currentFilters,
+                sort = currentSort,
+                facetCounts = projection.facetCounts(currentQuery, currentFilters, currentSort),
             )
-        }.stateIn(
+        }.let { flow -> if (catalogRepository != null) flow.flowOn(computeDispatcher) else flow }.stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5_000),
             initialValue = ExerciseLibraryUiState(),
@@ -187,16 +235,63 @@ class ExerciseLibraryViewModel @Inject constructor(
     }
 
     fun onQueryChange(value: String) {
-        query.value = value
+        _query.value = value
+        savedStateHandle[CATALOG_QUERY] = value
     }
 
     fun clearQuery() {
-        query.value = ""
+        onQueryChange("")
     }
 
-    /** Toggles the group filter: tapping the active group clears the filter. */
-    fun onGroupClicked(group: MuscleGroup) {
-        selectedGroup.value = if (selectedGroup.value == group) null else group
+    fun resetCatalog() {
+        _query.value = ""
+        sort.value = ExerciseCatalogSort.RECENT
+        savedStateHandle[CATALOG_QUERY] = ""
+        savedStateHandle[CATALOG_SORT] = ExerciseCatalogSort.RECENT.name
+        resetFilters()
+    }
+
+    /** Clears filter fields without altering the search, sort, or picker context. */
+    fun resetFilters() {
+        filters.value = ExerciseCatalogFilters()
+        savedStateHandle[CATALOG_GROUP] = null
+        savedStateHandle[CATALOG_TYPE] = ExerciseCatalogTypeFilter.ALL.name
+        savedStateHandle[CATALOG_ORIGIN] = ExerciseCatalogOrigin.ALL.name
+    }
+
+    fun setOrigin(origin: ExerciseCatalogOrigin) {
+        filters.value = filters.value.copy(origin = origin)
+        savedStateHandle[CATALOG_ORIGIN] = origin.name
+    }
+
+    fun setTypeFilter(type: ExerciseCatalogTypeFilter) {
+        val selected = if (filters.value.type == type) ExerciseCatalogTypeFilter.ALL else type
+        filters.value = filters.value.copy(type = selected)
+        savedStateHandle[CATALOG_TYPE] = selected.name
+    }
+
+    fun toggleGroupFacet(group: MuscleGroup) {
+        val selected = if (filters.value.group == group) null else group
+        filters.value = filters.value.copy(group = selected)
+        savedStateHandle[CATALOG_GROUP] = selected?.name
+    }
+
+    fun clearGroupFacet() {
+        filters.value = filters.value.copy(group = null)
+        savedStateHandle[CATALOG_GROUP] = null
+    }
+
+    fun setSort(value: ExerciseCatalogSort) {
+        sort.value = value
+        savedStateHandle[CATALOG_SORT] = value.name
+    }
+
+    private companion object {
+        const val CATALOG_QUERY = "catalog_query"
+        const val CATALOG_GROUP = "catalog_group"
+        const val CATALOG_TYPE = "catalog_type"
+        const val CATALOG_ORIGIN = "catalog_origin"
+        const val CATALOG_SORT = "catalog_sort"
     }
 
     fun openCreate() {

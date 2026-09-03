@@ -84,12 +84,43 @@ class ExerciseDetailViewModelTest {
             collector.cancel()
         }
 
+    @Test
+    fun `explicit none route stays none when a newer named group exists`() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val workoutDao = FakeWorkoutDao(namedNewer = true)
+            val viewModel = viewModel(FakeExerciseDao(), FakeExerciseMuscleDao(), workoutDao)
+            val collector = backgroundScope.launch(mainDispatcherRule.testDispatcher) { viewModel.uiState.collect {} }
+
+            advanceUntilIdle()
+
+            assertEquals(null, viewModel.uiState.value.selectedExecutionKey?.variantSyncId)
+            assertEquals("80×8", viewModel.uiState.value.statistics?.lastSummary)
+            collector.cancel()
+        }
+
+    @Test
+    fun `named route restores its named execution group`() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val named = "11111111-1111-1111-1111-111111111111"
+            val viewModel = viewModel(
+                FakeExerciseDao(), FakeExerciseMuscleDao(), FakeWorkoutDao(namedNewer = true), named,
+            )
+            val collector = backgroundScope.launch(mainDispatcherRule.testDispatcher) { viewModel.uiState.collect {} }
+            advanceUntilIdle()
+            assertEquals(named, viewModel.uiState.value.selectedExecutionKey?.variantSyncId)
+            assertEquals("100×5", viewModel.uiState.value.statistics?.lastSummary)
+            collector.cancel()
+        }
+
     private fun viewModel(
         exerciseDao: ExerciseDao,
         muscleDao: ExerciseMuscleDao,
         workoutDao: WorkoutDao,
+        executionGroup: String = "none",
     ) = ExerciseDetailViewModel(
-        savedStateHandle = SavedStateHandle(mapOf(GymRoutes.EXERCISE_ID_ARG to EXERCISE_ID)),
+        savedStateHandle = SavedStateHandle(
+            mapOf(GymRoutes.EXERCISE_ID_ARG to EXERCISE_ID, GymRoutes.EXECUTION_GROUP_ARG to executionGroup),
+        ),
         exerciseDao = exerciseDao,
         exerciseMuscleDao = muscleDao,
         workoutDao = workoutDao,
@@ -141,7 +172,8 @@ class ExerciseDetailViewModelTest {
         }
     }
 
-    private class FakeWorkoutDao : WorkoutDao {
+    private class FakeWorkoutDao(namedNewer: Boolean = false) : WorkoutDao {
+        override fun observeFinishedExerciseHistory() = flowOf(emptyList<com.valerochka1337.valerochkagym.data.db.relation.ExerciseWorkoutHistoryRow>())
         private val completed = MutableStateFlow(
             listOf(
                 AnalyticsSetRow(
@@ -156,7 +188,15 @@ class ExerciseDetailViewModelTest {
                     inclinePct = null,
                     completedAt = 1_000,
                 ),
-            ),
+            ) + if (namedNewer) listOf(
+                AnalyticsSetRow(
+                    workoutId = "w2", exerciseId = EXERCISE_ID, exerciseName = "Жим лёжа",
+                    exerciseType = ExerciseType.STRENGTH, weightKg = 100.0, reps = 5,
+                    durationSec = null, speedKmh = null, inclinePct = null, completedAt = 2_000,
+                    variantSyncId = "11111111-1111-1111-1111-111111111111",
+                    variantNameSnapshot = "Узкий хват",
+                ),
+            ) else emptyList(),
         )
 
         override fun observeCompletedSets(): Flow<List<AnalyticsSetRow>> = completed
@@ -176,7 +216,12 @@ class ExerciseDetailViewModelTest {
         override fun observeFinishedWorkouts(): Flow<List<WorkoutEntity>> = flowOf(emptyList())
         override suspend fun getWorkoutFull(id: String): WorkoutFull? = null
         override suspend fun lastCompletedSetsForExercise(exerciseId: Long): List<WorkoutSetEntity> = emptyList()
+        override suspend fun lastCompletedSetsForKey(exerciseId: Long, variantSyncId: String?): List<WorkoutSetEntity> = emptyList()
+        override suspend fun completedSetCount(workoutExerciseId: Long): Int = 0
+        override suspend fun getWorkoutExercise(id: Long): WorkoutExerciseEntity? = null
+        override suspend fun updateWorkoutExercise(exercise: WorkoutExerciseEntity) = Unit
         override suspend fun maxCompletedWeight(exerciseId: Long, excludeWorkoutId: String): Double? = null
+        override suspend fun maxCompletedWeightForKey(exerciseId: Long, variantSyncId: String?, excludeWorkoutId: String): Double? = null
         override suspend fun setUploadStatus(workoutId: String, status: UploadStatus, error: String?) = Unit
         override fun observeWorkout(id: String): Flow<WorkoutEntity?> = flowOf(null)
         override suspend fun getFinishedNotUploaded(): List<String> = emptyList()

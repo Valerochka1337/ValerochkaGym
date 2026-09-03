@@ -356,7 +356,7 @@ class ConfigurationImportRepositoryTest : RoomDaoTest() {
     private companion object {
         const val SPREADSHEET_ID = "spreadsheet-id"
         const val ROUTINES_SHEET = "Routines"
-        const val ROUTINES_RANGE = "Routines!A:L"
+        const val ROUTINES_RANGE = "Routines!A:M"
         const val EXERCISE_ID = "00000000-0000-0000-0000-000000000001"
         const val GYM_ID = "10000000-0000-0000-0000-000000000001"
         const val ROUTINE_ID = "20000000-0000-0000-0000-000000000001"

@@ -60,7 +60,7 @@ private enum class AnalysisSection(val label: String) {
 fun AnalysisScreen(
     onOpenSettings: () -> Unit,
     onOpenMeasurements: () -> Unit,
-    onExerciseClick: (Long) -> Unit,
+    onExerciseClick: (Long, String?) -> Unit,
     modifier: Modifier = Modifier,
     viewModel: AnalysisViewModel = hiltViewModel(),
 ) {
@@ -145,9 +145,9 @@ fun AnalysisScreen(
                         item {
                             RecordsCard(
                                 state = state,
-                                onExerciseClick = {
+                                onExerciseClick = { id, variant ->
                                     haptics.tap()
-                                    onExerciseClick(it)
+                                    onExerciseClick(id, variant)
                                 },
                             )
                         }
@@ -165,9 +165,9 @@ fun AnalysisScreen(
                             item {
                                 RecordsCard(
                                     state = state,
-                                    onExerciseClick = {
-                                        haptics.tap()
-                                        onExerciseClick(it)
+                                onExerciseClick = { id, variant ->
+                                    haptics.tap()
+                                    onExerciseClick(id, variant)
                                     },
                                 )
                             }
@@ -203,9 +203,9 @@ fun AnalysisScreen(
                                     state = state,
                                     onExerciseSelected = viewModel::onExerciseSelected,
                                     onSessionSelected = viewModel::onSessionSelected,
-                                    onExerciseClick = {
+                                    onExerciseClick = { id, variant ->
                                         haptics.tap()
-                                        onExerciseClick(it)
+                                        onExerciseClick(id, variant)
                                     },
                                 )
                             }

@@ -38,6 +38,11 @@ class WorkoutRowMapperTest {
                 "speed_kmh",
                 "incline_pct",
                 "volume",
+                "section_id",
+                "section_position",
+                "exercise_id",
+                "variant_id",
+                "variant_name_snapshot",
             ),
             WorkoutRowMapper.HEADER_ROW,
         )

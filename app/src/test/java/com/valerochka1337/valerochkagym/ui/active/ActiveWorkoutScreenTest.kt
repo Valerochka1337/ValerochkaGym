@@ -2,6 +2,9 @@ package com.valerochka1337.valerochkagym.ui.active
 
 import android.app.Application
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
@@ -13,6 +16,7 @@ import com.valerochka1337.valerochkagym.data.db.entity.MuscleGroup
 import com.valerochka1337.valerochkagym.data.db.entity.WorkoutEntity
 import com.valerochka1337.valerochkagym.data.db.entity.WorkoutExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.WorkoutSetEntity
+import com.valerochka1337.valerochkagym.data.db.entity.ExerciseVariantEntity
 import com.valerochka1337.valerochkagym.data.db.relation.WorkoutExerciseWithSets
 import com.valerochka1337.valerochkagym.data.db.relation.WorkoutFull
 import com.valerochka1337.valerochkagym.service.RestTimerState
@@ -36,6 +40,30 @@ class ActiveWorkoutScreenTest {
 
     @get:Rule
     val composeRule = createComposeRule()
+
+    @Test
+    fun `variant chooser keeps named and no variant actions accessible at two times font scale`() {
+        composeRule.setContent {
+            CompositionLocalProvider(LocalDensity provides Density(1f, 2f)) {
+                GymTheme {
+                    ExerciseVariantSelectionSheet(
+                        exerciseName = "Жим",
+                        variants = List(12) { index ->
+                            ExerciseVariantEntity(
+                                exerciseId = 1,
+                                syncId = "00000000-0000-0000-0000-${"%012d".format(index + 1)}",
+                                name = "Вариант ${index + 1}",
+                            )
+                        },
+                        onChoose = {},
+                        onDismiss = {},
+                    )
+                }
+            }
+        }
+        composeRule.onAllNodesWithText("Без варианта").assertCountEquals(1)
+        composeRule.onAllNodesWithText("Вариант 12").assertCountEquals(1)
+    }
 
     @Test
     fun `one completion button follows the focused set`() {
@@ -73,9 +101,10 @@ class ActiveWorkoutScreenTest {
                     heartRateReading = MutableStateFlow<HeartRateReading?>(null),
                     setActions = actions,
                     onDeleteExercise = {},
+                    onEditVariant = {},
                     onReorderExercises = {},
                     onAddExercise = {},
-                    onExerciseClick = {},
+                    onExerciseClick = { _, _ -> },
                     onFinish = {},
                     onDiscard = {},
                     onAddRestSeconds = {},

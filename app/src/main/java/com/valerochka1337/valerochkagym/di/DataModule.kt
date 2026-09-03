@@ -12,6 +12,7 @@ import com.valerochka1337.valerochkagym.data.db.GymDatabaseCallback
 import com.valerochka1337.valerochkagym.data.db.dao.BodyMeasurementDao
 import com.valerochka1337.valerochkagym.data.db.dao.ConfigurationTombstoneDao
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseDao
+import com.valerochka1337.valerochkagym.data.db.dao.ExerciseVariantDao
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseMuscleDao
 import com.valerochka1337.valerochkagym.data.db.dao.GymDao
 import com.valerochka1337.valerochkagym.data.db.dao.RoutineDao
@@ -32,6 +33,9 @@ import javax.inject.Singleton
 private val Context.settingsDataStore: DataStore<Preferences> by preferencesDataStore(name = "settings")
 private val Context.aiApiSecretsDataStore: DataStore<Preferences> by preferencesDataStore(
     name = "ai_secrets",
+)
+private val Context.weeklyScheduleOperationsDataStore: DataStore<Preferences> by preferencesDataStore(
+    name = "weekly_schedule_operations",
 )
 
 @Module
@@ -73,6 +77,7 @@ object DataModule {
                 GymDatabase.MIGRATION_5_6,
                 GymDatabase.MIGRATION_6_7,
                 GymDatabase.MIGRATION_7_8,
+                GymDatabase.MIGRATION_8_9,
             )
             .build()
 
@@ -85,6 +90,9 @@ object DataModule {
 
     @Provides
     fun provideExerciseDao(database: GymDatabase): ExerciseDao = database.exerciseDao()
+
+    @Provides
+    fun provideExerciseVariantDao(database: GymDatabase): ExerciseVariantDao = database.exerciseVariantDao()
 
     @Provides
     fun provideExerciseMuscleDao(database: GymDatabase): ExerciseMuscleDao =
@@ -114,6 +122,13 @@ object DataModule {
     fun provideAiApiSecretsDataStore(
         @ApplicationContext context: Context,
     ): DataStore<Preferences> = context.aiApiSecretsDataStore
+
+    @Provides
+    @Singleton
+    @WeeklyScheduleOperations
+    fun provideWeeklyScheduleOperationsDataStore(
+        @ApplicationContext context: Context,
+    ): DataStore<Preferences> = context.weeklyScheduleOperationsDataStore
 
     @Provides
     @Singleton

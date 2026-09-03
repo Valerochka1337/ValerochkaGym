@@ -42,6 +42,13 @@ interface ActiveWorkoutRepository {
      */
     suspend fun addExercise(workoutId: String, exerciseId: Long): Long
 
+    /** Variant-aware add keeps existing fakes/source callers on the no-variant fast path. */
+    suspend fun addExerciseWithVariant(workoutId: String, exerciseId: Long, variantSyncId: String?): Long =
+        addExercise(workoutId, exerciseId)
+
+    /** Rewrites the snapshot only before the first completed set; returns false when locked/invalid. */
+    suspend fun changeExerciseVariant(workoutExerciseId: Long, variantSyncId: String?): Boolean = false
+
     suspend fun deleteExercise(workoutExerciseId: Long)
 
     /**

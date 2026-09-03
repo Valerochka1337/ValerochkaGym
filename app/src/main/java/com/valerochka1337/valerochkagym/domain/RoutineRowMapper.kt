@@ -26,10 +26,13 @@ object RoutineRowMapper {
         "rest_seconds",
         "planned_sets_json",
         "exercise_id",
+        "variant_id",
     )
 
-    /** Формат до gym-config: импорт по-прежнему принимает эти 11 колонок. */
-    val LEGACY_HEADER_ROW: List<String> = HEADER_ROW.dropLast(1)
+    /** Формат до stable exercise ids: импорт по-прежнему принимает эти 11 колонок. */
+    val LEGACY_HEADER_ROW: List<String> = HEADER_ROW.take(11)
+    /** Current pre-variant app header (A:L). */
+    val STABLE_EXERCISE_HEADER_ROW: List<String> = HEADER_ROW.take(12)
 
     fun rows(routine: RoutineWithExercises): List<List<Any?>> {
         val base = listOf<Any?>(
@@ -42,7 +45,7 @@ object RoutineRowMapper {
         val exercises = routine.exercises.sortedBy { it.routineExercise.position }
         if (exercises.isEmpty()) {
             // Старые/переданные вручную программы без упражнений остаются восстанавливаемыми.
-            return listOf(base + List(7) { "" })
+            return listOf(base + List(8) { "" })
         }
         return exercises.map { item ->
             base + listOf(
@@ -53,6 +56,7 @@ object RoutineRowMapper {
                 item.routineExercise.restSeconds,
                 JSON.encodeToString(item.routineExercise.plannedSets),
                 item.exercise.syncId,
+                item.routineExercise.variantSyncId,
             )
         }
     }
@@ -61,6 +65,7 @@ object RoutineRowMapper {
         syncId,
         updatedAt,
         "true",
+        "",
         "",
         "",
         "",

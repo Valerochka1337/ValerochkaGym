@@ -10,11 +10,27 @@ import com.valerochka1337.valerochkagym.data.db.entity.WorkoutEntity
 import com.valerochka1337.valerochkagym.data.db.entity.WorkoutExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.WorkoutSetEntity
 import com.valerochka1337.valerochkagym.data.db.relation.AnalyticsSetRow
+import com.valerochka1337.valerochkagym.data.db.relation.ExerciseWorkoutHistoryRow
 import com.valerochka1337.valerochkagym.data.db.relation.WorkoutFull
 import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface WorkoutDao {
+
+    /**
+     * Read-only catalog history. A row represents a base exercise once per finished workout,
+     * and requires at least one completed set so abandoned exercise rows cannot affect ranking.
+     */
+    @Query(
+        """
+        SELECT DISTINCT we.exerciseId AS exerciseId, w.id AS workoutId, w.finishedAt AS finishedAt
+        FROM workout_exercises we
+        JOIN workouts w ON w.id = we.workoutId
+        JOIN workout_sets ws ON ws.workoutExerciseId = we.id
+        WHERE w.finishedAt IS NOT NULL AND ws.isCompleted = 1
+        """,
+    )
+    fun observeFinishedExerciseHistory(): Flow<List<ExerciseWorkoutHistoryRow>>
 
     @Insert
     suspend fun insertWorkout(workout: WorkoutEntity)
@@ -72,6 +88,8 @@ interface WorkoutDao {
                we.exerciseId AS exerciseId,
                e.name AS exerciseName,
                e.type AS exerciseType,
+               we.variantSyncId AS variantSyncId,
+               we.variantNameSnapshot AS variantNameSnapshot,
                ws.weightKg AS weightKg,
                ws.reps AS reps,
                ws.durationSec AS durationSec,
@@ -118,6 +136,30 @@ interface WorkoutDao {
     )
     suspend fun lastCompletedSetsForExercise(exerciseId: Long): List<WorkoutSetEntity>
 
+    @Query(
+        """
+        SELECT ws.* FROM workout_sets ws
+        WHERE ws.workoutExerciseId = (
+            SELECT we.id FROM workout_exercises we JOIN workouts w ON w.id = we.workoutId
+            WHERE we.exerciseId = :exerciseId
+              AND ((:variantSyncId IS NULL AND we.variantSyncId IS NULL) OR we.variantSyncId = :variantSyncId)
+              AND w.finishedAt IS NOT NULL
+              AND EXISTS (SELECT 1 FROM workout_sets s WHERE s.workoutExerciseId = we.id AND s.isCompleted = 1)
+            ORDER BY w.finishedAt DESC LIMIT 1
+        ) AND ws.isCompleted = 1 ORDER BY ws.setIndex ASC
+        """,
+    )
+    suspend fun lastCompletedSetsForKey(exerciseId: Long, variantSyncId: String?): List<WorkoutSetEntity>
+
+    @Query("SELECT COUNT(*) FROM workout_sets WHERE workoutExerciseId = :workoutExerciseId AND isCompleted = 1")
+    suspend fun completedSetCount(workoutExerciseId: Long): Int
+
+    @Query("SELECT * FROM workout_exercises WHERE id = :id")
+    suspend fun getWorkoutExercise(id: Long): WorkoutExerciseEntity?
+
+    @Update
+    suspend fun updateWorkoutExercise(exercise: WorkoutExerciseEntity)
+
     /**
      * Maximum lifted weight over completed sets of [exerciseId] across all finished workouts,
      * excluding [excludeWorkoutId]. Returns null when there is no such set.
@@ -134,6 +176,17 @@ interface WorkoutDao {
         """,
     )
     suspend fun maxCompletedWeight(exerciseId: Long, excludeWorkoutId: String): Double?
+
+    @Query(
+        """
+        SELECT MAX(ws.weightKg) FROM workout_sets ws
+        JOIN workout_exercises we ON we.id = ws.workoutExerciseId JOIN workouts w ON w.id = we.workoutId
+        WHERE we.exerciseId = :exerciseId
+          AND ((:variantSyncId IS NULL AND we.variantSyncId IS NULL) OR we.variantSyncId = :variantSyncId)
+          AND w.finishedAt IS NOT NULL AND w.id != :excludeWorkoutId AND ws.isCompleted = 1
+        """,
+    )
+    suspend fun maxCompletedWeightForKey(exerciseId: Long, variantSyncId: String?, excludeWorkoutId: String): Double?
 
     @Query("UPDATE workouts SET uploadStatus = :status, uploadError = :error WHERE id = :workoutId")
     suspend fun setUploadStatus(workoutId: String, status: UploadStatus, error: String?)

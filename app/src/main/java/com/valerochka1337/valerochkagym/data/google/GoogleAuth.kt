@@ -58,3 +58,8 @@ interface GoogleAuth {
     /** Выход: очищает состояние Credential Manager и стирает сохранённый email. */
     suspend fun signOut()
 }
+
+/** OAuth seam that guarantees the returned token belongs to [expectedEmail]. */
+interface AccountBoundGoogleAuth {
+    suspend fun getAccessTokenForAccount(expectedEmail: String): TokenResult
+}

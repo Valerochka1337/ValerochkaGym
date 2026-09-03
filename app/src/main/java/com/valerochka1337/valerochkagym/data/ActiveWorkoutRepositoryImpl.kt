@@ -6,6 +6,7 @@ import com.valerochka1337.valerochkagym.data.db.PlannedSet
 import com.valerochka1337.valerochkagym.data.db.dao.RoutineDao
 import com.valerochka1337.valerochkagym.data.db.dao.GymDao
 import com.valerochka1337.valerochkagym.data.db.dao.WorkoutDao
+import com.valerochka1337.valerochkagym.data.db.dao.ExerciseVariantDao
 import com.valerochka1337.valerochkagym.data.db.entity.WorkoutEntity
 import com.valerochka1337.valerochkagym.data.db.entity.WorkoutExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.WorkoutSetEntity
@@ -27,6 +28,7 @@ class ActiveWorkoutRepositoryImpl @Inject constructor(
     private val workoutDao: WorkoutDao,
     private val routineDao: RoutineDao,
     private val gymDao: GymDao = database.gymDao(),
+    private val variantDao: ExerciseVariantDao = database.exerciseVariantDao(),
 ) : ActiveWorkoutRepository {
 
     override suspend fun startFromRoutine(routineId: Long): String = database.withTransaction {
@@ -64,10 +66,14 @@ class ActiveWorkoutRepositoryImpl @Inject constructor(
                     WorkoutExerciseEntity(
                         workoutId = workoutId,
                         exerciseId = item.exercise.id,
+                        variantSyncId = item.routineExercise.variantSyncId,
+                        variantNameSnapshot = item.routineExercise.variantSyncId?.let { id ->
+                            requireNotNull(variantDao.getOwned(item.exercise.id, id)) { "Variant is not owned by exercise" }.name
+                        },
                         position = position,
                     ),
                 )
-                val previous = workoutDao.lastCompletedSetsForExercise(item.exercise.id)
+                val previous = workoutDao.lastCompletedSetsForKey(item.exercise.id, item.routineExercise.variantSyncId)
                 val sets = item.routineExercise.plannedSets.mapIndexed { index, planned ->
                     val source = previous.getOrNull(index)
                     if (source != null) {
@@ -128,7 +134,9 @@ class ActiveWorkoutRepositoryImpl @Inject constructor(
 
     override suspend fun deleteSet(setId: Long) = workoutDao.deleteSet(setId)
 
-    override suspend fun addExercise(workoutId: String, exerciseId: Long): Long = database.withTransaction {
+    override suspend fun addExercise(workoutId: String, exerciseId: Long): Long = addExerciseWithVariant(workoutId, exerciseId, null)
+
+    override suspend fun addExerciseWithVariant(workoutId: String, exerciseId: Long, variantSyncId: String?): Long = database.withTransaction {
         val workout = workoutDao.getWorkoutFull(workoutId)?.workout
             ?.takeIf { it.finishedAt == null }
             ?: throw ActiveWorkoutUnavailableException()
@@ -143,10 +151,19 @@ class ActiveWorkoutRepositoryImpl @Inject constructor(
         }
         val existing = workoutDao.getWorkoutExercises(workoutId)
         val position = (existing.maxOfOrNull { it.position } ?: -1) + 1
+        val snapshot = variantSyncId?.let { id ->
+            requireNotNull(variantDao.getOwned(exerciseId, id)) { "Variant is not owned by exercise" }.name
+        }
         val workoutExerciseId = workoutDao.insertWorkoutExercise(
-            WorkoutExerciseEntity(workoutId = workoutId, exerciseId = exerciseId, position = position),
+            WorkoutExerciseEntity(
+                workoutId = workoutId,
+                exerciseId = exerciseId,
+                variantSyncId = variantSyncId,
+                variantNameSnapshot = snapshot,
+                position = position,
+            ),
         )
-        val previous = workoutDao.lastCompletedSetsForExercise(exerciseId).firstOrNull()
+        val previous = workoutDao.lastCompletedSetsForKey(exerciseId, variantSyncId).firstOrNull()
         workoutDao.insertSet(
             WorkoutSetEntity(
                 workoutExerciseId = workoutExerciseId,
@@ -160,6 +177,31 @@ class ActiveWorkoutRepositoryImpl @Inject constructor(
             ),
         )
         workoutExerciseId
+    }
+
+    override suspend fun changeExerciseVariant(workoutExerciseId: Long, variantSyncId: String?): Boolean = database.withTransaction {
+        val row = workoutDao.getWorkoutExercise(workoutExerciseId) ?: return@withTransaction false
+        val workout = workoutDao.getWorkoutFull(row.workoutId)?.workout ?: return@withTransaction false
+        if (workout.finishedAt != null || workoutDao.completedSetCount(workoutExerciseId) != 0) return@withTransaction false
+        val snapshot = variantSyncId?.let { id -> variantDao.getOwned(row.exerciseId, id)?.name } ?: ""
+        if (variantSyncId != null && snapshot.isEmpty()) return@withTransaction false
+        workoutDao.updateWorkoutExercise(row.copy(variantSyncId = variantSyncId, variantNameSnapshot = snapshot.ifEmpty { null }))
+        val previous = workoutDao.lastCompletedSetsForKey(row.exerciseId, variantSyncId)
+        val existing = workoutDao.getSetsForWorkoutExercise(workoutExerciseId)
+        workoutDao.insertSets(emptyList())
+        existing.forEachIndexed { index, set ->
+            val source = previous.getOrNull(index)
+            workoutDao.updateSet(
+                set.copy(
+                    weightKg = source?.weightKg,
+                    reps = source?.reps,
+                    durationSec = source?.durationSec,
+                    speedKmh = source?.speedKmh,
+                    inclinePct = source?.inclinePct,
+                ),
+            )
+        }
+        true
     }
 
     override suspend fun deleteExercise(workoutExerciseId: Long) =

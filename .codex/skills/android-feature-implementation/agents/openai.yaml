@@ -1,7 +1,7 @@
 interface:
   display_name: "Android Feature Implementation"
-  short_description: "Android feature delivery with specialist agents"
-  default_prompt: "Use $android-feature-implementation to implement this Android feature end to end with research, planning, testing, and review."
+  short_description: "Fast Android delivery with risk-based quality gates"
+  default_prompt: "Use $android-feature-implementation to implement this Android feature through the fastest safe research, planning, implementation, testing, and review path."
 
 policy:
   allow_implicit_invocation: true

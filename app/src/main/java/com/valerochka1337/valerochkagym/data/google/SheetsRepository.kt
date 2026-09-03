@@ -74,6 +74,7 @@ class SheetsRepositoryImpl @Inject constructor(
         val bearer = "Bearer $token"
         return try {
             ensureWorkoutsSheet(bearer, spreadsheetId)
+            ensureWorkoutsHeader(bearer, spreadsheetId)?.let { return permanentWorkout(workoutId, it) }
             val workoutIdColumn = readIdColumn(bearer, spreadsheetId, WORKOUT_ID_RANGE)
             if (workoutIdColumn.any { it.firstOrNull() == workoutId }) {
                 workoutDao.setUploadStatus(workoutId, UploadStatus.UPLOADED, null)
@@ -185,12 +186,8 @@ class SheetsRepositoryImpl @Inject constructor(
             if (existing.isNotEmpty()) {
                 when (existing.first()) {
                     RoutineRowMapper.HEADER_ROW -> Unit
-                    RoutineRowMapper.LEGACY_HEADER_ROW -> api.updateValues(
-                        bearer = bearer,
-                        spreadsheetId = spreadsheetId,
-                        range = ROUTINE_EXERCISE_ID_HEADER_RANGE,
-                        body = UpdateValuesDto(jsonRows(listOf(listOf("exercise_id")))),
-                    )
+                    RoutineRowMapper.STABLE_EXERCISE_HEADER_ROW -> ensureRoutinesHeader(bearer, spreadsheetId, 12, listOf("variant_id"))
+                    RoutineRowMapper.LEGACY_HEADER_ROW -> ensureRoutinesHeader(bearer, spreadsheetId, 11, listOf("exercise_id", "variant_id"))
                     else -> return UploadResult.PermanentFailure(
                         "Заголовок листа Routines изменён вручную — не удалось безопасно выгрузить программу",
                     )
@@ -291,6 +288,85 @@ class SheetsRepositoryImpl @Inject constructor(
             throw e
         }
     }
+
+    /**
+     * Expands only recognised app headers. Inserting dimensions before writing protects any user
+     * columns to the right; the re-read turns a retry/race into a no-op rather than a duplicate.
+     */
+    private suspend fun ensureRoutinesHeader(
+        bearer: String,
+        spreadsheetId: String,
+        oldSize: Int,
+        extension: List<String>,
+    ) {
+        // A retry may follow a lost HTTP response even though the previous request committed.
+        // Read first: a complete recognised upgrade is a no-op and never shifts user columns twice.
+        if (readRows(bearer, spreadsheetId, ROUTINES_RANGE).firstOrNull() == RoutineRowMapper.HEADER_ROW) return
+        val sheet = api.getSpreadsheet(bearer, spreadsheetId).sheets
+            .firstOrNull { it.properties.title == ROUTINES_SHEET }?.properties
+            ?: throw IOException("Routines sheet is missing")
+        val sheetId = requireNotNull(sheet.sheetId)
+        try {
+            api.batchUpdate(
+                bearer, spreadsheetId,
+                BatchUpdateRequestDto(listOf(BatchRequestDto(
+                    insertDimension = InsertDimensionDto(
+                        DimensionRangeDto(sheetId, "COLUMNS", oldSize, oldSize + extension.size),
+                    ),
+                ))),
+            )
+        } catch (error: IOException) {
+            if (readRows(bearer, spreadsheetId, ROUTINES_RANGE).firstOrNull() == RoutineRowMapper.HEADER_ROW) return
+            throw error
+        }
+        try {
+            api.updateValues(
+                bearer, spreadsheetId,
+                "Routines!${columnName(oldSize)}1:M",
+                UpdateValuesDto(jsonRows(listOf(extension))),
+            )
+        } catch (error: IOException) {
+            if (readRows(bearer, spreadsheetId, ROUTINES_RANGE).firstOrNull() == RoutineRowMapper.HEADER_ROW) return
+            throw error
+        }
+        val header = readRows(bearer, spreadsheetId, ROUTINES_RANGE).firstOrNull()
+        check(header == RoutineRowMapper.HEADER_ROW) { "Routines header upgrade did not complete" }
+    }
+
+    private suspend fun ensureWorkoutsHeader(bearer: String, spreadsheetId: String): String? {
+        val header = api.getValues(bearer, spreadsheetId, "Workouts!1:1").values?.firstOrNull().orEmpty()
+        if (header.isEmpty() || header == WorkoutRowMapper.HEADER_ROW) return null
+        val legacy = WorkoutRowMapper.HEADER_ROW.take(14)
+        if (header != legacy) return "Заголовок листа Workouts изменён вручную — не удалось безопасно выгрузить тренировку"
+        val sheet = api.getSpreadsheet(bearer, spreadsheetId).sheets
+            .firstOrNull { it.properties.title == WORKOUTS_SHEET }?.properties
+            ?: return "Не удалось определить лист Workouts для обновления заголовка"
+        val sheetId = sheet.sheetId ?: return "Не удалось определить лист Workouts для обновления заголовка"
+        try {
+            api.batchUpdate(
+                bearer, spreadsheetId,
+                BatchUpdateRequestDto(listOf(BatchRequestDto(
+                    insertDimension = InsertDimensionDto(DimensionRangeDto(sheetId, "COLUMNS", 14, 19)),
+                ))),
+            )
+        } catch (error: IOException) {
+            if (api.getValues(bearer, spreadsheetId, "Workouts!A:S").values?.firstOrNull() == WorkoutRowMapper.HEADER_ROW) return null
+            throw error
+        }
+        try {
+            api.updateValues(
+                bearer, spreadsheetId, "Workouts!O1:S1",
+                UpdateValuesDto(jsonRows(listOf(WorkoutRowMapper.HEADER_ROW.drop(14)))),
+            )
+        } catch (error: IOException) {
+            if (api.getValues(bearer, spreadsheetId, "Workouts!A:S").values?.firstOrNull() == WorkoutRowMapper.HEADER_ROW) return null
+            throw error
+        }
+        val reread = api.getValues(bearer, spreadsheetId, "Workouts!A:S").values?.firstOrNull()
+        return if (reread == WorkoutRowMapper.HEADER_ROW) null else "Не удалось безопасно обновить заголовок Workouts"
+    }
+
+    private fun columnName(index: Int): String = ('A'.code + index).toChar().toString()
 
     /**
      * v1 of `Measurements` had A:N. Add the v5 report columns only to a known app-managed
@@ -446,13 +522,12 @@ class SheetsRepositoryImpl @Inject constructor(
 
         const val WORKOUT_ID_RANGE = "Workouts!A:A"
         const val MEASUREMENT_ID_RANGE = "Measurements!A:A"
-        const val ROUTINES_RANGE = "Routines!A:L"
+        const val ROUTINES_RANGE = "Routines!A:M"
 
-        /** Workouts остаётся A:N, полный отчёт InBody занимает A:AP. */
-        const val WORKOUT_APPEND_RANGE = "Workouts!A:N"
+        /** Workouts includes immutable section and execution snapshot columns A:S. */
+        const val WORKOUT_APPEND_RANGE = "Workouts!A:S"
         const val MEASUREMENT_APPEND_RANGE = "Measurements!A:AP"
-        const val ROUTINE_APPEND_RANGE = "Routines!A:L"
-        const val ROUTINE_EXERCISE_ID_HEADER_RANGE = "Routines!L1"
+        const val ROUTINE_APPEND_RANGE = "Routines!A:M"
         const val MEASUREMENT_HEADER_RANGE = "Measurements!1:1"
         const val MEASUREMENT_EXTENSION_HEADER_RANGE = "Measurements!O1:AP1"
         const val LEGACY_MEASUREMENT_COLUMN_COUNT = 14

@@ -4,6 +4,7 @@ import androidx.room.withTransaction
 import com.valerochka1337.valerochkagym.data.db.GymDatabase
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseDao
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseMuscleDao
+import com.valerochka1337.valerochkagym.data.db.dao.ExerciseVariantDao
 import com.valerochka1337.valerochkagym.data.db.dao.GymDao
 import com.valerochka1337.valerochkagym.data.db.dao.WorkoutDao
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
@@ -17,6 +18,7 @@ import com.valerochka1337.valerochkagym.data.db.entity.RoutineExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.WorkoutEntity
 import com.valerochka1337.valerochkagym.data.db.entity.WorkoutExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.WorkoutSetEntity
+import com.valerochka1337.valerochkagym.data.db.entity.normalizedVariantName
 import com.valerochka1337.valerochkagym.data.db.relation.RoutineWithExercises
 import com.valerochka1337.valerochkagym.data.settings.SettingsRepository
 import com.valerochka1337.valerochkagym.domain.ParsedRoutine
@@ -35,6 +37,8 @@ import com.valerochka1337.valerochkagym.domain.RoutineGymsSheetRowParser
 import com.valerochka1337.valerochkagym.domain.ParsedWorkout
 import com.valerochka1337.valerochkagym.domain.RoutineRowParser
 import com.valerochka1337.valerochkagym.domain.WorkoutRowParser
+import com.valerochka1337.valerochkagym.domain.ExerciseVariantSheetRowMapper
+import com.valerochka1337.valerochkagym.domain.ExerciseVariantSheetRowParser
 import com.valerochka1337.valerochkagym.domain.measurements.BodyMeasurementRowParser
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
@@ -85,6 +89,7 @@ class WorkoutImportRepositoryImpl @Inject constructor(
     private val exerciseDao: ExerciseDao,
     private val exerciseMuscleDao: ExerciseMuscleDao,
     private val gymDao: GymDao = database.gymDao(),
+    private val variantDao: ExerciseVariantDao = database.exerciseVariantDao(),
 ) : WorkoutImportRepository {
 
     override suspend fun importAll(): ImportResult {
@@ -107,6 +112,7 @@ class WorkoutImportRepositoryImpl @Inject constructor(
             } else {
                 com.valerochka1337.valerochkagym.domain.ParsedRows(emptyList(), 0)
             }
+            workouts.fatalError?.let { return ImportResult.Failure(it) }
             val measurements = if (MEASUREMENTS_SHEET in sheetTitles) {
                 BodyMeasurementRowParser.parse(
                     api.getValues(bearer, spreadsheetId, MEASUREMENTS_RANGE).values.orEmpty(),
@@ -126,6 +132,11 @@ class WorkoutImportRepositoryImpl @Inject constructor(
             } else {
                 ParsedExerciseSheetRows(emptyList(), 0)
             }
+            val variants = if (ExerciseVariantSheetRowMapper.SHEET_NAME in sheetTitles) {
+                ExerciseVariantSheetRowParser.parse(
+                    api.getValues(bearer, spreadsheetId, ExerciseVariantSheetRowMapper.RANGE).values.orEmpty(),
+                )
+            } else emptyList()
             val gyms = if (GymSheetRowMapper.SHEET_NAME in sheetTitles) {
                 GymSheetRowParser.parse(
                     api.getValues(bearer, spreadsheetId, GymSheetRowMapper.RANGE).values.orEmpty(),
@@ -174,8 +185,38 @@ class WorkoutImportRepositoryImpl @Inject constructor(
             var importedGyms = 0
             var importedRoutineGyms = 0
             database.withTransaction {
+                val duplicateVariantNames = variants
+                    .groupBy { it.exerciseSyncId to normalizedVariantName(it.name) }
+                    .values
+                    .any { it.size > 1 }
+                if (duplicateVariantNames) {
+                    throw ConfigurationImportConflictException("У одного упражнения повторяется название варианта")
+                }
                 exercises.records.forEach { record ->
                     if (applyExercise(record)) importedExercises++
+                }
+                bySyncId = exerciseDao.getAllOnce().associateTo(mutableMapOf()) { it.syncId to it.id }
+                byName = exerciseDao.getAllOnce().associateTo(mutableMapOf()) { it.name.lowercase() to it.id }
+                variants.forEach { record ->
+                    val ownerId = bySyncId[record.exerciseSyncId]
+                        ?: throw ConfigurationImportConflictException("Вариант ссылается на неизвестное упражнение")
+                    val existing = variantDao.getBySyncId(record.syncId)
+                    if (existing == null) {
+                        variantDao.insert(
+                            com.valerochka1337.valerochkagym.data.db.entity.ExerciseVariantEntity(
+                                syncId = record.syncId,
+                                exerciseId = ownerId,
+                                name = record.name.trim(),
+                                normalizedName = normalizedVariantName(record.name),
+                                isArchived = record.isArchived,
+                                updatedAt = record.updatedAt,
+                            ),
+                        )
+                    } else if (existing.exerciseId != ownerId) {
+                        throw ConfigurationImportConflictException("Вариант принадлежит другому упражнению")
+                    } else if (record.updatedAt > existing.updatedAt) {
+                        variantDao.update(existing.copy(name = record.name.trim(), normalizedName = normalizedVariantName(record.name), isArchived = record.isArchived, updatedAt = record.updatedAt))
+                    }
                 }
                 byName = exerciseDao.getAllOnce()
                     .associateTo(mutableMapOf()) { it.name.lowercase() to it.id }
@@ -210,7 +251,7 @@ class WorkoutImportRepositoryImpl @Inject constructor(
                     }
                 }
                 validateConfigurationAggregate()
-                freshWorkouts.forEach { insertWorkout(it, byName) }
+                freshWorkouts.forEach { insertWorkout(it, byName, bySyncId) }
                 val bodyMeasurementDao = database.bodyMeasurementDao()
                 freshMeasurements.forEach { bodyMeasurementDao.insert(it) }
             }
@@ -411,6 +452,7 @@ class WorkoutImportRepositoryImpl @Inject constructor(
     private suspend fun insertWorkout(
         parsed: ParsedWorkout,
         byName: MutableMap<String, Long>,
+        bySyncId: MutableMap<String, Long>,
     ) {
         workoutDao.insertWorkout(
             WorkoutEntity(
@@ -425,7 +467,7 @@ class WorkoutImportRepositoryImpl @Inject constructor(
         )
         for (exercise in parsed.exercises) {
             val key = exercise.name.lowercase()
-            val exerciseId = byName[key] ?: createExercise(
+            val exerciseId = exercise.exerciseSyncId?.let(bySyncId::get) ?: byName[key] ?: createExercise(
                 name = exercise.name,
                 muscleGroup = exercise.muscleGroup,
                 type = exercise.type,
@@ -434,6 +476,9 @@ class WorkoutImportRepositoryImpl @Inject constructor(
                 WorkoutExerciseEntity(
                     workoutId = parsed.id,
                     exerciseId = exerciseId,
+                    sectionId = exercise.sectionId ?: java.util.UUID.randomUUID().toString(),
+                    variantSyncId = exercise.variantSyncId,
+                    variantNameSnapshot = exercise.variantNameSnapshot,
                     position = exercise.position,
                 ),
             )
@@ -507,6 +552,13 @@ class WorkoutImportRepositoryImpl @Inject constructor(
             RoutineExerciseEntity(
                 routineId = routineId,
                 exerciseId = exerciseId,
+                variantSyncId = exercise.variantSyncId?.also { variantId ->
+                    val variant = variantDao.getBySyncId(variantId)
+                        ?: throw ConfigurationImportConflictException("Импорт ссылается на неизвестный вариант выполнения")
+                    if (variant.exerciseId != exerciseId) {
+                        throw ConfigurationImportConflictException("Вариант выполнения принадлежит другому упражнению")
+                    }
+                },
                 position = exercise.position,
                 restSeconds = exercise.restSeconds,
                 plannedSets = exercise.plannedSets,
@@ -548,9 +600,9 @@ class WorkoutImportRepositoryImpl @Inject constructor(
         const val MEASUREMENTS_SHEET = "Measurements"
         const val ROUTINES_SHEET = "Routines"
         /** Весь лист «Workouts» (14 колонок A–N, см. WorkoutRowMapper.HEADER_ROW). */
-        const val WORKOUTS_RANGE = "Workouts!A:N"
+        const val WORKOUTS_RANGE = "Workouts!A:S"
         const val MEASUREMENTS_RANGE = "Measurements!A:AP"
-        const val ROUTINES_RANGE = "Routines!A:L"
+        const val ROUTINES_RANGE = "Routines!A:M"
     }
 }
 

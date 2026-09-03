@@ -16,6 +16,9 @@ class PreviousSetsUseCase @Inject constructor(
     suspend operator fun invoke(exerciseId: Long): List<WorkoutSetEntity> =
         workoutDao.lastCompletedSetsForExercise(exerciseId)
 
+    suspend operator fun invoke(key: ExerciseExecutionKey): List<WorkoutSetEntity> =
+        workoutDao.lastCompletedSetsForKey(key.exerciseId, key.variantSyncId)
+
     /**
      * Краткая сводка подходов по типу упражнения:
      * STRENGTH — «30×10, 30×9»; TIMED — «60 сек, 45 сек»; CARDIO — «10 км/ч · 5% · 12 мин».
