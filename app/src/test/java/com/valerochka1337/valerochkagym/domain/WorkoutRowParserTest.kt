@@ -10,7 +10,6 @@ import com.valerochka1337.valerochkagym.data.db.relation.WorkoutExerciseWithSets
 import com.valerochka1337.valerochkagym.data.db.relation.WorkoutFull
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -62,49 +61,57 @@ class WorkoutRowParserTest {
         assertNull(plank.sets.single().weightKg)
     }
 
+    @Test
+    fun `v9 rows retain section identity and ignore variant values`() {
+        val workout = WorkoutFull(
+            workout = WorkoutEntity(id = "v9", name = "Тренировка", startedAt = 1_700_000_000_000L),
+            exercises = listOf(
+                exercise(
+                    name = "Жим",
+                    muscleGroup = MuscleGroup.CHEST,
+                    type = ExerciseType.STRENGTH,
+                    position = 0,
+                    sets = listOf(set(setIndex = 0, weightKg = 80.0, reps = 8, completedAt = 1_700_000_000_000L)),
+                ),
+            ),
+        )
+        val row = WorkoutRowMapper.rows(workout).single().map { it?.toString().orEmpty() }.toMutableList()
+        row[17] = "11111111-1111-1111-1111-111111111111"
+        row[18] = "Узкий хват"
+
+        val result = WorkoutRowParser.parse(listOf(WorkoutRowMapper.HEADER_ROW, row))
+        assertNull(result.fatalError)
+        val parsed = result.workouts.single()
+
+        assertEquals(row[14], parsed.exercises.single().sectionId)
+        assertEquals(row[16], parsed.exercises.single().exerciseSyncId)
+        assertEquals("Жим", parsed.exercises.single().name)
+    }
+
+    @Test
+    fun `v9 rows reject a conflicting base tuple within one section`() {
+        val workout = WorkoutFull(
+            workout = WorkoutEntity(id = "v9", name = "Тренировка", startedAt = 1_700_000_000_000L),
+            exercises = listOf(
+                exercise(
+                    name = "Жим", muscleGroup = MuscleGroup.CHEST, type = ExerciseType.STRENGTH,
+                    position = 0,
+                    sets = listOf(
+                        set(setIndex = 0, weightKg = 80.0, reps = 8, completedAt = 1_700_000_000_000L),
+                        set(setIndex = 1, weightKg = 82.5, reps = 6, completedAt = 1_700_000_060_000L),
+                    ),
+                ),
+            ),
+        )
+        val rows = WorkoutRowMapper.rows(workout).map { row -> row.map { it?.toString().orEmpty() }.toMutableList() }
+        rows[1][15] = "1"
+
+        val result = WorkoutRowParser.parse(listOf(WorkoutRowMapper.HEADER_ROW) + rows)
+
+        assertTrue(result.fatalError != null)
+    }
+
     // endregion
-
-    @Test
-    fun `current rows reject malformed durable section tuples without treating them as legacy`() {
-        val minute = 60_000L
-        val workout = WorkoutFull(
-            workout = WorkoutEntity(id = "current", name = "T", startedAt = minute),
-            exercises = listOf(exercise("Жим", MuscleGroup.CHEST, ExerciseType.STRENGTH, 0, listOf(
-                set(0, weightKg = 80.0, reps = 8, completedAt = minute),
-            ))),
-        )
-        val valid = WorkoutRowMapper.rows(workout).single().map { it?.toString().orEmpty() }
-        val malformedRows = listOf(
-            valid.toMutableList().apply { this[14] = "broken" },
-            valid.toMutableList().apply { this[16] = "broken" },
-            valid.toMutableList().apply { this[17] = "broken"; this[18] = "Узкий" },
-            valid.toMutableList().apply { this[17] = "11111111-1111-1111-1111-111111111111"; this[18] = "" },
-        )
-        malformedRows.forEach { row ->
-            assertNotNull(WorkoutRowParser.parse(listOf(WorkoutRowMapper.HEADER_ROW, row)).fatalError)
-        }
-        val conflicting = valid.toMutableList().apply { this[17] = "11111111-1111-1111-1111-111111111111"; this[18] = "Узкий" }
-        assertNotNull(WorkoutRowParser.parse(listOf(WorkoutRowMapper.HEADER_ROW, valid, conflicting)).fatalError)
-    }
-
-    @Test
-    fun `current rows require a stable nonnegative section position and exact header`() {
-        val workout = WorkoutFull(
-            workout = WorkoutEntity(id = "positions", name = "T", startedAt = 60_000),
-            exercises = listOf(exercise("Жим", MuscleGroup.CHEST, ExerciseType.STRENGTH, 0, listOf(
-                set(0, weightKg = 80.0, reps = 8, completedAt = 60_000),
-            ))),
-        )
-        val valid = WorkoutRowMapper.rows(workout).single().map { it?.toString().orEmpty() }
-        listOf("", "x", "-1").forEach { position ->
-            val malformed = valid.toMutableList().apply { this[15] = position }
-            assertNotNull(WorkoutRowParser.parse(listOf(WorkoutRowMapper.HEADER_ROW, malformed)).fatalError)
-        }
-        val conflicting = valid.toMutableList().apply { this[15] = "1" }
-        assertNotNull(WorkoutRowParser.parse(listOf(WorkoutRowMapper.HEADER_ROW, valid, conflicting)).fatalError)
-        val corruptHeader = WorkoutRowMapper.HEADER_ROW.toMutableList().apply { this[15] = "section_order" }
-        assertNotNull(WorkoutRowParser.parse(listOf(corruptHeader, valid)).fatalError)
-    }
 
     // region robustness
 

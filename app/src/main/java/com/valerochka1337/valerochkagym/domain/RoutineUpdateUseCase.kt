@@ -28,12 +28,10 @@ class RoutineUpdateUseCase @Inject constructor(
         val routineId = workout.workout.routineId ?: return false
         val routine = routineDao.getRoutineWithExercises(routineId) ?: return false
 
-        val actual = performed(workout).map { (row, sets) ->
-            ExerciseExecutionKey(row.exercise.id, row.workoutExercise.variantSyncId) to sets
-        }
+        val actual = performed(workout).map { (exerciseId, sets) -> exerciseId to sets }
         val planned = routine.exercises
             .sortedBy { it.routineExercise.position }
-            .map { ExerciseExecutionKey(it.exercise.id, it.routineExercise.variantSyncId) to it.routineExercise.plannedSets }
+            .map { it.exercise.id to it.routineExercise.plannedSets }
         return actual != planned
     }
 
@@ -45,19 +43,15 @@ class RoutineUpdateUseCase @Inject constructor(
     suspend fun applyToRoutine(workout: WorkoutFull) {
         val routineId = workout.workout.routineId ?: return
         val routine = routineDao.getRoutineWithExercises(routineId) ?: return
-        val plannedRows = routine.exercises.sortedBy { it.routineExercise.position }.toMutableList()
-        val entities = performed(workout).mapIndexed { position, (performed, sets) ->
-            val matchIndex = plannedRows.indexOfFirst {
-                it.exercise.id == performed.exercise.id &&
-                    it.routineExercise.variantSyncId == performed.workoutExercise.variantSyncId
-            }
-            val match = matchIndex.takeIf { it >= 0 }?.let(plannedRows::removeAt)
+        val restByExercise = routine.exercises.associate {
+            it.exercise.id to it.routineExercise.restSeconds
+        }
+        val entities = performed(workout).mapIndexed { position, (exerciseId, sets) ->
             RoutineExerciseEntity(
                 routineId = routineId,
-                exerciseId = performed.exercise.id,
-                variantSyncId = performed.workoutExercise.variantSyncId,
+                exerciseId = exerciseId,
                 position = position,
-                restSeconds = match?.routineExercise?.restSeconds,
+                restSeconds = restByExercise[exerciseId],
                 plannedSets = sets,
             )
         }
@@ -71,14 +65,14 @@ class RoutineUpdateUseCase @Inject constructor(
      * Фактически выполненный состав: упражнения по позиции, у каждого — выполненные подходы
      * (по setIndex) как plannedSets. Упражнения без выполненных подходов исключены.
      */
-    private fun performed(workout: WorkoutFull): List<Pair<WorkoutExerciseWithSets, List<PlannedSet>>> =
+    private fun performed(workout: WorkoutFull): List<Pair<Long, List<PlannedSet>>> =
         workout.exercises
             .sortedBy { it.workoutExercise.position }
             .mapNotNull { exercise: WorkoutExerciseWithSets ->
                 val completed = exercise.sets
                     .filter { it.isCompleted }
                     .sortedBy { it.setIndex }
-                if (completed.isEmpty()) null else exercise to completed.map { it.toPlannedSet() }
+                if (completed.isEmpty()) null else exercise.exercise.id to completed.map { it.toPlannedSet() }
             }
 }
 

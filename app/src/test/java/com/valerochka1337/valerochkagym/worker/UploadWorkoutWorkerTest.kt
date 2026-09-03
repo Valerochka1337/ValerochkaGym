@@ -153,12 +153,7 @@ class UploadWorkoutWorkerTest {
         override fun observeCompletedSets(): Flow<List<AnalyticsSetRow>> = flowOf(emptyList())
         override suspend fun getWorkoutFull(id: String): WorkoutFull? = null
         override suspend fun lastCompletedSetsForExercise(exerciseId: Long): List<WorkoutSetEntity> = emptyList()
-        override suspend fun lastCompletedSetsForKey(exerciseId: Long, variantSyncId: String?): List<WorkoutSetEntity> = emptyList()
-        override suspend fun completedSetCount(workoutExerciseId: Long): Int = 0
-        override suspend fun getWorkoutExercise(id: Long): WorkoutExerciseEntity? = null
-        override suspend fun updateWorkoutExercise(exercise: WorkoutExerciseEntity) = Unit
         override suspend fun maxCompletedWeight(exerciseId: Long, excludeWorkoutId: String): Double? = null
-        override suspend fun maxCompletedWeightForKey(exerciseId: Long, variantSyncId: String?, excludeWorkoutId: String): Double? = null
         override fun observeWorkout(id: String): Flow<WorkoutEntity?> = flowOf(null)
         override suspend fun getFinishedNotUploaded(): List<String> = emptyList()
         override suspend fun getExistingWorkoutIds(): List<String> = emptyList()

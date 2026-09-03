@@ -13,16 +13,10 @@ import com.valerochka1337.valerochkagym.data.db.entity.MuscleLoad
 import com.valerochka1337.valerochkagym.data.db.entity.withNextUpdatedAt
 import com.valerochka1337.valerochkagym.di.ComputeDispatcher
 import com.valerochka1337.valerochkagym.domain.ExerciseStatistics
-import com.valerochka1337.valerochkagym.domain.ExerciseExecutionKey
-import com.valerochka1337.valerochkagym.domain.ExecutionGroupToken
 import com.valerochka1337.valerochkagym.domain.ExerciseStatisticsCalculator
 import com.valerochka1337.valerochkagym.domain.GymRepository
 import com.valerochka1337.valerochkagym.domain.NewExerciseConfiguration
 import com.valerochka1337.valerochkagym.domain.NoOpGymRepository
-import com.valerochka1337.valerochkagym.domain.ExerciseVariantRepository
-import com.valerochka1337.valerochkagym.domain.NoOpExerciseVariantRepository
-import com.valerochka1337.valerochkagym.domain.SaveExerciseVariantResult
-import com.valerochka1337.valerochkagym.data.db.entity.ExerciseVariantEntity
 import com.valerochka1337.valerochkagym.ui.library.ExerciseEditorState
 import com.valerochka1337.valerochkagym.ui.navigation.GymRoutes
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -43,9 +37,6 @@ data class ExerciseDetailUiState(
     val exercise: ExerciseEntity? = null,
     val loads: List<MuscleLoad> = emptyList(),
     val statistics: ExerciseStatistics? = null,
-    val variants: List<ExerciseVariantEntity> = emptyList(),
-    val variantError: String? = null,
-    val selectedExecutionKey: ExerciseExecutionKey? = null,
 )
 
 @HiltViewModel
@@ -57,24 +48,17 @@ class ExerciseDetailViewModel @Inject constructor(
     statisticsCalculator: ExerciseStatisticsCalculator,
     @ComputeDispatcher computeDispatcher: CoroutineDispatcher,
     private val gymRepository: GymRepository = NoOpGymRepository,
-    private val variantRepository: ExerciseVariantRepository = NoOpExerciseVariantRepository,
 ) : ViewModel() {
 
     private val exerciseId: Long? = savedStateHandle[GymRoutes.EXERCISE_ID_ARG]
-    private val requestedVariantSyncId: String? = ExecutionGroupToken.decode(
-        savedStateHandle[GymRoutes.EXECUTION_GROUP_ARG],
-    )
     private val _editor = MutableStateFlow<ExerciseEditorState?>(null)
-    private val _variantError = MutableStateFlow<String?>(null)
     val editor: StateFlow<ExerciseEditorState?> = _editor.asStateFlow()
 
     val uiState: StateFlow<ExerciseDetailUiState> = combine(
         exerciseDao.getAll(),
         exerciseMuscleDao.observeAll(),
         workoutDao.observeCompletedSets(),
-        exerciseId?.let(variantRepository::observeForExercise) ?: kotlinx.coroutines.flow.flowOf(emptyList()),
-        _variantError,
-    ) { exercises, muscleRows, completedSets, variants, variantError ->
+    ) { exercises, muscleRows, completedSets ->
         val exercise = exercises.firstOrNull { it.id == exerciseId }
         if (exercise == null) {
             ExerciseDetailUiState(loading = false)
@@ -85,21 +69,14 @@ class ExerciseDetailViewModel @Inject constructor(
                 .sortedByDescending { it.contribution }
                 .map { MuscleLoad(it.muscle, it.contribution) }
                 .toList()
-            val exerciseRows = completedSets.filter { it.exerciseId == exercise.id }
-            // The route is a selection contract: an explicit none stays none even when a named
-            // group is newer, and an absent named group remains an empty named comparison.
-            val selectedVariant = requestedVariantSyncId
             ExerciseDetailUiState(
                 loading = false,
                 exercise = exercise,
                 loads = loads,
-                selectedExecutionKey = ExerciseExecutionKey(exercise.id, selectedVariant),
                 statistics = statisticsCalculator.calculate(
                     type = exercise.type,
-                    rows = exerciseRows.filter { it.variantSyncId == selectedVariant },
+                    rows = completedSets.filter { it.exerciseId == exercise.id },
                 ),
-                variants = variants,
-                variantError = variantError,
             )
         }
     }
@@ -177,28 +154,6 @@ class ExerciseDetailViewModel @Inject constructor(
             _editor.value = null
         }
     }
-
-    fun saveVariant(syncId: String?, name: String) {
-        val exerciseId = uiState.value.exercise?.id ?: return
-        viewModelScope.launch {
-            when (val result = if (syncId == null) variantRepository.create(exerciseId, name) else variantRepository.rename(syncId, name)) {
-                is SaveExerciseVariantResult.Saved -> setVariantError(null)
-                SaveExerciseVariantResult.BlankName -> setVariantError("Введите название варианта")
-                SaveExerciseVariantResult.DuplicateName -> setVariantError("Вариант с таким названием уже есть")
-                SaveExerciseVariantResult.NotFound -> setVariantError("Не удалось сохранить вариант. Попробуйте ещё раз.")
-            }
-        }
-    }
-
-    fun archiveVariant(syncId: String, archived: Boolean) {
-        viewModelScope.launch {
-            if (!variantRepository.setArchived(syncId, archived)) setVariantError("Не удалось сохранить вариант. Попробуйте ещё раз.")
-        }
-    }
-
-    fun clearVariantError() = setVariantError(null)
-
-    private fun setVariantError(error: String?) { _variantError.value = error }
 
     private fun showSaveFailure() {
         _editor.value = _editor.value?.copy(

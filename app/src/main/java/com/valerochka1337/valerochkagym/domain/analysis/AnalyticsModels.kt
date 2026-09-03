@@ -158,8 +158,6 @@ enum class TrendVerdict {
 data class ExerciseProgress(
     val exerciseId: Long,
     val name: String,
-    val variantSyncId: String? = null,
-    val variantNameSnapshot: String? = null,
     val points: List<ExerciseSessionPoint>,
     val repMaxes: List<RepMaxPoint>,
     val bestE1rm: Double?,
@@ -202,8 +200,6 @@ enum class BalanceId { PUSH_PULL, ANTERIOR_POSTERIOR, UPPER_LOWER, QUAD_HAMSTRIN
 data class ExerciseRecord(
     val exerciseId: Long,
     val name: String,
-    val variantSyncId: String? = null,
-    val variantNameSnapshot: String? = null,
     val bestE1rm: Double,
     val weightKg: Double,
     val reps: Int,

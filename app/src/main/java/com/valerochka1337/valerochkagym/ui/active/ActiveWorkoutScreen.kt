@@ -94,7 +94,6 @@ import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
 import com.valerochka1337.valerochkagym.data.db.entity.WorkoutSetEntity
 import com.valerochka1337.valerochkagym.data.db.relation.WorkoutExerciseWithSets
 import com.valerochka1337.valerochkagym.domain.currentFocus
-import com.valerochka1337.valerochkagym.domain.ExerciseExecutionKey
 import com.valerochka1337.valerochkagym.ui.common.formatRestClock
 import com.valerochka1337.valerochkagym.ui.components.ExerciseAvatar
 import com.valerochka1337.valerochkagym.ui.components.DragHandle
@@ -138,13 +137,11 @@ fun ActiveWorkoutScreen(
     onDiscarded: () -> Unit,
     onNavigateBack: () -> Unit,
     onAddExercise: () -> Unit,
-    onExerciseClick: (Long, String?) -> Unit,
+    onExerciseClick: (Long) -> Unit,
     modifier: Modifier = Modifier,
     viewModel: ActiveWorkoutViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
-    val pendingVariantSelection by viewModel.pendingVariantSelection.collectAsStateWithLifecycle()
-    val pendingVariantChange by viewModel.pendingVariantChange.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
     var showNearbyDevicesRationale by rememberSaveable { mutableStateOf(false) }
@@ -182,28 +179,6 @@ fun ActiveWorkoutScreen(
         }
     }
 
-    pendingVariantSelection?.let { pending ->
-        val name = state.workout?.exercises?.firstOrNull { it.exercise.id == pending.exerciseId }
-            ?.exercise?.name ?: "Упражнение"
-        ExerciseVariantSelectionSheet(
-            exerciseName = name,
-            variants = pending.variants,
-            onChoose = viewModel::chooseVariant,
-            onDismiss = viewModel::cancelVariantSelection,
-        )
-    }
-    pendingVariantChange?.let { pending ->
-        val name = state.workout?.exercises?.firstOrNull {
-            it.workoutExercise.id == pending.workoutExerciseId
-        }?.exercise?.name ?: "Упражнение"
-        ExerciseVariantSelectionSheet(
-            exerciseName = name,
-            variants = pending.variants,
-            onChoose = viewModel::chooseVariant,
-            onDismiss = viewModel::cancelVariantChange,
-        )
-    }
-
     KeepScreenOn()
 
     val setActions = remember(viewModel) {
@@ -238,7 +213,6 @@ fun ActiveWorkoutScreen(
                         heartRateReading = viewModel.heartRateReading,
                         setActions = setActions,
                         onDeleteExercise = viewModel::deleteExercise,
-                        onEditVariant = viewModel::requestVariantChange,
                         onReorderExercises = viewModel::reorderExercises,
                         onAddExercise = onAddExercise,
                         onExerciseClick = onExerciseClick,
@@ -327,10 +301,9 @@ internal fun ActiveWorkoutContent(
     heartRateReading: StateFlow<HeartRateReading?>,
     setActions: SetActions,
     onDeleteExercise: (Long) -> Unit,
-    onEditVariant: (Long) -> Unit,
     onReorderExercises: (List<Long>) -> Unit,
     onAddExercise: () -> Unit,
-    onExerciseClick: (Long, String?) -> Unit,
+    onExerciseClick: (Long) -> Unit,
     onFinish: () -> Unit,
     onDiscard: () -> Unit,
     onAddRestSeconds: (Int) -> Unit,
@@ -470,9 +443,7 @@ internal fun ActiveWorkoutContent(
                             )
                             .semantics { customActions = moveActions },
                         exercise = exercise,
-                        previous = state.previousByExercise[
-                            ExerciseExecutionKey(exercise.exercise.id, exercise.workoutExercise.variantSyncId)
-                        ].orEmpty(),
+                        previous = state.previousByExercise[exercise.exercise.id].orEmpty(),
                         actions = setActions,
                         activeSetId = activeSetId,
                         dragHandle = {
@@ -493,8 +464,7 @@ internal fun ActiveWorkoutContent(
                             )
                         },
                         onDeleteExercise = { pendingDeleteExerciseId = exercise.workoutExercise.id },
-                        onEditVariant = { onEditVariant(exercise.workoutExercise.id) },
-                        onExerciseClick = { onExerciseClick(exercise.exercise.id, exercise.workoutExercise.variantSyncId) },
+                        onExerciseClick = { onExerciseClick(exercise.exercise.id) },
                     )
                 }
             }
@@ -900,7 +870,6 @@ private fun ExerciseSection(
     activeSetId: Long?,
     dragHandle: @Composable () -> Unit,
     onDeleteExercise: () -> Unit,
-    onEditVariant: () -> Unit,
     onExerciseClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -933,17 +902,6 @@ private fun ExerciseSection(
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onBackground,
                     )
-                    exercise.workoutExercise.variantNameSnapshot?.let { variant ->
-                        Text(
-                            text = "Вариант: $variant",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    TextButton(
-                        onClick = onEditVariant,
-                        contentPadding = PaddingValues(0.dp),
-                    ) { Text("Изменить вариант") }
                     if (previous.isNotEmpty()) {
                         Text(
                             text = "прошлый: $previous",

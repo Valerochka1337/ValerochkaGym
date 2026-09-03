@@ -12,7 +12,6 @@ import com.valerochka1337.valerochkagym.data.db.GymDatabaseCallback
 import com.valerochka1337.valerochkagym.data.db.dao.BodyMeasurementDao
 import com.valerochka1337.valerochkagym.data.db.dao.ConfigurationTombstoneDao
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseDao
-import com.valerochka1337.valerochkagym.data.db.dao.ExerciseVariantDao
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseMuscleDao
 import com.valerochka1337.valerochkagym.data.db.dao.GymDao
 import com.valerochka1337.valerochkagym.data.db.dao.RoutineDao
@@ -78,6 +77,7 @@ object DataModule {
                 GymDatabase.MIGRATION_6_7,
                 GymDatabase.MIGRATION_7_8,
                 GymDatabase.MIGRATION_8_9,
+                GymDatabase.MIGRATION_9_10,
             )
             .build()
 
@@ -90,9 +90,6 @@ object DataModule {
 
     @Provides
     fun provideExerciseDao(database: GymDatabase): ExerciseDao = database.exerciseDao()
-
-    @Provides
-    fun provideExerciseVariantDao(database: GymDatabase): ExerciseVariantDao = database.exerciseVariantDao()
 
     @Provides
     fun provideExerciseMuscleDao(database: GymDatabase): ExerciseMuscleDao =

@@ -22,8 +22,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -31,7 +29,6 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -43,7 +40,6 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleLoad
-import com.valerochka1337.valerochkagym.data.db.entity.ExerciseVariantEntity
 import com.valerochka1337.valerochkagym.domain.ExerciseStatistics
 import com.valerochka1337.valerochkagym.domain.displayName
 import com.valerochka1337.valerochkagym.ui.analysis.formatDate
@@ -70,7 +66,6 @@ fun ExerciseDetailScreen(
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val editor by viewModel.editor.collectAsStateWithLifecycle()
     val haptics = gymHaptics()
-    var variantsOpen by rememberSaveable { mutableStateOf(false) }
 
     GlowBackground(modifier = modifier) {
         Column(modifier = Modifier.fillMaxSize()) {
@@ -95,8 +90,6 @@ fun ExerciseDetailScreen(
                     exercise = state.exercise!!,
                     loads = state.loads,
                     statistics = state.statistics,
-                    variants = state.variants,
-                    onManageVariants = { variantsOpen = true },
                 )
             }
         }
@@ -107,17 +100,6 @@ fun ExerciseDetailScreen(
             initial = initial,
             onDismiss = viewModel::closeEditor,
             onSave = viewModel::saveEditor,
-        )
-    }
-    val selectedExercise = state.exercise
-    if (variantsOpen && selectedExercise != null) {
-        ExerciseVariantEditorSheet(
-            exerciseName = selectedExercise.name,
-            variants = state.variants,
-            error = state.variantError,
-            onDismiss = { variantsOpen = false },
-            onSave = viewModel::saveVariant,
-            onArchive = viewModel::archiveVariant,
         )
     }
 }
@@ -175,8 +157,6 @@ internal fun ExerciseDetailContent(
     exercise: ExerciseEntity,
     loads: List<MuscleLoad>,
     statistics: ExerciseStatistics?,
-    variants: List<ExerciseVariantEntity> = emptyList(),
-    onManageVariants: () -> Unit = {},
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -184,7 +164,6 @@ internal fun ExerciseDetailContent(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item { MusclesCard(loads) }
-        item { VariantsCard(variants, onManageVariants) }
         if (statistics != null) {
             if (statistics.hasData) {
                 item { LastTimeCard(statistics) }
@@ -192,39 +171,6 @@ internal fun ExerciseDetailContent(
                 if (statistics.records.isNotEmpty()) item { RecordsCard(statistics) }
             } else {
                 item { EmptyStatisticsCard() }
-            }
-        }
-    }
-}
-
-@Composable
-private fun VariantsCard(variants: List<ExerciseVariantEntity>, onManage: () -> Unit) {
-    GymCard(modifier = Modifier.fillMaxWidth()) {
-        Text(
-            text = "Варианты выполнения",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
-        TextButton(onClick = onManage, modifier = Modifier.fillMaxWidth()) { Text("Управлять вариантами") }
-        Spacer(Modifier.height(6.dp))
-        if (variants.isEmpty()) {
-            Text(
-                text = "Создайте вариант, чтобы вести отдельную историю для другого способа выполнения.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        } else {
-            variants.forEach { variant ->
-                Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = if (variant.isArchived) "${variant.name} · в архиве" else variant.name,
-                        modifier = Modifier.weight(1f),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1,
-                    )
-                }
             }
         }
     }

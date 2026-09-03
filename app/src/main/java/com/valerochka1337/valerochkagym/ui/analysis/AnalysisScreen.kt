@@ -60,7 +60,7 @@ private enum class AnalysisSection(val label: String) {
 fun AnalysisScreen(
     onOpenSettings: () -> Unit,
     onOpenMeasurements: () -> Unit,
-    onExerciseClick: (Long, String?) -> Unit,
+    onExerciseClick: (Long) -> Unit,
     modifier: Modifier = Modifier,
     viewModel: AnalysisViewModel = hiltViewModel(),
 ) {
@@ -145,9 +145,9 @@ fun AnalysisScreen(
                         item {
                             RecordsCard(
                                 state = state,
-                                onExerciseClick = { id, variant ->
+                                onExerciseClick = {
                                     haptics.tap()
-                                    onExerciseClick(id, variant)
+                                    onExerciseClick(it)
                                 },
                             )
                         }
@@ -165,9 +165,9 @@ fun AnalysisScreen(
                             item {
                                 RecordsCard(
                                     state = state,
-                                onExerciseClick = { id, variant ->
-                                    haptics.tap()
-                                    onExerciseClick(id, variant)
+                                    onExerciseClick = {
+                                        haptics.tap()
+                                        onExerciseClick(it)
                                     },
                                 )
                             }
@@ -203,9 +203,9 @@ fun AnalysisScreen(
                                     state = state,
                                     onExerciseSelected = viewModel::onExerciseSelected,
                                     onSessionSelected = viewModel::onSessionSelected,
-                                    onExerciseClick = { id, variant ->
+                                    onExerciseClick = {
                                         haptics.tap()
-                                        onExerciseClick(id, variant)
+                                        onExerciseClick(it)
                                     },
                                 )
                             }

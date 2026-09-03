@@ -22,8 +22,6 @@ data class ParsedExercise(
     val position: Int,
     val sectionId: String? = null,
     val exerciseSyncId: String? = null,
-    val variantSyncId: String? = null,
-    val variantNameSnapshot: String? = null,
     val sets: List<ParsedSet>,
 )
 
@@ -45,7 +43,6 @@ data class ParsedSet(
 data class ParsedRows(
     val workouts: List<ParsedWorkout>,
     val skippedRows: Int,
-    /** Current A:S rows are durable snapshots; malformed tuples must abort import, not degrade. */
     val fatalError: String? = null,
 )
 
@@ -80,16 +77,12 @@ object WorkoutRowParser {
     private const val COL_SECTION_ID = 14
     private const val COL_SECTION_POSITION = 15
     private const val COL_EXERCISE_ID = 16
-    private const val COL_VARIANT_ID = 17
-    private const val COL_VARIANT_NAME = 18
 
     fun parse(rows: List<List<String>>): ParsedRows {
         val zone = ZoneId.systemDefault()
         var skippedRows = 0
         val header = rows.firstOrNull().orEmpty()
         val currentFormat = header == WorkoutRowMapper.HEADER_ROW
-        // A 19-column header is an attempted current format, never a legacy row with extra
-        // user cells. Refuse a renamed/reordered header rather than silently decoding it as none.
         if (!currentFormat && header.size >= WorkoutRowMapper.HEADER_ROW.size) {
             return ParsedRows(emptyList(), 0, "Заголовок Workouts A:S изменён вручную")
         }
@@ -110,8 +103,6 @@ object WorkoutRowParser {
             val sectionId: String?,
             val sectionPosition: Int?,
             val exerciseSyncId: String?,
-            val variantSyncId: String?,
-            val variantNameSnapshot: String?,
         )
 
         val grouped = LinkedHashMap<String, Pair<String, MutableList<RawSet>>>()
@@ -124,23 +115,10 @@ object WorkoutRowParser {
                 skippedRows++
                 continue
             }
-
-            val sectionRaw = row.cell(COL_SECTION_ID)
-            val exerciseRaw = row.cell(COL_EXERCISE_ID)
-            val variantRaw = row.cell(COL_VARIANT_ID)
-            val snapshot = row.cell(COL_VARIANT_NAME).takeIf(String::isNotEmpty)
-            val sectionId = canonicalSheetUuidOrNull(sectionRaw)
-            val exerciseSyncId = canonicalSheetUuidOrNull(exerciseRaw)
-            val variantSyncId = variantRaw.takeIf(String::isNotEmpty)?.let(::canonicalSheetUuidOrNull)
+            val sectionId = canonicalSheetUuidOrNull(row.cell(COL_SECTION_ID))
+            val exerciseSyncId = canonicalSheetUuidOrNull(row.cell(COL_EXERCISE_ID))
             val sectionPosition = row.cell(COL_SECTION_POSITION).toIntOrNull()
-            val validTuple = when {
-                !currentFormat -> true
-                sectionId == null || exerciseSyncId == null || sectionPosition == null || sectionPosition < 0 -> false
-                variantRaw.isNotEmpty() && (variantSyncId == null || snapshot == null) -> false
-                variantRaw.isEmpty() && snapshot != null -> false
-                else -> true
-            }
-            if (!validTuple) {
+            if (currentFormat && (sectionId == null || exerciseSyncId == null || sectionPosition == null || sectionPosition < 0)) {
                 malformedCurrent = true
                 continue
             }
@@ -161,25 +139,23 @@ object WorkoutRowParser {
                     sectionId = sectionId,
                     sectionPosition = sectionPosition,
                     exerciseSyncId = exerciseSyncId,
-                    variantSyncId = variantSyncId,
-                    variantNameSnapshot = snapshot,
                 ),
             )
         }
 
         val workouts = grouped.map { (id, value) ->
             val (name, raws) = value
-            if (currentFormat) {
-                val tuples = raws.groupBy { it.sectionId }.values
-                if (tuples.any { section ->
-                        section.map { raw -> listOf(raw.exerciseSyncId, raw.variantSyncId, raw.variantNameSnapshot, raw.sectionPosition) }
-                            .distinct().size != 1
-                    }) malformedCurrent = true
+            if (currentFormat && raws.groupBy { it.sectionId }.values.any { section ->
+                    section.map { raw ->
+                        listOf(raw.exercise, raw.muscleGroup, raw.type, raw.exerciseSyncId, raw.sectionPosition)
+                    }.distinct().size != 1
+                }
+            ) {
+                malformedCurrent = true
             }
             val times = raws.map { it.completedAt }
             val exercises = LinkedHashMap<String, MutableList<RawSet>>()
             raws.forEach { raw ->
-                // New rows are section-keyed; legacy sheets intentionally retain old name grouping.
                 exercises.getOrPut(raw.sectionId ?: raw.exercise) { mutableListOf() }.add(raw)
             }
 
@@ -188,7 +164,7 @@ object WorkoutRowParser {
                 name = name,
                 startedAt = times.minOrNull()!!, // группа непустая: у неё ≥1 подход
                 finishedAt = times.maxOrNull()!!,
-                exercises.entries.mapIndexed { position, (_, exerciseSets) ->
+                exercises = exercises.entries.mapIndexed { position, (_, exerciseSets) ->
                     val first = exerciseSets.first()
                     ParsedExercise(
                         name = first.exercise,
@@ -197,8 +173,6 @@ object WorkoutRowParser {
                         position = first.sectionPosition ?: position,
                         sectionId = first.sectionId,
                         exerciseSyncId = first.exerciseSyncId,
-                        variantSyncId = first.variantSyncId,
-                        variantNameSnapshot = first.variantNameSnapshot,
                         sets = exerciseSets.map { s ->
                             ParsedSet(
                                 setIndex = s.setIndex,

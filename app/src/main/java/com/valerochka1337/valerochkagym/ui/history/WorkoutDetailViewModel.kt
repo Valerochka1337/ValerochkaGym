@@ -36,8 +36,6 @@ data class DetailExerciseUi(
     val id: Long,
     val exerciseId: Long,
     val name: String,
-    val variantName: String? = null,
-    val variantSyncId: String? = null,
     val muscleGroup: String,
     val sets: List<DetailSetUi>,
 )
@@ -102,8 +100,6 @@ class WorkoutDetailViewModel @Inject constructor(
                     id = exercise.workoutExercise.id,
                     exerciseId = exercise.exercise.id,
                     name = exercise.exercise.name,
-                    variantName = exercise.workoutExercise.variantNameSnapshot,
-                    variantSyncId = exercise.workoutExercise.variantSyncId,
                     muscleGroup = exercise.exercise.muscleGroup.displayName(),
                     sets = exercise.sets.mapIndexed { index, set ->
                         DetailSetUi(

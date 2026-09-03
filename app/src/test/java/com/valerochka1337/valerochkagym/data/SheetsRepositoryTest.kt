@@ -173,7 +173,7 @@ class SheetsRepositoryTest : RoomDaoTest() {
         val result = repository(api).uploadRoutine(syncId)
 
         assertEquals(UploadResult.Success, result)
-        assertEquals(listOf(listOf(listOf("exercise_id", "variant_id"))), api.headerUpdates)
+        assertEquals(listOf(listOf(listOf("exercise_id"))), api.headerUpdates)
         assertEquals(snapshot.exercises.single().exercise.syncId, api.appended.single().single()[11])
     }
 
@@ -608,10 +608,6 @@ class SheetsRepositoryTest : RoomDaoTest() {
             if (range == ROUTINES_RANGE) {
                 return ValueRangeDto(values = routineRows.ifEmpty { null })
             }
-            if (range == "Workouts!1:1") {
-                val header = if (columnA.firstOrNull() == "workout_id") WorkoutRowMapper.HEADER_ROW else emptyList()
-                return ValueRangeDto(values = header.takeIf { it.isNotEmpty() }?.let(::listOf))
-            }
             val values = if (range.startsWith("Measurements!")) measurementColumnA else columnA
             return ValueRangeDto(values = if (values.isEmpty()) null else values.map { listOf(it) })
         }
@@ -641,9 +637,6 @@ class SheetsRepositoryTest : RoomDaoTest() {
         ): JsonElement {
             val rows = body.values.map { row -> (row as JsonArray).map { (it as JsonPrimitive).content } }
             headerUpdates += rows
-            if (range.startsWith("Routines!") && rows.singleOrNull() != null && routineRows.isNotEmpty()) {
-                routineRows[0] = RoutineRowMapper.HEADER_ROW
-            }
             if (range == "Measurements!O1:AP1" && rows.singleOrNull() != null) {
                 measurementHeader += rows.single()
             }

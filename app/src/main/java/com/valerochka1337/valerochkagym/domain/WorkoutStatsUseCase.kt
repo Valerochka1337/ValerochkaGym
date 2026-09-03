@@ -10,8 +10,6 @@ data class PrResult(
     val exerciseId: Long,
     val exerciseName: String,
     val weightKg: Double,
-    val variantSyncId: String? = null,
-    val variantNameSnapshot: String? = null,
 )
 
 /** Статистика тренировки: суммарный тоннаж и новые рекорды. */
@@ -33,27 +31,15 @@ class WorkoutStatsUseCase @Inject constructor(
      */
     suspend fun newPrs(workout: WorkoutFull): List<PrResult> {
         val results = mutableListOf<PrResult>()
-        for (exercise in workout.exercises.groupBy { it.exercise.id to it.workoutExercise.variantSyncId }.values.map { group ->
-            group.maxByOrNull { row -> row.sets.filter { it.isCompleted }.maxOfOrNull { it.weightKg ?: 0.0 } ?: 0.0 }!!
-        }) {
+        for (exercise in workout.exercises) {
             val maxNow = exercise.sets
                 .filter { it.isCompleted }
                 .mapNotNull { it.weightKg }
                 .maxOrNull() ?: continue
-            val previous = workoutDao.maxCompletedWeightForKey(
-                exercise.exercise.id,
-                exercise.workoutExercise.variantSyncId,
-                workout.workout.id,
-            )
+            val previous = workoutDao.maxCompletedWeight(exercise.exercise.id, workout.workout.id)
             val isPr = if (previous == null) maxNow > 0.0 else maxNow > previous
             if (isPr) {
-                results += PrResult(
-                    exerciseId = exercise.exercise.id,
-                    variantSyncId = exercise.workoutExercise.variantSyncId,
-                    variantNameSnapshot = exercise.workoutExercise.variantNameSnapshot,
-                    exerciseName = exercise.exercise.name,
-                    weightKg = maxNow,
-                )
+                results += PrResult(exercise.exercise.id, exercise.exercise.name, maxNow)
             }
         }
         return results
