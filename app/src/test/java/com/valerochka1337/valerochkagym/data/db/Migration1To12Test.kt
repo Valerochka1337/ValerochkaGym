@@ -14,17 +14,17 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
-/** Opens real v1 and v9 files through the exact shipping migration list and validates v10. */
+/** Opens real v1 and v9 files through the exact shipping migration list and validates v12. */
 @RunWith(RobolectricTestRunner::class)
 @Config(application = android.app.Application::class)
-class Migration1To10Test {
+class Migration1To12Test {
     private val context: Context = ApplicationProvider.getApplicationContext()
-    private val name = "migration-1-10.db"
+    private val name = "migration-1-12.db"
 
     @After fun tearDown() { context.deleteDatabase(name) }
 
     @Test
-    fun `room opens v1 data through v10 with section and sets intact`() {
+    fun `room opens v1 data through v12 with section and sets intact`() {
         createV1().use { db ->
             db.execSQL("INSERT INTO exercises VALUES (1, 'Жим', 'CHEST', 'STRENGTH', 1)")
             db.execSQL("INSERT INTO workouts VALUES ('w', NULL, 'Тренировка', 1, NULL, '', 'PENDING', NULL)")
@@ -32,13 +32,7 @@ class Migration1To10Test {
             db.execSQL("INSERT INTO workout_sets VALUES (1, 1, 0, 70.0, 10, NULL, NULL, NULL, 1)")
         }
         val db = Room.databaseBuilder(context, GymDatabase::class.java, name)
-            .addMigrations(
-                GymDatabase.MIGRATION_1_2, GymDatabase.MIGRATION_2_3,
-                GymDatabase.MIGRATION_3_4, GymDatabase.MIGRATION_4_5,
-                GymDatabase.MIGRATION_5_6, GymDatabase.MIGRATION_6_7,
-                GymDatabase.MIGRATION_7_8, GymDatabase.MIGRATION_8_9,
-                GymDatabase.MIGRATION_9_10,
-            )
+            .addMigrations(*GymDatabase.ALL_MIGRATIONS)
             .allowMainThreadQueries()
             .build()
 
@@ -56,7 +50,7 @@ class Migration1To10Test {
     }
 
     @Test
-    fun `room opens v9 variant fixture preserving every base row and set`() {
+    fun `room opens v9 variant fixture through v10 and v12 preserving every base row and set`() {
         createV1().use { db ->
             db.execSQL("INSERT INTO exercises VALUES (1, 'Жим', 'CHEST', 'STRENGTH', 1)")
             db.execSQL("INSERT INTO workouts VALUES ('w', NULL, 'Тренировка', 1, NULL, '', 'PENDING', NULL)")
@@ -124,11 +118,7 @@ class Migration1To10Test {
     }
 
     private fun openThroughProductionList() = Room.databaseBuilder(context, GymDatabase::class.java, name)
-        .addMigrations(
-            GymDatabase.MIGRATION_1_2, GymDatabase.MIGRATION_2_3, GymDatabase.MIGRATION_3_4,
-            GymDatabase.MIGRATION_4_5, GymDatabase.MIGRATION_5_6, GymDatabase.MIGRATION_6_7,
-            GymDatabase.MIGRATION_7_8, GymDatabase.MIGRATION_8_9, GymDatabase.MIGRATION_9_10,
-        )
+        .addMigrations(*GymDatabase.ALL_MIGRATIONS)
         .allowMainThreadQueries()
         .build()
 

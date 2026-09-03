@@ -58,17 +58,7 @@ class Migration3To4Test {
         createV3Database().close()
 
         val database = Room.databaseBuilder(context, GymDatabase::class.java, dbName)
-            .addMigrations(
-                GymDatabase.MIGRATION_1_2,
-                GymDatabase.MIGRATION_2_3,
-                GymDatabase.MIGRATION_3_4,
-                GymDatabase.MIGRATION_4_5,
-                GymDatabase.MIGRATION_5_6,
-                GymDatabase.MIGRATION_6_7,
-                GymDatabase.MIGRATION_7_8,
-                GymDatabase.MIGRATION_8_9,
-                GymDatabase.MIGRATION_9_10,
-            )
+            .addMigrations(*GymDatabase.ALL_MIGRATIONS)
             .allowMainThreadQueries()
             .build()
 

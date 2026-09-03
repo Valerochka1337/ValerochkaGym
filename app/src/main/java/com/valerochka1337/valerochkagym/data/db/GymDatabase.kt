@@ -48,7 +48,7 @@ import java.util.UUID
         WorkoutGymEntity::class,
         WorkoutSetEntity::class,
     ],
-    version = 10,
+    version = 12,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -404,5 +404,87 @@ abstract class GymDatabase : RoomDatabase() {
                 }
             }
         }
+
+        /** v10 → v12: v10 уже имеет целевую base-only схему. */
+        val MIGRATION_10_12: Migration = object : Migration(10, 12) {
+            override fun migrate(db: SupportSQLiteDatabase) = Unit
+        }
+
+        /**
+         * v11 → v12: recovery для выпущенной до v10 вариации, которая успела попасть на
+         * устройства. Сначала удаляем дочерние мышцы, затем перестраиваем таблицы, сохраняем
+         * подходы через backup и только после этого удаляем варианты.
+         */
+        val MIGRATION_11_12: Migration = object : Migration(11, 12) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.beginTransaction()
+                try {
+                    db.execSQL("DROP TABLE `exercise_variant_muscles`")
+
+                    db.execSQL(
+                        "CREATE TABLE `routine_exercises_new` (" +
+                            "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `routineId` INTEGER NOT NULL, " +
+                            "`exerciseId` INTEGER NOT NULL, `position` INTEGER NOT NULL, `restSeconds` INTEGER, " +
+                            "`plannedSetsJson` TEXT NOT NULL, " +
+                            "FOREIGN KEY(`routineId`) REFERENCES `routines`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE, " +
+                            "FOREIGN KEY(`exerciseId`) REFERENCES `exercises`(`id`) ON UPDATE NO ACTION ON DELETE NO ACTION)",
+                    )
+                    db.execSQL(
+                        "INSERT INTO `routine_exercises_new` (`id`,`routineId`,`exerciseId`,`position`,`restSeconds`,`plannedSetsJson`) " +
+                            "SELECT `id`,`routineId`,`exerciseId`,`position`,`restSeconds`,`plannedSetsJson` FROM `routine_exercises`",
+                    )
+                    db.execSQL("DROP TABLE `routine_exercises`")
+                    db.execSQL("ALTER TABLE `routine_exercises_new` RENAME TO `routine_exercises`")
+                    db.execSQL("CREATE INDEX `index_routine_exercises_routineId` ON `routine_exercises` (`routineId`)")
+                    db.execSQL("CREATE INDEX `index_routine_exercises_exerciseId` ON `routine_exercises` (`exerciseId`)")
+
+                    db.execSQL("CREATE TABLE `workout_sets_v11_backup` AS SELECT * FROM `workout_sets`")
+                    db.execSQL(
+                        "CREATE TABLE `workout_exercises_new` (" +
+                            "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `workoutId` TEXT NOT NULL, " +
+                            "`exerciseId` INTEGER NOT NULL, `sectionId` TEXT NOT NULL, `position` INTEGER NOT NULL, " +
+                            "FOREIGN KEY(`workoutId`) REFERENCES `workouts`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE, " +
+                            "FOREIGN KEY(`exerciseId`) REFERENCES `exercises`(`id`) ON UPDATE NO ACTION ON DELETE NO ACTION)",
+                    )
+                    db.execSQL(
+                        "INSERT INTO `workout_exercises_new` (`id`,`workoutId`,`exerciseId`,`sectionId`,`position`) " +
+                            "SELECT `id`,`workoutId`,`exerciseId`,`sectionId`,`position` FROM `workout_exercises`",
+                    )
+                    db.execSQL("DROP TABLE `workout_exercises`")
+                    db.execSQL("ALTER TABLE `workout_exercises_new` RENAME TO `workout_exercises`")
+                    db.execSQL("DELETE FROM `workout_sets`")
+                    db.execSQL(
+                        "INSERT INTO `workout_sets` (`id`,`workoutExerciseId`,`setIndex`,`weightKg`,`reps`," +
+                            "`durationSec`,`speedKmh`,`inclinePct`,`isCompleted`,`completedAt`) " +
+                            "SELECT `id`,`workoutExerciseId`,`setIndex`,`weightKg`,`reps`,`durationSec`," +
+                            "`speedKmh`,`inclinePct`,`isCompleted`,`completedAt` FROM `workout_sets_v11_backup`",
+                    )
+                    db.execSQL("DROP TABLE `workout_sets_v11_backup`")
+                    db.execSQL("CREATE INDEX `index_workout_exercises_workoutId` ON `workout_exercises` (`workoutId`)")
+                    db.execSQL("CREATE INDEX `index_workout_exercises_exerciseId` ON `workout_exercises` (`exerciseId`)")
+                    db.execSQL("CREATE UNIQUE INDEX `index_workout_exercises_sectionId` ON `workout_exercises` (`sectionId`)")
+
+                    db.execSQL("DROP TABLE `exercise_variants`")
+                    db.setTransactionSuccessful()
+                } finally {
+                    db.endTransaction()
+                }
+            }
+        }
+
+        /** Единственный production/test реестр всех поддерживаемых путей до текущей схемы. */
+        val ALL_MIGRATIONS: Array<Migration> = arrayOf(
+            MIGRATION_1_2,
+            MIGRATION_2_3,
+            MIGRATION_3_4,
+            MIGRATION_4_5,
+            MIGRATION_5_6,
+            MIGRATION_6_7,
+            MIGRATION_7_8,
+            MIGRATION_8_9,
+            MIGRATION_9_10,
+            MIGRATION_10_12,
+            MIGRATION_11_12,
+        )
     }
 }
