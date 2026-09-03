@@ -12,6 +12,7 @@ interface ConfigurationUploadScheduler {
     fun scheduleGym(syncId: String)
     fun scheduleGymDeletion(syncId: String, updatedAt: Long)
     suspend fun scheduleAll(): Int
+    suspend fun onCategoryChanged(enabled: Boolean) = Unit
 }
 
 object NoOpConfigurationUploadScheduler : ConfigurationUploadScheduler {
@@ -47,5 +48,10 @@ class WorkManagerConfigurationUploadScheduler @Inject constructor(
         gyms.forEach { scheduleGym(it.syncId) }
         deletions.forEach { scheduleGymDeletion(it.syncId, it.updatedAt) }
         return exercises.size + gyms.size + deletions.size
+    }
+
+    override suspend fun onCategoryChanged(enabled: Boolean) {
+        if (enabled) scheduleAll()
+        else workManager.cancelAllWorkByTag(UploadWorkoutWorker.WORKOUTS_AND_CONFIGURATION_TAG)
     }
 }

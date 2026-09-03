@@ -17,6 +17,9 @@ import com.valerochka1337.valerochkagym.data.google.SheetsRepository
 import com.valerochka1337.valerochkagym.data.google.UploadResult
 import com.valerochka1337.valerochkagym.data.db.dao.ConfigurationTombstoneDao
 import com.valerochka1337.valerochkagym.data.db.entity.ConfigurationTombstoneKind
+import com.valerochka1337.valerochkagym.data.settings.HealthSyncCategory
+import com.valerochka1337.valerochkagym.data.settings.SettingsRepository
+import kotlinx.coroutines.flow.first
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import java.util.concurrent.TimeUnit
@@ -34,10 +37,14 @@ class UploadRoutineWorker @AssistedInject constructor(
     private val configurationRepository: ConfigurationSheetsRepository =
         NoOpConfigurationSheetsRepository,
     private val tombstoneDao: ConfigurationTombstoneDao? = null,
+    private val settingsRepository: SettingsRepository? = null,
 ) : CoroutineWorker(appContext, params) {
 
     override suspend fun doWork(): Result {
         val syncId = inputData.getString(KEY_ROUTINE_SYNC_ID) ?: return Result.failure()
+        if (settingsRepository != null && !settingsRepository.settings.first().healthSync
+                .isEnabled(HealthSyncCategory.WORKOUTS_AND_CONFIGURATION)
+        ) return Result.success()
         val isDeletion = inputData.getBoolean(KEY_IS_DELETION, false)
         val result = if (isDeletion) {
             val updatedAt = inputData.getLong(KEY_UPDATED_AT, MISSING_UPDATED_AT)
@@ -58,6 +65,7 @@ class UploadRoutineWorker @AssistedInject constructor(
                 }
                 Result.success()
             }
+            UploadResult.NotAttemptedDisabled -> Result.success()
             is UploadResult.PermanentFailure -> Result.failure()
             is UploadResult.TransientFailure -> {
                 if (runAttemptCount < MAX_ATTEMPTS) Result.retry() else Result.failure()
@@ -104,6 +112,7 @@ class UploadRoutineWorker @AssistedInject constructor(
                 )
                 .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, BACKOFF_SECONDS, TimeUnit.SECONDS)
                 .setInputData(input)
+                .addTag(UploadWorkoutWorker.WORKOUTS_AND_CONFIGURATION_TAG)
                 .build()
             workManager.enqueueUniqueWork(
                 "upload_routine_$syncId",

@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.MonitorWeight
 import androidx.compose.material3.Icon
@@ -37,13 +38,37 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.valerochka1337.valerochkagym.R
 import com.valerochka1337.valerochkagym.ui.components.GlowBackground
 import com.valerochka1337.valerochkagym.ui.components.GymTopBar
+import com.valerochka1337.valerochkagym.ui.components.GymFilterChip
 import com.valerochka1337.valerochkagym.ui.components.PillButton
 import com.valerochka1337.valerochkagym.ui.haptics.gymHaptics
 
-private enum class AnalysisSection(val label: String) {
+internal enum class AnalysisSection(val label: String) {
     OVERVIEW("Обзор"),
     LOAD("Нагрузка"),
     PROGRESS("Прогресс"),
+    HEALTH("Здоровье"),
+}
+
+/** Compact, accessible variant used by narrow render and accessibility harnesses. */
+@Composable
+internal fun AnalysisSectionSelector(
+    selected: AnalysisSection,
+    onSectionSelected: (AnalysisSection) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    LazyRow(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        items(AnalysisSection.entries.size) { index ->
+            val section = AnalysisSection.entries[index]
+            GymFilterChip(
+                selected = selected == section,
+                onClick = { onSectionSelected(section) },
+                label = section.label,
+            )
+        }
+    }
 }
 
 /**
@@ -61,6 +86,12 @@ private enum class AnalysisSection(val label: String) {
 fun AnalysisScreen(
     onOpenSettings: () -> Unit,
     onOpenMeasurements: () -> Unit,
+    onOpenMeasurement: (String) -> Unit = {},
+    onCreateHealthReport: () -> Unit = {},
+    onCreateRestriction: () -> Unit = {},
+    onOpenHealthArchive: () -> Unit = {},
+    onOpenHealthReport: (String, Long, Long) -> Unit = { _, _, _ -> },
+    onOpenHealthConflict: (String, String, Long) -> Unit = { _, _, _ -> },
     onExerciseClick: (Long) -> Unit,
     modifier: Modifier = Modifier,
     viewModel: AnalysisViewModel = hiltViewModel(),
@@ -142,7 +173,28 @@ fun AnalysisScreen(
                         }
                     }
                 }
-                if (state.loading && !state.report.hasData) {
+                // Health is a separate primary-data surface. Its availability must not depend on
+                // completed workouts in the selected training period.
+                if (section == AnalysisSection.HEALTH) {
+                    item {
+                        HealthOverviewCard(
+                            state = state.health,
+                            onOpenMeasurements = onOpenMeasurements,
+                            onOpenMeasurement = onOpenMeasurement,
+                            onCreateReport = onCreateHealthReport,
+                            onCreateRestriction = onCreateRestriction,
+                            onOpenReport = { id ->
+                                val start = state.report.range.start.atStartOfDay(state.zone).toInstant().toEpochMilli()
+                                val end = state.report.range.endInclusive.plusDays(1).atStartOfDay(state.zone).toInstant().toEpochMilli() - 1
+                                onOpenHealthReport(id, start, end)
+                            },
+                            onOpenArchive = onOpenHealthArchive,
+                            onOpenConflict = { conflict ->
+                                onOpenHealthConflict(conflict.category, conflict.syncId, conflict.version)
+                            },
+                        )
+                    }
+                } else if (state.loading && !state.report.hasData) {
                     item {
                         Column(
                             modifier = Modifier.fillMaxWidth().padding(40.dp),
@@ -229,6 +281,7 @@ fun AnalysisScreen(
                                 )
                             }
                         }
+                        AnalysisSection.HEALTH -> Unit
                     }
                 }
             }

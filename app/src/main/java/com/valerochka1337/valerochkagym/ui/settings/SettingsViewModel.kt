@@ -15,14 +15,22 @@ import com.valerochka1337.valerochkagym.data.google.AuthorizeOutcome
 import com.valerochka1337.valerochkagym.data.google.GoogleAuth
 import com.valerochka1337.valerochkagym.data.google.ImportResult
 import com.valerochka1337.valerochkagym.data.google.WorkoutImportRepository
+import com.valerochka1337.valerochkagym.data.google.HealthSheetsRepository
+import com.valerochka1337.valerochkagym.data.google.HealthImportResult
+import com.valerochka1337.valerochkagym.data.google.RemoteClearResult
+import com.valerochka1337.valerochkagym.data.google.SheetsRepository
 import com.valerochka1337.valerochkagym.data.google.spreadsheetIdFrom
 import com.valerochka1337.valerochkagym.data.settings.GymSettings
+import com.valerochka1337.valerochkagym.data.settings.HealthSyncCategory
+import com.valerochka1337.valerochkagym.data.settings.HealthSyncSettings
 import com.valerochka1337.valerochkagym.data.settings.AiApiKeyStore
 import com.valerochka1337.valerochkagym.data.settings.SettingsRepository
 import com.valerochka1337.valerochkagym.ui.theme.AccentColor
 import com.valerochka1337.valerochkagym.ui.theme.PaletteMode
 import com.valerochka1337.valerochkagym.ui.theme.ThemeMode
 import com.valerochka1337.valerochkagym.worker.MeasurementUploadScheduler
+import com.valerochka1337.valerochkagym.worker.HealthSyncScheduler
+import com.valerochka1337.valerochkagym.worker.NoOpHealthSyncScheduler
 import com.valerochka1337.valerochkagym.worker.ConfigurationUploadScheduler
 import com.valerochka1337.valerochkagym.worker.NoOpConfigurationUploadScheduler
 import com.valerochka1337.valerochkagym.worker.NoOpRoutineUploadScheduler
@@ -36,11 +44,14 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
 import javax.inject.Inject
 import kotlin.time.Duration.Companion.milliseconds
@@ -58,7 +69,7 @@ private const val AUTH_ERROR_MESSAGE = "Не удалось настроить �
 
 /** Совместимый с прямыми unit-тестами no-op; Hilt всегда внедряет реальный планировщик. */
 private object NoOpMeasurementUploadScheduler : MeasurementUploadScheduler {
-    override fun schedule(measurementId: String) = Unit
+    override suspend fun schedule(measurementId: String) = Unit
     override suspend fun retry(measurementId: String) = Unit
     override suspend fun scheduleAllPending(): Int = 0
 }
@@ -131,6 +142,68 @@ data class SettingsUiState(
     val authError: String? = null,
 )
 
+data class HealthSyncDisclosure(
+    val category: HealthSyncCategory,
+    val title: String,
+    val fields: List<String>,
+    val exclusions: List<String>,
+) {
+    val warning = "Эти данные доступны всем, у кого есть доступ к выбранной Google Sheets таблице."
+    val localOnly = "Объём каждого выполненного подхода передаётся в его первичной строке. Отдельные строки и наборы агрегированной аналитики — общий тоннаж, e1RM, нагрузка по мышцам, изменения, тренды, сравнения и сводки — не создаются и не передаются."
+}
+
+/** Two explicit remote-delete stages; confirmation owns a frozen category set. */
+sealed interface RemoteClearUiState {
+    data class Selecting(val selected: Set<HealthSyncCategory> = emptySet()) : RemoteClearUiState
+    data class Confirming(
+        val selected: List<HealthSyncCategory>,
+        val isClearing: Boolean = false,
+    ) : RemoteClearUiState
+}
+
+/** One source of truth for the visible category names and their per-send disclosure contract. */
+internal fun HealthSyncCategory.healthSyncDisclosure(): HealthSyncDisclosure = when (this) {
+    HealthSyncCategory.WORKOUTS_AND_CONFIGURATION -> HealthSyncDisclosure(
+        category = this,
+        title = "Тренировки и программы",
+        fields = listOf(
+            "Идентификаторы, даты завершённых тренировок, названия, секции и заметки программ",
+            "Выполненные подходы: упражнения, варианты, веса, повторы, длительность, скорость, наклон и объём",
+            "Программы: план подходов и повторений, отдых, упражнения, варианты, залы и связи с залами",
+        ),
+        exclusions = emptyList(),
+    )
+    HealthSyncCategory.MEASUREMENTS -> HealthSyncDisclosure(
+        category = this,
+        title = "Состав тела и InBody",
+        fields = listOf(
+            "Идентификатор, дата и время замера",
+            "Все исходные показатели состава тела, InBody и обхватов",
+            "Условия замера: после еды, после тренировки, необычная гидратация и заметка",
+        ),
+        exclusions = emptyList(),
+    )
+    HealthSyncCategory.HEALTH_REPORTS_AND_OBSERVATIONS -> HealthSyncDisclosure(
+        category = this,
+        title = "Медицинские анализы",
+        fields = listOf(
+            "Стабильные идентификаторы, версии, статусы, происхождение, даты, названия и заметки исследований",
+            "Каждый результат: исходное название, тип, значение, единица и референс",
+            "Метод, материал, источник, страница документа и каноническое сопоставление показателя",
+        ),
+        exclusions = listOf("PDF и фото", "сырой ответ AI", "черновики"),
+    )
+    HealthSyncCategory.HEALTH_RESTRICTIONS -> HealthSyncDisclosure(
+        category = this,
+        title = "Ограничения и важная информация",
+        fields = listOf(
+            "Стабильные идентификаторы, версии, структурированное описание, статус и источник",
+            "Даты подтверждения, начала и пересмотра",
+        ),
+        exclusions = listOf("исходный свободный текст"),
+    )
+}
+
 /**
  * Бэкенд экрана настроек. Хранение делегируется [SettingsRepository], вход и OAuth — [GoogleAuth].
  * Запрос согласия (consent) не может быть запущен из ViewModel, поэтому [IntentSender] уходит на
@@ -152,7 +225,17 @@ class SettingsViewModel @Inject constructor(
         NoOpConfigurationUploadScheduler,
     private val weeklyScheduleRecoveryScheduler: WeeklyScheduleRecoveryScheduler =
         NoOpWeeklyScheduleRecoveryScheduler,
+    private val healthSyncScheduler: HealthSyncScheduler = NoOpHealthSyncScheduler,
+    private val healthSheetsRepository: HealthSheetsRepository? = null,
+    private val sheetsRepository: SheetsRepository? = null,
 ) : ViewModel() {
+
+    /** Keeps consent, import-before-enable and scheduling in one observable order. */
+    private val healthSyncMutationMutex = Mutex()
+    private val pendingHealthSyncDisclosure = MutableStateFlow<HealthSyncDisclosure?>(null)
+    val healthSyncDisclosure: StateFlow<HealthSyncDisclosure?> = pendingHealthSyncDisclosure.asStateFlow()
+    private val pendingRemoteClear = MutableStateFlow<RemoteClearUiState?>(null)
+    val remoteClearState: StateFlow<RemoteClearUiState?> = pendingRemoteClear.asStateFlow()
 
     private val authBusy = MutableStateFlow(false)
     private val spreadsheetError = MutableStateFlow(false)
@@ -391,12 +474,27 @@ class SettingsViewModel @Inject constructor(
 
     /** Разово восстанавливает все app-managed данные из таблицы и уведомляет о результате. */
     private suspend fun importHistory() {
-        val message = when (val result = importRepository.importAll()) {
-            is ImportResult.Success -> buildImportMessage(result)
+        val sync = settingsRepository.settings.first().healthSync
+        val primary = setOf(
+            HealthSyncCategory.WORKOUTS_AND_CONFIGURATION,
+            HealthSyncCategory.MEASUREMENTS,
+        ).filterTo(linkedSetOf(), sync::isEnabled)
+        val primaryResult = if (primary.isEmpty()) ImportResult.NothingToImport else importRepository.import(primary)
+        val message = when (primaryResult) {
+            is ImportResult.Success -> buildImportMessage(primaryResult)
             ImportResult.NothingToImport -> "Нечего импортировать"
-            is ImportResult.Failure -> result.reason
+            is ImportResult.Failure -> primaryResult.reason
         }
-        _messages.send(message)
+        if (primaryResult is ImportResult.Failure) {
+            _messages.send(message)
+            return
+        }
+        val healthImported = MEDICAL_SYNC_CATEGORIES
+            .filter(sync::isEnabled)
+            .sumOf { category -> healthSheetsRepository?.import(category) ?: 0 }
+        _messages.send(
+            if (healthImported == 0) message else "Импортировано данных здоровья: $healthImported",
+        )
     }
 
     /** После входа восстанавливаем данные, только если ID таблицы уже вернулся из backup/DataStore. */
@@ -433,11 +531,227 @@ class SettingsViewModel @Inject constructor(
      */
     fun exportAll() {
         viewModelScope.launch {
-            val count = uploadScheduler.scheduleAllPending() +
-                measurementUploadScheduler.scheduleAllPending() +
-                routineUploadScheduler.scheduleAll() +
-                configurationUploadScheduler.scheduleAll()
+            val sync = settingsRepository.settings.first().healthSync
+            var count = 0
+            if (sync.isEnabled(HealthSyncCategory.WORKOUTS_AND_CONFIGURATION)) {
+                count += uploadScheduler.scheduleAllPending()
+                count += routineUploadScheduler.scheduleAll()
+                count += configurationUploadScheduler.scheduleAll()
+            }
+            if (sync.isEnabled(HealthSyncCategory.MEASUREMENTS)) {
+                count += measurementUploadScheduler.scheduleAllPending()
+            }
+            MEDICAL_SYNC_CATEGORIES.filter(sync::isEnabled).forEach { category ->
+                count += healthSyncScheduler.schedulePending(category)
+            }
             _messages.send("Поставлено в очередь: $count")
+        }
+    }
+
+    fun setHealthSyncEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            healthSyncMutationMutex.withLock {
+                if (enabled) {
+                    // A confirmation can arrive while an earlier import suspends. Re-read the
+                    // selected categories until every current selection has imported, then and
+                    // only then make the master switch effective and schedule work.
+                    val imported = mutableSetOf<HealthSyncCategory>()
+                    while (true) {
+                        val category = settingsRepository.settings.first().healthSync.categories
+                            .firstOrNull { it !in imported }
+                            ?: break
+                        importForEnable(category)?.let { message ->
+                            _messages.send(message)
+                            return@withLock
+                        }
+                        imported += category
+                    }
+                }
+                settingsRepository.setHealthSyncEnabled(enabled)
+                applyHealthSyncSettings(settingsRepository.settings.first().healthSync)
+            }
+        }
+    }
+
+    fun setHealthSyncCategory(category: HealthSyncCategory, enabled: Boolean) {
+        viewModelScope.launch {
+            healthSyncMutationMutex.withLock {
+                val before = settingsRepository.settings.first().healthSync
+                if (enabled && before.enabled) {
+                    importForEnable(category)?.let { message ->
+                        _messages.send(message)
+                        return@withLock
+                    }
+                }
+                settingsRepository.setHealthSyncCategory(category, enabled)
+                applyHealthSyncSettings(settingsRepository.settings.first().healthSync)
+            }
+        }
+    }
+
+    /** UI entrypoint: turning a category on always requires one explicit, category-scoped disclosure. */
+    fun requestHealthSyncCategory(category: HealthSyncCategory, enabled: Boolean) {
+        if (!enabled) {
+            setHealthSyncCategory(category, false)
+            return
+        }
+        viewModelScope.launch {
+            val fresh = settingsRepository.settings.first().healthSync
+            if (category in fresh.categories) return@launch
+            pendingHealthSyncDisclosure.value = category.healthSyncDisclosure()
+        }
+    }
+
+    fun cancelHealthSyncDisclosure() {
+        pendingHealthSyncDisclosure.value = null
+    }
+
+    fun confirmHealthSyncDisclosure() {
+        viewModelScope.launch {
+            healthSyncMutationMutex.withLock {
+                val disclosure = pendingHealthSyncDisclosure.value ?: return@withLock
+                val category = disclosure.category
+                val fresh = settingsRepository.settings.first().healthSync
+                pendingHealthSyncDisclosure.value = null
+                // A stale dialog never overrides an intervening change. Existing enabled state is a no-op.
+                if (category in fresh.categories) return@withLock
+                if (fresh.enabled) {
+                    importForEnable(category)?.let { message ->
+                        _messages.send(message)
+                        return@withLock
+                    }
+                }
+                settingsRepository.setHealthSyncCategory(category, true)
+                // The master switch may have been turned off while the dialog was open. Its
+                // immediate cancellation has already reached every scheduler; recording the user's
+                // category selection must not enqueue or cancel work a second time.
+                if (fresh.enabled) {
+                    applyHealthSyncSettings(settingsRepository.settings.first().healthSync)
+                }
+            }
+        }
+    }
+
+    /** Opens a separately confirmed, category-scoped remote deletion. It never changes local state. */
+    fun requestRemoteClear() {
+        if (pendingRemoteClear.value == null) pendingRemoteClear.value = RemoteClearUiState.Selecting()
+    }
+
+    fun toggleRemoteClearCategory(category: HealthSyncCategory) {
+        val state = pendingRemoteClear.value as? RemoteClearUiState.Selecting ?: return
+        pendingRemoteClear.value = state.copy(
+            selected = state.selected.toMutableSet().apply {
+                if (!add(category)) remove(category)
+            },
+        )
+    }
+
+    fun continueRemoteClear() {
+        val state = pendingRemoteClear.value as? RemoteClearUiState.Selecting ?: return
+        if (state.selected.isEmpty()) return
+        pendingRemoteClear.value = RemoteClearUiState.Confirming(
+            selected = HealthSyncCategory.entries.filter(state.selected::contains),
+        )
+    }
+
+    /** Back/cancel is inert while a confirmed request is in flight and otherwise forgets selection. */
+    fun cancelRemoteClear() {
+        if ((pendingRemoteClear.value as? RemoteClearUiState.Confirming)?.isClearing == true) return
+        pendingRemoteClear.value = null
+    }
+
+    fun confirmRemoteClear() {
+        val confirmation = pendingRemoteClear.value as? RemoteClearUiState.Confirming ?: return
+        if (confirmation.isClearing) return
+        pendingRemoteClear.value = confirmation.copy(isClearing = true)
+        viewModelScope.launch {
+            try {
+                val outcomes = mutableListOf<Pair<HealthSyncCategory, RemoteClearResult>>()
+                for (category in confirmation.selected) {
+                    val result = clearRemoteCategory(category)
+                    outcomes += category to result
+                    if (result is RemoteClearResult.Failure) break
+                }
+                pendingRemoteClear.value = null
+                _messages.send(remoteClearMessage(confirmation.selected, outcomes))
+            } catch (error: CancellationException) {
+                pendingRemoteClear.value = confirmation.copy(isClearing = false)
+                throw error
+            } catch (_: Exception) {
+                pendingRemoteClear.value = null
+                _messages.send("Не удалось очистить выбранные данные в Google Sheets. Локальные данные и настройки не менялись — повторите через кнопку.")
+            }
+        }
+    }
+
+    private suspend fun clearRemoteCategory(category: HealthSyncCategory): RemoteClearResult = when (category) {
+        HealthSyncCategory.WORKOUTS_AND_CONFIGURATION -> sheetsRepository
+            ?.clearWorkoutsAndConfigurationAfterConfirmation()
+            ?: RemoteClearResult.Failure("Очистка тренировок недоступна")
+        HealthSyncCategory.MEASUREMENTS -> sheetsRepository
+            ?.clearMeasurementsAfterConfirmation()
+            ?: RemoteClearResult.Failure("Очистка замеров недоступна")
+        HealthSyncCategory.HEALTH_REPORTS_AND_OBSERVATIONS,
+        HealthSyncCategory.HEALTH_RESTRICTIONS,
+        -> healthSheetsRepository?.clearAfterConfirmation(category)
+            ?: RemoteClearResult.Failure("Очистка данных здоровья недоступна")
+    }
+
+    private fun remoteClearMessage(
+        selected: List<HealthSyncCategory>,
+        outcomes: List<Pair<HealthSyncCategory, RemoteClearResult>>,
+    ): String {
+        val failed = outcomes.firstOrNull { (_, result) -> result is RemoteClearResult.Failure }
+        if (failed == null) {
+            return "Управляемые данные удалены из Google Sheets. Локальные данные и настройки не менялись."
+        }
+        val cleared = outcomes.flatMap { (category, result) ->
+            when (result) {
+                is RemoteClearResult.Success -> result.clearedRanges.map { range -> "${category.healthSyncDisclosure().title}: $range" }
+                is RemoteClearResult.Failure -> result.clearedRanges.map { range -> "${category.healthSyncDisclosure().title}: $range" }
+            }
+        }
+        val notAttempted = selected.drop(outcomes.size).map { it.healthSyncDisclosure().title }
+        val failedResult = failed.second as RemoteClearResult.Failure
+        val notClearedRanges = buildList {
+            failedResult.failedRange?.let(::add)
+            addAll(failedResult.remainingRanges)
+        }.map { range -> "${failed.first.healthSyncDisclosure().title}: $range" }
+        return buildString {
+            append("Очистка Google Sheets выполнена не полностью. ")
+            if (cleared.isNotEmpty()) append("Уже очищено: ${cleared.joinToString()}. ")
+            append("Не удалось очистить: ${failed.first.healthSyncDisclosure().title}.")
+            if (notClearedRanges.isNotEmpty()) append(" Не очищено: ${notClearedRanges.joinToString()}.")
+            if (notAttempted.isNotEmpty()) append(" Осталось: ${notAttempted.joinToString()}.")
+            append(" Локальные данные и настройки не менялись — повторите через кнопку.")
+        }
+    }
+
+    /** Returns a user-facing failure without changing consent or queue state. */
+    private suspend fun importForEnable(category: HealthSyncCategory): String? = when (category) {
+        HealthSyncCategory.WORKOUTS_AND_CONFIGURATION,
+        HealthSyncCategory.MEASUREMENTS,
+        -> when (val result = importRepository.import(setOf(category))) {
+            is ImportResult.Failure -> result.reason
+            else -> null
+        }
+        HealthSyncCategory.HEALTH_REPORTS_AND_OBSERVATIONS,
+        HealthSyncCategory.HEALTH_RESTRICTIONS,
+        -> when (val result = healthSheetsRepository?.importForEnable(category) ?: HealthImportResult.NothingToImport) {
+            is HealthImportResult.Failure -> result.message
+            else -> null
+        }
+    }
+
+    /** Settings are committed before WorkManager cancellation/rescheduling observes their effect. */
+    private suspend fun applyHealthSyncSettings(sync: HealthSyncSettings) {
+        val workoutsEnabled = sync.isEnabled(HealthSyncCategory.WORKOUTS_AND_CONFIGURATION)
+        uploadScheduler.onCategoryChanged(workoutsEnabled)
+        routineUploadScheduler.onCategoryChanged(workoutsEnabled)
+        configurationUploadScheduler.onCategoryChanged(workoutsEnabled)
+        measurementUploadScheduler.onCategoryChanged(sync.isEnabled(HealthSyncCategory.MEASUREMENTS))
+        MEDICAL_SYNC_CATEGORIES.forEach { category ->
+            healthSyncScheduler.onCategoryChanged(category, sync.isEnabled(category))
         }
     }
 
@@ -526,3 +840,8 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch { settingsRepository.setPaletteMode(mode) }
     }
 }
+
+private val MEDICAL_SYNC_CATEGORIES = setOf(
+    HealthSyncCategory.HEALTH_REPORTS_AND_OBSERVATIONS,
+    HealthSyncCategory.HEALTH_RESTRICTIONS,
+)

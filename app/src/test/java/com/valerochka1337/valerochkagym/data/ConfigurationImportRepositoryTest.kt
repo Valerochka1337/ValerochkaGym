@@ -15,6 +15,7 @@ import com.valerochka1337.valerochkagym.data.db.entity.RoutineExerciseEntity
 import com.valerochka1337.valerochkagym.data.google.AppendValuesDto
 import com.valerochka1337.valerochkagym.data.google.AuthorizeOutcome
 import com.valerochka1337.valerochkagym.data.google.BatchUpdateRequestDto
+import com.valerochka1337.valerochkagym.data.google.ClearValuesDto
 import com.valerochka1337.valerochkagym.data.google.GoogleAuth
 import com.valerochka1337.valerochkagym.data.google.ImportResult
 import com.valerochka1337.valerochkagym.data.google.SheetDto
@@ -332,6 +333,10 @@ class ConfigurationImportRepositoryTest : RoomDaoTest() {
             body: AppendValuesDto,
             valueInputOption: String,
             insertDataOption: String,
+        ): JsonElement = JsonNull
+
+        override suspend fun clearValues(
+            bearer: String, spreadsheetId: String, range: String, body: ClearValuesDto,
         ): JsonElement = JsonNull
 
         override suspend fun updateValues(

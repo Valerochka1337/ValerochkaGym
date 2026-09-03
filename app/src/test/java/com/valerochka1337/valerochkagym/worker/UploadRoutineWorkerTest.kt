@@ -7,8 +7,15 @@ import androidx.work.WorkerFactory
 import androidx.work.WorkerParameters
 import androidx.work.testing.TestListenableWorkerBuilder
 import androidx.work.workDataOf
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.emptyPreferences
 import com.valerochka1337.valerochkagym.data.google.SheetsRepository
 import com.valerochka1337.valerochkagym.data.google.UploadResult
+import com.valerochka1337.valerochkagym.data.settings.HealthSyncCategory
+import com.valerochka1337.valerochkagym.data.settings.SettingsRepository
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -30,6 +37,20 @@ class UploadRoutineWorkerTest {
         assertEquals(ListenableWorker.Result.success(), result)
         assertEquals(listOf("routine-1"), repository.snapshotIds)
         assertTrue(repository.deletions.isEmpty())
+    }
+
+    @Test
+    fun `disabled workouts category keeps routine snapshot pending without upload`() = runTest {
+        val repository = FakeSheetsRepository()
+        val settings = SettingsRepository(Store()).also {
+            it.setHealthSyncEnabled(true)
+            it.setHealthSyncCategory(HealthSyncCategory.WORKOUTS_AND_CONFIGURATION, false)
+        }
+
+        val result = worker(repository, settings = settings).doWork()
+
+        assertEquals(ListenableWorker.Result.success(), result)
+        assertTrue(repository.snapshotIds.isEmpty())
     }
 
     @Test
@@ -67,6 +88,7 @@ class UploadRoutineWorkerTest {
         repository: SheetsRepository,
         deletionUpdatedAt: Long? = null,
         runAttemptCount: Int = 0,
+        settings: SettingsRepository? = null,
     ): UploadRoutineWorker {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val input = if (deletionUpdatedAt == null) {
@@ -86,7 +108,7 @@ class UploadRoutineWorkerTest {
                     appContext: Context,
                     workerClassName: String,
                     workerParameters: WorkerParameters,
-                ): ListenableWorker = UploadRoutineWorker(appContext, workerParameters, repository)
+                ): ListenableWorker = UploadRoutineWorker(appContext, workerParameters, repository, settingsRepository = settings)
             })
             .build() as UploadRoutineWorker
     }
@@ -111,5 +133,12 @@ class UploadRoutineWorkerTest {
             deletions += routineSyncId to updatedAt
             return deletionResult
         }
+    }
+
+    private class Store : DataStore<Preferences> {
+        private val values = MutableStateFlow(emptyPreferences())
+        override val data: Flow<Preferences> = values
+        override suspend fun updateData(transform: suspend (Preferences) -> Preferences): Preferences =
+            transform(values.value).also { values.value = it }
     }
 }

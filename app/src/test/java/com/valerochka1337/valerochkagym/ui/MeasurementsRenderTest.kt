@@ -175,7 +175,7 @@ class MeasurementsRenderTest {
     }
 
     private class FakeMeasurementUploadScheduler : MeasurementUploadScheduler {
-        override fun schedule(measurementId: String) = Unit
+        override suspend fun schedule(measurementId: String) = Unit
         override suspend fun retry(measurementId: String) = Unit
         override suspend fun scheduleAllPending(): Int = 0
     }

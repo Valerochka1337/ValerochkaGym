@@ -9,6 +9,8 @@ import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleGroup
 import com.valerochka1337.valerochkagym.data.db.entity.BodyMeasurementEntity
+import com.valerochka1337.valerochkagym.data.db.entity.HealthSyncCategory
+import com.valerochka1337.valerochkagym.data.db.entity.HealthSyncOutboxEntity
 import com.valerochka1337.valerochkagym.data.db.entity.RoutineEntity
 import com.valerochka1337.valerochkagym.data.db.entity.RoutineExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.UploadStatus
@@ -16,22 +18,32 @@ import com.valerochka1337.valerochkagym.data.google.AuthorizeOutcome
 import com.valerochka1337.valerochkagym.data.google.GoogleAuth
 import com.valerochka1337.valerochkagym.data.google.SheetsApi
 import com.valerochka1337.valerochkagym.data.google.SheetsRepositoryImpl
+import com.valerochka1337.valerochkagym.data.google.RemoteClearResult
 import com.valerochka1337.valerochkagym.data.google.TokenResult
 import com.valerochka1337.valerochkagym.data.google.UploadResult
 import com.valerochka1337.valerochkagym.data.google.AppendValuesDto
 import com.valerochka1337.valerochkagym.data.google.BatchUpdateRequestDto
+import com.valerochka1337.valerochkagym.data.google.ClearValuesDto
 import com.valerochka1337.valerochkagym.data.google.SheetDto
 import com.valerochka1337.valerochkagym.data.google.SheetPropertiesDto
 import com.valerochka1337.valerochkagym.data.google.SpreadsheetDto
 import com.valerochka1337.valerochkagym.data.google.ValueRangeDto
 import com.valerochka1337.valerochkagym.data.google.UpdateValuesDto
 import com.valerochka1337.valerochkagym.data.settings.SettingsRepository
+import com.valerochka1337.valerochkagym.data.measurements.MeasurementRepository
+import com.valerochka1337.valerochkagym.data.measurements.MeasurementSnapshotCodec
 import com.valerochka1337.valerochkagym.domain.RoutineRowMapper
 import com.valerochka1337.valerochkagym.domain.WorkoutRowMapper
+import com.valerochka1337.valerochkagym.domain.ExerciseSheetRowMapper
+import com.valerochka1337.valerochkagym.domain.ExerciseVariantSheetRowMapper
+import com.valerochka1337.valerochkagym.domain.GymSheetRowMapper
+import com.valerochka1337.valerochkagym.domain.RoutineGymsSheetRowMapper
 import com.valerochka1337.valerochkagym.domain.measurements.BodyMeasurementRowMapper
+import com.valerochka1337.valerochkagym.domain.measurements.BodyMeasurementRowParser
 import android.app.Activity
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -41,6 +53,7 @@ import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonPrimitive
 import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -194,6 +207,192 @@ class SheetsRepositoryTest : RoomDaoTest() {
     // region measurements
 
     @Test
+    fun `confirmed workouts configuration clear validates every header then clears exact managed ranges`() = runTest {
+        val api = FakeSheetsApi(
+            sheets = mutableListOf(
+                WORKOUTS_SHEET,
+                ROUTINES_SHEET,
+                "Exercises",
+                "ExerciseVariants",
+                "Gyms",
+                "RoutineGyms",
+                "Personal notes",
+            ),
+        ).apply {
+            sheetHeaders.putAll(
+                mapOf(
+                    WORKOUTS_SHEET to (WorkoutRowMapper.HEADER_ROW + "custom_workout_column"),
+                    ROUTINES_SHEET to (RoutineRowMapper.HEADER_ROW + "custom_routine_column"),
+                    "Exercises" to (ExerciseSheetRowMapper.HEADER_ROW + "custom_exercise_column"),
+                    "ExerciseVariants" to ExerciseVariantSheetRowMapper.HEADER_ROW,
+                    "Gyms" to GymSheetRowMapper.HEADER_ROW,
+                    "RoutineGyms" to RoutineGymsSheetRowMapper.HEADER_ROW,
+                ),
+            )
+        }
+
+        val result = repository(api).clearWorkoutsAndConfigurationAfterConfirmation()
+
+        assertEquals(
+            RemoteClearResult.Success(
+                listOf(
+                    "Workouts!A2:S",
+                    "Routines!A2:M",
+                    "Exercises!A2:I",
+                    "ExerciseVariants!A2:F",
+                    "Gyms!A2:E",
+                    "RoutineGyms!A2:D",
+                ),
+            ),
+            result,
+        )
+        assertEquals(
+            listOf(
+                "Workouts!A2:S",
+                "Routines!A2:M",
+                "Exercises!A2:I",
+                "ExerciseVariants!A2:F",
+                "Gyms!A2:E",
+                "RoutineGyms!A2:D",
+            ),
+            api.clears,
+        )
+        assertTrue(api.addedSheets.isEmpty())
+    }
+
+    @Test
+    fun `incompatible configuration header prevents every destructive clear`() = runTest {
+        val api = FakeSheetsApi(sheets = mutableListOf(WORKOUTS_SHEET, "ExerciseVariants")).apply {
+            sheetHeaders[WORKOUTS_SHEET] = WorkoutRowMapper.HEADER_ROW
+            sheetHeaders["ExerciseVariants"] = listOf("user_owned", "column")
+        }
+
+        assertTrue(repository(api).clearWorkoutsAndConfigurationAfterConfirmation() is RemoteClearResult.Failure)
+        assertTrue(api.clears.isEmpty())
+        assertTrue(api.addedSheets.isEmpty())
+    }
+
+    @Test
+    fun `configuration clear uses recognised legacy widths and ignores absent sheets`() = runTest {
+        val api = FakeSheetsApi(sheets = mutableListOf(WORKOUTS_SHEET, ROUTINES_SHEET)).apply {
+            sheetHeaders[WORKOUTS_SHEET] = WorkoutRowMapper.HEADER_ROW.take(14) + "user_column"
+            sheetHeaders[ROUTINES_SHEET] = RoutineRowMapper.LEGACY_HEADER_ROW + "user_column"
+        }
+
+        assertEquals(
+            RemoteClearResult.Success(listOf("Workouts!A2:N", "Routines!A2:K")),
+            repository(api).clearWorkoutsAndConfigurationAfterConfirmation(),
+        )
+        assertEquals(listOf("Workouts!A2:N", "Routines!A2:K"), api.clears)
+        assertTrue(api.addedSheets.isEmpty())
+
+        val stableRoutine = FakeSheetsApi(sheets = mutableListOf(ROUTINES_SHEET)).apply {
+            sheetHeaders[ROUTINES_SHEET] = RoutineRowMapper.STABLE_EXERCISE_HEADER_ROW + "user_column"
+        }
+        assertEquals(
+            RemoteClearResult.Success(listOf("Routines!A2:L")),
+            repository(stableRoutine).clearWorkoutsAndConfigurationAfterConfirmation(),
+        )
+        assertEquals(listOf("Routines!A2:L"), stableRoutine.clears)
+
+        val absent = FakeSheetsApi()
+        assertEquals(
+            RemoteClearResult.Success(emptyList()),
+            repository(absent).clearWorkoutsAndConfigurationAfterConfirmation(),
+        )
+        assertTrue(absent.clears.isEmpty())
+        assertTrue(absent.addedSheets.isEmpty())
+    }
+
+    @Test
+    fun `configuration clear reports partial remote failure without changing local measurement or settings`() = runTest {
+        seedMeasurement()
+        val settings = settingsRepository(SPREADSHEET_ID)
+        val beforeSettings = settings.settings.first()
+        val api = FakeSheetsApi(sheets = mutableListOf(WORKOUTS_SHEET, ROUTINES_SHEET)).apply {
+            sheetHeaders[WORKOUTS_SHEET] = WorkoutRowMapper.HEADER_ROW
+            sheetHeaders[ROUTINES_SHEET] = RoutineRowMapper.HEADER_ROW
+            failClearAt = 2
+        }
+
+        val result = repository(api, settings = settings).clearWorkoutsAndConfigurationAfterConfirmation()
+
+        assertEquals(
+            RemoteClearResult.Failure(
+                "Нет сети при очистке Google Sheets",
+                listOf("Workouts!A2:S"),
+                "Routines!A2:M",
+            ),
+            result,
+        )
+        assertEquals(listOf("Workouts!A2:S"), api.clears)
+        assertEquals(beforeSettings, settings.settings.first())
+        assertEquals(UploadStatus.PENDING, measurementUploadStatus())
+    }
+
+    @Test fun `configuration clear revalidates a changed third header before destructive request`() = runTest {
+        val api = FakeSheetsApi(sheets = mutableListOf(WORKOUTS_SHEET, ROUTINES_SHEET, "Exercises", "ExerciseVariants")).apply {
+            sheetHeaders[WORKOUTS_SHEET] = WorkoutRowMapper.HEADER_ROW
+            sheetHeaders[ROUTINES_SHEET] = RoutineRowMapper.HEADER_ROW
+            sheetHeaders["Exercises"] = ExerciseSheetRowMapper.HEADER_ROW
+            sheetHeaders["ExerciseVariants"] = ExerciseVariantSheetRowMapper.HEADER_ROW
+            mutateHeaderAfterClear = 1 to ("Exercises" to listOf("user_owned", "column"))
+        }
+
+        assertEquals(
+            RemoteClearResult.Failure(
+                "Заголовок листа Exercises изменён вручную — очистка отменена",
+                clearedRanges = listOf("Workouts!A2:S", "Routines!A2:M"),
+                failedRange = "Exercises!A2:I",
+                remainingRanges = listOf("ExerciseVariants!A2:F"),
+            ),
+            repository(api).clearWorkoutsAndConfigurationAfterConfirmation(),
+        )
+        assertEquals(listOf("Workouts!A2:S", "Routines!A2:M"), api.clears)
+    }
+
+    @Test
+    fun `measurement clear keeps legacy and user columns and never creates missing sheets`() = runTest {
+        val earlyLegacy = FakeSheetsApi(sheets = mutableListOf(MEASUREMENTS_SHEET)).apply {
+            sheetHeaders[MEASUREMENTS_SHEET] = BodyMeasurementRowMapper.LEGACY_HEADER_ROW.take(14) + "my_column"
+        }
+        assertEquals(RemoteClearResult.Success(listOf("Measurements!A2:N")), repository(earlyLegacy).clearMeasurementsAfterConfirmation())
+        assertEquals(listOf("Measurements!A2:N"), earlyLegacy.clears)
+        assertTrue(earlyLegacy.addedSheets.isEmpty())
+        assertEquals(listOf(MEASUREMENTS_SHEET), earlyLegacy.sheets)
+
+        val fullLegacy = FakeSheetsApi(sheets = mutableListOf(MEASUREMENTS_SHEET)).apply {
+            sheetHeaders[MEASUREMENTS_SHEET] = BodyMeasurementRowMapper.LEGACY_HEADER_ROW + "my_column"
+        }
+        assertEquals(RemoteClearResult.Success(listOf("Measurements!A2:AP")), repository(fullLegacy).clearMeasurementsAfterConfirmation())
+        assertEquals(listOf("Measurements!A2:AP"), fullLegacy.clears)
+
+        val modern = FakeSheetsApi(sheets = mutableListOf(MEASUREMENTS_SHEET)).apply {
+            sheetHeaders[MEASUREMENTS_SHEET] = BodyMeasurementRowMapper.HEADER_ROW + "my_column"
+        }
+        assertEquals(RemoteClearResult.Success(listOf("Measurements!A2:AY")), repository(modern).clearMeasurementsAfterConfirmation())
+        assertEquals(listOf("Measurements!A2:AY"), modern.clears)
+
+        val absent = FakeSheetsApi(sheets = mutableListOf("Personal notes"))
+        assertEquals(RemoteClearResult.Success(emptyList()), repository(absent).clearMeasurementsAfterConfirmation())
+        assertTrue(absent.clears.isEmpty())
+        assertTrue(absent.addedSheets.isEmpty())
+        assertFalse(absent.sheets.contains(WORKOUTS_SHEET))
+    }
+
+    @Test
+    fun `unknown measurement header stops clear without local mutation`() = runTest {
+        seedMeasurement()
+        val api = FakeSheetsApi(sheets = mutableListOf(MEASUREMENTS_SHEET)).apply {
+            sheetHeaders[MEASUREMENTS_SHEET] = listOf("user_owned", "column")
+        }
+
+        assertTrue(repository(api).clearMeasurementsAfterConfirmation() is RemoteClearResult.Failure)
+        assertTrue(api.clears.isEmpty())
+        assertEquals(UploadStatus.PENDING, measurementUploadStatus())
+    }
+
+    @Test
     fun `measurement export creates Measurements directly after Workouts and appends its header`() = runTest {
         seedMeasurement()
         val api = FakeSheetsApi(sheets = mutableListOf("Readme", WORKOUTS_SHEET, "Archive"))
@@ -207,7 +406,7 @@ class SheetsRepositoryTest : RoomDaoTest() {
         val batch = api.appended.single()
         assertEquals(BodyMeasurementRowMapper.HEADER_ROW, batch.first())
         assertEquals(MEASUREMENT_ID, batch[1].first())
-        assertEquals("17.5", batch[1][6]) // weight × body-fat percent
+        assertEquals("", batch[1][6]) // versioned sync rows never export calculated fat mass
         assertEquals(UploadStatus.UPLOADED, measurementUploadStatus())
     }
 
@@ -236,6 +435,40 @@ class SheetsRepositoryTest : RoomDaoTest() {
     }
 
     @Test
+    fun `legacy Measurements header inserts nine managed columns before user AQ column`() = runTest {
+        seedMeasurement()
+        val api = FakeSheetsApi(
+            sheets = mutableListOf(WORKOUTS_SHEET, MEASUREMENTS_SHEET),
+            measurementColumnA = mutableListOf("measurement_id"),
+            measurementHeader = (BodyMeasurementRowMapper.LEGACY_HEADER_ROW + "my_user_column").toMutableList(),
+        )
+
+        assertEquals(UploadResult.Success, repository(api).uploadMeasurement(MEASUREMENT_ID))
+
+        val inserted = api.insertedDimensions.single()
+        assertEquals(42, inserted.range.startIndex)
+        assertEquals(51, inserted.range.endIndex)
+        assertEquals(listOf(listOf(BodyMeasurementRowMapper.HEADER_ROW.drop(42))), api.headerUpdates)
+    }
+
+    @Test
+    fun `interim AU Measurements header inserts four condition columns before user AV column`() = runTest {
+        seedMeasurement()
+        val api = FakeSheetsApi(
+            sheets = mutableListOf(WORKOUTS_SHEET, MEASUREMENTS_SHEET),
+            measurementColumnA = mutableListOf("measurement_id"),
+            measurementHeader = (BodyMeasurementRowMapper.INTERIM_HEADER_ROW + "my_user_column").toMutableList(),
+        )
+
+        assertEquals(UploadResult.Success, repository(api).uploadMeasurement(MEASUREMENT_ID))
+
+        val inserted = api.insertedDimensions.single()
+        assertEquals(47, inserted.range.startIndex)
+        assertEquals(51, inserted.range.endIndex)
+        assertEquals(listOf(listOf(BodyMeasurementRowMapper.HEADER_ROW.takeLast(4))), api.headerUpdates)
+    }
+
+    @Test
     fun `already appended measurement id is idempotent and does not append again`() = runTest {
         seedMeasurement()
         val api = FakeSheetsApi(
@@ -259,6 +492,147 @@ class SheetsRepositoryTest : RoomDaoTest() {
 
         assertEquals(UploadResult.PermanentFailure("Нет доступа к таблице — проверьте вход и права"), result)
         assertEquals(UploadStatus.FAILED, measurementUploadStatus())
+    }
+
+    @Test
+    fun `delayed v1 snapshot uploads its immutable row and does not mark local v2 uploaded`() = runTest {
+        val measurements = MeasurementRepository(db)
+        measurements.save(BodyMeasurementEntity("versioned", 100, weightKg = 70.0), now = 100)
+        val v1 = db.healthSyncOutboxDao().pending(HealthSyncCategory.MEASUREMENTS).single()
+        measurements.save(BodyMeasurementEntity("versioned", 200, weightKg = 69.0), now = 200)
+        val v2 = db.healthSyncOutboxDao().pending(HealthSyncCategory.MEASUREMENTS).last()
+        val api = FakeSheetsApi(
+            sheets = mutableListOf(WORKOUTS_SHEET, MEASUREMENTS_SHEET),
+            measurementRows = mutableListOf(BodyMeasurementRowMapper.HEADER_ROW),
+        )
+
+        assertEquals(UploadResult.Success, repository(api).uploadMeasurementSnapshot(v1))
+
+        assertEquals("70.0", api.appended.single().single()[3])
+        assertEquals("1", api.appended.single().single()[42])
+        assertEquals(UploadStatus.PENDING, db.bodyMeasurementDao().getById("versioned")!!.uploadStatus)
+
+        assertEquals(UploadResult.Success, repository(api).uploadMeasurementSnapshot(v2))
+        assertEquals("69.0", api.appended.last().single()[3])
+        assertEquals(UploadStatus.UPLOADED, db.bodyMeasurementDao().getById("versioned")!!.uploadStatus)
+    }
+
+    @Test
+    fun `literal migration v1 nullable snapshot syncs blank primary fields and reimports without conflict`() = runTest {
+        val measurement = BodyMeasurementEntity(
+            "nullable-primary", 100,
+            weightKg = 70.0, bodyFatPercentage = 20.0, bodyFatMassKg = null,
+            waistHipRatio = null, waistCm = 75.0, hipsCm = 100.0,
+        )
+        val snapshot = HealthSyncOutboxEntity(
+            HealthSyncCategory.MEASUREMENTS, measurement.id, 1,
+            actualMigrationV1Payload, null, "nullable-primary:1", 100,
+        )
+        val api = FakeSheetsApi(
+            sheets = mutableListOf(WORKOUTS_SHEET, MEASUREMENTS_SHEET),
+            measurementRows = mutableListOf(BodyMeasurementRowMapper.HEADER_ROW),
+        )
+
+        assertEquals(UploadResult.Success, repository(api).uploadMeasurementSnapshot(snapshot))
+        val row = api.appended.single().single()
+        assertEquals("", row[6])
+        assertEquals("", row[8])
+        assertEquals(UploadResult.Success, repository(api).uploadMeasurementSnapshot(snapshot))
+        val parsed = BodyMeasurementRowParser.parse(listOf(BodyMeasurementRowMapper.HEADER_ROW, row)).snapshots.single()
+        assertEquals(snapshot.canonicalPayload, parsed.canonicalPayload)
+        assertEquals(MeasurementSnapshotCodec.PayloadFormat.V1, parsed.payloadFormat)
+        assertEquals("", row[47])
+        assertEquals("", row[48])
+        assertEquals("", row[49])
+        val imported = MeasurementRepository(db)
+        assertEquals(true, imported.applyImported(parsed))
+        assertEquals(false, imported.applyImported(parsed))
+        assertEquals(1, db.healthDao().measurementSnapshots("nullable-primary").size)
+        assertEquals(snapshot.canonicalPayload, db.healthDao().measurementSnapshots("nullable-primary").single().canonicalPayload)
+        assertEquals(0, db.healthDao().conflicts().size)
+    }
+
+    @Test
+    fun `tombstone snapshot uploads its exact immutable values rather than an empty live row`() = runTest {
+        val measurements = MeasurementRepository(db)
+        measurements.save(BodyMeasurementEntity("deleted", 100, weightKg = 70.0, waistCm = 72.0), now = 100)
+        measurements.delete("deleted", now = 200)
+        val tombstone = db.healthSyncOutboxDao().pending(HealthSyncCategory.MEASUREMENTS).last()
+        val api = FakeSheetsApi(
+            sheets = mutableListOf(WORKOUTS_SHEET, MEASUREMENTS_SHEET),
+            measurementRows = mutableListOf(BodyMeasurementRowMapper.HEADER_ROW),
+        )
+
+        assertEquals(UploadResult.Success, repository(api).uploadMeasurementSnapshot(tombstone))
+
+        val row = api.appended.single().single()
+        assertEquals("deleted", row[0])
+        assertEquals("70.0", row[3])
+        assertEquals("72.0", row[9])
+        assertEquals("2", row[42])
+        assertEquals("true", row[44])
+        assertEquals(tombstone.payloadHash, row[45])
+        assertEquals(tombstone.idempotencyKey, row[46])
+    }
+
+    @Test
+    fun `matching remote snapshot is acknowledged while an equal divergent row becomes a conflict`() = runTest {
+        val measurements = MeasurementRepository(db)
+        measurements.save(BodyMeasurementEntity("matching", 100, weightKg = 70.0), now = 100)
+        val snapshot = db.healthSyncOutboxDao().pending(HealthSyncCategory.MEASUREMENTS).single()
+        val matchingApi = FakeSheetsApi(
+            sheets = mutableListOf(WORKOUTS_SHEET, MEASUREMENTS_SHEET),
+            measurementRows = mutableListOf(BodyMeasurementRowMapper.HEADER_ROW),
+        )
+        assertEquals(UploadResult.Success, repository(matchingApi).uploadMeasurementSnapshot(snapshot))
+        assertEquals(1, matchingApi.appended.size)
+        assertEquals(UploadResult.Success, repository(matchingApi).uploadMeasurementSnapshot(snapshot))
+        assertEquals(1, matchingApi.appended.size)
+
+        measurements.save(BodyMeasurementEntity("divergent", 100, weightKg = 70.0), now = 100)
+        val divergent = db.healthSyncOutboxDao().pending(HealthSyncCategory.MEASUREMENTS)
+            .single { it.syncId == "divergent" }
+        val row = BodyMeasurementRowMapper.versionedRow(
+            MeasurementRepository.canonicalPayload(BodyMeasurementEntity("divergent", 100, weightKg = 70.0))
+                .let { com.valerochka1337.valerochkagym.data.measurements.MeasurementSnapshotCodec.decode(it)!!.measurement },
+            divergent.version, divergent.createdAt, false, divergent.payloadHash, divergent.idempotencyKey,
+        ).map { it?.toString().orEmpty() }.toMutableList()
+        row[3] = "68.0"
+        val divergentApi = FakeSheetsApi(
+            sheets = mutableListOf(WORKOUTS_SHEET, MEASUREMENTS_SHEET),
+            measurementRows = mutableListOf(BodyMeasurementRowMapper.HEADER_ROW, row),
+        )
+
+        assertEquals(UploadResult.PermanentFailure("Конфликт версии замера в таблице"), repository(divergentApi).uploadMeasurementSnapshot(divergent))
+        assertTrue(divergentApi.appended.isEmpty())
+        assertEquals(1, db.healthDao().conflicts().size)
+        assertEquals(UploadStatus.PENDING, db.bodyMeasurementDao().getById("divergent")!!.uploadStatus)
+    }
+
+    @Test
+    fun `divergent v2 condition fields remain in the durable remote conflict payload`() = runTest {
+        val measurements = MeasurementRepository(db)
+        measurements.save(BodyMeasurementEntity("conditions", 100, afterMeal = true, conditionNote = "еда"), now = 100)
+        val snapshot = db.healthSyncOutboxDao().pending(HealthSyncCategory.MEASUREMENTS).single()
+        val decoded = MeasurementSnapshotCodec.decode(snapshot.canonicalPayload)!!
+        val remote = BodyMeasurementRowMapper.versionedRow(
+            decoded.measurement, snapshot.version, snapshot.createdAt, false,
+            snapshot.payloadHash, snapshot.idempotencyKey,
+        ).map { it?.toString().orEmpty() }.toMutableList().also {
+            it[47] = "false"
+            it[50] = "после сна"
+        }
+        val api = FakeSheetsApi(
+            sheets = mutableListOf(WORKOUTS_SHEET, MEASUREMENTS_SHEET),
+            measurementRows = mutableListOf(BodyMeasurementRowMapper.HEADER_ROW, remote),
+        )
+
+        assertTrue(repository(api).uploadMeasurementSnapshot(snapshot) is UploadResult.PermanentFailure)
+        val conflict = db.healthDao().conflicts().single()
+        val remoteDecoded = MeasurementSnapshotCodec.decode(conflict.remotePayload)!!
+        assertEquals(MeasurementSnapshotCodec.PayloadFormat.V2, remoteDecoded.payloadFormat)
+        assertEquals(false, remoteDecoded.measurement.afterMeal)
+        assertEquals("после сна", remoteDecoded.measurement.conditionNote)
     }
 
     @Test
@@ -460,6 +834,7 @@ class SheetsRepositoryTest : RoomDaoTest() {
         settings,
         db.workoutDao(),
         db.bodyMeasurementDao(),
+        db.healthDao(),
         db.routineDao(),
     )
 
@@ -550,7 +925,8 @@ class SheetsRepositoryTest : RoomDaoTest() {
         val sheets: MutableList<String> = mutableListOf(),
         private val columnA: MutableList<String> = mutableListOf(),
         private val measurementColumnA: MutableList<String> = mutableListOf(),
-        private val measurementHeader: MutableList<String> = mutableListOf(),
+        private var measurementHeader: MutableList<String> = mutableListOf(),
+        private val measurementRows: MutableList<List<String>> = mutableListOf(),
         private val routineRows: MutableList<List<String>> = mutableListOf(),
         private val failGetSpreadsheet: Exception? = null,
         private val failBatchUpdate: Exception? = null,
@@ -564,6 +940,10 @@ class SheetsRepositoryTest : RoomDaoTest() {
         val addedSheets = mutableListOf<SheetPropertiesDto>()
         val insertedDimensions = mutableListOf<com.valerochka1337.valerochkagym.data.google.InsertDimensionDto>()
         val headerUpdates = mutableListOf<List<List<String>>>()
+        val clears = mutableListOf<String>()
+        val sheetHeaders = mutableMapOf<String, List<String>>()
+        var failClearAt: Int? = null
+        var mutateHeaderAfterClear: Pair<Int, Pair<String, List<String>>>? = null
         var batchUpdateCount: Int = 0
             private set
 
@@ -595,7 +975,11 @@ class SheetsRepositoryTest : RoomDaoTest() {
 
         override suspend fun getValues(bearer: String, spreadsheetId: String, range: String): ValueRangeDto {
             failGetValues?.let { throw it }
+            if (range.endsWith("!1:1")) {
+                sheetHeaders[range.substringBefore("!")]?.let { return ValueRangeDto(values = listOf(it)) }
+            }
             if (range == "Measurements!1:1") {
+                if (measurementRows.isNotEmpty()) return ValueRangeDto(values = listOf(measurementRows.first()))
                 val header = measurementHeader.ifEmpty {
                     if (measurementColumnA.firstOrNull() == "measurement_id") {
                         BodyMeasurementRowMapper.HEADER_ROW
@@ -604,6 +988,9 @@ class SheetsRepositoryTest : RoomDaoTest() {
                     }
                 }
                 return ValueRangeDto(values = header.takeIf { it.isNotEmpty() }?.let(::listOf))
+            }
+            if (range == MEASUREMENT_APPEND_RANGE && measurementRows.isNotEmpty()) {
+                return ValueRangeDto(values = measurementRows)
             }
             if (range == ROUTINES_RANGE) {
                 return ValueRangeDto(values = routineRows.ifEmpty { null })
@@ -624,7 +1011,19 @@ class SheetsRepositoryTest : RoomDaoTest() {
             appendRanges += range
             val rows = body.values.map { row -> (row as JsonArray).map { (it as JsonPrimitive).content } }
             appended.add(rows)
+            if (range == MEASUREMENT_APPEND_RANGE) measurementRows += rows
             if (range == ROUTINE_APPEND_RANGE) routineRows += rows
+            return JsonNull
+        }
+
+        override suspend fun clearValues(
+            bearer: String, spreadsheetId: String, range: String, body: ClearValuesDto,
+        ): JsonElement {
+            if (failClearAt == clears.size + 1) throw IOException("clear failed")
+            clears += range
+            mutateHeaderAfterClear?.takeIf { (at, _) -> clears.size == at }?.second?.let { (sheet, header) ->
+                sheetHeaders[sheet] = header
+            }
             return JsonNull
         }
 
@@ -637,8 +1036,15 @@ class SheetsRepositoryTest : RoomDaoTest() {
         ): JsonElement {
             val rows = body.values.map { row -> (row as JsonArray).map { (it as JsonPrimitive).content } }
             headerUpdates += rows
-            if (range == "Measurements!O1:AP1" && rows.singleOrNull() != null) {
-                measurementHeader += rows.single()
+            if (range.startsWith("Routines!") && rows.singleOrNull() != null && routineRows.isNotEmpty()) {
+                routineRows[0] = RoutineRowMapper.HEADER_ROW
+            }
+            if (range.startsWith("Measurements!") && rows.singleOrNull() != null) {
+                val column = range.substringAfter('!').takeWhile { it.isLetter() }
+                val start = column.fold(0) { value, char -> value * 26 + (char - 'A' + 1) } - 1
+                measurementHeader = (
+                    measurementHeader.take(start) + rows.single() + measurementHeader.drop(start)
+                ).toMutableList()
             }
             return JsonNull
         }
@@ -678,13 +1084,24 @@ class SheetsRepositoryTest : RoomDaoTest() {
     // endregion
 
     private companion object {
+        /** Literal SQL `MIGRATION_9_10` v1 form, deliberately not produced by the v2 writer. */
+        const val actualMigrationV1Payload = "v1|id='nullable-primary'|measuredAt=100|weightKg=70.0|skeletalMuscleMassKg=NULL" +
+            "|bodyFatPercentage=20.0|bodyFatMassKg=NULL|visceralFatLevel=NULL|waistHipRatio=NULL" +
+            "|waistCm=75.0|chestCm=NULL|hipsCm=100.0|rightRelaxedArmCm=NULL|rightThighCm=NULL" +
+            "|inBodyScore=NULL|totalBodyWaterLiters=NULL|proteinKg=NULL|mineralsKg=NULL" +
+            "|bodyMassIndex=NULL|fatFreeMassKg=NULL|basalMetabolicRateKcal=NULL|recommendedCalorieIntakeKcal=NULL" +
+            "|leftArmLeanMassKg=NULL|leftArmLeanPercentage=NULL|leftArmFatMassKg=NULL|leftArmFatPercentage=NULL" +
+            "|rightArmLeanMassKg=NULL|rightArmLeanPercentage=NULL|rightArmFatMassKg=NULL|rightArmFatPercentage=NULL" +
+            "|trunkLeanMassKg=NULL|trunkLeanPercentage=NULL|trunkFatMassKg=NULL|trunkFatPercentage=NULL" +
+            "|leftLegLeanMassKg=NULL|leftLegLeanPercentage=NULL|leftLegFatMassKg=NULL|leftLegFatPercentage=NULL" +
+            "|rightLegLeanMassKg=NULL|rightLegLeanPercentage=NULL|rightLegFatMassKg=NULL|rightLegFatPercentage=NULL"
         const val WORKOUT_ID = "w-1"
         const val MEASUREMENT_ID = "m-1"
         const val SPREADSHEET_ID = "1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms"
         const val WORKOUTS_SHEET = "Workouts"
         const val MEASUREMENTS_SHEET = "Measurements"
         const val ROUTINES_SHEET = "Routines"
-        const val MEASUREMENT_APPEND_RANGE = "Measurements!A:AP"
+        const val MEASUREMENT_APPEND_RANGE = "Measurements!A:AY"
         const val ROUTINE_APPEND_RANGE = "Routines!A:M"
         const val ROUTINES_RANGE = "Routines!A:M"
     }

@@ -59,6 +59,20 @@ sealed interface InBodyReportAiResult {
 /** Reads an InBody report photo into an editable draft and never writes a measurement itself. */
 interface InBodyReportAiReader {
     suspend fun read(uri: Uri): InBodyReportAiResult
+
+    /** UI supplies a fresh visible warning confirmation only for loopback HTTP endpoints. */
+    suspend fun read(uri: Uri, loopbackHttpConsent: Boolean): InBodyReportAiResult = read(uri)
+
+    /**
+     * Runs a request with the exact configuration that was disclosed to the user.  The default
+     * keeps older test doubles/source-compatible callers working; the production reader overrides
+     * it and must not ask the provider again after consent.
+     */
+    suspend fun read(
+        uri: Uri,
+        configuration: AiApiRequestConfiguration,
+        loopbackHttpConsent: Boolean,
+    ): InBodyReportAiResult = read(uri, loopbackHttpConsent)
 }
 
 /**
@@ -76,7 +90,9 @@ class AiApiInBodyReportAiReader @Inject constructor(
     @param:ComputeDispatcher private val computeDispatcher: CoroutineDispatcher,
 ) : InBodyReportAiReader {
 
-    override suspend fun read(uri: Uri): InBodyReportAiResult {
+    override suspend fun read(uri: Uri): InBodyReportAiResult = read(uri, loopbackHttpConsent = false)
+
+    override suspend fun read(uri: Uri, loopbackHttpConsent: Boolean): InBodyReportAiResult {
         val configuration = try {
             configurationProvider.requestConfiguration()
         } catch (e: CancellationException) {
@@ -84,6 +100,24 @@ class AiApiInBodyReportAiReader @Inject constructor(
         } catch (_: Exception) {
             null
         } ?: return InBodyReportAiResult.Failure(MISSING_CONFIGURATION_MESSAGE)
+        return read(uri, configuration, loopbackHttpConsent)
+    }
+
+    override suspend fun read(
+        uri: Uri,
+        configuration: AiApiRequestConfiguration,
+        loopbackHttpConsent: Boolean,
+    ): InBodyReportAiResult {
+        when (healthAiEndpointDecision(configuration.connection.baseUrl, loopbackHttpConsent)) {
+            HealthAiEndpointDecision.Allowed -> Unit
+            HealthAiEndpointDecision.LoopbackConsentRequired -> return InBodyReportAiResult.Failure(
+                "Для локального HTTP-сервера подтвердите передачу снимка перед отправкой",
+            )
+            HealthAiEndpointDecision.PublicHttpRejected -> return InBodyReportAiResult.Failure(
+                "Медицинские данные можно отправлять только через HTTPS",
+            )
+            HealthAiEndpointDecision.Invalid -> return InBodyReportAiResult.Failure(MISSING_CONFIGURATION_MESSAGE)
+        }
         val encoding = photoEncoder.encode(uri)
         val jpegDataUrl = (encoding as? InBodyPhotoEncodingResult.Success)?.jpegDataUrl
             ?: return encoding.failureMessage()

@@ -16,6 +16,7 @@ import com.valerochka1337.valerochkagym.data.db.entity.RoutineEntity
 import com.valerochka1337.valerochkagym.data.google.AppendValuesDto
 import com.valerochka1337.valerochkagym.data.google.AuthorizeOutcome
 import com.valerochka1337.valerochkagym.data.google.BatchUpdateRequestDto
+import com.valerochka1337.valerochkagym.data.google.ClearValuesDto
 import com.valerochka1337.valerochkagym.data.google.ConfigurationSheetsRepositoryImpl
 import com.valerochka1337.valerochkagym.data.google.GoogleAuth
 import com.valerochka1337.valerochkagym.data.google.SheetDto
@@ -243,6 +244,10 @@ class ConfigurationSheetsRepositoryTest : RoomDaoTest() {
             valuesByRange.getOrPut(range, ::mutableListOf).addAll(rows)
             return JsonNull
         }
+
+        override suspend fun clearValues(
+            bearer: String, spreadsheetId: String, range: String, body: ClearValuesDto,
+        ): JsonElement = JsonNull
 
         override suspend fun updateValues(
             bearer: String,

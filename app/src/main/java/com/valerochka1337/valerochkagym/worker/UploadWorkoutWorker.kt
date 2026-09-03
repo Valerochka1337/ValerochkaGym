@@ -15,6 +15,9 @@ import com.valerochka1337.valerochkagym.data.db.dao.WorkoutDao
 import com.valerochka1337.valerochkagym.data.db.entity.UploadStatus
 import com.valerochka1337.valerochkagym.data.google.SheetsRepository
 import com.valerochka1337.valerochkagym.data.google.UploadResult
+import com.valerochka1337.valerochkagym.data.settings.HealthSyncCategory
+import com.valerochka1337.valerochkagym.data.settings.SettingsRepository
+import kotlinx.coroutines.flow.first
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import java.util.concurrent.TimeUnit
@@ -34,12 +37,17 @@ class UploadWorkoutWorker @AssistedInject constructor(
     @Assisted params: WorkerParameters,
     private val repository: SheetsRepository,
     private val workoutDao: WorkoutDao,
+    private val settingsRepository: SettingsRepository? = null,
 ) : CoroutineWorker(appContext, params) {
 
     override suspend fun doWork(): Result {
         val workoutId = inputData.getString(KEY_WORKOUT_ID) ?: return Result.failure()
+        if (settingsRepository != null && !settingsRepository.settings.first().healthSync
+                .isEnabled(HealthSyncCategory.WORKOUTS_AND_CONFIGURATION)
+        ) return Result.success()
         return when (val result = repository.uploadWorkout(workoutId)) {
             is UploadResult.Success -> Result.success()
+            UploadResult.NotAttemptedDisabled -> Result.success()
             is UploadResult.PermanentFailure -> Result.failure()
             is UploadResult.TransientFailure -> {
                 if (runAttemptCount < MAX_ATTEMPTS) {
@@ -53,6 +61,7 @@ class UploadWorkoutWorker @AssistedInject constructor(
     }
 
     companion object {
+        const val WORKOUTS_AND_CONFIGURATION_TAG = "sync_workouts_and_configuration"
         private const val KEY_WORKOUT_ID = "workoutId"
         private const val MAX_ATTEMPTS = 5
         private const val BACKOFF_SECONDS = 30L
@@ -71,6 +80,7 @@ class UploadWorkoutWorker @AssistedInject constructor(
                 )
                 .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, BACKOFF_SECONDS, TimeUnit.SECONDS)
                 .setInputData(workDataOf(KEY_WORKOUT_ID to workoutId))
+                .addTag(WORKOUTS_AND_CONFIGURATION_TAG)
                 .build()
             workManager.enqueueUniqueWork("upload_$workoutId", ExistingWorkPolicy.REPLACE, request)
         }

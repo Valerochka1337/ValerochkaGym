@@ -4,7 +4,9 @@ import android.app.Application
 import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
 import com.valerochka1337.valerochkagym.data.appicon.AppIconManager
+import com.valerochka1337.valerochkagym.data.health.HealthDocumentRecoveryCoordinator
 import com.valerochka1337.valerochkagym.worker.WeeklyScheduleRecoveryScheduler
+import com.valerochka1337.valerochkagym.worker.HealthSyncStartupReconciler
 import dagger.hilt.android.HiltAndroidApp
 import javax.inject.Inject
 import javax.inject.Provider
@@ -27,12 +29,20 @@ class GymApplication : Application(), Configuration.Provider {
     @Inject
     lateinit var weeklyScheduleRecoveryScheduler: Provider<WeeklyScheduleRecoveryScheduler>
 
+    @Inject
+    lateinit var healthDocumentRecoveryCoordinator: HealthDocumentRecoveryCoordinator
+
+    @Inject
+    lateinit var healthSyncStartupReconciler: HealthSyncStartupReconciler
+
     override fun onCreate() {
         super.onCreate()
         // Иконка лаунчера — часть настройки акцента, а не разовое действие экрана: подписываемся
         // на неё на весь процесс, чтобы состояние alias'ов совпадало с сохранённым выбором.
         appIconManager.startSync()
         weeklyScheduleRecoveryScheduler.get().enqueue()
+        healthDocumentRecoveryCoordinator.start()
+        healthSyncStartupReconciler.start()
     }
 
     override val workManagerConfiguration: Configuration

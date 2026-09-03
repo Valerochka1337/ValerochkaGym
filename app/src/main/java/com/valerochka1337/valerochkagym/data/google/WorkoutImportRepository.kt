@@ -20,6 +20,7 @@ import com.valerochka1337.valerochkagym.data.db.entity.WorkoutExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.WorkoutSetEntity
 import com.valerochka1337.valerochkagym.data.db.relation.RoutineWithExercises
 import com.valerochka1337.valerochkagym.data.settings.SettingsRepository
+import com.valerochka1337.valerochkagym.data.settings.HealthSyncCategory
 import com.valerochka1337.valerochkagym.domain.ParsedRoutine
 import com.valerochka1337.valerochkagym.domain.ExerciseSheetRecord
 import com.valerochka1337.valerochkagym.domain.ExerciseSheetRowMapper
@@ -37,6 +38,7 @@ import com.valerochka1337.valerochkagym.domain.ParsedWorkout
 import com.valerochka1337.valerochkagym.domain.RoutineRowParser
 import com.valerochka1337.valerochkagym.domain.WorkoutRowParser
 import com.valerochka1337.valerochkagym.domain.measurements.BodyMeasurementRowParser
+import com.valerochka1337.valerochkagym.data.measurements.MeasurementRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
 import retrofit2.HttpException
@@ -69,6 +71,8 @@ sealed interface ImportResult {
 /** Разовый импорт всех app-managed листов из целевой Google-таблицы. */
 interface WorkoutImportRepository {
     suspend fun importAll(): ImportResult
+    /** Scoped primary-data import used by consent enablement. Legacy implementations keep importAll. */
+    suspend fun import(categories: Set<HealthSyncCategory>): ImportResult = importAll()
 }
 
 /**
@@ -86,9 +90,17 @@ class WorkoutImportRepositoryImpl @Inject constructor(
     private val exerciseDao: ExerciseDao,
     private val exerciseMuscleDao: ExerciseMuscleDao,
     private val gymDao: GymDao = database.gymDao(),
+    private val measurementRepository: MeasurementRepository = MeasurementRepository(database),
 ) : WorkoutImportRepository {
 
-    override suspend fun importAll(): ImportResult {
+    override suspend fun importAll(): ImportResult = import(
+        setOf(HealthSyncCategory.WORKOUTS_AND_CONFIGURATION, HealthSyncCategory.MEASUREMENTS),
+    )
+
+    override suspend fun import(categories: Set<HealthSyncCategory>): ImportResult {
+        val importWorkouts = HealthSyncCategory.WORKOUTS_AND_CONFIGURATION in categories
+        val importMeasurements = HealthSyncCategory.MEASUREMENTS in categories
+        if (!importWorkouts && !importMeasurements) return ImportResult.NothingToImport
         val spreadsheetId = settingsRepository.settings.first().spreadsheetId
             ?: return ImportResult.Failure("Укажите таблицу в настройках")
 
@@ -103,39 +115,38 @@ class WorkoutImportRepositoryImpl @Inject constructor(
             val sheetTitles = api.getSpreadsheet(bearer, spreadsheetId).sheets
                 .map { it.properties.title }
                 .toSet()
-            val workouts = if (WORKOUTS_SHEET in sheetTitles) {
+            val workouts = if (importWorkouts && WORKOUTS_SHEET in sheetTitles) {
                 WorkoutRowParser.parse(api.getValues(bearer, spreadsheetId, WORKOUTS_RANGE).values.orEmpty())
             } else {
                 com.valerochka1337.valerochkagym.domain.ParsedRows(emptyList(), 0)
             }
             workouts.fatalError?.let { return ImportResult.Failure(it) }
-            val measurements = if (MEASUREMENTS_SHEET in sheetTitles) {
-                BodyMeasurementRowParser.parse(
-                    api.getValues(bearer, spreadsheetId, MEASUREMENTS_RANGE).values.orEmpty(),
-                )
+            val measurements = if (importMeasurements && MEASUREMENTS_SHEET in sheetTitles) {
+                val rows = api.getValues(bearer, spreadsheetId, MEASUREMENTS_RANGE).values.orEmpty()
+                BodyMeasurementRowParser.parse(rows, BodyMeasurementRowParser.schemaForHeader(rows.firstOrNull().orEmpty()))
             } else {
                 com.valerochka1337.valerochkagym.domain.measurements.ParsedMeasurements(emptyList(), 0)
             }
-            val routines = if (ROUTINES_SHEET in sheetTitles) {
+            val routines = if (importWorkouts && ROUTINES_SHEET in sheetTitles) {
                 RoutineRowParser.parse(api.getValues(bearer, spreadsheetId, ROUTINES_RANGE).values.orEmpty())
             } else {
                 com.valerochka1337.valerochkagym.domain.ParsedRoutineRows(emptyList(), 0)
             }
-            val exercises = if (ExerciseSheetRowMapper.SHEET_NAME in sheetTitles) {
+            val exercises = if (importWorkouts && ExerciseSheetRowMapper.SHEET_NAME in sheetTitles) {
                 ExerciseSheetRowParser.parse(
                     api.getValues(bearer, spreadsheetId, ExerciseSheetRowMapper.RANGE).values.orEmpty(),
                 )
             } else {
                 ParsedExerciseSheetRows(emptyList(), 0)
             }
-            val gyms = if (GymSheetRowMapper.SHEET_NAME in sheetTitles) {
+            val gyms = if (importWorkouts && GymSheetRowMapper.SHEET_NAME in sheetTitles) {
                 GymSheetRowParser.parse(
                     api.getValues(bearer, spreadsheetId, GymSheetRowMapper.RANGE).values.orEmpty(),
                 )
             } else {
                 ParsedGymSheetRows(emptyList(), 0)
             }
-            val routineGyms = if (RoutineGymsSheetRowMapper.SHEET_NAME in sheetTitles) {
+            val routineGyms = if (importWorkouts && RoutineGymsSheetRowMapper.SHEET_NAME in sheetTitles) {
                 RoutineGymsSheetRowParser.parse(
                     api.getValues(bearer, spreadsheetId, RoutineGymsSheetRowMapper.RANGE).values.orEmpty(),
                 )
@@ -146,7 +157,8 @@ class WorkoutImportRepositoryImpl @Inject constructor(
                 exercises.skippedRows + gyms.skippedRows + routineGyms.skippedRows
             if (
                 workouts.workouts.isEmpty() &&
-                measurements.measurements.isEmpty() &&
+                measurements.snapshots.isEmpty() &&
+                measurements.conflicts.isEmpty() &&
                 routines.routines.isEmpty() &&
                 exercises.records.isEmpty() &&
                 gyms.records.isEmpty() &&
@@ -161,8 +173,6 @@ class WorkoutImportRepositoryImpl @Inject constructor(
 
             val existingWorkoutIds = workoutDao.getExistingWorkoutIds().toSet()
             val freshWorkouts = workouts.workouts.filterNot { it.id in existingWorkoutIds }
-            val existingMeasurements = database.bodyMeasurementDao().observeAll().first().mapTo(mutableSetOf()) { it.id }
-            val freshMeasurements = measurements.measurements.filterNot { it.id in existingMeasurements }
             val existingRoutines = database.routineDao().observeRoutinesFull().first()
                 .associateBy { it.routine.syncId }
 
@@ -175,6 +185,8 @@ class WorkoutImportRepositoryImpl @Inject constructor(
             var importedExercises = 0
             var importedGyms = 0
             var importedRoutineGyms = 0
+            var importedMeasurements = 0
+            val deferredMeasurementDocumentCleanup = linkedSetOf<String>()
             database.withTransaction {
                 exercises.records.forEach { record ->
                     if (applyExercise(record)) importedExercises++
@@ -213,11 +225,21 @@ class WorkoutImportRepositoryImpl @Inject constructor(
                 }
                 validateConfigurationAggregate()
                 freshWorkouts.forEach { insertWorkout(it, byName, bySyncId) }
-                val bodyMeasurementDao = database.bodyMeasurementDao()
-                freshMeasurements.forEach { bodyMeasurementDao.insert(it) }
+                for (conflict in measurements.conflicts) {
+                    measurementRepository.recordImportedConflict(conflict)
+                }
+                measurements.snapshots
+                    .groupBy { it.measurement.id }
+                    .toSortedMap()
+                    .values
+                    .forEach { aggregate ->
+                        if (measurementRepository.applyImportedAggregate(aggregate, deferredMeasurementDocumentCleanup)) importedMeasurements++
+                    }
             }
+            // The outer transaction above has committed. A later aggregate failure would have
+            // skipped this line, leaving both FK metadata and private bytes intact.
+            measurementRepository.cleanupDeferredImportedDocuments(deferredMeasurementDocumentCleanup)
             val importedWorkouts = freshWorkouts.size
-            val importedMeasurements = freshMeasurements.size
             if (
                 importedWorkouts + importedMeasurements + importedRoutines +
                 importedExercises + importedGyms == 0 && skippedRows == 0
@@ -561,7 +583,7 @@ class WorkoutImportRepositoryImpl @Inject constructor(
         const val ROUTINES_SHEET = "Routines"
         /** v9-compatible snapshot shape: A:S; variant cells are intentionally ignored. */
         const val WORKOUTS_RANGE = "Workouts!A:S"
-        const val MEASUREMENTS_RANGE = "Measurements!A:AP"
+        const val MEASUREMENTS_RANGE = "Measurements!A:AY"
         const val ROUTINES_RANGE = "Routines!A:M"
     }
 }

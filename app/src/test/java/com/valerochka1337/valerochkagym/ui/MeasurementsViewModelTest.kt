@@ -140,7 +140,7 @@ class MeasurementsViewModelTest {
 
     private class FakeMeasurementUploadScheduler : MeasurementUploadScheduler {
         val retried = mutableListOf<String>()
-        override fun schedule(measurementId: String) = Unit
+        override suspend fun schedule(measurementId: String) = Unit
         override suspend fun retry(measurementId: String) {
             retried += measurementId
         }

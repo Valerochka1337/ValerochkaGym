@@ -460,3 +460,200 @@ endpoint или неподдерживаемый документ всегда �
 | PD-011 | Медицинские данные не логируются | Debug-диагностика не должна копировать чувствительный документ или ответ | 2026-09-03 |
 | PD-012 | Локальный OCR исключён | Удалённая модель лучше понимает структуру документа, а второй тракт распознавания усложняет продукт | 2026-09-03 |
 | PD-013 | Единое управление Sheets для первичных источников «Анализа» | InBody, тренировки и health-данные должны подчиняться одному понятному контракту без дублирования производных метрик | 2026-09-03 |
+
+---
+
+# Implementation plan — первый инкремент
+
+Статус: готов к реализации. Этот раздел сохраняет продуктовый контракт выше и замораживает
+технические решения до начала T-001.
+
+## Goal, scope, non-goals, assumptions
+
+**Goal.** Сделать local-first «Здоровье»: подтверждённые исследования, наблюдения и ограничения
+живут в Room, прежние `Measurements` остаются единственным источником InBody, а opt-in Sheets
+обменивается только первичными версионированными снимками.
+
+**Scope.** Все AC-001…AC-037 выше, Room 9→10, локальные документы/архив, reader PDF/photo,
+экран и единые категории Sheets. **Не входит:** всё из «Не входит» и «Последующие инкременты»;
+никаких новых библиотек, широких storage permissions, OCR, Health Connect, облачных оригиналов
+или строк производной аналитики. Версию приложения поднять один раз в T-008 только после
+завершения всего инкремента.
+
+**Assumptions.** Используется текущий configured OpenAI-compatible endpoint; существующий предел
+фото (JPEG ≤6 MiB, сторона ≤3072 px) остаётся. Для PDF вводим консервативные проверяемые пределы
+**≤10 страниц, ≤20 MiB исходного файла, ≤6 MiB JPEG на страницу, ≤20 MiB суммарного request**:
+в репозитории нет более строгого PDF/network контракта. Пределы являются product-safe отказом с
+ручным вводом, а не тихой обрезкой. Оригинал копируется только после opt-in в app-private files;
+не копируется в backup/device transfer.
+
+## Current → target flow
+
+| Сейчас | Целевой поток / SSOT |
+|---|---|
+| `body_measurements` — live row, `UploadMeasurementWorker` keyed only by UUID; Sheets A:AP и import-by-ID | `body_measurements` — live current projection; immutable `measurement_snapshots` plus `health_sync_outbox` keyed `(category,syncId,version)` provide history and durable delivery. Measurements wire format is fixed A:AY: legacy A:AP, sync AQ:AU and conditions AV:AY; import applies latest version or durable conflict, never timestamp tie-break. |
+| Нет health persistence | `health_reports`, `health_observations`, `health_restrictions`, `health_documents`, `health_sync_conflicts`; repositories transact aggregate write + snapshot/outbox. Room is SSOT. |
+| AI InBody reader may use response logger | Separate `HealthReportAiReader` accepts only strict schema and a health-safe logger: no document/request/full response/error body in Logcat. Draft is memory/ViewModel state until explicit save. |
+| Three Analysis sections; Measurements direct route | Fourth scrollable/adaptive Health selector section; retains direct Measurements action and opens the same `measurementId` route. |
+| One implicit Sheets behavior | One settings block with four category flags; existing effective workout/config + Measurements flag preserved, new medical flags false. Schedulers/workers operate per category only. |
+
+## Frozen contracts and architecture
+
+1. **Identity/version/conflict.** Every syncable health aggregate and measurement snapshot has stable
+UUID `syncId`, positive monotonically increasing `version`, `updatedAt`, `isTombstone`, canonical
+payload SHA-256 and `idempotencyKey = "$syncId:$version"`. Same ID+version with a different
+canonical hash is stored in `health_sync_conflicts` (including legacy Measurement rows) and is
+shown for manual resolution; neither clock nor import order wins. Higher version applies only when
+the lower version has no divergent equal-version peer.
+2. **Room aggregate boundaries.** `HealthRepository.saveConfirmedReport` atomically writes report,
+observations, optional document metadata and sync snapshots; `saveRestriction`, measurement edit/
+delete and conflict resolution each transact live projection + immutable snapshot/outbox. Drafts
+are never DAO entities. `HealthDocumentRepository` owns only app-private bytes and metadata; it
+records `PENDING`, copies into `noBackupFilesDir/health_documents`, verifies hash, atomically
+renames and commits `READY`; deterministic startup recovery removes partial files/dangling PENDING
+rows. No UI/worker accesses DAO or files directly.
+3. **Model.** `health_reports` has report identity/version/status/provenance; observations retain
+raw name/value/unit/reference/method/material/source and a confirmed optional canonical key, so
+unknown names cannot merge. Corrected/revoked reports point to predecessor and preserve history.
+Restrictions require an explicit confirmed state. Document provenance is page-level only
+(`sourcePage`); no crop/bounding-box contract. `health_documents` is local-only and has SHA-256;
+documents never enter Sheets.
+4. **State/events.** ViewModels expose immutable `HealthUiState`/`HealthEditorUiState` and one-shot
+`HealthEvent` through buffered `Channel`; actions are sealed events. Flows use
+`stateIn(viewModelScope, WhileSubscribed(5000), initial)`, lifecycle-aware collection, and
+`SavedStateHandle` only for selected section, period, selected ID and resumable draft metadata.
+Repository is cancellation owner for compute/file work; `viewModelScope` owns screen jobs;
+WorkManager owns deferrable category sync. PDF rendering/parse/trend work uses `flowOn(@ComputeDispatcher)`
+or `withContext(@ComputeDispatcher)` and propagates `CancellationException`.
+5. **DI/navigation.** Database and repositories are `@Singleton`; DAOs unscoped providers;
+ViewModels `@HiltViewModel`; `HealthDocumentRepository` uses application context. Add routes for
+health detail/editor while the Analysis tab state is restoreable; immutable `measurementId` is the
+only hand-off to existing Measurements editor. No new permission: SAF `OpenDocument`/`CreateDocument`
+grants are per selection. Explicit archive uses SAF and a manifest of records/doc hashes.
+6. **Sheets/work.** Categories are `WORKOUTS_AND_CONFIGURATION`, `MEASUREMENTS`,
+`HEALTH_REPORTS_AND_OBSERVATIONS`, `HEALTH_RESTRICTIONS`. Disable cancels only that category's
+unique work and neither deletes nor overwrites local/remote data; a separately confirmed remote
+delete is category-scoped. Workers use stable category+snapshot work names, network constraint,
+REPLACE, exponential backoff and bounded retries. No derived analysis sync. The import transaction
+reads all selected categories and writes conflicts durably before returning a conflict result.
+7. **Upgrade-safe outbox.** `MIGRATION_9_10` backfills, in one database transaction, a canonical
+v1 `measurement_snapshots` record and pending `health_sync_outbox` row for every v9 live
+`body_measurements` row. The outbox primary key is `(category, syncId, version)`; inserting a
+new snapshot and pending outbox is atomic. ACK deletes only its exact row; transient failure
+retains it; cancellation/lost response retains it and re-read/idempotency proves remote state.
+Every worker checks the current category flag before auth or network. Disable cancels new tagged
+work and suppresses legacy `upload_measurement_<UUID>` jobs; re-enable schedules all durable
+pending rows. This bridge deliberately causes a v1 append only when the category is enabled.
+8. **Measurements wire and remote deletion.** Freeze A:AY as `A:AP` legacy fields followed by
+AQ `version`, AR `updated_at`, AS `is_deleted`, AT `payload_hash`, AU `idempotency_key`.
+AV `after_meal`, AW `after_workout`, AX `unusual_hydration`, AY `condition_note` are primary
+measurement fields. Before any append/clear, re-read headers and safely insert the managed columns
+without overwriting user columns. Reads accept A:N, A:AP, interim A:AU, A:AY and trailing user
+columns. Category-scoped remote clearing uses Sheets clear-values only after explicit confirmation:
+Measurements clears the validated managed range through AY, never user columns, local data or
+other category sheets.
+
+## Tasks
+
+## Замороженный рабочий checkpoint — 2026-09-04
+
+Текущая ветка содержит working checkpoint, но не финальное принятие AC. Новая продуктовая,
+модельная, Sheets- или UI-разработка заморожена до отдельного возобновления. Полный unit-suite и
+debug assembly проходят; release assembly требует настроенной локальной подписи и остаётся
+финальным W6 gate. Повышение версии и публикация выполняются только после завершения инкремента.
+
+Остаток выполняется только в порядке зависимостей:
+
+1. **W1 — final unreleased Room v10 report contract:** PRELIMINARY/FINAL/CORRECTED/REVOKED;
+   separate `collectedAt`/`reportedAt`/conditions/`originalExpected`; raw operator fidelity;
+   explicit `canonicalKey` acceptance; entity/snapshot/migration/schema/payload update.
+2. **W2 — editor/private docs:** report-save idempotency; exact AI-config consent; restriction
+   fields, atomic proposals/history/lift; robust health-document lifecycle/integrity; Clear Data
+   wipes noBackup stores; bounded image decode.
+3. **W3 — Health Sheets protocol:** final headers with managed prefix/user columns; absent-sheet
+   handling; strict aggregate parser; duplicate/orphan/divergent conflict handling; preserve local
+   `originalText`; cancellation; post-outer-commit cleanup.
+4. **W4 — history/conflicts/archive/navigation:** builder route; every report/restriction,
+   including revoked/lifted, reachable; AC-007 visible incompatibility reason; full field diff;
+   retryable original deletion; freeze archive selection before SAF/recreation fail-closed.
+5. **W5 — unified settings races:** one-time legacy-init marker; fresh-ID disabled; serialize
+   target/category changes and import-first rollback; cancel/pause workers around remote clear;
+   cancellation propagation.
+6. **W6 — integration closeout:** AC-035/036 primary import→Analysis/no-derived-Sheets tests;
+   docs/tracker reconciliation; compare target and perform a single version bump only after feature
+   resume/completion; final gates and manual checks.
+
+The existing targeted tests remain useful checkpoint evidence; they do not by themselves close
+the deferred acceptance work above.
+
+All production/test paths below are exclusive to **Implementation writer**; they execute
+sequentially because contracts touch Room, navigation, DI and Sheets. Tests use private handwritten
+fakes, JUnit4 present-tense backtick names, `MainDispatcherRule`/live state collection where needed.
+
+| Task | Exact files / owner | Depends | Action and observable done condition | Automated verification | AC |
+|---|---|---|---|---|---|
+| T-001 Persistence contract | `app/src/main/java/.../data/db/GymDatabase.kt`; `.../entity/BodyMeasurementEntity.kt`, `HealthReportEntity.kt`, `HealthObservationEntity.kt`, `HealthRestrictionEntity.kt`, `HealthDocumentEntity.kt`, `HealthSyncConflictEntity.kt`, `MeasurementSnapshotEntity.kt`, `HealthSyncOutboxEntity.kt`; `.../dao/BodyMeasurementDao.kt`, `HealthDao.kt`, `HealthSyncOutboxDao.kt`; `.../di/DataModule.kt`; `app/schemas/com.valerochka1337.valerochkagym.data.db.GymDatabase/10.json`; `app/src/test/java/.../data/db/Migration9To10Test.kt`, `Migration1To10Test.kt` — writer | — | Add v10 handwritten migration, all entities/DAO indices/FKs and `(category,syncId,version)` outbox. Backfill every v9 body row to canonical snapshot v1 + pending Measurements outbox atomically; register only `MIGRATION_9_10`. Done when legacy v1 remote row and local v2 snapshot both survive and schema validates. | `./gradlew :app:testDebugUnitTest --tests '*Migration9To10Test' --tests '*Migration1To10Test'` | 4, 9, 12–13, 17, 19, 25–27 |
+| T-002 Domain/repositories | `app/src/main/java/.../domain/health/HealthModels.kt`, `HealthTrendCalculator.kt`, `HealthSheetRows.kt`; `.../data/health/HealthRepository.kt`, `HealthDocumentRepository.kt`, `HealthArchiveExporter.kt`; `.../di/DomainModule.kt`; `app/src/test/java/.../domain/health/HealthTrendCalculatorTest.kt`, `.../data/health/HealthRepositoryTest.kt` — writer | T-001 | Freeze typed raw-value model, comparability and accessible table projection; transactional confirmed save/edit/revoke/delete/conflict resolution; archive manifest/hash validation and local-only documents. Done when drafts cannot mutate Room and correction/revoke retains prior version. | targeted Health repository/domain tests | 1–10, 15–17 |
+| T-003 Measurements versioning | `app/src/main/java/.../data/measurements/MeasurementRepository.kt`; `.../data/db/dao/BodyMeasurementDao.kt`; `.../domain/measurements/BodyMeasurementRowMapper.kt`, `BodyMeasurementRowParser.kt`; `.../data/google/SheetsRepository.kt`, `WorkoutImportRepository.kt`; `.../worker/UploadMeasurementWorker.kt`, `MeasurementUploadScheduler.kt`; `.../ui/measurements/MeasurementEditorViewModel.kt`, `MeasurementsViewModel.kt`; `app/src/test/java/.../data/MeasurementRepositoryTest.kt`, `domain/measurements/BodyMeasurementRowParserTest.kt`, `worker/UploadMeasurementWorkerTest.kt`, `ui/MeasurementEditorViewModelTest.kt`, `MeasurementsViewModelTest.kt` — writer | T-001,T-002 | Introduce the only measurement mutation boundary. Every create/edit/delete writes live projection + immutable snapshot + outbox atomically; freeze A:AY (AQ:AU sync metadata and AV:AY conditions), safely upgrade headers and preserve user columns; parse A:N/A:AP/A:AU/A:AY plus trailing user columns; retain v1 legacy import and equal-version conflict. Done when editor/list delete makes exactly one projection change, snapshot and outbox, with no duplicate after lost/concurrent retry. | targeted repository/parser/import/worker/editor/list tests | 12–14, 17, 21, 23–27, 34–37 |
+| T-004 Health Sheets + sync settings | `app/src/main/java/.../data/settings/SettingsRepository.kt`, `HealthSyncSettings.kt`; `.../data/google/HealthSheetsRepository.kt`, `WorkoutImportRepository.kt`, `SheetsRepository.kt`, `SheetsApi.kt`, `SheetsDto.kt`; `.../worker/HealthSyncWorker.kt`, `HealthSyncScheduler.kt`, `UploadScheduler.kt`, `UploadMeasurementWorker.kt`, `MeasurementUploadScheduler.kt`; `.../ui/settings/SettingsViewModel.kt`, `SettingsScreen.kt`; `app/src/test/java/.../data/HealthSheetsRepositoryTest.kt`, `SheetsRepositoryTest.kt`, `WorkoutImportRepositoryTest.kt`, `ui/SettingsViewModelTest.kt`, `worker/HealthSyncWorkerTest.kt`, `UploadMeasurementWorkerTest.kt` — writer | T-002,T-003 | One block exposes categories/field disclosure; preserve legacy effective flags/new medical false. Every worker category-checks before auth/network; tagged jobs + legacy-name suppression; ACK exact outbox row, failure/cancel/lost response retains it, re-enable schedules pending. Own clear-values DTO/API: confirmed scoped clear preserves local/unrelated sheets and user cols, Measurements only A2:AU after safe insert. Done when queued legacy job is suppressed and confirm/cancel/isolation tests pass. | targeted settings/Sheets/import/worker tests | 12–18, 21, 23–24, 33–37 |
+| T-005 Reader and private originals | `app/src/main/java/.../data/ai/HealthReportAiReader.kt`, `HealthDocumentRenderer.kt`, `HealthSafeAiLogger.kt`, `AiResponseLogger.kt`, `InBodyReportAiReader.kt`; `.../data/health/HealthDocumentRepository.kt`; `.../di/DataModule.kt`, `NetworkModule.kt`; `.../ui/measurements/MeasurementEditorScreen.kt`, `MeasurementEditorViewModel.kt`; `app/src/main/res/xml/backup_rules.xml`, `data_extraction_rules.xml`; `app/src/test/java/.../data/ai/HealthReportAiReaderTest.kt`, `InBodyReportAiReaderTest.kt`, `data/health/HealthDocumentRepositoryTest.kt`, `ui/MeasurementEditorViewModelTest.kt` — writer | T-001,T-002 | Apply health-safe endpoint/Logcat policy to both new reader and existing InBody reader/consent UI: reject public HTTP, require explicit visible loopback warning per send, disclose domain/model, redact debug success/error. Document lifecycle is durable PENDING→READY: copy to `noBackupFilesDir/health_documents/<sha256>.tmp`, verify hash, atomic rename to `<sha256>`, deterministic startup cleanup of partial files/dangling PENDING rows; archive READY only. Done when cancellation/process phase tests leave no leaked reachable original. | targeted reader/document tests and static logger review | 2–5, 10, 15, 28–32 |
+| T-006 Health UI and navigation | `app/src/main/java/.../ui/analysis/AnalysisScreen.kt`, `AnalysisViewModel.kt`, `HealthCards.kt`, `HealthScreen.kt`; `.../ui/health/HealthEditorScreen.kt`, `HealthEditorViewModel.kt`, `HealthFormat.kt`; `.../ui/navigation/GymNavGraph.kt`; `.../ui/measurements/MeasurementsScreen.kt`, `MeasurementEditorScreen.kt`; `app/src/test/java/.../ui/AnalysisViewModelTest.kt`, `AnalysisRenderTest.kt`, `HealthScreenTest.kt`, `AccessibilityFoundationTest.kt` — writer | T-002,T-003,T-005 | Compact/fontScale 2 selector is a horizontally scrollable 48dp chip row with selected/state semantics; medium/expanded is a non-clipped appropriate row. Add all states and preserve same measurement route/direct action. Done when period filters only history and recreation restores minimum state. | targeted UI/ViewModel/semantics tests; `./gradlew :app:testDebugUnitTest --tests '*AnalysisRenderTest'` (do not open artifacts) | 1–11, 15, 19–20, 22, 28–32 |
+| T-007 Archive/SAF integration | `data/health/HealthArchiveExporter.kt`, `ui/health/HealthArchiveScreen.kt`, `ui/navigation/GymNavGraph.kt`, `test/.../data/health/HealthArchiveExporterTest.kt` — writer | T-002,T-006 | Explicit SAF archive selector writes selected primary records, local documents and manifest with stable IDs/page provenance/hashes; missing original state and restore warning remain usable. Done when manifest verifies links and no broad storage permission exists. | targeted archive test; manual SAF/cancel walkthrough | 15–16, 17–18 |
+| T-008 Integration hardening | exact files changed by T-001…T-007 plus `app/build.gradle.kts` — writer | T-001…T-007 | Resolve findings without scope expansion; increment `versionCode` and patch `versionName` exactly once after every AC passes. Done when no second increment and no destructive migration/dependency/logging was added. | conditional/final gates below | all |
+
+## Ownership and execution waves
+
+| Wave | Tasks | Ownership boundary |
+|---|---|---|
+| 1 | T-001 | One writer owns entity+DAO+migration+schema+DataModule and migration tests as one indivisible Room change. |
+| 2 | T-002, T-003 | Same writer freezes health aggregate, outbox delivery and Measurements wire format (including editor/list mutation boundary) before settings/import workers. |
+| 3 | T-004, T-005 | Same writer owns shared Sheets, WorkManager, AI/network/privacy choke points; no parallel editing. |
+| 4 | T-006, T-007 | Same writer owns navigation and UI state; archive follows frozen document contract. |
+| 5 | T-008 | One stable diff, targeted gates then final gates exactly once. |
+
+## Quality gates
+
+Conditional gates: `Migration9To10Test` covers v9 snapshot/outbox backfill plus legacy v1 remote
+and local v2; supported full path `Migration1To10Test`; DAO transaction; AQ:AU parser/header
+upgrade/lost-retry tests; outbox ACK/failure/cancel/re-enable/legacy-work suppression tests;
+reader cancellation/HTTP/log-redaction and PENDING→READY recovery tests; and ViewModel
+state-restoration/font-scale/chip-semantics tests. Because Analysis charts change, run
+`./gradlew :app:testDebugUnitTest --tests '*AnalysisRenderTest'` but **do not open** its render
+artifacts without the user's explicit request. Backup/data-extraction and network policy change,
+so release assembly is required.
+
+After the final stable application diff, run sequentially **once**:
+
+```bash
+./gradlew :app:testDebugUnitTest
+./gradlew :app:assembleDebug
+./gradlew :app:assembleRelease
+```
+
+## Risks, unanswered product questions, rollback/data preservation
+
+Migration rollback is application-version rollback only: never downgrade/open v10 with older app;
+preserve the v9 database backup before release. The v9→10 migration creates tables/adds nullable or
+defaulted columns only, retains `body_measurements`, and backfills each row to snapshot+outbox; no
+destructive fallback. A sync conflict is
+durable and blocks only that aggregate/category, never deletes either payload. Disabling sync or
+remote deletion never removes local history; archive/export errors leave the source untouched.
+
+An unacknowledged request can be sent twice after process death; `idempotencyKey` and the exact
+outbox row make that safe. Upgrade code must preserve user-owned Sheets columns at AQ+ and must not
+perform remote deletion until its explicit confirmation. PENDING originals are intentionally not
+archivable until READY and startup recovery may remove an interrupted copy.
+
+Open product blockers are unchanged: publication region/legal review, and whether a future secure
+cloud originals backup is desired. Neither blocks this local-only first increment. Manual checks
+remain real PDF hardware/provider behavior, explicit recipient consent, fontScale 2.0 and SAF
+destination cancellation; screenshots or render artifacts are not requested or inspected.
+
+## Gate P self-check
+
+- AC-001…AC-037 each map in the task table and tracker to at least one targeted or manual check.
+- One writer owns every file; Room entity/DAO/migration/schema and navigation/DI/settings remain
+  unsplit choke points. Contracts are frozen before dependent waves.
+- Relevant gates only: Room/outbox paths, WorkManager, Sheets clear transport, AI/network/files,
+  backup, Compose/accessibility, Analysis render and final unit/debug/release assembly. No code
+  gates run for this plan-only change.

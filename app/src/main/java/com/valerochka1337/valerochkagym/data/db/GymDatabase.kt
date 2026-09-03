@@ -11,6 +11,9 @@ import com.valerochka1337.valerochkagym.data.db.dao.ExerciseDao
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseMuscleDao
 import com.valerochka1337.valerochkagym.data.db.dao.MuscleLoadUpgradeNoticeDao
 import com.valerochka1337.valerochkagym.data.db.dao.GymDao
+import com.valerochka1337.valerochkagym.data.db.dao.HealthDao
+import com.valerochka1337.valerochkagym.data.db.dao.HealthSyncOutboxDao
+import com.valerochka1337.valerochkagym.data.db.dao.MeasurementDocumentDao
 import com.valerochka1337.valerochkagym.data.db.dao.RoutineDao
 import com.valerochka1337.valerochkagym.data.db.dao.ScheduledWorkoutDao
 import com.valerochka1337.valerochkagym.data.db.dao.WorkoutDao
@@ -21,6 +24,16 @@ import com.valerochka1337.valerochkagym.data.db.entity.ExerciseMuscleEntity
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleLoadUpgradeNoticeEntity
 import com.valerochka1337.valerochkagym.data.db.entity.GymEntity
 import com.valerochka1337.valerochkagym.data.db.entity.GymExerciseEntity
+import com.valerochka1337.valerochkagym.data.db.entity.HealthDocumentEntity
+import com.valerochka1337.valerochkagym.data.db.entity.HealthObservationEntity
+import com.valerochka1337.valerochkagym.data.db.entity.HealthReportEntity
+import com.valerochka1337.valerochkagym.data.db.entity.HealthReportSnapshotEntity
+import com.valerochka1337.valerochkagym.data.db.entity.HealthRestrictionEntity
+import com.valerochka1337.valerochkagym.data.db.entity.HealthRestrictionSnapshotEntity
+import com.valerochka1337.valerochkagym.data.db.entity.HealthSyncConflictEntity
+import com.valerochka1337.valerochkagym.data.db.entity.HealthSyncOutboxEntity
+import com.valerochka1337.valerochkagym.data.db.entity.MeasurementDocumentEntity
+import com.valerochka1337.valerochkagym.data.db.entity.MeasurementSnapshotEntity
 import com.valerochka1337.valerochkagym.data.db.entity.RoutineEntity
 import com.valerochka1337.valerochkagym.data.db.entity.RoutineExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.RoutineGymEntity
@@ -42,6 +55,16 @@ import java.util.UUID
         MuscleLoadUpgradeNoticeEntity::class,
         GymEntity::class,
         GymExerciseEntity::class,
+        HealthDocumentEntity::class,
+        HealthObservationEntity::class,
+        HealthReportEntity::class,
+        HealthReportSnapshotEntity::class,
+        HealthRestrictionEntity::class,
+        HealthRestrictionSnapshotEntity::class,
+        HealthSyncConflictEntity::class,
+        HealthSyncOutboxEntity::class,
+        MeasurementDocumentEntity::class,
+        MeasurementSnapshotEntity::class,
         RoutineEntity::class,
         RoutineExerciseEntity::class,
         RoutineGymEntity::class,
@@ -51,7 +74,7 @@ import java.util.UUID
         WorkoutGymEntity::class,
         WorkoutSetEntity::class,
     ],
-    version = 13,
+    version = 14,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -62,6 +85,9 @@ abstract class GymDatabase : RoomDatabase() {
     abstract fun exerciseMuscleDao(): ExerciseMuscleDao
     abstract fun muscleLoadUpgradeNoticeDao(): MuscleLoadUpgradeNoticeDao
     abstract fun gymDao(): GymDao
+    abstract fun healthDao(): HealthDao
+    abstract fun healthSyncOutboxDao(): HealthSyncOutboxDao
+    abstract fun measurementDocumentDao(): MeasurementDocumentDao
     abstract fun routineDao(): RoutineDao
     abstract fun workoutDao(): WorkoutDao
     abstract fun scheduledWorkoutDao(): ScheduledWorkoutDao
@@ -525,6 +551,82 @@ abstract class GymDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * v13 → v14: introduces the health aggregate and makes InBody context explicit.
+         *
+         * v10 is a published base-only schema and must stay that way. Health therefore starts
+         * at a new boundary after every released exercise-variant recovery path has converged.
+         * Existing measurements receive an immutable v1 snapshot and outbox entry; their newly
+         * introduced condition fields are the conservative false/null defaults.
+         */
+        val MIGRATION_13_14: Migration = object : Migration(13, 14) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.beginTransaction()
+                try {
+                    db.execSQL("ALTER TABLE `body_measurements` ADD COLUMN `afterMeal` INTEGER NOT NULL DEFAULT 0")
+                    db.execSQL("ALTER TABLE `body_measurements` ADD COLUMN `afterWorkout` INTEGER NOT NULL DEFAULT 0")
+                    db.execSQL("ALTER TABLE `body_measurements` ADD COLUMN `unusualHydration` INTEGER NOT NULL DEFAULT 0")
+                    db.execSQL("ALTER TABLE `body_measurements` ADD COLUMN `conditionNote` TEXT")
+
+                    db.execSQL("CREATE TABLE IF NOT EXISTS `health_reports` (`syncId` TEXT NOT NULL, `version` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, `isTombstone` INTEGER NOT NULL, `status` TEXT NOT NULL, `provenance` TEXT NOT NULL, `reportedAt` INTEGER NOT NULL, `title` TEXT NOT NULL, `note` TEXT, `supersedesVersion` INTEGER, PRIMARY KEY(`syncId`))")
+                    db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_health_reports_syncId` ON `health_reports` (`syncId`)")
+                    db.execSQL("CREATE INDEX IF NOT EXISTS `index_health_reports_reportedAt` ON `health_reports` (`reportedAt`)")
+                    db.execSQL("CREATE INDEX IF NOT EXISTS `index_health_reports_supersedesVersion` ON `health_reports` (`supersedesVersion`)")
+                    db.execSQL("CREATE TABLE IF NOT EXISTS `health_report_snapshots` (`syncId` TEXT NOT NULL, `version` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, `isTombstone` INTEGER NOT NULL, `canonicalPayload` TEXT NOT NULL, `payloadHash` TEXT, PRIMARY KEY(`syncId`, `version`))")
+                    db.execSQL("CREATE INDEX IF NOT EXISTS `index_health_report_snapshots_updatedAt` ON `health_report_snapshots` (`updatedAt`)")
+                    db.execSQL("CREATE TABLE IF NOT EXISTS `health_observations` (`syncId` TEXT NOT NULL, `reportSyncId` TEXT NOT NULL, `version` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, `isTombstone` INTEGER NOT NULL, `observedAt` INTEGER NOT NULL, `rawName` TEXT NOT NULL, `valueType` TEXT NOT NULL, `rawValue` TEXT NOT NULL, `unit` TEXT, `referenceRange` TEXT, `method` TEXT, `material` TEXT, `source` TEXT, `canonicalKey` TEXT, `sourcePage` INTEGER, PRIMARY KEY(`syncId`), FOREIGN KEY(`reportSyncId`) REFERENCES `health_reports`(`syncId`) ON UPDATE NO ACTION ON DELETE CASCADE)")
+                    db.execSQL("CREATE INDEX IF NOT EXISTS `index_health_observations_reportSyncId` ON `health_observations` (`reportSyncId`)")
+                    db.execSQL("CREATE INDEX IF NOT EXISTS `index_health_observations_canonicalKey` ON `health_observations` (`canonicalKey`)")
+                    db.execSQL("CREATE INDEX IF NOT EXISTS `index_health_observations_observedAt` ON `health_observations` (`observedAt`)")
+                    db.execSQL("CREATE TABLE IF NOT EXISTS `health_restrictions` (`syncId` TEXT NOT NULL, `version` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, `isTombstone` INTEGER NOT NULL, `status` TEXT NOT NULL, `source` TEXT NOT NULL, `confirmedAt` INTEGER NOT NULL, `startsAt` INTEGER, `reviewAt` INTEGER, `description` TEXT NOT NULL, `originalText` TEXT, PRIMARY KEY(`syncId`))")
+                    db.execSQL("CREATE INDEX IF NOT EXISTS `index_health_restrictions_status` ON `health_restrictions` (`status`)")
+                    db.execSQL("CREATE INDEX IF NOT EXISTS `index_health_restrictions_reviewAt` ON `health_restrictions` (`reviewAt`)")
+                    db.execSQL("CREATE TABLE IF NOT EXISTS `health_restriction_snapshots` (`syncId` TEXT NOT NULL, `version` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, `isTombstone` INTEGER NOT NULL, `canonicalPayload` TEXT NOT NULL, `payloadHash` TEXT, `originalText` TEXT, PRIMARY KEY(`syncId`, `version`))")
+                    db.execSQL("CREATE INDEX IF NOT EXISTS `index_health_restriction_snapshots_updatedAt` ON `health_restriction_snapshots` (`updatedAt`)")
+                    db.execSQL("CREATE TABLE IF NOT EXISTS `health_documents` (`id` TEXT NOT NULL, `reportSyncId` TEXT NOT NULL, `sha256` TEXT NOT NULL, `state` TEXT NOT NULL, `displayName` TEXT NOT NULL, `mimeType` TEXT NOT NULL, `byteSize` INTEGER NOT NULL, `sourcePage` INTEGER, `createdAt` INTEGER NOT NULL, PRIMARY KEY(`id`), FOREIGN KEY(`reportSyncId`) REFERENCES `health_reports`(`syncId`) ON UPDATE NO ACTION ON DELETE CASCADE)")
+                    db.execSQL("CREATE INDEX IF NOT EXISTS `index_health_documents_reportSyncId` ON `health_documents` (`reportSyncId`)")
+                    db.execSQL("CREATE INDEX IF NOT EXISTS `index_health_documents_sha256` ON `health_documents` (`sha256`)")
+                    db.execSQL("CREATE INDEX IF NOT EXISTS `index_health_documents_state` ON `health_documents` (`state`)")
+                    db.execSQL("CREATE TABLE IF NOT EXISTS `health_sync_conflicts` (`category` TEXT NOT NULL, `syncId` TEXT NOT NULL, `version` INTEGER NOT NULL, `localPayload` TEXT NOT NULL, `localPayloadHash` TEXT, `remotePayload` TEXT NOT NULL, `remotePayloadHash` TEXT, `createdAt` INTEGER NOT NULL, PRIMARY KEY(`category`, `syncId`, `version`))")
+                    db.execSQL("CREATE INDEX IF NOT EXISTS `index_health_sync_conflicts_createdAt` ON `health_sync_conflicts` (`createdAt`)")
+                    db.execSQL("CREATE TABLE IF NOT EXISTS `measurement_snapshots` (`syncId` TEXT NOT NULL, `version` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, `isTombstone` INTEGER NOT NULL, `canonicalPayload` TEXT NOT NULL, `payloadHash` TEXT, PRIMARY KEY(`syncId`, `version`))")
+                    db.execSQL("CREATE INDEX IF NOT EXISTS `index_measurement_snapshots_updatedAt` ON `measurement_snapshots` (`updatedAt`)")
+                    db.execSQL("CREATE TABLE IF NOT EXISTS `measurement_documents` (`id` TEXT NOT NULL, `measurementId` TEXT NOT NULL, `sha256` TEXT NOT NULL, `state` TEXT NOT NULL, `displayName` TEXT NOT NULL, `mimeType` TEXT NOT NULL, `byteSize` INTEGER NOT NULL, `createdAt` INTEGER NOT NULL, PRIMARY KEY(`id`), FOREIGN KEY(`measurementId`) REFERENCES `body_measurements`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE)")
+                    db.execSQL("CREATE INDEX IF NOT EXISTS `index_measurement_documents_measurementId` ON `measurement_documents` (`measurementId`)")
+                    db.execSQL("CREATE INDEX IF NOT EXISTS `index_measurement_documents_sha256` ON `measurement_documents` (`sha256`)")
+                    db.execSQL("CREATE INDEX IF NOT EXISTS `index_measurement_documents_state` ON `measurement_documents` (`state`)")
+                    db.execSQL("CREATE TABLE IF NOT EXISTS `health_sync_outbox` (`category` TEXT NOT NULL, `syncId` TEXT NOT NULL, `version` INTEGER NOT NULL, `canonicalPayload` TEXT NOT NULL, `payloadHash` TEXT, `idempotencyKey` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, PRIMARY KEY(`category`, `syncId`, `version`))")
+                    db.execSQL("CREATE INDEX IF NOT EXISTS `index_health_sync_outbox_createdAt` ON `health_sync_outbox` (`createdAt`)")
+
+                    val payload = "'v1|id=' || quote(`id`) || '|measuredAt=' || quote(`measuredAt`) || " +
+                        "'|weightKg=' || quote(`weightKg`) || '|skeletalMuscleMassKg=' || quote(`skeletalMuscleMassKg`) || " +
+                        "'|bodyFatPercentage=' || quote(`bodyFatPercentage`) || '|bodyFatMassKg=' || quote(`bodyFatMassKg`) || " +
+                        "'|visceralFatLevel=' || quote(`visceralFatLevel`) || '|waistHipRatio=' || quote(`waistHipRatio`) || " +
+                        "'|waistCm=' || quote(`waistCm`) || '|chestCm=' || quote(`chestCm`) || '|hipsCm=' || quote(`hipsCm`) || " +
+                        "'|rightRelaxedArmCm=' || quote(`rightRelaxedArmCm`) || '|rightThighCm=' || quote(`rightThighCm`) || " +
+                        "'|inBodyScore=' || quote(`inBodyScore`) || '|totalBodyWaterLiters=' || quote(`totalBodyWaterLiters`) || " +
+                        "'|proteinKg=' || quote(`proteinKg`) || '|mineralsKg=' || quote(`mineralsKg`) || '|bodyMassIndex=' || quote(`bodyMassIndex`) || " +
+                        "'|fatFreeMassKg=' || quote(`fatFreeMassKg`) || '|basalMetabolicRateKcal=' || quote(`basalMetabolicRateKcal`) || " +
+                        "'|recommendedCalorieIntakeKcal=' || quote(`recommendedCalorieIntakeKcal`) || " +
+                        "'|leftArmLeanMassKg=' || quote(`leftArmLeanMassKg`) || '|leftArmLeanPercentage=' || quote(`leftArmLeanPercentage`) || " +
+                        "'|leftArmFatMassKg=' || quote(`leftArmFatMassKg`) || '|leftArmFatPercentage=' || quote(`leftArmFatPercentage`) || " +
+                        "'|rightArmLeanMassKg=' || quote(`rightArmLeanMassKg`) || '|rightArmLeanPercentage=' || quote(`rightArmLeanPercentage`) || " +
+                        "'|rightArmFatMassKg=' || quote(`rightArmFatMassKg`) || '|rightArmFatPercentage=' || quote(`rightArmFatPercentage`) || " +
+                        "'|trunkLeanMassKg=' || quote(`trunkLeanMassKg`) || '|trunkLeanPercentage=' || quote(`trunkLeanPercentage`) || " +
+                        "'|trunkFatMassKg=' || quote(`trunkFatMassKg`) || '|trunkFatPercentage=' || quote(`trunkFatPercentage`) || " +
+                        "'|leftLegLeanMassKg=' || quote(`leftLegLeanMassKg`) || '|leftLegLeanPercentage=' || quote(`leftLegLeanPercentage`) || " +
+                        "'|leftLegFatMassKg=' || quote(`leftLegFatMassKg`) || '|leftLegFatPercentage=' || quote(`leftLegFatPercentage`) || " +
+                        "'|rightLegLeanMassKg=' || quote(`rightLegLeanMassKg`) || '|rightLegLeanPercentage=' || quote(`rightLegLeanPercentage`) || " +
+                        "'|rightLegFatMassKg=' || quote(`rightLegFatMassKg`) || '|rightLegFatPercentage=' || quote(`rightLegFatPercentage`)"
+                    db.execSQL("INSERT INTO `measurement_snapshots` (`syncId`,`version`,`updatedAt`,`isTombstone`,`canonicalPayload`,`payloadHash`) SELECT `id`,1,`measuredAt`,0,$payload,NULL FROM `body_measurements`")
+                    db.execSQL("INSERT INTO `health_sync_outbox` (`category`,`syncId`,`version`,`canonicalPayload`,`payloadHash`,`idempotencyKey`,`createdAt`) SELECT 'MEASUREMENTS',`id`,1,$payload,NULL,`id` || ':1',`measuredAt` FROM `body_measurements`")
+                    db.setTransactionSuccessful()
+                } finally {
+                    db.endTransaction()
+                }
+            }
+        }
+
         /** Единственный production/test реестр всех поддерживаемых путей до текущей схемы. */
         val ALL_MIGRATIONS: Array<Migration> = arrayOf(
             MIGRATION_1_2,
@@ -539,6 +641,7 @@ abstract class GymDatabase : RoomDatabase() {
             MIGRATION_10_12,
             MIGRATION_11_12,
             MIGRATION_12_13,
+            MIGRATION_13_14,
         )
     }
 }

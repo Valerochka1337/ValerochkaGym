@@ -295,7 +295,7 @@ fun MeasurementsScreen(
             text = {
                 Text(
                     "Замер от ${formatMeasurementDate(measurement.measuredAt, state.zone)} будет удалён только из приложения. " +
-                        "Уже выгруженная строка Google Sheets останется в журнале.",
+                        "В Google Sheets будет добавлена версия удаления; прежняя история останется аудируемой.",
                 )
             },
             confirmButton = {
@@ -593,6 +593,10 @@ private fun SelectedMeasurementCard(measurement: BodyMeasurementEntity?, zone: j
             ValueRow(label = metric.title, value = formatMeasurementValue(metric, value))
             if (index != values.lastIndex) Spacer(Modifier.height(6.dp))
         }
+        measurement.conditionsLabel()?.let {
+            if (values.isNotEmpty()) Spacer(Modifier.height(6.dp))
+            ValueRow(label = "Условия замера", value = it)
+        }
     }
 }
 
@@ -605,7 +609,7 @@ private fun MeasurementHistoryCard(
 ) {
     AnalysisCard(
         title = "История",
-        subtitle = "Правки и удаление не меняют уже добавленную строку в Google Sheets.",
+        subtitle = "Правки и удаление создают следующую версию для Google Sheets.",
         icon = Icons.Rounded.MonitorWeight,
     ) {
         measurements.forEachIndexed { index, measurement ->
@@ -641,6 +645,13 @@ private fun MeasurementHistoryRow(
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
+                measurement.conditionsLabel()?.let { conditions ->
+                    Text(
+                        text = "Условия: $conditions",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
                 Text(
                     text = "Заполнено показателей: ${measurement.filledValueCount()}",
                     style = MaterialTheme.typography.bodySmall,
@@ -664,6 +675,13 @@ private fun MeasurementHistoryRow(
         }
     }
 }
+
+private fun BodyMeasurementEntity.conditionsLabel(): String? = buildList {
+    if (afterMeal) add("после еды")
+    if (afterWorkout) add("после тренировки")
+    if (unusualHydration) add("необычная гидратация")
+    conditionNote?.trim()?.takeIf(String::isNotBlank)?.let(::add)
+}.takeIf { it.isNotEmpty() }?.joinToString()
 
 private fun BodyMeasurementEntity.filledValueCount(): Int =
     BodyMeasurementMetric.entries.count { it.value(this) != null } +

@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.valerochka1337.valerochkagym.data.db.dao.BodyMeasurementDao
 import com.valerochka1337.valerochkagym.data.db.entity.BodyMeasurementEntity
+import com.valerochka1337.valerochkagym.data.measurements.MeasurementRepository
 import com.valerochka1337.valerochkagym.di.ComputeDispatcher
 import com.valerochka1337.valerochkagym.domain.measurements.BodyMeasurementMetric
 import com.valerochka1337.valerochkagym.domain.measurements.MeasurementMetricComparison
@@ -56,6 +57,7 @@ class MeasurementsViewModel @Inject constructor(
     private val bodyMeasurementDao: BodyMeasurementDao,
     private val uploadScheduler: MeasurementUploadScheduler,
     @param:ComputeDispatcher private val computeDispatcher: CoroutineDispatcher,
+    private val measurementRepository: MeasurementRepository? = null,
 ) : ViewModel() {
 
     private val zone = ZoneId.systemDefault()
@@ -151,10 +153,13 @@ class MeasurementsViewModel @Inject constructor(
         viewModelScope.launch { uploadScheduler.retry(measurementId) }
     }
 
-    /** Удаляет только локальную запись; append-only строка в Google Sheets остаётся исторической. */
+    /** Создаёт локальный tombstone и следующую версию синхронизации для Google Sheets. */
     fun deleteMeasurement(measurementId: String) {
         if (selectedMeasurementId.value == measurementId) selectedMeasurementId.value = null
-        viewModelScope.launch { bodyMeasurementDao.delete(measurementId) }
+        viewModelScope.launch {
+            measurementRepository?.delete(measurementId) ?: bodyMeasurementDao.delete(measurementId)
+            uploadScheduler.schedule(measurementId)
+        }
     }
 
     private data class SelectedMetrics(

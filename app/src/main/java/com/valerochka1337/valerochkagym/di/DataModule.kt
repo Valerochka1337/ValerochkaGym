@@ -1,6 +1,7 @@
 package com.valerochka1337.valerochkagym.di
 
 import android.content.Context
+import android.content.ContentResolver
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.preferencesDataStore
@@ -14,6 +15,9 @@ import com.valerochka1337.valerochkagym.data.db.dao.ConfigurationTombstoneDao
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseDao
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseMuscleDao
 import com.valerochka1337.valerochkagym.data.db.dao.GymDao
+import com.valerochka1337.valerochkagym.data.db.dao.HealthDao
+import com.valerochka1337.valerochkagym.data.db.dao.HealthSyncOutboxDao
+import com.valerochka1337.valerochkagym.data.db.dao.MeasurementDocumentDao
 import com.valerochka1337.valerochkagym.data.db.dao.RoutineDao
 import com.valerochka1337.valerochkagym.data.db.dao.ScheduledWorkoutDao
 import com.valerochka1337.valerochkagym.data.db.dao.WorkoutDao
@@ -43,6 +47,10 @@ private val Context.weeklyScheduleOperationsDataStore: DataStore<Preferences> by
 @Module
 @InstallIn(SingletonComponent::class)
 object DataModule {
+
+    @Provides
+    @Singleton
+    fun provideContentResolver(@ApplicationContext context: Context): ContentResolver = context.contentResolver
 
     @Provides
     @Singleton
@@ -90,6 +98,17 @@ object DataModule {
 
     @Provides
     fun provideGymDao(database: GymDatabase): GymDao = database.gymDao()
+
+    @Provides
+    fun provideHealthDao(database: GymDatabase): HealthDao = database.healthDao()
+
+    @Provides
+    fun provideHealthSyncOutboxDao(database: GymDatabase): HealthSyncOutboxDao =
+        database.healthSyncOutboxDao()
+
+    @Provides
+    fun provideMeasurementDocumentDao(database: GymDatabase): MeasurementDocumentDao =
+        database.measurementDocumentDao()
 
     @Provides
     fun provideRoutineDao(database: GymDatabase): RoutineDao = database.routineDao()

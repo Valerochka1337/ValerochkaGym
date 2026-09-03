@@ -62,6 +62,15 @@ interface SheetsApi {
         @Query("insertDataOption") insertDataOption: String = "INSERT_ROWS",
     ): JsonElement
 
+    /** Clears only the caller-confirmed app-owned range; this never deletes a sheet or columns. */
+    @POST("v4/spreadsheets/{spreadsheetId}/values/{range}:clear")
+    suspend fun clearValues(
+        @Header("Authorization") bearer: String,
+        @Path("spreadsheetId") spreadsheetId: String,
+        @Path("range") range: String,
+        @Body body: ClearValuesDto = ClearValuesDto(),
+    ): JsonElement
+
     /** Rewrites a known small range; used only to add app-owned measurement headers. */
     @PUT("v4/spreadsheets/{spreadsheetId}/values/{range}")
     suspend fun updateValues(
@@ -151,3 +160,7 @@ data class AppendValuesDto(
 data class UpdateValuesDto(
     val values: JsonArray,
 )
+
+/** Google requires an object body even though the default clear operation has no options. */
+@Serializable
+class ClearValuesDto

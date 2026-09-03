@@ -80,6 +80,23 @@ InBody-значения вычисляются из сохранённых по�
 в выбранный через SAF документ; очистка (`ClearDataUseCase`) стирает таблицы, пересеивает
 каталог и отменяет очередь WorkManager, не трогая настройки.
 
+В v10 `body_measurements` остаётся живой проекцией существующих ручных и InBody-замеров.
+Неизменяемая история `measurement_snapshots` и `health_sync_outbox` с ключом
+`(category, syncId, version)` создаются одной транзакцией с каждой правкой или tombstone.
+Миграция 9→10 backfill-ит для каждой прежней строки канонический v1 snapshot и pending outbox;
+поэтому включённая позднее синхронизация не теряет legacy-историю. Равные ID+version с разным
+payload/hash никогда не разрешаются временем: обе версии остаются в `health_sync_conflicts` до
+ручного решения.
+
+«Здоровье» хранит расширяемые первичные агрегаты: `health_reports`, атомарные
+`health_observations`, подтверждённые `health_restrictions` и local-only `health_documents`.
+`HealthRepository` — единственная граница транзакций report/observation/restriction и их outbox;
+`MeasurementRepository` — единственная граница live measurement, snapshot и outbox. Черновики
+не попадают в Room. Документ сначала получает состояние PENDING, копируется в
+`noBackupFilesDir/health_documents`, проверяется SHA-256 и атомарно становится READY; startup
+cleanup удаляет dangling PENDING строки и временные файлы. Только READY-документ допустим в
+архив; originals исключены из backup и device transfer.
+
 ## Фоновые механизмы
 
 - **WorkoutSessionService** — foreground-сервис активной тренировки: одно promoted-ongoing
@@ -94,8 +111,15 @@ InBody-значения вычисляются из сохранённых по�
 - **UploadWorkoutWorker** — выгрузка тренировки в Google Sheets: уникальная работа
   `upload_<id>` (REPLACE), сеть обязательна, экспоненциальный backoff, 5 попыток; на последней
   транзиентной ошибке статус становится FAILED с причиной для UI.
-- **UploadMeasurementWorker** — та же политика для одного замера (`upload_measurement_<id>`).
-  Экспорт замеров append-only: локальные правки и удаление не переписывают уже добавленную строку.
+- **UploadMeasurementWorker** — bridge для прежних `upload_measurement_<id>` задач: до auth/network
+  проверяет включённость категории Measurements и подавляется при её выключении. Новая выгрузка
+  идёт по durable outbox/version со стабильным именем `category:syncId:version` (REPLACE),
+  поэтому ACK удаляет только точную строку; ошибка, отмена или потерянный ответ оставляют её
+  pending, а re-enable ставит pending записи снова.
+- **HealthSyncWorker** — аналогичная category-scoped очередь для reports/observations и
+  restrictions: стабильное имя `category:syncId:version` (REPLACE), network constraint,
+  bounded retry, idempotency key `syncId:version`, отдельные WorkManager tags и отмена только
+  нужной категории; startup reconciliation снова ставит pending записи.
 - **UploadRoutineWorker** — выгрузка снимка пользовательской программы (`upload_routine_<UUID>`)
   либо tombstone удаления. Каждый снимок содержит UUID и версию; уникальная работа заменяет
   устаревшую очередь, а лист `Routines` дедуплицирует уже добавленную версию. Тем же запуском
@@ -121,6 +145,22 @@ InBody-значения вычисляются из сохранённых по�
   затем очищает journal. Один singleton repository `Mutex` сериализует UI и worker. Journal
   исключён из backup/device transfer, а active хранит nullable `ownerEmail`; legacy owner adoption
   остаётся эвристикой, после которой OAuth token всегда запрашивается для конкретного аккаунта.
+
+## Здоровье: UI и навигация
+
+`AnalysisScreen` сохраняет три верхние вкладки приложения и добавляет четвёртую внутреннюю секцию
+«Здоровье». На compact и при fontScale 2 selector — горизонтально прокручиваемый ряд chip с
+минимальной высотой 48dp, семантикой selected/state; на medium/expanded ряд остаётся без
+обрезания. `AnalysisViewModel` объединяет Room flows body measurements, live reports и live
+restrictions; выбранный Analysis period фильтрует историю, но не активные ограничения.
+
+Health section показывает отдельные loading, empty, body-only, content, offline, conflict и
+missing-original состояния. Карточка тела и прежнее действие в app bar ведут на тот же
+`MEASUREMENTS` route — запись не копируется. Pushed routes `health_editor`,
+`health_restriction_editor`, `health_archive` и `health_report/{syncId}` получают system Up;
+period для report detail передаётся аргументами. Editor state — immutable ViewModel state,
+одноразовое завершение — buffered Channel; выбранная секция/period и минимальные route arguments
+переживают recreation, а подтверждённый доменный результат остаётся только в Room.
 
 ## Обновление APK
 
@@ -158,17 +198,31 @@ Workflow на `main` собирает APK постоянным release-ключ�
 тренировки. Перед commit он повторно проверяет весь aggregate программ и активной тренировки;
 конфликт откатывает транзакцию целиком. Отсутствие новых листов означает старую таблицу без
 ограничений по залам.
-`Measurements` дедупятся по `measurement_id` и
-восстанавливаются со статусом `UPLOADED`. `Routines` хранит append-only снимки программ: формат
+`Measurements` — версионированные append-only snapshots в управляемом префиксе A:AY: A:AP —
+legacy-данные, AQ:AU — `version`, `updated_at`, `is_deleted`, `payload_hash`,
+`idempotency_key`, а AV:AY — условия. Импорт по-прежнему принимает legacy A:AP и промежуточный
+A:AU; перед записью репозиторий повторно читает и безопасно обновляет заголовок, сохраняя
+user-owned колонки справа. Tombstone убирает только текущую локальную проекцию. `Routines` хранит append-only снимки программ: формат
 A:L содержит стабильный `exercise_id`, а legacy A:K по-прежнему читается по имени. Импорт берёт
 для каждого UUID максимальный `updated_at`, создаёт недостающие custom-упражнения и применяет
 tombstone удаления. После успешного входа импорт запускается автоматически, если ID таблицы уже
 восстановлен через Android Backup/DataStore; иначе ID нужно один раз вставить в настройках.
-Лист `Measurements` создаётся после `Workouts`, если его ещё нет; UUID `measurement_id` в первой
-колонке гарантирует идемпотентность повторных append-запросов. Нынешний app-managed
-`Measurements` занимает A:AP; при первом экспорте старого заголовка A:N репозиторий безопасно
-вставляет 28 столбцов после N и дописывает только новые заголовки, не переписывая исторические
-строки.
+Лист `Measurements` создаётся после `Workouts`, если его ещё нет. Настройки объединяют четыре
+независимые opt-in категории: workouts+configuration, Measurements/InBody,
+reports/observations и restrictions. У прежнего подключённого документа однократная миграция
+инициализирует только workouts и Measurements; у нового подключения все категории выключены.
+Category disable отменяет лишь tagged work и не удаляет локальные или remote записи. Отдельное
+подтверждённое remote clear ставит нужные workers на паузу/отменяет их и использует Sheets
+clear-values; для Measurements очищается только managed `A2:AY`, после safe header upgrade,
+без пользовательских колонок и других категорий. Производные Analysis-метрики не синхронизируются.
+
+`HealthReports`, `HealthObservations` и `HealthRestrictions` импортируются только как строгие
+первичные агрегаты с зафиксированными заголовками `HealthSheetRows`: отсутствующий лист совместим,
+а дубликат, orphan, расходящаяся версия или некорректные enum/date/status-отношения отклоняют
+весь импорт до транзакции. Managed prefix листа не затрагивает следующие пользовательские колонки;
+черновики, derived Analysis-данные и локальный `originalText` в Sheets не попадают. Конфликт всегда
+хранит проверяемый SHA-256 payload: при отсутствии remote `payload_hash` он вычисляется из
+канонического совместимого payload до передачи в resolver.
 
 ## Интеграция с нейросетью
 
@@ -200,13 +254,21 @@ UI; в последнем случае обе ИИ-формы предлагаю
 read 5 минут и общий call timeout 6 минут. Google API сохраняют стандартные короткие таймауты,
 а каталог моделей дополнительно ограничен 12 секундами на уровне `SettingsViewModel`.
 
-Та же выбранная модель читает фото InBody через multimodal message (инструкция + JPEG data URL)
+Та же выбранная модель читает фото InBody и health PDF/photo через multimodal message
+(инструкция + bounded JPEG data URL)
 и отдельную schema в системной инструкции. В запрос попадает только
 выбранный снимок, а извлекаются только
 фактические показатели отчёта и пять сегментов. Снимок камеры лежит во временном cache-файле ровно
 до обработки и затем удаляется; снимок из системного Photo Picker не копируется в приложение.
 Ни фото, ни ID/пол/возраст/рост, цели,
 калории упражнений или импеданс не сохраняются.
+
+Health readers принимают только строгий JSON и создают редактируемый UI-черновик; Room, архив и
+Sheets меняются только после явного сохранения. Перед каждой отправкой UI показывает domain и
+model; public HTTP для medical data отклоняется, loopback HTTP требует отдельного видимого
+подтверждения. PDF render/parse bounded и cancellation-aware на compute dispatcher, OCR нет.
+`AiResponseLogger` — no-op и в debug: document, request, full response и error body не попадают
+в Logcat.
 
 API key живёт в отдельном `ai_secrets.preferences_pb`: полный ключ хранится как AES/GCM-шифротекст,
 а рядом лежит безопасное превью `sk-************1234` для настроек. Ключ шифрования
@@ -217,7 +279,7 @@ API key живёт в отдельном `ai_secrets.preferences_pb`: полны
 
 | Решение | Почему |
 |---|---|
-| Zero-logging в release | все ошибки синка видны в UI (UploadStatusBadge, ImportResult, снэкбары); исключение — явно запрошенный debug-only Logcat с ответами модели и ID запрошенной модели, без ключа, запроса и фото InBody |
+| Zero-logging AI/health | ошибки синка видны в UI (UploadStatusBadge, ImportResult, снэкбары); `AiResponseLogger` не пишет document, request, response, error body или throwable и в debug |
 | Predictive back — только системный | seekable-переходы Navigation Compose не подключены; пружинные слайды играют как обычные pop'ы |
 | Бэкап включён почти целиком | история и обычные настройки переживают переустановку; отдельный зашифрованный API key исключён из бэкапа и переноса |
 | Строки UI захардкожены в Kotlin | приложение одноязычное и личное; `strings.xml` держит только `app_name` и OAuth client ID |

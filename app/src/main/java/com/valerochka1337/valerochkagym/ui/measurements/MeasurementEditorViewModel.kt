@@ -1,6 +1,7 @@
 package com.valerochka1337.valerochkagym.ui.measurements
 
 import android.net.Uri
+import android.content.Context
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -8,9 +9,17 @@ import com.valerochka1337.valerochkagym.data.ai.InBodyReportAiReader
 import com.valerochka1337.valerochkagym.data.ai.InBodyReportAiResult
 import com.valerochka1337.valerochkagym.data.ai.InBodyReportDraft
 import com.valerochka1337.valerochkagym.data.ai.AiApiConfigurationProvider
+import com.valerochka1337.valerochkagym.data.ai.AiApiRequestConfiguration
+import com.valerochka1337.valerochkagym.data.ai.healthAiEndpointDecision
+import com.valerochka1337.valerochkagym.data.ai.HealthAiEndpointDecision
 import com.valerochka1337.valerochkagym.data.db.dao.BodyMeasurementDao
 import com.valerochka1337.valerochkagym.data.db.entity.BodyMeasurementEntity
 import com.valerochka1337.valerochkagym.data.db.entity.UploadStatus
+import com.valerochka1337.valerochkagym.data.measurements.MeasurementRepository
+import com.valerochka1337.valerochkagym.data.measurements.MeasurementDocumentInput
+import com.valerochka1337.valerochkagym.data.measurements.MeasurementDocumentRepository
+import com.valerochka1337.valerochkagym.data.measurements.MeasurementDocumentStoreResult
+import com.valerochka1337.valerochkagym.data.measurements.PendingInBodyCaptureRegistry
 import com.valerochka1337.valerochkagym.domain.measurements.InBodySegment
 import com.valerochka1337.valerochkagym.domain.measurements.InBodySegmentValues
 import com.valerochka1337.valerochkagym.domain.measurements.calculateWaistHipRatio
@@ -18,6 +27,7 @@ import com.valerochka1337.valerochkagym.domain.measurements.inBodySegmentValues
 import com.valerochka1337.valerochkagym.ui.navigation.GymRoutes
 import com.valerochka1337.valerochkagym.worker.MeasurementUploadScheduler
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
@@ -81,6 +91,16 @@ data class MeasurementEditorUiState(
     val hipsCm: String = "",
     val rightRelaxedArmCm: String = "",
     val rightThighCm: String = "",
+    val afterMeal: Boolean = false,
+    val afterWorkout: Boolean = false,
+    val unusualHydration: Boolean = false,
+    val conditionNote: String = "",
+    val originalAvailable: Boolean = false,
+    val retainOriginal: Boolean = false,
+    val readyOriginalCount: Int = 0,
+    /** Random cache-file token only; never a URI or file path. */
+    val pendingCameraToken: String? = null,
+    val scanDisclosure: InBodyRecipientDisclosure? = null,
 ) {
     val parsedWeightKg: Double? get() = decimalOrNull(weightKg)
     val parsedSkeletalMuscleMassKg: Double? get() = decimalOrNull(skeletalMuscleMassKg)
@@ -132,24 +152,36 @@ data class MeasurementEditorUiState(
     val isBusy: Boolean get() = isScanningInBody || isSaving
 }
 
+data class InBodyRecipientDisclosure(val host: String, val model: String, val loopback: Boolean)
+
 /**
  * Создание и редактирование замера. Новая запись ставится в очередь сразу после записи в Room.
- * Если строка уже была выгружена, её статус сохраняется UPLOADED и новая очередь не создаётся:
- * Sheets — append-only журнал, локальная правка не должна менять прошлую строку.
+ * Каждое подтверждённое изменение создаёт следующий неизменяемый snapshot для Sheets.
  */
 @HiltViewModel
 class MeasurementEditorViewModel @Inject constructor(
-    savedStateHandle: SavedStateHandle,
+    private val savedStateHandle: SavedStateHandle,
     private val bodyMeasurementDao: BodyMeasurementDao,
     private val uploadScheduler: MeasurementUploadScheduler,
     private val inBodyReportAiReader: InBodyReportAiReader = NoOpInBodyReportAiReader,
     private val aiApiConfigurationProvider: AiApiConfigurationProvider =
         NoOpAiApiConfigurationProvider,
+    private val measurementRepository: MeasurementRepository? = null,
+    private val measurementDocumentRepository: MeasurementDocumentRepository? = null,
+    @param:ApplicationContext private val applicationContext: Context? = null,
+    private val captureRegistry: PendingInBodyCaptureRegistry? = null,
 ) : ViewModel() {
 
     private val measurementId: String? = savedStateHandle.get(GymRoutes.MEASUREMENT_ID_ARG)
     private val zone: ZoneId = ZoneId.systemDefault()
     private var existingMeasurement: BodyMeasurementEntity? = null
+    private var pendingSource: InBodySource? = null
+    /** Secret-bearing configuration is deliberately private, never Compose/SavedState state. */
+    private var pendingScanConfiguration: AiApiRequestConfiguration? = null
+    private var selectedOriginal: InBodySource? = null
+    /** The exact structured state already committed before a local-original retry. */
+    private var savedMeasurementAwaitingOriginal: BodyMeasurementEntity? = null
+    private val cameraTokenKey = "pending_inbody_camera_token"
 
     private val _uiState = MutableStateFlow(
         MeasurementEditorUiState(isNew = measurementId == null, isLoading = measurementId != null),
@@ -161,6 +193,9 @@ class MeasurementEditorViewModel @Inject constructor(
     val finished = _finished.receiveAsFlow()
 
     init {
+        savedStateHandle.get<String>(cameraTokenKey)?.let { token ->
+            _uiState.update { it.copy(pendingCameraToken = token) }
+        }
         viewModelScope.launch {
             aiApiConfigurationProvider.isConfigured.collect { isConfigured ->
                 _uiState.update { it.copy(isAiConfigured = isConfigured) }
@@ -179,7 +214,10 @@ class MeasurementEditorViewModel @Inject constructor(
                 isAiConfigured = _uiState.value.isAiConfigured,
             )
         } else {
-            measurement.toEditorState(isAiConfigured = _uiState.value.isAiConfigured)
+            measurement.toEditorState(
+                isAiConfigured = _uiState.value.isAiConfigured,
+                readyOriginalCount = measurementDocumentRepository?.readyForMeasurement(id)?.size ?: 0,
+            )
         }
     }
 
@@ -213,6 +251,81 @@ class MeasurementEditorViewModel @Inject constructor(
     fun setHipsCm(value: String) = update { copy(hipsCm = value) }
     fun setRightRelaxedArmCm(value: String) = update { copy(rightRelaxedArmCm = value) }
     fun setRightThighCm(value: String) = update { copy(rightThighCm = value) }
+    fun setAfterMeal(value: Boolean) = update { copy(afterMeal = value) }
+    fun setAfterWorkout(value: Boolean) = update { copy(afterWorkout = value) }
+    fun setUnusualHydration(value: Boolean) = update { copy(unusualHydration = value) }
+    fun setConditionNote(value: String) = update { copy(conditionNote = value) }
+
+    fun setRetainOriginal(value: Boolean) {
+        val finishWithoutOriginal = !value && savedMeasurementAwaitingOriginal != null
+        _uiState.update { if (it.isBusy) it else it.copy(retainOriginal = value, saveError = null) }
+        if (finishWithoutOriginal) viewModelScope.launch {
+            discardSelectedSource()
+            savedMeasurementAwaitingOriginal = null
+            _finished.send(Unit)
+        }
+    }
+
+    fun removeReadyOriginals() = viewModelScope.launch {
+        val id = existingMeasurement?.id ?: return@launch
+        if (_uiState.value.isBusy) return@launch
+        _uiState.update { it.copy(isSaving = true, saveError = null) }
+        try {
+            val repository = measurementDocumentRepository ?: error("Хранилище оригиналов недоступно")
+            repository.deleteAll(id)
+            val actualCount = repository.readyForMeasurement(id).size
+            _uiState.update { it.copy(isSaving = false, readyOriginalCount = actualCount) }
+        } catch (e: CancellationException) {
+            _uiState.update { it.copy(isSaving = false) }
+            throw e
+        } catch (_: Exception) {
+            // A failed removal must never pretend that files disappeared. A second repository
+            // failure merely retains the last verified count and keeps the action retryable.
+            val actualCount = runCatching {
+                measurementDocumentRepository?.readyForMeasurement(id)?.size
+            }.getOrNull() ?: _uiState.value.readyOriginalCount
+            _uiState.update { it.copy(isSaving = false, readyOriginalCount = actualCount, saveError = "Не удалось удалить локальные оригиналы") }
+        }
+    }
+
+    /** Screen disposal/back owns only the unpersisted selected source, never READY originals. */
+    fun discardUnretainedSource() {
+        clearCameraCapture()
+        if (savedMeasurementAwaitingOriginal == null) {
+            discardPendingSource()
+            discardSelectedSource()
+        }
+    }
+
+    /** Creates a reconstructable cache name; a URI/path never enters saveable ViewModel state. */
+    fun beginCameraCapture(): String {
+        clearCameraCapture()
+        val token = "inbody-${UUID.randomUUID()}.jpg"
+        val directory = applicationContext?.let { File(it.cacheDir, CAMERA_IMPORT_DIRECTORY) }
+        if (captureRegistry != null && directory != null) captureRegistry.replaceWith(token, directory)
+        else captureRegistry?.register(token)
+        savedStateHandle[cameraTokenKey] = token
+        _uiState.update { it.copy(pendingCameraToken = token) }
+        return token
+    }
+
+    /** Consumes the token once the camera callback arrives, preserving it across rotation meanwhile. */
+    fun consumeCameraCapture(): String? {
+        val token = savedStateHandle.get<String>(cameraTokenKey)
+        token?.let { captureRegistry?.clear(it) }
+        savedStateHandle[cameraTokenKey] = null
+        _uiState.update { it.copy(pendingCameraToken = null) }
+        return token
+    }
+
+    fun clearCameraCapture() {
+        val token = savedStateHandle.get<String>(cameraTokenKey) ?: return
+        savedStateHandle[cameraTokenKey] = null
+        _uiState.update { it.copy(pendingCameraToken = null) }
+        val directory = applicationContext?.let { File(it.cacheDir, CAMERA_IMPORT_DIRECTORY) }
+        if (captureRegistry != null && directory != null) captureRegistry.abandon(token, directory)
+        else cameraFile(token)?.delete()
+    }
 
     fun setSegmentLeanMassKg(segment: InBodySegment, value: String) = updateSegment(segment) {
         copy(leanMassKg = value)
@@ -235,14 +348,24 @@ class MeasurementEditorViewModel @Inject constructor(
      * left untouched, and the draft stays editable until [save]. A camera cache file is deleted
      * in the same coroutine only after its bytes have been consumed by the reader.
      */
-    fun scanInBody(uri: Uri, temporaryCameraFile: File? = null) {
+    /** Consent is deliberately explicit per send; callers must not reuse a previous loopback choice. */
+    fun scanInBody(uri: Uri, temporaryCameraFile: File? = null, allowLoopbackHttp: Boolean = false) {
+        replacePendingSource(InBodySource(uri, temporaryCameraFile))
+        startInBodyScan(pendingSource ?: return, allowLoopbackHttp)
+    }
+
+    private fun startInBodyScan(
+        source: InBodySource,
+        allowLoopbackHttp: Boolean,
+        disclosedConfiguration: AiApiRequestConfiguration? = null,
+    ) {
         val state = _uiState.value
         if (state.isLoading || state.isBusy) return
         if (!state.isAiConfigured) {
             _uiState.update {
                 it.copy(inBodyScanError = MISSING_CONFIGURATION_MESSAGE, inBodyScanModelUnavailable = false)
             }
-            temporaryCameraFile?.delete()
+            discardSource(source)
             return
         }
         _uiState.update {
@@ -255,12 +378,18 @@ class MeasurementEditorViewModel @Inject constructor(
         }
         viewModelScope.launch {
             try {
-                when (val result = inBodyReportAiReader.read(uri)) {
+                val result = disclosedConfiguration?.let { configuration ->
+                    inBodyReportAiReader.read(source.uri, configuration, allowLoopbackHttp)
+                } ?: inBodyReportAiReader.read(source.uri, allowLoopbackHttp)
+                when (result) {
                     is InBodyReportAiResult.Success -> _uiState.update { current ->
+                        pendingSource = null
+                        selectedOriginal = source
                         current.applyInBodyDraft(result.draft).copy(
                             isScanningInBody = false,
                             inBodyScanError = null,
                             inBodyScanModelUnavailable = false,
+                            originalAvailable = true,
                         )
                     }
 
@@ -273,6 +402,7 @@ class MeasurementEditorViewModel @Inject constructor(
                     }
                 }
             } catch (e: CancellationException) {
+                discardSource(source)
                 throw e
             } catch (_: Exception) {
                 _uiState.update { current ->
@@ -283,9 +413,42 @@ class MeasurementEditorViewModel @Inject constructor(
                     )
                 }
             } finally {
-                temporaryCameraFile?.delete()
+                if (selectedOriginal !== source) {
+                    pendingSource = null
+                    discardSource(source)
+                }
             }
         }
+    }
+
+    fun requestInBodyConsent(uri: Uri, temporaryCameraFile: File? = null, displayName: String = "Фото InBody", mimeType: String = "image/jpeg") { viewModelScope.launch {
+        replacePendingSource(InBodySource(uri, temporaryCameraFile, displayName, mimeType))
+        val config = aiApiConfigurationProvider.requestConfiguration() ?: run {
+            discardPendingSource()
+            _uiState.update { it.copy(inBodyScanError = MISSING_CONFIGURATION_MESSAGE) }
+            return@launch
+        }
+        when (healthAiEndpointDecision(config.connection.baseUrl, false)) {
+            HealthAiEndpointDecision.PublicHttpRejected -> { discardPendingSource(); _uiState.update { it.copy(inBodyScanError = "Снимок InBody нельзя отправить через публичный HTTP") } }
+            HealthAiEndpointDecision.Invalid -> { discardPendingSource(); _uiState.update { it.copy(inBodyScanError = "Некорректный адрес нейросети") } }
+            HealthAiEndpointDecision.Allowed, HealthAiEndpointDecision.LoopbackConsentRequired -> {
+                pendingScanConfiguration = config
+                _uiState.update { it.copy(scanDisclosure = InBodyRecipientDisclosure(android.net.Uri.parse(config.connection.baseUrl).host.orEmpty(), config.modelId, healthAiEndpointDecision(config.connection.baseUrl, false) == HealthAiEndpointDecision.LoopbackConsentRequired)) }
+            }
+        }
+    } }
+    fun cancelInBodyConsent() {
+        pendingScanConfiguration = null
+        discardPendingSource()
+        _uiState.update { it.copy(scanDisclosure = null) }
+    }
+    fun confirmInBodyConsent() {
+        val disclosure = _uiState.value.scanDisclosure ?: return
+        val source = pendingSource ?: return
+        val configuration = pendingScanConfiguration ?: return
+        pendingScanConfiguration = null
+        _uiState.update { it.copy(scanDisclosure = null) }
+        startInBodyScan(source, allowLoopbackHttp = disclosure.loopback, disclosedConfiguration = configuration)
     }
 
     fun save() {
@@ -294,7 +457,6 @@ class MeasurementEditorViewModel @Inject constructor(
         _uiState.update { it.copy(isSaving = true, saveError = null) }
         viewModelScope.launch {
             val old = existingMeasurement
-            val alreadyUploaded = old?.uploadStatus == UploadStatus.UPLOADED
             val id = old?.id ?: UUID.randomUUID().toString()
             val segments = state.segments
             val entity = BodyMeasurementEntity(
@@ -342,11 +504,35 @@ class MeasurementEditorViewModel @Inject constructor(
                 hipsCm = state.parsedHipsCm,
                 rightRelaxedArmCm = state.parsedRightRelaxedArmCm,
                 rightThighCm = state.parsedRightThighCm,
-                uploadStatus = if (alreadyUploaded) UploadStatus.UPLOADED else UploadStatus.PENDING,
+                afterMeal = state.afterMeal,
+                afterWorkout = state.afterWorkout,
+                unusualHydration = state.unusualHydration,
+                conditionNote = state.conditionNote.trim().takeIf(String::isNotBlank),
+                uploadStatus = UploadStatus.PENDING,
                 uploadError = null,
             )
+            val awaitingOriginal = savedMeasurementAwaitingOriginal
+            if (awaitingOriginal != null && entity.sameStructuredMeasurement(awaitingOriginal)) {
+                saveOriginalAfterMeasurement(awaitingOriginal.id)
+                return@launch
+            }
+            // A normal edit screen must not manufacture a snapshot merely because Save was tapped.
+            // A newly selected private original is independent and can still be copied for this ID.
+            if (old != null && entity.sameStructuredMeasurement(old)) {
+                if (state.retainOriginal && selectedOriginal != null) {
+                    savedMeasurementAwaitingOriginal = old
+                    saveOriginalAfterMeasurement(old.id)
+                } else {
+                    discardSelectedSource()
+                    _uiState.update { it.copy(isSaving = false) }
+                    _finished.send(Unit)
+                }
+                return@launch
+            }
             try {
-                if (old == null) bodyMeasurementDao.insert(entity) else bodyMeasurementDao.update(entity)
+                measurementRepository?.save(entity) ?: run {
+                    if (old == null) bodyMeasurementDao.insert(entity) else bodyMeasurementDao.update(entity)
+                }
             } catch (e: CancellationException) {
                 _uiState.update { it.copy(isSaving = false) }
                 throw e
@@ -355,9 +541,15 @@ class MeasurementEditorViewModel @Inject constructor(
                 return@launch
             }
             existingMeasurement = entity
-            if (!alreadyUploaded) uploadScheduler.schedule(id)
-            _uiState.update { it.copy(isSaving = false) }
-            _finished.send(Unit)
+            uploadScheduler.schedule(id)
+            if (state.retainOriginal && selectedOriginal != null) {
+                savedMeasurementAwaitingOriginal = entity
+                saveOriginalAfterMeasurement(id)
+            } else {
+                discardSelectedSource()
+                _uiState.update { it.copy(isSaving = false) }
+                _finished.send(Unit)
+            }
         }
     }
 
@@ -365,10 +557,69 @@ class MeasurementEditorViewModel @Inject constructor(
         if (_uiState.value.isBusy) return
         val id = existingMeasurement?.id ?: return
         viewModelScope.launch {
-            // Удаляем только локальную запись. Уже append-нутая строка Sheets исторически остаётся.
-            bodyMeasurementDao.delete(id)
+            measurementRepository?.delete(id) ?: bodyMeasurementDao.delete(id)
+            uploadScheduler.schedule(id)
             _finished.send(Unit)
         }
+    }
+
+    private suspend fun saveOriginalAfterMeasurement(measurementId: String) {
+        val source = selectedOriginal
+        if (source == null || !_uiState.value.retainOriginal) {
+            savedMeasurementAwaitingOriginal = null
+            _uiState.update { it.copy(isSaving = false) }
+            _finished.send(Unit)
+            return
+        }
+        _uiState.update { it.copy(isSaving = true, saveError = null) }
+        val result = measurementDocumentRepository?.storeUri(
+            MeasurementDocumentInput(measurementId, source.displayName, source.mimeType),
+            source.uri,
+        ) ?: MeasurementDocumentStoreResult.Failure("Хранилище оригиналов недоступно")
+        when (result) {
+            is MeasurementDocumentStoreResult.Ready -> {
+                discardSelectedSource()
+                savedMeasurementAwaitingOriginal = null
+                _uiState.update { it.copy(isSaving = false, originalAvailable = false, readyOriginalCount = it.readyOriginalCount + 1) }
+                _finished.send(Unit)
+            }
+            is MeasurementDocumentStoreResult.Failure -> _uiState.update {
+                it.copy(isSaving = false, saveError = "Замер сохранён, оригинал не удалось сохранить")
+            }
+        }
+    }
+
+    private fun replacePendingSource(source: InBodySource) {
+        pendingScanConfiguration = null
+        discardPendingSource()
+        discardSelectedSource()
+        pendingSource = source
+        _uiState.update { it.copy(originalAvailable = false, retainOriginal = false, saveError = null) }
+    }
+
+    private fun discardPendingSource() {
+        pendingScanConfiguration = null
+        pendingSource?.let(::discardSource)
+        pendingSource = null
+    }
+
+    private fun discardSelectedSource() {
+        selectedOriginal?.let(::discardSource)
+        selectedOriginal = null
+        _uiState.update { it.copy(originalAvailable = false, retainOriginal = false) }
+    }
+
+    private fun discardSource(source: InBodySource) { source.temporaryCameraFile?.delete() }
+
+    private fun cameraFile(token: String): File? = applicationContext?.let { context ->
+        File(File(context.cacheDir, CAMERA_IMPORT_DIRECTORY), token)
+    }
+
+    override fun onCleared() {
+        clearCameraCapture()
+        discardPendingSource()
+        discardSelectedSource()
+        super.onCleared()
     }
 
     private inline fun update(transform: MeasurementEditorUiState.() -> MeasurementEditorUiState) {
@@ -385,6 +636,7 @@ class MeasurementEditorViewModel @Inject constructor(
     }
 
     private companion object {
+        const val CAMERA_IMPORT_DIRECTORY = "inbody_imports"
         const val MISSING_CONFIGURATION_MESSAGE =
             "Настройте нейросеть в настройках"
         const val GENERIC_SCAN_FAILURE_MESSAGE = "Не удалось распознать лист InBody — попробуйте ещё раз"
@@ -402,6 +654,13 @@ class MeasurementEditorViewModel @Inject constructor(
         }
     }
 }
+
+private data class InBodySource(
+    val uri: Uri,
+    val temporaryCameraFile: File? = null,
+    val displayName: String = "Фото InBody",
+    val mimeType: String = "image/jpeg",
+)
 
 private fun defaultSegmentInputs(): Map<InBodySegment, InBodySegmentInput> =
     InBodySegment.entries.associateWith { InBodySegmentInput() }
@@ -442,7 +701,10 @@ private fun MeasurementEditorUiState.applyInBodyDraft(draft: InBodyReportDraft):
     )
 }
 
-private fun BodyMeasurementEntity.toEditorState(isAiConfigured: Boolean): MeasurementEditorUiState =
+private fun BodyMeasurementEntity.toEditorState(
+    isAiConfigured: Boolean,
+    readyOriginalCount: Int = 0,
+): MeasurementEditorUiState =
     MeasurementEditorUiState(
         isNew = false,
         isLoading = false,
@@ -468,6 +730,11 @@ private fun BodyMeasurementEntity.toEditorState(isAiConfigured: Boolean): Measur
         hipsCm = hipsCm.toInput(),
         rightRelaxedArmCm = rightRelaxedArmCm.toInput(),
         rightThighCm = rightThighCm.toInput(),
+        afterMeal = afterMeal,
+        afterWorkout = afterWorkout,
+        unusualHydration = unusualHydration,
+        conditionNote = conditionNote.orEmpty(),
+        readyOriginalCount = readyOriginalCount,
     )
 
 private fun InBodySegmentValues?.toInput(): InBodySegmentInput = InBodySegmentInput(
@@ -493,3 +760,8 @@ private fun integerOrNull(value: String): Int? = value.toIntOrNull()?.takeIf { i
 private fun Double?.toInput(): String = this?.toString().orEmpty()
 
 private fun Double?.toInputOr(previous: String): String = this?.toString() ?: previous
+
+/** Upload presentation is not user data and must not turn an original-copy retry into a new edit. */
+private fun BodyMeasurementEntity.sameStructuredMeasurement(other: BodyMeasurementEntity): Boolean =
+    copy(uploadStatus = UploadStatus.PENDING, uploadError = null) ==
+        other.copy(uploadStatus = UploadStatus.PENDING, uploadError = null)

@@ -7,6 +7,11 @@ import androidx.work.WorkerFactory
 import androidx.work.WorkerParameters
 import androidx.work.testing.TestListenableWorkerBuilder
 import androidx.work.workDataOf
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.emptyPreferences
+import com.valerochka1337.valerochkagym.data.settings.HealthSyncCategory
+import com.valerochka1337.valerochkagym.data.settings.SettingsRepository
 import com.valerochka1337.valerochkagym.data.db.dao.WorkoutDao
 import com.valerochka1337.valerochkagym.data.db.entity.UploadStatus
 import com.valerochka1337.valerochkagym.data.db.entity.WorkoutEntity
@@ -17,6 +22,7 @@ import com.valerochka1337.valerochkagym.data.db.relation.WorkoutFull
 import com.valerochka1337.valerochkagym.data.google.SheetsRepository
 import com.valerochka1337.valerochkagym.data.google.UploadResult
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -53,6 +59,20 @@ class UploadWorkoutWorkerTest {
 
         assertEquals(ListenableWorker.Result.success(), result)
         assertEquals(listOf("w1"), repository.uploadedIds)
+    }
+
+    @Test
+    fun `disabled workouts category suppresses repository work before upload`() = runTest {
+        val repository = FakeSheetsRepository(UploadResult.Success)
+        val settings = SettingsRepository(Store()).also {
+            it.setHealthSyncEnabled(true)
+            it.setHealthSyncCategory(HealthSyncCategory.WORKOUTS_AND_CONFIGURATION, false)
+        }
+
+        val result = worker(repository, FakeWorkoutDao(), settings = settings).doWork()
+
+        assertEquals(ListenableWorker.Result.success(), result)
+        assertTrue(repository.uploadedIds.isEmpty())
     }
 
     @Test
@@ -97,6 +117,7 @@ class UploadWorkoutWorkerTest {
         dao: WorkoutDao,
         inputWorkoutId: String? = "w1",
         runAttemptCount: Int = 0,
+        settings: SettingsRepository? = null,
     ): UploadWorkoutWorker {
         val context = ApplicationProvider.getApplicationContext<Context>()
         return TestListenableWorkerBuilder<UploadWorkoutWorker>(context)
@@ -109,7 +130,7 @@ class UploadWorkoutWorkerTest {
                     appContext: Context,
                     workerClassName: String,
                     workerParameters: WorkerParameters,
-                ): ListenableWorker = UploadWorkoutWorker(appContext, workerParameters, repository, dao)
+                ): ListenableWorker = UploadWorkoutWorker(appContext, workerParameters, repository, dao, settings)
             })
             .build() as UploadWorkoutWorker
     }
@@ -160,5 +181,12 @@ class UploadWorkoutWorkerTest {
         override suspend fun deleteWorkout(id: String) = Unit
         override suspend fun deleteSet(id: Long) = Unit
         override suspend fun deleteWorkoutExercise(id: Long) = Unit
+    }
+
+    private class Store : DataStore<Preferences> {
+        private val values = MutableStateFlow(emptyPreferences())
+        override val data: Flow<Preferences> = values
+        override suspend fun updateData(transform: suspend (Preferences) -> Preferences): Preferences =
+            transform(values.value).also { values.value = it }
     }
 }

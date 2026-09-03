@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -72,6 +73,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -85,6 +87,7 @@ import androidx.compose.ui.platform.LocalFocusManager
 import com.valerochka1337.valerochkagym.data.backup.DatabaseExporter
 import com.valerochka1337.valerochkagym.data.ai.AiModel
 import com.valerochka1337.valerochkagym.data.settings.GymSettings
+import com.valerochka1337.valerochkagym.data.settings.HealthSyncCategory as SyncCategory
 import com.valerochka1337.valerochkagym.ui.components.GlowBackground
 import com.valerochka1337.valerochkagym.ui.haptics.gymHaptics
 import java.time.LocalDate
@@ -132,6 +135,8 @@ fun SettingsScreen(
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val healthSyncDisclosure by viewModel.healthSyncDisclosure.collectAsStateWithLifecycle()
+    val remoteClearState by viewModel.remoteClearState.collectAsStateWithLifecycle()
     val activity = LocalActivity.current
     val snackbarHostState = remember { SnackbarHostState() }
     var selectedCategory by rememberSaveable { mutableStateOf<SettingsCategory?>(null) }
@@ -208,6 +213,11 @@ fun SettingsScreen(
                                     onSave = viewModel::setSpreadsheetInput,
                                     onExportAll = viewModel::exportAll,
                                 )
+                                HealthSyncCard(
+                                    settings = settings,
+                                    onEnabledChange = viewModel::setHealthSyncEnabled,
+                                    onCategoryChange = viewModel::requestHealthSyncCategory,
+                                )
                                 AiSettingsCard(
                                     baseUrl = settings.aiBaseUrl,
                                     baseUrlError = state.aiBaseUrlError,
@@ -243,6 +253,8 @@ fun SettingsScreen(
                                 DataCard(
                                     onExport = viewModel::exportDatabase,
                                     onClear = viewModel::clearAllData,
+                                    remoteClearAvailable = settings.spreadsheetId != null && settings.googleEmail != null,
+                                    onRemoteClear = viewModel::requestRemoteClear,
                                 )
                             }
                         }
@@ -253,7 +265,116 @@ fun SettingsScreen(
                 hostState = snackbarHostState,
                 modifier = Modifier.align(Alignment.BottomCenter),
             )
+            healthSyncDisclosure?.let { disclosure ->
+                HealthSyncDisclosureDialog(
+                    disclosure = disclosure,
+                    onCancel = viewModel::cancelHealthSyncDisclosure,
+                    onConfirm = viewModel::confirmHealthSyncDisclosure,
+                )
+            }
+            remoteClearState?.let { clearState ->
+                RemoteClearDialog(
+                    state = clearState,
+                    onToggleCategory = viewModel::toggleRemoteClearCategory,
+                    onContinue = viewModel::continueRemoteClear,
+                    onCancel = viewModel::cancelRemoteClear,
+                    onConfirm = viewModel::confirmRemoteClear,
+                )
+            }
         }
+    }
+}
+
+@Composable
+internal fun HealthSyncCard(
+    settings: GymSettings,
+    onEnabledChange: (Boolean) -> Unit,
+    onCategoryChange: (SyncCategory, Boolean) -> Unit,
+) {
+    val sync = settings.healthSync
+    SectionCard(title = "Синхронизация с Google Sheets", icon = Icons.Rounded.CloudUpload) {
+        Text(
+            text = "Передаются только подтверждённые первичные данные. Фото и PDF остаются на устройстве.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        SyncToggleRow(
+            label = "Включить синхронизацию",
+            checked = sync.enabled,
+            onCheckedChange = onEnabledChange,
+        )
+        SyncCategory.entries.forEach { category ->
+            SyncToggleRow(
+                label = category.healthSyncDisclosure().title,
+                checked = category in sync.categories,
+                enabled = true,
+                onCheckedChange = { onCategoryChange(category, it) },
+            )
+        }
+    }
+}
+
+@Composable
+internal fun HealthSyncDisclosureDialog(
+    disclosure: HealthSyncDisclosure,
+    onCancel: () -> Unit,
+    onConfirm: () -> Unit,
+) {
+    val haptics = gymHaptics()
+    AlertDialog(
+        onDismissRequest = onCancel,
+        title = { Text("Передача: ${disclosure.title}") },
+        text = {
+            Column(
+                modifier = Modifier
+                    .heightIn(max = 360.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text("В Google Sheets будут переданы:", style = MaterialTheme.typography.titleSmall)
+                disclosure.fields.forEach { Text("• $it", style = MaterialTheme.typography.bodyMedium) }
+                if (disclosure.exclusions.isNotEmpty()) {
+                    Text("Не передаются:", style = MaterialTheme.typography.titleSmall)
+                    disclosure.exclusions.forEach { Text("• $it", style = MaterialTheme.typography.bodyMedium) }
+                }
+                Text(disclosure.warning, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
+                Text(disclosure.localOnly, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
+            }
+        },
+        dismissButton = { TextButton(onClick = { haptics.tap(); onCancel() }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Отмена") } },
+        confirmButton = { TextButton(onClick = { haptics.confirm(); onConfirm() }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Подтвердить") } },
+    )
+}
+
+@Composable
+internal fun SyncToggleRow(
+    label: String,
+    checked: Boolean,
+    enabled: Boolean = true,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    val haptics = gymHaptics()
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 48.dp)
+            .semantics(mergeDescendants = true) {
+                contentDescription = label
+                stateDescription = if (checked) "Включено" else "Выключено"
+            }
+            .toggleable(
+                value = checked,
+                enabled = enabled,
+                role = Role.Switch,
+                onValueChange = { value ->
+                    haptics.toggle(value)
+                    onCheckedChange(value)
+                },
+            ),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(label, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
+        Switch(checked = checked, onCheckedChange = null, enabled = enabled)
     }
 }
 
@@ -929,6 +1050,8 @@ private fun AppearanceCard(
 private fun DataCard(
     onExport: (android.net.Uri) -> Unit,
     onClear: () -> Unit,
+    remoteClearAvailable: Boolean,
+    onRemoteClear: () -> Unit,
 ) {
     var showClearDialog by rememberSaveable { mutableStateOf(false) }
     val haptics = gymHaptics()
@@ -965,6 +1088,21 @@ private fun DataCard(
                 Text("Очистить данные", color = MaterialTheme.colorScheme.error)
             }
         }
+        Spacer(Modifier.height(4.dp))
+        OutlinedButton(
+            onClick = { haptics.tap(); onRemoteClear() },
+            enabled = remoteClearAvailable,
+            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+        ) {
+            Text("Удалить данные из Google Sheets")
+        }
+        if (!remoteClearAvailable) {
+            Text(
+                text = "Сначала подключите аккаунт Google и выберите таблицу.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 
     if (showClearDialog) {
@@ -990,6 +1128,93 @@ private fun DataCard(
                 TextButton(onClick = { showClearDialog = false }) {
                     Text("Отмена")
                 }
+            },
+        )
+    }
+}
+
+@Composable
+internal fun RemoteClearDialog(
+    state: RemoteClearUiState,
+    onToggleCategory: (SyncCategory) -> Unit,
+    onContinue: () -> Unit,
+    onCancel: () -> Unit,
+    onConfirm: () -> Unit,
+) {
+    val haptics = gymHaptics()
+    when (state) {
+        is RemoteClearUiState.Selecting -> AlertDialog(
+            onDismissRequest = onCancel,
+            title = { Text("Удалить данные из Google Sheets") },
+            text = {
+                Column(
+                    modifier = Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Text(
+                        text = "Выберите категории. Будут удалены только управляемые приложением строки в Google Sheets.",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    SyncCategory.entries.forEach { category ->
+                        SyncToggleRow(
+                            label = category.healthSyncDisclosure().title,
+                            checked = category in state.selected,
+                            onCheckedChange = { onToggleCategory(category) },
+                        )
+                    }
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { haptics.tap(); onCancel() },
+                    modifier = Modifier.heightIn(min = 48.dp),
+                ) { Text("Отмена") }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = { haptics.confirm(); onContinue() },
+                    enabled = state.selected.isNotEmpty(),
+                    modifier = Modifier.heightIn(min = 48.dp),
+                ) { Text("Продолжить") }
+            },
+        )
+
+        is RemoteClearUiState.Confirming -> AlertDialog(
+            onDismissRequest = { if (!state.isClearing) onCancel() },
+            title = { Text("Подтвердить удаление из Google Sheets") },
+            text = {
+                Column(
+                    modifier = Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        text = "Будут удалены только управляемые приложением строки в Google Sheets:",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    state.selected.forEach { category ->
+                        Text("• ${category.healthSyncDisclosure().title}")
+                    }
+                    Text(
+                        text = "Локальные данные и настройки останутся без изменений. Операция в таблице может завершиться частично.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    if (state.isClearing) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { haptics.tap(); onCancel() },
+                    enabled = !state.isClearing,
+                    modifier = Modifier.heightIn(min = 48.dp),
+                ) { Text("Назад") }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = { haptics.reject(); onConfirm() },
+                    enabled = !state.isClearing,
+                    modifier = Modifier.heightIn(min = 48.dp),
+                ) { Text(if (state.isClearing) "Удаляю…" else "Удалить", color = MaterialTheme.colorScheme.error) }
             },
         )
     }

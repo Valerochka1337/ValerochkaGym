@@ -15,6 +15,7 @@ interface RoutineUploadScheduler {
     fun schedule(syncId: String)
     fun scheduleDeletion(syncId: String, updatedAt: Long)
     suspend fun scheduleAll(): Int
+    suspend fun onCategoryChanged(enabled: Boolean) = Unit
 }
 
 /** Безопасная заглушка для прямых ViewModel/use-case unit-тестов без WorkManager. */
@@ -45,5 +46,10 @@ class WorkManagerRoutineUploadScheduler @Inject constructor(
         syncIds.forEach(::schedule)
         deletions.forEach { scheduleDeletion(it.syncId, it.updatedAt) }
         return syncIds.size + deletions.size
+    }
+
+    override suspend fun onCategoryChanged(enabled: Boolean) {
+        if (enabled) scheduleAll()
+        else workManager.cancelAllWorkByTag(UploadWorkoutWorker.WORKOUTS_AND_CONFIGURATION_TAG)
     }
 }

@@ -59,6 +59,10 @@ data class BodyMeasurementEntity(
     val hipsCm: Double? = null,
     val rightRelaxedArmCm: Double? = null,
     val rightThighCm: Double? = null,
+    val afterMeal: Boolean = false,
+    val afterWorkout: Boolean = false,
+    val unusualHydration: Boolean = false,
+    val conditionNote: String? = null,
     val uploadStatus: UploadStatus = UploadStatus.PENDING,
     val uploadError: String? = null,
 )

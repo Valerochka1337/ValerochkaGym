@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
@@ -36,9 +37,11 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SheetValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.Switch
 import androidx.compose.material3.WavyProgressIndicatorDefaults
 import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.material3.rememberDatePickerState
@@ -51,6 +54,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
@@ -61,13 +67,13 @@ import com.valerochka1337.valerochkagym.ui.components.CircleIconButton
 import com.valerochka1337.valerochkagym.ui.components.FadeInContent
 import com.valerochka1337.valerochkagym.ui.components.GlowBackground
 import com.valerochka1337.valerochkagym.ui.components.GymCard
+import com.valerochka1337.valerochkagym.ui.components.GymFilterChip
 import com.valerochka1337.valerochkagym.ui.components.NumberField
 import com.valerochka1337.valerochkagym.ui.components.PillButton
 import com.valerochka1337.valerochkagym.ui.haptics.gymHaptics
 import java.io.File
 import java.time.Instant
 import java.time.ZoneOffset
-import java.util.UUID
 
 /** Полноэкранная форма создания/правки локального замера. */
 @Composable
@@ -83,25 +89,31 @@ fun MeasurementEditorScreen(
     var showDatePicker by remember { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf(false) }
     var showImportSources by remember { mutableStateOf(false) }
-    var pendingCameraFile by remember { mutableStateOf<File?>(null) }
     var showFullReport by remember { mutableStateOf(false) }
     var showSegments by remember { mutableStateOf(false) }
     var showCircumferences by remember { mutableStateOf(false) }
+    var showRemoveOriginals by remember { mutableStateOf(false) }
 
     val galleryLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia(),
     ) { uri: Uri? ->
-        if (uri != null) viewModel.scanInBody(uri)
+        if (uri != null) viewModel.requestInBodyConsent(
+            uri,
+            displayName = uri.lastPathSegment ?: "Фото InBody",
+            mimeType = context.contentResolver.getType(uri) ?: "image/*",
+        )
     }
     val cameraLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.TakePicture(),
     ) { captured ->
-        val file = pendingCameraFile
-        pendingCameraFile = null
+        val token = viewModel.consumeCameraCapture()
+        val file = token?.let { File(File(context.cacheDir, "inbody_imports"), it) }
         if (captured && file != null) {
-            viewModel.scanInBody(
-                uri = FileProvider.getUriForFile(context, "${context.packageName}.inbody-import", file),
+            viewModel.requestInBodyConsent(
+                FileProvider.getUriForFile(context, "${context.packageName}.inbody-import", file),
                 temporaryCameraFile = file,
+                displayName = "Фото InBody.jpg",
+                mimeType = "image/jpeg",
             )
         } else {
             file?.delete()
@@ -111,12 +123,19 @@ fun MeasurementEditorScreen(
     LaunchedEffect(Unit) {
         viewModel.finished.collect { onBack() }
     }
+    state.scanDisclosure?.let { disclosure -> AlertDialog(
+        onDismissRequest = viewModel::cancelInBodyConsent,
+        title = { Text(if (disclosure.loopback) "Подтвердите локальный HTTP" else "Отправить снимок InBody?") },
+        text = { Text("Получатель: ${disclosure.host}\nМодель: ${disclosure.model}\nБудет передан выбранный снимок.") },
+        confirmButton = { TextButton(onClick = viewModel::confirmInBodyConsent) { Text(if (disclosure.loopback) "Подтвердить локальную отправку" else "Отправить") } },
+        dismissButton = { TextButton(onClick = viewModel::cancelInBodyConsent) { Text("Отмена") } },
+    ) }
 
     GlowBackground(modifier = modifier) {
         Column(modifier = Modifier.fillMaxSize()) {
             MeasurementEditorHeader(
                 isNew = state.isNew,
-                onBack = onBack,
+                onBack = { viewModel.discardUnretainedSource(); onBack() },
                 onDelete = if (state.isNew || state.isLoading || state.isBusy) {
                     null
                 } else {
@@ -167,6 +186,14 @@ fun MeasurementEditorScreen(
                     },
                 )
                 InBodyCard(state, viewModel)
+                MeasurementConditionsCard(state, viewModel)
+                if (state.originalAvailable || state.readyOriginalCount > 0) {
+                    MeasurementOriginalCard(
+                        state = state,
+                        onRetainChanged = viewModel::setRetainOriginal,
+                        onRemoveReady = { showRemoveOriginals = true },
+                    )
+                }
                 OptionalEditorSection(
                     title = "Полный отчёт InBody",
                     filledCount = state.fullReportFilledCount(),
@@ -201,7 +228,7 @@ fun MeasurementEditorScreen(
                         )
                         Spacer(Modifier.height(4.dp))
                         Text(
-                            text = "Экспорт append-only: правки и удаление этого локального замера не меняют уже добавленную строку в таблице.",
+                            text = "Правки и удаление создают следующую версию снимка для Google Sheets.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -225,8 +252,7 @@ fun MeasurementEditorScreen(
             onTakePhoto = {
                 showImportSources = false
                 val directory = File(context.cacheDir, "inbody_imports").apply { mkdirs() }
-                val file = File(directory, "inbody-${UUID.randomUUID()}.jpg")
-                pendingCameraFile = file
+                val file = File(directory, viewModel.beginCameraCapture())
                 val uri = FileProvider.getUriForFile(context, "${context.packageName}.inbody-import", file)
                 cameraLauncher.launch(uri)
             },
@@ -261,7 +287,7 @@ fun MeasurementEditorScreen(
             title = { Text("Удалить замер?") },
             text = {
                 Text(
-                    "Локальный замер будет удалён. Уже выгруженная строка в Google Sheets останется без изменений.",
+                    "Локальный замер будет удалён, а в Google Sheets появится версия удаления.",
                 )
             },
             confirmButton = {
@@ -277,6 +303,71 @@ fun MeasurementEditorScreen(
                 TextButton(onClick = { showDeleteDialog = false }) { Text("Отмена") }
             },
         )
+    }
+
+    if (showRemoveOriginals) {
+        AlertDialog(
+            onDismissRequest = { showRemoveOriginals = false },
+            title = { Text("Удалить локальные оригиналы?") },
+            text = { Text("Будут удалены только сохранённые на устройстве фото. Замер и Google Sheets не изменятся.") },
+            confirmButton = { TextButton(onClick = { haptics.reject(); showRemoveOriginals = false; viewModel.removeReadyOriginals() }) { Text("Удалить фото", color = MaterialTheme.colorScheme.error) } },
+            dismissButton = { TextButton(onClick = { showRemoveOriginals = false }) { Text("Отмена") } },
+        )
+    }
+}
+
+@Composable
+private fun MeasurementConditionsCard(state: MeasurementEditorUiState, viewModel: MeasurementEditorViewModel) {
+    val haptics = gymHaptics()
+    GymCard(modifier = Modifier.fillMaxWidth()) {
+        Text("Условия замера", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.height(4.dp))
+        Text("Помогают бережно сравнивать результаты; в устройство или модель они не превращаются.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.height(8.dp))
+        Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            GymFilterChip(state.afterMeal, { haptics.toggle(!state.afterMeal); viewModel.setAfterMeal(!state.afterMeal) }, "После еды", enabled = !state.isBusy)
+            GymFilterChip(state.afterWorkout, { haptics.toggle(!state.afterWorkout); viewModel.setAfterWorkout(!state.afterWorkout) }, "После тренировки", enabled = !state.isBusy)
+            GymFilterChip(state.unusualHydration, { haptics.toggle(!state.unusualHydration); viewModel.setUnusualHydration(!state.unusualHydration) }, "Необычная гидратация", enabled = !state.isBusy)
+        }
+        Spacer(Modifier.height(8.dp))
+        OutlinedTextField(
+            value = state.conditionNote,
+            onValueChange = viewModel::setConditionNote,
+            label = { Text("Другие условия") },
+            modifier = Modifier.fillMaxWidth(),
+            enabled = !state.isBusy,
+            singleLine = false,
+        )
+    }
+}
+
+@Composable
+private fun MeasurementOriginalCard(
+    state: MeasurementEditorUiState,
+    onRetainChanged: (Boolean) -> Unit,
+    onRemoveReady: () -> Unit,
+) {
+    val haptics = gymHaptics()
+    GymCard(modifier = Modifier.fillMaxWidth()) {
+        Text("Исходное фото InBody", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.height(4.dp))
+        Text("Фото сохраняется только на устройстве и не попадает в Google Sheets или резервную копию.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (state.originalAvailable) {
+            Spacer(Modifier.height(8.dp))
+            Row(modifier = Modifier.fillMaxWidth().height(48.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("Сохранить исходное фото только на устройстве", modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                Switch(checked = state.retainOriginal, onCheckedChange = { value -> haptics.toggle(value); onRetainChanged(value) }, enabled = !state.isBusy)
+            }
+        }
+        if (state.readyOriginalCount > 0) {
+            Spacer(Modifier.height(8.dp))
+            Text("Локальных оригиналов: ${state.readyOriginalCount}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            TextButton(
+                onClick = onRemoveReady,
+                enabled = !state.isBusy,
+                modifier = Modifier.height(48.dp),
+            ) { Text("Удалить локальные фото") }
+        }
     }
 }
 
@@ -345,6 +436,7 @@ private fun MeasurementSaveBar(
                 text = error,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
             )
         }
         if (!state.canSave) {

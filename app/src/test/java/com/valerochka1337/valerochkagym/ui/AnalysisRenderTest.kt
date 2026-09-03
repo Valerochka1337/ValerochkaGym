@@ -29,6 +29,8 @@ import com.valerochka1337.valerochkagym.data.db.entity.MuscleGroup
 import com.valerochka1337.valerochkagym.data.db.entity.Muscle
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleLoad
 import com.valerochka1337.valerochkagym.data.db.entity.UploadStatus
+import com.valerochka1337.valerochkagym.data.db.entity.BodyMeasurementEntity
+import com.valerochka1337.valerochkagym.data.db.entity.HealthRestrictionEntity
 import com.valerochka1337.valerochkagym.data.db.entity.WorkoutEntity
 import com.valerochka1337.valerochkagym.data.db.relation.AnalyticsSetRow
 import com.valerochka1337.valerochkagym.domain.analysis.AnalysisPeriod
@@ -37,6 +39,8 @@ import com.valerochka1337.valerochkagym.domain.ExerciseStatisticsCalculator
 import com.valerochka1337.valerochkagym.domain.analysis.AnalyticsEngine
 import com.valerochka1337.valerochkagym.domain.analysis.AnalyticsInput
 import com.valerochka1337.valerochkagym.ui.analysis.AnalysisUiState
+import com.valerochka1337.valerochkagym.ui.analysis.HealthAnalysisState
+import com.valerochka1337.valerochkagym.ui.analysis.HealthOverviewCard
 import com.valerochka1337.valerochkagym.ui.analysis.AnalysisDateRangePickerDialog
 import com.valerochka1337.valerochkagym.ui.analysis.AnalysisPeriodSelector
 import com.valerochka1337.valerochkagym.ui.analysis.AnalysisSelectableDates
@@ -101,6 +105,110 @@ class AnalysisRenderTest {
     private val zone: ZoneId = ZoneId.of("UTC")
     private val now = 1_780_000_000_000L
     private val day = 86_400_000L
+
+    @Test
+    fun `empty health provides primary-data actions without workout cards`() {
+        var openedMeasurements = false
+        var createdReport = false
+        var createdRestriction = false
+
+        composeRule.setContent {
+            GymTheme {
+                HealthOverviewCard(
+                    state = HealthAnalysisState(),
+                    onOpenMeasurements = { openedMeasurements = true },
+                    onCreateReport = { createdReport = true },
+                    onCreateRestriction = { createdRestriction = true },
+                    onOpenReport = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("Добавьте замер, исследование или ограничение, чтобы увидеть данные здоровья.")
+            .assertIsDisplayed()
+        composeRule.onNodeWithText("Открыть замеры").performClick()
+        composeRule.onNodeWithText("Добавить исследование").performClick()
+        composeRule.onNodeWithText("Добавить ограничение").performClick()
+        assertTrue(openedMeasurements)
+        assertTrue(createdReport)
+        assertTrue(createdRestriction)
+    }
+
+    @Test
+    fun `health body card and active restriction render without workout history`() {
+        composeRule.setContent {
+            GymTheme {
+                HealthOverviewCard(
+                    state = HealthAnalysisState(
+                        measurements = listOf(BodyMeasurementEntity("same-measurement", now, weightKg = 72.5)),
+                        restrictions = listOf(
+                            HealthRestrictionEntity(
+                                syncId = "active-restriction",
+                                version = 1,
+                                updatedAt = now,
+                                status = "ACTIVE",
+                                source = "MANUAL",
+                                confirmedAt = now,
+                                description = "Без тяжёлых приседаний",
+                            ),
+                        ),
+                    ),
+                    onOpenMeasurements = {},
+                    onCreateReport = {},
+                    onCreateRestriction = {},
+                    onOpenReport = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("Последний замер: 72.5 кг").assertIsDisplayed()
+        composeRule.onNodeWithText("Актуальные ограничения: Без тяжёлых приседаний").assertIsDisplayed()
+    }
+
+    @Test
+    fun `health latest measurement action preserves the exact measurement id`() {
+        var opened: String? = null
+        var openedAll = false
+        composeRule.setContent {
+            GymTheme {
+                HealthOverviewCard(
+                    state = HealthAnalysisState(
+                        measurements = listOf(BodyMeasurementEntity("same-measurement", now, weightKg = 72.5)),
+                    ),
+                    onOpenMeasurements = { openedAll = true },
+                    onOpenMeasurement = { opened = it },
+                    onCreateReport = {},
+                    onCreateRestriction = {},
+                    onOpenReport = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("Открыть последний замер").performClick()
+        assertEquals("same-measurement", opened)
+        composeRule.onNodeWithText("Все замеры").performClick()
+        assertTrue(openedAll)
+    }
+
+    @Test
+    fun `health flags limited comparability when nonempty measurement conditions differ`() {
+        composeRule.setContent {
+            GymTheme {
+                HealthOverviewCard(
+                    state = HealthAnalysisState(
+                        measurements = listOf(
+                            BodyMeasurementEntity("new", now, weightKg = 72.0, afterWorkout = true),
+                            BodyMeasurementEntity("old", now - day, weightKg = 71.0, afterMeal = true),
+                        ),
+                    ),
+                    onOpenMeasurements = {}, onCreateReport = {}, onCreateRestriction = {}, onOpenReport = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("Условия отличаются от предыдущего замера — сравнение может быть ограничено.")
+            .assertIsDisplayed()
+    }
 
     @Test
     fun `analysis cards render`() {

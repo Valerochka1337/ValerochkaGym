@@ -28,6 +28,7 @@ import com.valerochka1337.valerochkagym.data.google.TokenResult
 import com.valerochka1337.valerochkagym.data.google.ValueRangeDto
 import com.valerochka1337.valerochkagym.data.google.WorkoutImportRepositoryImpl
 import com.valerochka1337.valerochkagym.data.settings.SettingsRepository
+import com.valerochka1337.valerochkagym.data.measurements.MeasurementRepository
 import com.valerochka1337.valerochkagym.domain.RoutineRowMapper
 import com.valerochka1337.valerochkagym.domain.WorkoutRowMapper
 import com.valerochka1337.valerochkagym.domain.measurements.BodyMeasurementRowMapper
@@ -126,7 +127,7 @@ class WorkoutImportRepositoryTest : RoomDaoTest() {
         val api = FakeSheetsApi(
             sheets = mutableListOf("Measurements"),
             valuesByRange = mapOf(
-                "Measurements!A:AP" to listOf(
+                "Measurements!A:AY" to listOf(
                     BodyMeasurementRowMapper.HEADER_ROW,
                     BodyMeasurementRowMapper.row(measurement).map { it?.toString().orEmpty() },
                 ),
@@ -143,6 +144,42 @@ class WorkoutImportRepositoryTest : RoomDaoTest() {
         assertEquals(111.0, restored.rightLegFatPercentage ?: 0.0, 0.0)
         assertEquals(UploadStatus.UPLOADED, restored.uploadStatus)
         assertEquals(emptyList<String>(), db.bodyMeasurementDao().getNotUploaded())
+    }
+
+    @Test
+    fun `measurement import applies v2 regardless of row order and counts one aggregate`() = runTest {
+        val v1 = BodyMeasurementEntity("m", 1_700_000_000_000, weightKg = 70.0)
+        val v2 = v1.copy(weightKg = 69.0)
+        val rowV1 = BodyMeasurementRowMapper.versionedRow(v1, 1, 100, false, "h1", "m:1")
+            .map { it?.toString().orEmpty() }
+        val rowV2 = BodyMeasurementRowMapper.versionedRow(v2, 2, 200, false, "h2", "m:2")
+            .map { it?.toString().orEmpty() }
+        val api = FakeSheetsApi(
+            sheets = mutableListOf("Measurements"),
+            valuesByRange = mapOf("Measurements!A:AY" to listOf(BodyMeasurementRowMapper.HEADER_ROW, rowV2, rowV1)),
+        )
+
+        assertEquals(ImportResult.Success(imported = 0, importedMeasurements = 1), repository(api).importAll())
+        assertEquals(69.0, db.bodyMeasurementDao().getById("m")!!.weightKg ?: 0.0, 0.0)
+        assertEquals(listOf(2L, 1L), db.healthDao().measurementSnapshots("m").map { it.version })
+    }
+
+    @Test
+    fun `equal version divergence records conflict and does not choose a Sheets row`() = runTest {
+        val local = BodyMeasurementEntity("m", 1_700_000_000_000, weightKg = 70.0)
+        MeasurementRepository(db).save(local, now = 100)
+        val remoteA = BodyMeasurementRowMapper.versionedRow(local.copy(weightKg = 68.0), 1, 100, false, "a", "m:1")
+            .map { it?.toString().orEmpty() }
+        val remoteB = BodyMeasurementRowMapper.versionedRow(local.copy(weightKg = 67.0), 1, 200, false, "b", "m:1")
+            .map { it?.toString().orEmpty() }
+        val api = FakeSheetsApi(
+            sheets = mutableListOf("Measurements"),
+            valuesByRange = mapOf("Measurements!A:AY" to listOf(BodyMeasurementRowMapper.HEADER_ROW, remoteA, remoteB)),
+        )
+
+        assertEquals(ImportResult.NothingToImport, repository(api).importAll())
+        assertEquals(70.0, db.bodyMeasurementDao().getById("m")!!.weightKg ?: 0.0, 0.0)
+        assertEquals(1, db.healthDao().conflicts().size)
     }
 
     @Test
@@ -359,6 +396,7 @@ class WorkoutImportRepositoryTest : RoomDaoTest() {
             return ValueRangeDto(values = selected.ifEmpty { null })
         }
         override suspend fun appendValues(bearer: String, spreadsheetId: String, range: String, body: com.valerochka1337.valerochkagym.data.google.AppendValuesDto, valueInputOption: String, insertDataOption: String): JsonElement = JsonNull
+        override suspend fun clearValues(bearer: String, spreadsheetId: String, range: String, body: com.valerochka1337.valerochkagym.data.google.ClearValuesDto): JsonElement = JsonNull
         override suspend fun updateValues(bearer: String, spreadsheetId: String, range: String, body: com.valerochka1337.valerochkagym.data.google.UpdateValuesDto, valueInputOption: String): JsonElement = JsonNull
     }
 

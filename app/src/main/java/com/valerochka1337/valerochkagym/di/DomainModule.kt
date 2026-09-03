@@ -14,9 +14,25 @@ import com.valerochka1337.valerochkagym.data.ai.StoredAiApiConfigurationProvider
 import com.valerochka1337.valerochkagym.data.ai.AiApiConfigurationProvider
 import com.valerochka1337.valerochkagym.data.ai.AiApiInBodyReportAiReader
 import com.valerochka1337.valerochkagym.data.ai.AiApiExerciseAiGenerator
+import com.valerochka1337.valerochkagym.data.ai.HealthReportAiReader
+import com.valerochka1337.valerochkagym.data.ai.AiApiHealthReportAiReader
+import com.valerochka1337.valerochkagym.data.ai.HealthDocumentRenderer
+import com.valerochka1337.valerochkagym.data.ai.AndroidHealthDocumentRenderer
+import com.valerochka1337.valerochkagym.data.ai.HealthRestrictionAiInterpreter
+import com.valerochka1337.valerochkagym.data.ai.AiHealthRestrictionAiInterpreter
 import com.valerochka1337.valerochkagym.data.ai.AiModelCatalog
 import com.valerochka1337.valerochkagym.data.backup.ClearDataUseCase
 import com.valerochka1337.valerochkagym.data.backup.ClearDataUseCaseImpl
+import com.valerochka1337.valerochkagym.data.health.HealthDocumentRepository
+import com.valerochka1337.valerochkagym.data.health.LocalHealthDocumentRepository
+import com.valerochka1337.valerochkagym.data.health.HealthArchiveExporter
+import com.valerochka1337.valerochkagym.data.health.ZipHealthArchiveExporter
+import com.valerochka1337.valerochkagym.data.measurements.LocalMeasurementDocumentRepository
+import com.valerochka1337.valerochkagym.data.measurements.MeasurementDocumentRepository
+import com.valerochka1337.valerochkagym.data.measurements.MeasurementDocumentLifecycleHook
+import com.valerochka1337.valerochkagym.data.measurements.NoOpMeasurementDocumentLifecycleHook
+import com.valerochka1337.valerochkagym.data.google.HealthSheetsRepository
+import com.valerochka1337.valerochkagym.data.google.HealthSheetsRepositoryImpl
 import com.valerochka1337.valerochkagym.data.backup.DatabaseExporter
 import com.valerochka1337.valerochkagym.data.backup.DatabaseExporterImpl
 import com.valerochka1337.valerochkagym.data.settings.AndroidKeystoreSecretCipher
@@ -34,6 +50,8 @@ import com.valerochka1337.valerochkagym.worker.WorkManagerMeasurementUploadSched
 import com.valerochka1337.valerochkagym.worker.WorkManagerConfigurationUploadScheduler
 import com.valerochka1337.valerochkagym.worker.WorkManagerRoutineUploadScheduler
 import com.valerochka1337.valerochkagym.worker.WorkManagerUploadScheduler
+import com.valerochka1337.valerochkagym.worker.HealthSyncScheduler
+import com.valerochka1337.valerochkagym.worker.WorkManagerHealthSyncScheduler
 import dagger.Binds
 import dagger.Module
 import dagger.hilt.InstallIn
@@ -93,6 +111,34 @@ abstract class DomainModule {
 
     @Binds
     @Singleton
+    abstract fun bindHealthDocumentRepository(impl: LocalHealthDocumentRepository): HealthDocumentRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindMeasurementDocumentRepository(
+        impl: LocalMeasurementDocumentRepository,
+    ): MeasurementDocumentRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindMeasurementDocumentLifecycleHook(
+        impl: NoOpMeasurementDocumentLifecycleHook,
+    ): MeasurementDocumentLifecycleHook
+
+    @Binds
+    @Singleton
+    abstract fun bindHealthArchiveExporter(impl: ZipHealthArchiveExporter): HealthArchiveExporter
+
+    @Binds
+    @Singleton
+    abstract fun bindHealthSheetsRepository(impl: HealthSheetsRepositoryImpl): HealthSheetsRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindHealthSyncScheduler(impl: WorkManagerHealthSyncScheduler): HealthSyncScheduler
+
+    @Binds
+    @Singleton
     abstract fun bindAiApiKeyStore(impl: EncryptedAiApiKeyStore): AiApiKeyStore
 
     @Binds
@@ -110,6 +156,17 @@ abstract class DomainModule {
     @Binds
     @Singleton
     abstract fun bindInBodyReportAiReader(impl: AiApiInBodyReportAiReader): InBodyReportAiReader
+
+    @Binds
+    @Singleton
+    abstract fun bindHealthReportAiReader(impl: AiApiHealthReportAiReader): HealthReportAiReader
+
+    @Binds
+    @Singleton
+    abstract fun bindHealthDocumentRenderer(impl: AndroidHealthDocumentRenderer): HealthDocumentRenderer
+
+    @Binds @Singleton
+    abstract fun bindHealthRestrictionAiInterpreter(impl: AiHealthRestrictionAiInterpreter): HealthRestrictionAiInterpreter
 
     @Binds
     @Singleton

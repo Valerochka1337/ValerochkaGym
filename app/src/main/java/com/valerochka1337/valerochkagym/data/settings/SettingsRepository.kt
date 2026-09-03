@@ -43,6 +43,8 @@ data class GymSettings(
     val accent: AccentColor = AccentColor.DEFAULT,
     /** GitHub Release, для которого пользователь выбрал «Не напоминать». */
     val ignoredUpdateTag: String? = null,
+    /** Explicit Sheets consent, separate from the account and spreadsheet selection. */
+    val healthSync: HealthSyncSettings = HealthSyncSettings.Disabled,
 ) {
     companion object {
         const val DEFAULT_REST_SECONDS: Int = 120
@@ -73,6 +75,11 @@ class SettingsRepository @Inject constructor(
         val PALETTE_MODE = stringPreferencesKey("palette_mode")
         val ACCENT_COLOR = stringPreferencesKey("accent_color")
         val IGNORED_UPDATE_TAG = stringPreferencesKey("ignored_update_tag")
+        val HEALTH_SYNC_ENABLED = booleanPreferencesKey("health_sync_enabled")
+        val HEALTH_SYNC_WORKOUTS = booleanPreferencesKey("health_sync_workouts")
+        val HEALTH_SYNC_MEASUREMENTS = booleanPreferencesKey("health_sync_measurements")
+        val HEALTH_SYNC_REPORTS = booleanPreferencesKey("health_sync_reports")
+        val HEALTH_SYNC_RESTRICTIONS = booleanPreferencesKey("health_sync_restrictions")
     }
 
     val settings: Flow<GymSettings> = dataStore.data
@@ -103,6 +110,18 @@ class SettingsRepository @Inject constructor(
             paletteMode = PaletteMode.fromId(prefs[Keys.PALETTE_MODE]),
             accent = AccentColor.fromId(prefs[Keys.ACCENT_COLOR]),
             ignoredUpdateTag = prefs[Keys.IGNORED_UPDATE_TAG],
+            // Existing configured Sheets users retain the old workout/measurement behavior.
+            // Medical categories never existed, so their absence is an explicit false.
+            healthSync = HealthSyncSettings(
+                enabled = prefs[Keys.HEALTH_SYNC_ENABLED] ?: (prefs[Keys.SPREADSHEET_ID] != null),
+                categories = buildSet {
+                    val legacyEnabled = prefs[Keys.SPREADSHEET_ID] != null
+                    if (prefs[Keys.HEALTH_SYNC_WORKOUTS] ?: legacyEnabled) add(HealthSyncCategory.WORKOUTS_AND_CONFIGURATION)
+                    if (prefs[Keys.HEALTH_SYNC_MEASUREMENTS] ?: legacyEnabled) add(HealthSyncCategory.MEASUREMENTS)
+                    if (prefs[Keys.HEALTH_SYNC_REPORTS] == true) add(HealthSyncCategory.HEALTH_REPORTS_AND_OBSERVATIONS)
+                    if (prefs[Keys.HEALTH_SYNC_RESTRICTIONS] == true) add(HealthSyncCategory.HEALTH_RESTRICTIONS)
+                },
+            ),
         )
     }
 
@@ -183,6 +202,21 @@ class SettingsRepository @Inject constructor(
         } else {
             prefs[Keys.IGNORED_UPDATE_TAG] = value
         }
+    }
+
+    suspend fun setHealthSyncEnabled(value: Boolean) = dataStore.edit { prefs ->
+        prefs[Keys.HEALTH_SYNC_ENABLED] = value
+    }
+
+    suspend fun setHealthSyncCategory(category: HealthSyncCategory, enabled: Boolean) = dataStore.edit { prefs ->
+        prefs[category.preferenceKey()] = enabled
+    }
+
+    private fun HealthSyncCategory.preferenceKey(): Preferences.Key<Boolean> = when (this) {
+        HealthSyncCategory.WORKOUTS_AND_CONFIGURATION -> Keys.HEALTH_SYNC_WORKOUTS
+        HealthSyncCategory.MEASUREMENTS -> Keys.HEALTH_SYNC_MEASUREMENTS
+        HealthSyncCategory.HEALTH_REPORTS_AND_OBSERVATIONS -> Keys.HEALTH_SYNC_REPORTS
+        HealthSyncCategory.HEALTH_RESTRICTIONS -> Keys.HEALTH_SYNC_RESTRICTIONS
     }
 
     private companion object {

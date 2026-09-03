@@ -73,6 +73,28 @@ data class AiApiMessage(
             content = multimodalContent(text, imageDataUrl),
         )
 
+        /**
+         * Preserves rendered document order: every image is preceded by an unambiguous page
+         * marker, so provenance in a structured response can be validated without guessing.
+         */
+        fun textAndImages(
+            role: String,
+            instruction: String,
+            imageDataUrls: List<String>,
+        ): AiApiMessage = AiApiMessage(
+            role = role,
+            content = buildJsonArray {
+                add(buildJsonObject { put("type", "text"); put("text", instruction) })
+                imageDataUrls.forEachIndexed { index, image ->
+                    add(buildJsonObject { put("type", "text"); put("text", "Страница ${index + 1} из ${imageDataUrls.size}.") })
+                    add(buildJsonObject {
+                        put("type", "image_url")
+                        putJsonObject("image_url") { put("url", image) }
+                    })
+                }
+            },
+        )
+
         private fun multimodalContent(text: String, imageDataUrl: String): JsonArray = buildJsonArray {
             add(
                 buildJsonObject {

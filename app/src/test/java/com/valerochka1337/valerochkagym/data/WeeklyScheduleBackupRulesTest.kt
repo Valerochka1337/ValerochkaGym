@@ -18,4 +18,24 @@ class WeeklyScheduleBackupRulesTest {
         assertFalse(legacy.contains("datastore/settings.preferences_pb"))
         assertFalse(extraction.contains("datastore/settings.preferences_pb"))
     }
+
+    @Test
+    fun `private health originals are excluded from every backup path`() {
+        val legacy = Files.readString(Path.of("src/main/res/xml/backup_rules.xml"))
+        val extraction = Files.readString(Path.of("src/main/res/xml/data_extraction_rules.xml"))
+        val originals = "health_documents/"
+
+        assertEquals(1, legacy.windowed(originals.length).count { it == originals })
+        assertEquals(2, extraction.windowed(originals.length).count { it == originals })
+    }
+
+    @Test
+    fun `private InBody originals and temporary copies are excluded from every backup path`() {
+        val legacy = Files.readString(Path.of("src/main/res/xml/backup_rules.xml"))
+        val extraction = Files.readString(Path.of("src/main/res/xml/data_extraction_rules.xml"))
+        val originals = "measurement_documents/"
+
+        assertEquals(1, legacy.windowed(originals.length).count { it == originals })
+        assertEquals(2, extraction.windowed(originals.length).count { it == originals })
+    }
 }

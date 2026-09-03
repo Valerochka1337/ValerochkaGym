@@ -5,6 +5,12 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseMuscleDao
 import com.valerochka1337.valerochkagym.data.db.dao.WorkoutDao
+import com.valerochka1337.valerochkagym.data.db.dao.BodyMeasurementDao
+import com.valerochka1337.valerochkagym.data.db.dao.HealthDao
+import com.valerochka1337.valerochkagym.data.db.entity.BodyMeasurementEntity
+import com.valerochka1337.valerochkagym.data.db.entity.HealthReportEntity
+import com.valerochka1337.valerochkagym.data.db.entity.HealthRestrictionEntity
+import com.valerochka1337.valerochkagym.data.db.entity.HealthSyncConflictEntity
 import com.valerochka1337.valerochkagym.data.db.entity.Muscle
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleLoad
 import com.valerochka1337.valerochkagym.data.settings.MuscleLoadUpgradeNotice
@@ -48,6 +54,7 @@ data class AnalysisUiState(
     val selectedWeekIndex: Int? = null,
     val selectedSessionIndex: Int? = null,
     val zone: ZoneId = ZoneId.systemDefault(),
+    val health: HealthAnalysisState = HealthAnalysisState(),
 ) {
     /** Подробности выбранной мышцы — источник чисел под картой тела. */
     val selectedMuscleLoad: MuscleLoadSummary?
@@ -62,6 +69,17 @@ data class AnalysisUiState(
             ?: report.exercises.firstOrNull()
 }
 
+data class HealthAnalysisState(
+    val measurements: List<BodyMeasurementEntity> = emptyList(),
+    val reports: List<HealthReportEntity> = emptyList(),
+    val restrictions: List<HealthRestrictionEntity> = emptyList(),
+    val conflicts: List<HealthSyncConflictEntity> = emptyList(),
+) {
+    val latestMeasurement get() = measurements.maxByOrNull { it.measuredAt }
+    val latestReport get() = reports.maxByOrNull { it.reportedAt }
+    val activeRestrictions get() = restrictions.filter { it.status != "LIFTED" }
+}
+
 /**
  * Бэкенд вкладки «Анализы»: собирает вход аналитики из трёх реактивных источников (выполненные
  * подходы, завершённые тренировки, карта мышц) и отдаёт готовый отчёт [AnalyticsEngine].
@@ -73,6 +91,8 @@ data class AnalysisUiState(
 class AnalysisViewModel @Inject constructor(
     private val workoutDao: WorkoutDao,
     private val exerciseMuscleDao: ExerciseMuscleDao,
+    private val bodyMeasurementDao: BodyMeasurementDao,
+    private val healthDao: HealthDao,
     private val engine: AnalyticsEngine,
     @param:ComputeDispatcher private val computeDispatcher: CoroutineDispatcher,
     private val upgradeNotice: MuscleLoadUpgradeNotice = NoOpMuscleLoadUpgradeNotice,
@@ -127,8 +147,17 @@ class AnalysisViewModel @Inject constructor(
         // исполнялась бы на Dispatchers.Main.immediate через stateIn(viewModelScope).
         .flowOn(computeDispatcher)
 
+    private val healthState = combine(
+        bodyMeasurementDao.observeAll(),
+        healthDao.observeLiveReports(),
+        healthDao.observeLiveRestrictions(),
+        healthDao.observeConflicts(),
+    ) { measurements, reports, restrictions, conflicts ->
+        HealthAnalysisState(measurements, reports, restrictions, conflicts)
+    }
+
     val uiState: StateFlow<AnalysisUiState> =
-        combine(reportFlow, selection) { report, current ->
+        combine(reportFlow, selection, healthState) { report, current, health ->
             AnalysisUiState(
                 loading = false,
                 report = report,
@@ -139,6 +168,7 @@ class AnalysisViewModel @Inject constructor(
                 selectedWeekIndex = current.weekIndex,
                 selectedSessionIndex = current.sessionIndex,
                 zone = zone,
+                health = health,
             )
         }.stateIn(
             scope = viewModelScope,

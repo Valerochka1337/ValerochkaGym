@@ -4,6 +4,9 @@ import com.valerochka1337.valerochkagym.data.RoomDaoTest
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseMuscleEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
+import com.valerochka1337.valerochkagym.data.db.entity.BodyMeasurementEntity
+import com.valerochka1337.valerochkagym.data.db.entity.HealthRestrictionEntity
+import com.valerochka1337.valerochkagym.data.db.entity.HealthSyncConflictEntity
 import com.valerochka1337.valerochkagym.data.db.entity.Muscle
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleGroup
 import com.valerochka1337.valerochkagym.data.db.entity.WorkoutSetEntity
@@ -85,6 +88,56 @@ class AnalysisViewModelTest : RoomDaoTest() {
         assertFalse(viewModel.uiState.value.report.hasData)
         assertFalse(viewModel.uiState.value.loading)
     }
+
+    @Test
+    fun `health primary data remains available without workouts when the training period changes`() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            db.bodyMeasurementDao().insert(BodyMeasurementEntity("inbody", now, weightKg = 74.2))
+            db.healthDao().upsertRestriction(
+                HealthRestrictionEntity(
+                    syncId = "restriction",
+                    version = 1,
+                    updatedAt = now,
+                    status = "ACTIVE",
+                    source = "MANUAL",
+                    confirmedAt = now,
+                    description = "Без прыжков",
+                ),
+            )
+            val viewModel = viewModel()
+            collect(viewModel)
+
+            assertFalse(viewModel.uiState.value.report.hasData)
+            assertEquals("inbody", viewModel.uiState.value.health.latestMeasurement?.id)
+            assertEquals("restriction", viewModel.uiState.value.health.activeRestrictions.single().syncId)
+
+            viewModel.onPeriodSelected(AnalysisPeriod.ALL_TIME)
+            val allTime = viewModel.uiState.first { it.period == AnalysisPeriod.ALL_TIME }
+            assertEquals("inbody", allTime.health.latestMeasurement?.id)
+            assertEquals("restriction", allTime.health.activeRestrictions.single().syncId)
+        }
+
+    @Test
+    fun `health state exposes report measurement and restriction conflicts together`() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val dao = db.healthDao()
+            listOf(
+                "MEASUREMENTS" to "measurement",
+                "HEALTH_REPORTS_AND_OBSERVATIONS" to "report",
+                "HEALTH_RESTRICTIONS" to "restriction",
+            ).forEachIndexed { index, (category, syncId) ->
+                dao.upsertConflict(
+                    HealthSyncConflictEntity(category, syncId, 1, "local-$index", null, "remote-$index", null, now + index),
+                )
+            }
+            val viewModel = viewModel()
+            collect(viewModel)
+
+            assertEquals(
+                setOf("measurement", "report", "restriction"),
+                viewModel.uiState.first { it.health.conflicts.size == 3 }.health.conflicts.map { it.syncId }.toSet(),
+            )
+        }
 
     @Test
     fun `completed sets of a finished workout reach the report`() =
@@ -275,6 +328,8 @@ class AnalysisViewModelTest : RoomDaoTest() {
     ): AnalysisViewModel = AnalysisViewModel(
         workoutDao = db.workoutDao(),
         exerciseMuscleDao = db.exerciseMuscleDao(),
+        bodyMeasurementDao = db.bodyMeasurementDao(),
+        healthDao = db.healthDao(),
         engine = AnalyticsEngine(),
         // Тестовый диспетчер вместо Dispatchers.Default — пересчёт остаётся на виртуальном времени.
         computeDispatcher = mainDispatcherRule.testDispatcher,

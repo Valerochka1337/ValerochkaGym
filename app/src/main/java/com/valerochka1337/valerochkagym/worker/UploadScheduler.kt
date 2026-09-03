@@ -22,6 +22,9 @@ interface UploadScheduler {
      * сбрасывая статус в [UploadStatus.PENDING]. Возвращает число поставленных в очередь.
      */
     suspend fun scheduleAllPending(): Int
+
+    /** Applies the effective opt-in after it has been durably persisted. */
+    suspend fun onCategoryChanged(enabled: Boolean) = Unit
 }
 
 class WorkManagerUploadScheduler @Inject constructor(
@@ -45,5 +48,10 @@ class WorkManagerUploadScheduler @Inject constructor(
             UploadWorkoutWorker.enqueue(workManager, id)
         }
         return ids.size
+    }
+
+    override suspend fun onCategoryChanged(enabled: Boolean) {
+        if (enabled) scheduleAllPending()
+        else workManager.cancelAllWorkByTag(UploadWorkoutWorker.WORKOUTS_AND_CONFIGURATION_TAG)
     }
 }

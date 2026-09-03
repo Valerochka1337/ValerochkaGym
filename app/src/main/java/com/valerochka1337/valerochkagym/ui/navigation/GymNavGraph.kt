@@ -31,6 +31,11 @@ import com.valerochka1337.valerochkagym.ui.gyms.GymsScreen
 import com.valerochka1337.valerochkagym.ui.library.ExerciseLibraryScreen
 import com.valerochka1337.valerochkagym.ui.measurements.MeasurementEditorScreen
 import com.valerochka1337.valerochkagym.ui.measurements.MeasurementsScreen
+import com.valerochka1337.valerochkagym.ui.health.HealthEditorScreen
+import com.valerochka1337.valerochkagym.ui.health.HealthReportDetailScreen
+import com.valerochka1337.valerochkagym.ui.health.HealthArchiveScreen
+import com.valerochka1337.valerochkagym.ui.health.HealthConflictScreen
+import com.valerochka1337.valerochkagym.ui.health.HealthRestrictionEditorScreen
 import com.valerochka1337.valerochkagym.ui.routine.RoutineEditorScreen
 import com.valerochka1337.valerochkagym.ui.routine.RoutineEditorViewModel
 import com.valerochka1337.valerochkagym.ui.settings.SettingsScreen
@@ -56,6 +61,18 @@ object GymRoutes {
         "library?$GYM_IDS_ARG={$GYM_IDS_ARG}&$WORKOUT_ID_ARG={$WORKOUT_ID_ARG}"
     const val ACTIVE_WORKOUT = "active_workout"
     const val SCHEDULE_EDITOR = "schedule_editor"
+    const val HEALTH_CORRECTS_ID_ARG = "correctsSyncId"
+    const val HEALTH_EDITOR = "health_editor?$HEALTH_CORRECTS_ID_ARG={$HEALTH_CORRECTS_ID_ARG}"
+    const val HEALTH_RESTRICTION_EDITOR = "health_restriction_editor"
+    const val HEALTH_ARCHIVE = "health_archive"
+    const val HEALTH_REPORT_ID_ARG = "healthReportId"
+    const val HEALTH_PERIOD_START_ARG = "healthPeriodStart"
+    const val HEALTH_PERIOD_END_ARG = "healthPeriodEnd"
+    const val HEALTH_REPORT_DETAIL = "health_report/{$HEALTH_REPORT_ID_ARG}?$HEALTH_PERIOD_START_ARG={$HEALTH_PERIOD_START_ARG}&$HEALTH_PERIOD_END_ARG={$HEALTH_PERIOD_END_ARG}"
+    const val HEALTH_CONFLICT_CATEGORY_ARG = "healthConflictCategory"
+    const val HEALTH_CONFLICT_SYNC_ID_ARG = "healthConflictSyncId"
+    const val HEALTH_CONFLICT_VERSION_ARG = "healthConflictVersion"
+    const val HEALTH_CONFLICT = "health_conflict/{$HEALTH_CONFLICT_CATEGORY_ARG}/{$HEALTH_CONFLICT_SYNC_ID_ARG}/{$HEALTH_CONFLICT_VERSION_ARG}"
 
     const val ROUTINE_ID_ARG = "routineId"
     const val MEASUREMENT_ID_ARG = "measurementId"
@@ -77,12 +94,18 @@ object GymRoutes {
     fun routineEditor(routineId: String? = null) =
         if (routineId != null) "routine_editor?$ROUTINE_ID_ARG=$routineId" else "routine_editor"
     fun workoutSummary(workoutId: String) = "workout_summary/$workoutId"
+    fun healthEditor(correctsSyncId: String? = null) =
+        if (correctsSyncId == null) "health_editor" else "health_editor?$HEALTH_CORRECTS_ID_ARG=${Uri.encode(correctsSyncId)}"
     fun workoutDetail(workoutId: String) = "workout_detail/$workoutId"
     fun exerciseDetail(exerciseId: Long) = "exercise_detail/$exerciseId"
     fun measurementEditor(measurementId: String? = null) =
-        if (measurementId == null) "measurement_editor" else "measurement_editor?$MEASUREMENT_ID_ARG=$measurementId"
+        if (measurementId == null) "measurement_editor" else "measurement_editor?$MEASUREMENT_ID_ARG=${Uri.encode(measurementId)}"
     fun gymEditor(gymId: String? = null) =
         if (gymId == null) "gym_editor" else "gym_editor?$GYM_ID_ARG=${Uri.encode(gymId)}"
+    fun healthReportDetail(syncId: String, periodStart: Long, periodEndInclusive: Long) =
+        "health_report/${Uri.encode(syncId)}?$HEALTH_PERIOD_START_ARG=$periodStart&$HEALTH_PERIOD_END_ARG=$periodEndInclusive"
+    fun healthConflict(category: String, syncId: String, version: Long) =
+        "health_conflict/${Uri.encode(category)}/${Uri.encode(syncId)}/$version"
     fun library(
         gymIds: Set<String> = emptySet(),
         workoutId: String? = null,
@@ -202,6 +225,14 @@ fun GymNavGraph(
             AnalysisScreen(
                 onOpenSettings = { navController.navigate(GymRoutes.SETTINGS) },
                 onOpenMeasurements = { navController.navigate(GymRoutes.MEASUREMENTS) },
+                onOpenMeasurement = { id -> navController.navigate(GymRoutes.measurementEditor(id)) },
+                onCreateHealthReport = { navController.navigate(GymRoutes.healthEditor()) },
+                onCreateRestriction = { navController.navigate(GymRoutes.HEALTH_RESTRICTION_EDITOR) },
+                onOpenHealthArchive = { navController.navigate(GymRoutes.HEALTH_ARCHIVE) },
+                onOpenHealthReport = { id, start, end -> navController.navigate(GymRoutes.healthReportDetail(id, start, end)) },
+                onOpenHealthConflict = { category, syncId, version ->
+                    navController.navigate(GymRoutes.healthConflict(category, syncId, version))
+                },
                 onExerciseClick = { id -> navController.navigate(GymRoutes.exerciseDetail(id)) },
             )
         }
@@ -414,6 +445,38 @@ fun GymNavGraph(
             MeasurementEditorScreen(
                 onBack = { navController.popBackStack() },
                 onOpenSettings = { navController.navigate(GymRoutes.SETTINGS) },
+            )
+        }
+        composable(
+            route = GymRoutes.HEALTH_EDITOR,
+            arguments = listOf(navArgument(GymRoutes.HEALTH_CORRECTS_ID_ARG) { type = NavType.StringType; nullable = true; defaultValue = null }),
+            enterTransition = { slideIntoContainer(SlideDirection.Up, NavSlideSpec) },
+            popExitTransition = { slideOutOfContainer(SlideDirection.Down, NavSlideSpec) },
+        ) { HealthEditorScreen(onBack = { navController.popBackStack() }) }
+        composable(GymRoutes.HEALTH_RESTRICTION_EDITOR) { HealthRestrictionEditorScreen(onBack = { navController.popBackStack() }) }
+        composable(GymRoutes.HEALTH_ARCHIVE) { HealthArchiveScreen(onBack = { navController.popBackStack() }) }
+        composable(
+            route = GymRoutes.HEALTH_CONFLICT,
+            arguments = listOf(
+                navArgument(GymRoutes.HEALTH_CONFLICT_CATEGORY_ARG) { type = NavType.StringType },
+                navArgument(GymRoutes.HEALTH_CONFLICT_SYNC_ID_ARG) { type = NavType.StringType },
+                navArgument(GymRoutes.HEALTH_CONFLICT_VERSION_ARG) { type = NavType.LongType },
+            ),
+        ) { HealthConflictScreen(onBack = { navController.popBackStack() }) }
+        composable(
+            route = GymRoutes.HEALTH_REPORT_DETAIL,
+            arguments = listOf(
+                navArgument(GymRoutes.HEALTH_REPORT_ID_ARG) { type = NavType.StringType },
+                navArgument(GymRoutes.HEALTH_PERIOD_START_ARG) { type = NavType.LongType; defaultValue = Long.MIN_VALUE },
+                navArgument(GymRoutes.HEALTH_PERIOD_END_ARG) { type = NavType.LongType; defaultValue = Long.MAX_VALUE },
+            ),
+        ) {
+            HealthReportDetailScreen(
+                onBack = { navController.popBackStack() },
+                onEdit = { id -> navController.navigate(GymRoutes.healthEditor(id)) },
+                onOpenConflict = { conflict ->
+                    navController.navigate(GymRoutes.healthConflict(conflict.category, conflict.syncId, conflict.version))
+                },
             )
         }
     }

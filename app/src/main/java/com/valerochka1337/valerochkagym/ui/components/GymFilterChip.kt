@@ -3,6 +3,7 @@ package com.valerochka1337.valerochkagym.ui.components
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -28,6 +29,7 @@ fun GymFilterChip(
     label: String,
     count: Int? = null,
     modifier: Modifier = Modifier,
+    enabled: Boolean = true,
 ) {
     val container by animateColorAsState(
         targetValue = if (selected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent,
@@ -46,6 +48,7 @@ fun GymFilterChip(
     FilterChip(
         selected = selected,
         onClick = onClick,
+        enabled = enabled,
         label = {
             Row {
                 Text(label, maxLines = 1)
@@ -55,7 +58,7 @@ fun GymFilterChip(
                 }
             }
         },
-        modifier = modifier,
+        modifier = modifier.heightIn(min = 48.dp),
         colors = FilterChipDefaults.filterChipColors(
             containerColor = container,
             labelColor = content,
