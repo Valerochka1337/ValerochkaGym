@@ -119,9 +119,9 @@ class AnalysisRenderTest {
                         state,
                         onExerciseSelected = {},
                         onSessionSelected = {},
-                        onExerciseClick = { _, _ -> },
+                        onExerciseClick = {},
                     )
-                    RecordsCard(state, onExerciseClick = { _, _ -> })
+                    RecordsCard(state, onExerciseClick = {})
                 }
             }
         }

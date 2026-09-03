@@ -41,6 +41,18 @@ class RoutineRowParserTest {
     }
 
     @Test
+    fun `v9 rows retain base exercise data and ignore variant id`() {
+        val row = RoutineRowMapper.rows(routine(updatedAt = 100)).first().map { it?.toString().orEmpty() }.toMutableList()
+        row[12] = "11111111-1111-1111-1111-111111111111"
+
+        val parsed = RoutineRowParser.parse(listOf(RoutineRowMapper.HEADER_ROW, row)).routines.single()
+
+        assertEquals("Присед", parsed.exercises.single().name)
+        assertEquals(90, parsed.exercises.single().restSeconds)
+        assertTrue(parsed.exercises.single().syncId != null)
+    }
+
+    @Test
     fun `parsing snapshots selects the version with the greatest updatedAt`() {
         val old = routine(updatedAt = 100, name = "Старое имя")
         val current = routine(updatedAt = 200, name = "Новое имя")

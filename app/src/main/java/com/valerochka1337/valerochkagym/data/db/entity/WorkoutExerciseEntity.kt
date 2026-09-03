@@ -27,21 +27,11 @@ data class WorkoutExerciseEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val workoutId: String,
     val exerciseId: Long,
-    /** Immutable row identity: unlike exerciseId it never collapses duplicate sections. */
+    /** Immutable row identity: duplicate base-exercise sections never collapse. */
     val sectionId: String = UUID.randomUUID().toString(),
-    /** Stable comparison identity. No live FK: archived/missing definitions must not erase history. */
-    val variantSyncId: String? = null,
-    /** Immutable display value coupled with variantSyncId; both null denotes no variant. */
-    val variantNameSnapshot: String? = null,
     val position: Int,
 ) {
     init {
         require(sectionId.isNotBlank()) { "Workout section id must be nonblank" }
-        require((variantSyncId == null) == (variantNameSnapshot == null)) {
-            "Variant identity and snapshot must be both present or both absent"
-        }
-        require(variantNameSnapshot == null || variantNameSnapshot == variantNameSnapshot.trim()) {
-            "Variant snapshot must be trimmed"
-        }
     }
 }

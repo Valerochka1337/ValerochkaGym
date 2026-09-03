@@ -103,8 +103,8 @@ object WorkoutRowMapper {
                             exercise.workoutExercise.sectionId,
                             exercise.workoutExercise.position,
                             exercise.exercise.syncId,
-                            exercise.workoutExercise.variantSyncId,
-                            exercise.workoutExercise.variantNameSnapshot,
+                            "",
+                            "",
                         )
                     }
             }

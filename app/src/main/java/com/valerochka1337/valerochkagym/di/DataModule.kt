@@ -12,7 +12,6 @@ import com.valerochka1337.valerochkagym.data.db.GymDatabaseCallback
 import com.valerochka1337.valerochkagym.data.db.dao.BodyMeasurementDao
 import com.valerochka1337.valerochkagym.data.db.dao.ConfigurationTombstoneDao
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseDao
-import com.valerochka1337.valerochkagym.data.db.dao.ExerciseVariantDao
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseMuscleDao
 import com.valerochka1337.valerochkagym.data.db.dao.GymDao
 import com.valerochka1337.valerochkagym.data.db.dao.RoutineDao
@@ -69,16 +68,7 @@ object DataModule {
     ): GymDatabase =
         Room.databaseBuilder(context, GymDatabase::class.java, DatabaseExporter.DATABASE_NAME)
             .addCallback(callback)
-            .addMigrations(
-                GymDatabase.MIGRATION_1_2,
-                GymDatabase.MIGRATION_2_3,
-                GymDatabase.MIGRATION_3_4,
-                GymDatabase.MIGRATION_4_5,
-                GymDatabase.MIGRATION_5_6,
-                GymDatabase.MIGRATION_6_7,
-                GymDatabase.MIGRATION_7_8,
-                GymDatabase.MIGRATION_8_9,
-            )
+            .addMigrations(*GymDatabase.ALL_MIGRATIONS)
             .build()
 
     @Provides
@@ -90,9 +80,6 @@ object DataModule {
 
     @Provides
     fun provideExerciseDao(database: GymDatabase): ExerciseDao = database.exerciseDao()
-
-    @Provides
-    fun provideExerciseVariantDao(database: GymDatabase): ExerciseVariantDao = database.exerciseVariantDao()
 
     @Provides
     fun provideExerciseMuscleDao(database: GymDatabase): ExerciseMuscleDao =

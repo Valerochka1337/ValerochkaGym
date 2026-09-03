@@ -9,10 +9,6 @@ import com.valerochka1337.valerochkagym.domain.CompleteSetUseCase
 import com.valerochka1337.valerochkagym.domain.PreviousSetsUseCase
 import com.valerochka1337.valerochkagym.domain.RoutineGymConflictException
 import com.valerochka1337.valerochkagym.domain.WorkoutSetMutator
-import com.valerochka1337.valerochkagym.domain.ExerciseVariantRepository
-import com.valerochka1337.valerochkagym.domain.ExerciseExecutionKey
-import com.valerochka1337.valerochkagym.domain.NoOpExerciseVariantRepository
-import com.valerochka1337.valerochkagym.data.db.entity.ExerciseVariantEntity
 import com.valerochka1337.valerochkagym.service.RestTimerEngine
 import com.valerochka1337.valerochkagym.service.RestTimerState
 import com.valerochka1337.valerochkagym.service.heartrate.HeartRateConnectionState
@@ -41,20 +37,13 @@ import kotlin.time.Duration.Companion.milliseconds
 /**
  * Состояние экрана активной тренировки. [loading] отличает «ещё не загрузили из БД» от
  * «активной тренировки нет» ([workout] == null && !loading). [elapsedSeconds] тикает от
- * startedAt каждую секунду, пока экран подписан. [previousByExercise] разделяет сводки по
- * базовому упражнению и варианту (пустая строка = прошлого нет).
+ * startedAt каждую секунду, пока экран подписан. [previousByExercise] — сводка «прошлый: …»
+ * по exerciseId (пустая строка = прошлого нет).
  */
 data class ActiveWorkoutUiState(
     val loading: Boolean = true,
     val workout: WorkoutFull? = null,
-    val previousByExercise: Map<ExerciseExecutionKey, String> = emptyMap(),
-)
-
-data class PendingVariantSelection(val exerciseId: Long, val variants: List<ExerciseVariantEntity>)
-data class PendingVariantChange(
-    val workoutExerciseId: Long,
-    val exerciseId: Long,
-    val variants: List<ExerciseVariantEntity>,
+    val previousByExercise: Map<Long, String> = emptyMap(),
 )
 
 /** Навигационные события экрана активной тренировки. */
@@ -83,7 +72,6 @@ class ActiveWorkoutViewModel @Inject constructor(
     private val restTimerEngine: RestTimerEngine,
     private val uploadScheduler: UploadScheduler,
     private val heartRateMonitor: HeartRateMonitor,
-    private val variantRepository: ExerciseVariantRepository = NoOpExerciseVariantRepository,
 ) : ViewModel() {
 
     /** Состояние таймера отдыха (null = неактивен) — пилюля на экране подписана прямо на движок. */
@@ -94,12 +82,8 @@ class ActiveWorkoutViewModel @Inject constructor(
     val heartRateReading: StateFlow<HeartRateReading?> = heartRateMonitor.reading
 
     private val loaded = MutableStateFlow(false)
-    private val _pendingVariantSelection = MutableStateFlow<PendingVariantSelection?>(null)
-    val pendingVariantSelection: StateFlow<PendingVariantSelection?> = _pendingVariantSelection
-    private val _pendingVariantChange = MutableStateFlow<PendingVariantChange?>(null)
-    val pendingVariantChange: StateFlow<PendingVariantChange?> = _pendingVariantChange
-    private val previousSummaries = MutableStateFlow<Map<ExerciseExecutionKey, String>>(emptyMap())
-    private val loadingPrevious = mutableSetOf<ExerciseExecutionKey>()
+    private val previousSummaries = MutableStateFlow<Map<Long, String>>(emptyMap())
+    private val loadingPrevious = mutableSetOf<Long>()
 
     private val activeWorkout: StateFlow<WorkoutFull?> = repository.observeActive()
         .onEach { workout ->
@@ -209,57 +193,8 @@ class ActiveWorkoutViewModel @Inject constructor(
     fun addExerciseById(exerciseId: Long) {
         val workoutId = activeWorkout.value?.workout?.id ?: return
         viewModelScope.launch {
-            val variants = variantRepository.activeForExercise(exerciseId)
-            if (variants.isNotEmpty()) {
-                _pendingVariantSelection.value = PendingVariantSelection(exerciseId, variants)
-                return@launch
-            }
-            addExercise(workoutId, exerciseId, null)
-        }
-    }
-
-    fun chooseVariant(variantSyncId: String?) {
-        val change = _pendingVariantChange.value
-        if (change != null) {
-            _pendingVariantChange.value = null
-            viewModelScope.launch {
-                if (!repository.changeExerciseVariant(change.workoutExerciseId, variantSyncId)) {
-                    _events.send(ActiveWorkoutEvent.ShowMessage("Вариант нельзя изменить после выполненного подхода"))
-                }
-            }
-            return
-        }
-        val pending = _pendingVariantSelection.value ?: return
-        val workoutId = activeWorkout.value?.workout?.id ?: return
-        _pendingVariantSelection.value = null
-        viewModelScope.launch { addExercise(workoutId, pending.exerciseId, variantSyncId) }
-    }
-
-    fun cancelVariantSelection() { _pendingVariantSelection.value = null }
-
-    fun requestVariantChange(workoutExerciseId: Long) {
-        val section = activeWorkout.value?.exercises
-            ?.firstOrNull { it.workoutExercise.id == workoutExerciseId } ?: return
-        if (section.sets.any { it.isCompleted }) {
-            viewModelScope.launch {
-                _events.send(ActiveWorkoutEvent.ShowMessage("Вариант нельзя изменить после выполненного подхода"))
-            }
-            return
-        }
-        viewModelScope.launch {
-            _pendingVariantChange.value = PendingVariantChange(
-                workoutExerciseId = workoutExerciseId,
-                exerciseId = section.exercise.id,
-                variants = variantRepository.activeForExercise(section.exercise.id),
-            )
-        }
-    }
-
-    fun cancelVariantChange() { _pendingVariantChange.value = null }
-
-    private suspend fun addExercise(workoutId: String, exerciseId: Long, variantSyncId: String?) {
             try {
-                repository.addExerciseWithVariant(workoutId, exerciseId, variantSyncId)
+                repository.addExercise(workoutId, exerciseId)
             } catch (conflict: RoutineGymConflictException) {
                 _events.send(
                     ActiveWorkoutEvent.ShowMessage(
@@ -274,6 +209,7 @@ class ActiveWorkoutViewModel @Inject constructor(
             } catch (_: Exception) {
                 _events.send(ActiveWorkoutEvent.ShowMessage("Не удалось добавить упражнение"))
             }
+        }
     }
 
     fun deleteExercise(workoutExerciseId: Long) {
@@ -308,19 +244,16 @@ class ActiveWorkoutViewModel @Inject constructor(
     private fun ensurePreviousLoaded(workout: WorkoutFull?) {
         val exercises = workout?.exercises ?: return
         for (exercise in exercises) {
-            val key = ExerciseExecutionKey(
-                exerciseId = exercise.exercise.id,
-                variantSyncId = exercise.workoutExercise.variantSyncId,
-            )
-            if (previousSummaries.value.containsKey(key) || key in loadingPrevious) {
+            val exerciseId = exercise.exercise.id
+            if (previousSummaries.value.containsKey(exerciseId) || exerciseId in loadingPrevious) {
                 continue
             }
-            loadingPrevious += key
+            loadingPrevious += exerciseId
             viewModelScope.launch {
-                val sets = previousSetsUseCase(key)
+                val sets = previousSetsUseCase(exerciseId)
                 val summary = previousSetsUseCase.formatSummary(sets, exercise.exercise.type)
-                previousSummaries.update { it + (key to summary) }
-                loadingPrevious -= key
+                previousSummaries.update { it + (exerciseId to summary) }
+                loadingPrevious -= exerciseId
             }
         }
     }

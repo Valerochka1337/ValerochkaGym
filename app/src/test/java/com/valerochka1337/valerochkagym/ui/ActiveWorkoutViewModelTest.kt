@@ -23,7 +23,6 @@ import com.valerochka1337.valerochkagym.data.db.relation.WorkoutFull
 import com.valerochka1337.valerochkagym.data.settings.SettingsRepository
 import com.valerochka1337.valerochkagym.domain.ActiveWorkoutRepository
 import com.valerochka1337.valerochkagym.domain.CompleteSetUseCase
-import com.valerochka1337.valerochkagym.domain.ExerciseExecutionKey
 import com.valerochka1337.valerochkagym.domain.PreviousSetsUseCase
 import com.valerochka1337.valerochkagym.domain.RestDurationResolver
 import com.valerochka1337.valerochkagym.domain.RoutineGymConflictException
@@ -94,10 +93,7 @@ class ActiveWorkoutViewModelTest {
 
             val state = harness.viewModel.uiState.value
             assertEquals("w1", state.workout?.workout?.id)
-            assertEquals(
-                "100×5, 100×4",
-                state.previousByExercise[ExerciseExecutionKey(EXERCISE_ID, null)],
-            )
+            assertEquals("100×5, 100×4", state.previousByExercise[EXERCISE_ID])
         }
 
     // endregion
@@ -499,10 +495,6 @@ class ActiveWorkoutViewModelTest {
     private class FakeWorkoutDao(private val previousSets: List<WorkoutSetEntity>) : WorkoutDao {
         override fun observeFinishedExerciseHistory() = flowOf(emptyList<com.valerochka1337.valerochkagym.data.db.relation.ExerciseWorkoutHistoryRow>())
         override suspend fun lastCompletedSetsForExercise(exerciseId: Long): List<WorkoutSetEntity> = previousSets
-        override suspend fun lastCompletedSetsForKey(exerciseId: Long, variantSyncId: String?): List<WorkoutSetEntity> = previousSets
-        override suspend fun completedSetCount(workoutExerciseId: Long): Int = 0
-        override suspend fun getWorkoutExercise(id: Long): WorkoutExerciseEntity? = null
-        override suspend fun updateWorkoutExercise(exercise: WorkoutExerciseEntity) = Unit
         override suspend fun insertWorkout(workout: WorkoutEntity) = Unit
         override suspend fun insertWorkoutExercise(workoutExercise: WorkoutExerciseEntity): Long = 0
         override suspend fun insertSet(set: WorkoutSetEntity): Long = 0
@@ -520,7 +512,6 @@ class ActiveWorkoutViewModelTest {
         override fun observeCompletedSets(): Flow<List<AnalyticsSetRow>> = flowOf(emptyList())
         override suspend fun getWorkoutFull(id: String): WorkoutFull? = null
         override suspend fun maxCompletedWeight(exerciseId: Long, excludeWorkoutId: String): Double? = null
-        override suspend fun maxCompletedWeightForKey(exerciseId: Long, variantSyncId: String?, excludeWorkoutId: String): Double? = null
         override suspend fun setUploadStatus(workoutId: String, status: UploadStatus, error: String?) = Unit
         override fun observeWorkout(id: String): Flow<WorkoutEntity?> = flowOf(null)
         override suspend fun getFinishedNotUploaded(): List<String> = emptyList()

@@ -11,7 +11,6 @@ import com.valerochka1337.valerochkagym.data.db.PlannedSet
 import com.valerochka1337.valerochkagym.data.db.entity.BodyMeasurementEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
-import com.valerochka1337.valerochkagym.data.db.entity.ExerciseVariantEntity
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleGroup
 import com.valerochka1337.valerochkagym.data.db.entity.RoutineEntity
 import com.valerochka1337.valerochkagym.data.db.entity.UploadStatus
@@ -48,10 +47,24 @@ import java.io.IOException
 class WorkoutImportRepositoryTest : RoomDaoTest() {
 
     private val header = WorkoutRowMapper.HEADER_ROW.take(14)
+    private val v9Header = WorkoutRowMapper.HEADER_ROW
     private fun dataRow(
         id: String, date: String, time: String, name: String, exercise: String,
         muscle: String, type: String, setIndex: String, weight: String = "", reps: String = "",
     ) = listOf(id, date, time, name, exercise, muscle, type, setIndex, weight, reps, "", "", "", "")
+
+    @Test
+    fun `rejects conflicting v9 section tuple before writing local workout`() = runTest {
+        val base = dataRow("w-v9", "2026-01-02", "10:00", "T", "Жим", "Грудь", "Силовое", "1", "80", "8") +
+            listOf("11111111-1111-1111-1111-111111111111", "0", "22222222-2222-2222-2222-222222222222", "legacy", "Узкий хват")
+        val conflict = base.toMutableList().also { it[15] = "1" }
+        val api = FakeSheetsApi(sheets = mutableListOf("Workouts"), values = mutableListOf(v9Header, base, conflict))
+
+        val result = repository(api).importAll()
+
+        assertTrue(result is ImportResult.Failure)
+        assertEquals(0, tableCount("workouts"))
+    }
 
     @Test
     fun `imports new workouts and marks them UPLOADED with honest finish`() = runTest {
@@ -92,80 +105,6 @@ class WorkoutImportRepositoryTest : RoomDaoTest() {
 
         // Присед переиспользован (1), Жим создан (2) → всего 2 упражнения.
         assertEquals(2, tableCount("exercises"))
-    }
-
-    @Test
-    fun `malformed current workout tuple aborts before any local import mutation`() = runTest {
-        db.exerciseDao().insert(
-            ExerciseEntity(name = "Локальное", muscleGroup = MuscleGroup.BACK, type = ExerciseType.STRENGTH),
-        )
-        val malformed = dataRow("bad", "2026-01-02", "10:00", "T", "Жим", "Грудь", "Силовое", "1", "80", "8") +
-            listOf("broken-section", "0", "11111111-1111-1111-1111-111111111111", "", "")
-        val api = FakeSheetsApi(
-            sheets = mutableListOf("Workouts"),
-            values = mutableListOf(WorkoutRowMapper.HEADER_ROW, malformed),
-        )
-
-        assertTrue(repository(api).importAll() is ImportResult.Failure)
-        assertEquals(1, tableCount("exercises"))
-        assertEquals(0, tableCount("workouts"))
-    }
-
-    @Test
-    fun `invalid current section position rolls back import before workout creation`() = runTest {
-        val malformed = dataRow("bad-position", "2026-01-02", "10:00", "T", "Жим", "Грудь", "Силовое", "1", "80", "8") +
-            listOf("11111111-1111-1111-1111-111111111111", "-1", "22222222-2222-2222-2222-222222222222", "", "")
-        val api = FakeSheetsApi(
-            sheets = mutableListOf("Workouts"),
-            values = mutableListOf(WorkoutRowMapper.HEADER_ROW, malformed),
-        )
-
-        assertTrue(repository(api).importAll() is ImportResult.Failure)
-        assertEquals(0, tableCount("workouts"))
-        assertEquals(0, tableCount("exercises"))
-    }
-
-    @Test
-    fun `current workout columns restore ordered independent sections and completed snapshots`() = runTest {
-        val base = "11111111-1111-1111-1111-111111111111"
-        val variant = "22222222-2222-2222-2222-222222222222"
-        val firstSection = "33333333-3333-3333-3333-333333333333"
-        val secondSection = "44444444-4444-4444-4444-444444444444"
-        val exerciseId = db.exerciseDao().insert(
-            ExerciseEntity(
-                name = "Жим",
-                muscleGroup = MuscleGroup.CHEST,
-                type = ExerciseType.STRENGTH,
-                syncId = base,
-            ),
-        )
-        db.exerciseVariantDao().insert(
-            ExerciseVariantEntity(syncId = variant, exerciseId = exerciseId, name = "Узкий хват"),
-        )
-        fun row(section: String, position: Int, variantId: String?, snapshot: String?, weight: String, reps: String) =
-            dataRow("round-trip", "2026-01-02", "10:00", "День груди", "Жим", "Грудь", "Силовое", "1", weight, reps) +
-                listOf(section, position.toString(), base, variantId.orEmpty(), snapshot.orEmpty())
-        val api = FakeSheetsApi(
-            sheets = mutableListOf("Workouts"),
-            values = mutableListOf(
-                WorkoutRowMapper.HEADER_ROW,
-                row(firstSection, 0, variant, "Узкий хват", "80", "8"),
-                row(secondSection, 1, null, null, "70", "10"),
-            ),
-        )
-
-        assertEquals(ImportResult.Success(1), repository(api).importAll())
-
-        val restored = workoutFull("round-trip").exercises
-        assertEquals(listOf(firstSection, secondSection), restored.map { it.workoutExercise.sectionId })
-        assertEquals(listOf(0, 1), restored.map { it.workoutExercise.position })
-        assertEquals(base, restored[0].exercise.syncId)
-        assertEquals(variant, restored[0].workoutExercise.variantSyncId)
-        assertEquals("Узкий хват", restored[0].workoutExercise.variantNameSnapshot)
-        assertEquals(null, restored[1].workoutExercise.variantSyncId)
-        assertEquals(null, restored[1].workoutExercise.variantNameSnapshot)
-        assertEquals(listOf(80.0, 70.0), restored.map { it.sets.single().weightKg })
-        assertTrue(restored.all { it.sets.single().isCompleted })
     }
 
     @Test

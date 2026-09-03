@@ -8,7 +8,6 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 import com.valerochka1337.valerochkagym.data.db.dao.BodyMeasurementDao
 import com.valerochka1337.valerochkagym.data.db.dao.ConfigurationTombstoneDao
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseDao
-import com.valerochka1337.valerochkagym.data.db.dao.ExerciseVariantDao
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseMuscleDao
 import com.valerochka1337.valerochkagym.data.db.dao.GymDao
 import com.valerochka1337.valerochkagym.data.db.dao.RoutineDao
@@ -17,7 +16,6 @@ import com.valerochka1337.valerochkagym.data.db.dao.WorkoutDao
 import com.valerochka1337.valerochkagym.data.db.entity.BodyMeasurementEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ConfigurationTombstoneEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
-import com.valerochka1337.valerochkagym.data.db.entity.ExerciseVariantEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseMuscleEntity
 import com.valerochka1337.valerochkagym.data.db.entity.GymEntity
 import com.valerochka1337.valerochkagym.data.db.entity.GymExerciseEntity
@@ -38,7 +36,6 @@ import java.util.UUID
         BodyMeasurementEntity::class,
         ConfigurationTombstoneEntity::class,
         ExerciseEntity::class,
-        ExerciseVariantEntity::class,
         ExerciseMuscleEntity::class,
         GymEntity::class,
         GymExerciseEntity::class,
@@ -51,7 +48,7 @@ import java.util.UUID
         WorkoutGymEntity::class,
         WorkoutSetEntity::class,
     ],
-    version = 9,
+    version = 12,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -59,7 +56,6 @@ abstract class GymDatabase : RoomDatabase() {
     abstract fun bodyMeasurementDao(): BodyMeasurementDao
     abstract fun configurationTombstoneDao(): ConfigurationTombstoneDao
     abstract fun exerciseDao(): ExerciseDao
-    abstract fun exerciseVariantDao(): ExerciseVariantDao
     abstract fun exerciseMuscleDao(): ExerciseMuscleDao
     abstract fun gymDao(): GymDao
     abstract fun routineDao(): RoutineDao
@@ -296,25 +292,20 @@ abstract class GymDatabase : RoomDatabase() {
             }
         }
 
-        /**
-         * v8 → v9: named execution variants. Routine rows keep a live composite ownership FK;
-         * workout rows intentionally store only a stable id plus immutable display snapshot so
-         * archival/import cannot rewrite history. Legacy rows are the explicit no-variant group.
-         */
+        /** v8 → v9: retained shipping migration for devices upgrading through v10. */
         val MIGRATION_8_9: Migration = object : Migration(8, 9) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL(
                     "CREATE TABLE IF NOT EXISTS `exercise_variants` (" +
-                        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
-                        "`syncId` TEXT NOT NULL, `exerciseId` INTEGER NOT NULL, " +
-                        "`name` TEXT NOT NULL, `normalizedName` TEXT NOT NULL, `isArchived` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, " +
+                        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `syncId` TEXT NOT NULL, " +
+                        "`exerciseId` INTEGER NOT NULL, `name` TEXT NOT NULL, `normalizedName` TEXT NOT NULL, " +
+                        "`isArchived` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, " +
                         "FOREIGN KEY(`exerciseId`) REFERENCES `exercises`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE)",
                 )
                 db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_exercise_variants_syncId` ON `exercise_variants` (`syncId`)")
                 db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_exercise_variants_exerciseId_syncId` ON `exercise_variants` (`exerciseId`, `syncId`)")
                 db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_exercise_variants_exerciseId_normalizedName` ON `exercise_variants` (`exerciseId`, `normalizedName`)")
                 db.execSQL("CREATE INDEX IF NOT EXISTS `index_exercise_variants_exerciseId_isArchived` ON `exercise_variants` (`exerciseId`, `isArchived`)")
-
                 db.execSQL(
                     "CREATE TABLE IF NOT EXISTS `routine_exercises_new` (" +
                         "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `routineId` INTEGER NOT NULL, " +
@@ -333,47 +324,167 @@ abstract class GymDatabase : RoomDatabase() {
                 db.execSQL("CREATE INDEX IF NOT EXISTS `index_routine_exercises_routineId` ON `routine_exercises` (`routineId`)")
                 db.execSQL("CREATE INDEX IF NOT EXISTS `index_routine_exercises_exerciseId` ON `routine_exercises` (`exerciseId`)")
                 db.execSQL("CREATE INDEX IF NOT EXISTS `index_routine_exercises_exerciseId_variantSyncId` ON `routine_exercises` (`exerciseId`, `variantSyncId`)")
-
                 db.execSQL(
                     "CREATE TABLE IF NOT EXISTS `workout_exercises_new` (" +
                         "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `workoutId` TEXT NOT NULL, " +
                         "`exerciseId` INTEGER NOT NULL, `sectionId` TEXT NOT NULL, `variantSyncId` TEXT, " +
-                        "`variantNameSnapshot` TEXT, `position` INTEGER NOT NULL, " +
-                        "CHECK(length(trim(`sectionId`)) > 0), " +
+                        "`variantNameSnapshot` TEXT, `position` INTEGER NOT NULL, CHECK(length(trim(`sectionId`)) > 0), " +
                         "CHECK((`variantSyncId` IS NULL AND `variantNameSnapshot` IS NULL) OR " +
                         "(`variantSyncId` IS NOT NULL AND length(trim(`variantNameSnapshot`)) > 0)), " +
                         "FOREIGN KEY(`workoutId`) REFERENCES `workouts`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE, " +
                         "FOREIGN KEY(`exerciseId`) REFERENCES `exercises`(`id`) ON UPDATE NO ACTION ON DELETE NO ACTION)",
                 )
-                // Rebuilding a parent table can cascade-delete its children while foreign keys
-                // are enabled. Keep the complete set rows aside and restore them only after the
-                // replacement parent and its legacy ids are present again.
                 db.execSQL("CREATE TABLE `workout_sets_v8_backup` AS SELECT * FROM `workout_sets`")
                 db.query("SELECT `id`, `workoutId`, `exerciseId`, `position` FROM `workout_exercises`").use { cursor ->
                     while (cursor.moveToNext()) {
                         db.execSQL(
                             "INSERT INTO `workout_exercises_new` (`id`,`workoutId`,`exerciseId`,`sectionId`,`variantSyncId`,`variantNameSnapshot`,`position`) VALUES (?,?,?,?,?,?,?)",
-                            arrayOf<Any?>(
-                                cursor.getLong(0), cursor.getString(1), cursor.getLong(2),
-                                UUID.randomUUID().toString(), null, null, cursor.getInt(3),
-                            ),
+                            arrayOf<Any?>(cursor.getLong(0), cursor.getString(1), cursor.getLong(2), UUID.randomUUID().toString(), null, null, cursor.getInt(3)),
                         )
                     }
                 }
                 db.execSQL("DROP TABLE `workout_exercises`")
                 db.execSQL("ALTER TABLE `workout_exercises_new` RENAME TO `workout_exercises`")
-                // Depending on the SQLite connection's foreign-key mode, dropping the rebuilt
-                // parent either cascades these rows or leaves them intact. Replace either state
-                // with the exact backup, never append it (which would duplicate primary keys).
                 db.execSQL("DELETE FROM `workout_sets`")
-                db.execSQL(
-                    "INSERT INTO `workout_sets` SELECT * FROM `workout_sets_v8_backup`",
-                )
+                db.execSQL("INSERT INTO `workout_sets` SELECT * FROM `workout_sets_v8_backup`")
                 db.execSQL("DROP TABLE `workout_sets_v8_backup`")
                 db.execSQL("CREATE INDEX IF NOT EXISTS `index_workout_exercises_workoutId` ON `workout_exercises` (`workoutId`)")
                 db.execSQL("CREATE INDEX IF NOT EXISTS `index_workout_exercises_exerciseId` ON `workout_exercises` (`exerciseId`)")
                 db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_workout_exercises_sectionId` ON `workout_exercises` (`sectionId`)")
             }
         }
+
+        /** v9 → v10: discard variant metadata while preserving every base row and workout set. */
+        val MIGRATION_9_10: Migration = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.beginTransaction()
+                try {
+                    db.execSQL(
+                        "CREATE TABLE `routine_exercises_new` (" +
+                            "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `routineId` INTEGER NOT NULL, " +
+                            "`exerciseId` INTEGER NOT NULL, `position` INTEGER NOT NULL, `restSeconds` INTEGER, " +
+                            "`plannedSetsJson` TEXT NOT NULL, " +
+                            "FOREIGN KEY(`routineId`) REFERENCES `routines`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE, " +
+                            "FOREIGN KEY(`exerciseId`) REFERENCES `exercises`(`id`) ON UPDATE NO ACTION ON DELETE NO ACTION)",
+                    )
+                    db.execSQL(
+                        "INSERT INTO `routine_exercises_new` (`id`,`routineId`,`exerciseId`,`position`,`restSeconds`,`plannedSetsJson`) " +
+                            "SELECT `id`,`routineId`,`exerciseId`,`position`,`restSeconds`,`plannedSetsJson` FROM `routine_exercises`",
+                    )
+                    db.execSQL("DROP TABLE `routine_exercises`")
+                    db.execSQL("ALTER TABLE `routine_exercises_new` RENAME TO `routine_exercises`")
+                    db.execSQL("CREATE INDEX `index_routine_exercises_routineId` ON `routine_exercises` (`routineId`)")
+                    db.execSQL("CREATE INDEX `index_routine_exercises_exerciseId` ON `routine_exercises` (`exerciseId`)")
+
+                    db.execSQL("CREATE TABLE `workout_sets_v9_backup` AS SELECT * FROM `workout_sets`")
+                    db.execSQL(
+                        "CREATE TABLE `workout_exercises_new` (" +
+                            "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `workoutId` TEXT NOT NULL, " +
+                            "`exerciseId` INTEGER NOT NULL, `sectionId` TEXT NOT NULL, `position` INTEGER NOT NULL, " +
+                            "CHECK(length(trim(`sectionId`)) > 0), " +
+                            "FOREIGN KEY(`workoutId`) REFERENCES `workouts`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE, " +
+                            "FOREIGN KEY(`exerciseId`) REFERENCES `exercises`(`id`) ON UPDATE NO ACTION ON DELETE NO ACTION)",
+                    )
+                    db.execSQL(
+                        "INSERT INTO `workout_exercises_new` (`id`,`workoutId`,`exerciseId`,`sectionId`,`position`) " +
+                            "SELECT `id`,`workoutId`,`exerciseId`,`sectionId`,`position` FROM `workout_exercises`",
+                    )
+                    db.execSQL("DROP TABLE `workout_exercises`")
+                    db.execSQL("ALTER TABLE `workout_exercises_new` RENAME TO `workout_exercises`")
+                    db.execSQL("DELETE FROM `workout_sets`")
+                    db.execSQL("INSERT INTO `workout_sets` SELECT * FROM `workout_sets_v9_backup`")
+                    db.execSQL("DROP TABLE `workout_sets_v9_backup`")
+                    db.execSQL("CREATE INDEX `index_workout_exercises_workoutId` ON `workout_exercises` (`workoutId`)")
+                    db.execSQL("CREATE INDEX `index_workout_exercises_exerciseId` ON `workout_exercises` (`exerciseId`)")
+                    db.execSQL("CREATE UNIQUE INDEX `index_workout_exercises_sectionId` ON `workout_exercises` (`sectionId`)")
+                    db.execSQL("DROP TABLE `exercise_variants`")
+                    db.setTransactionSuccessful()
+                } finally {
+                    db.endTransaction()
+                }
+            }
+        }
+
+        /** v10 → v12: v10 уже имеет целевую base-only схему. */
+        val MIGRATION_10_12: Migration = object : Migration(10, 12) {
+            override fun migrate(db: SupportSQLiteDatabase) = Unit
+        }
+
+        /**
+         * v11 → v12: recovery для выпущенной до v10 вариации, которая успела попасть на
+         * устройства. Сначала удаляем дочерние мышцы, затем перестраиваем таблицы, сохраняем
+         * подходы через backup и только после этого удаляем варианты.
+         */
+        val MIGRATION_11_12: Migration = object : Migration(11, 12) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.beginTransaction()
+                try {
+                    db.execSQL("DROP TABLE `exercise_variant_muscles`")
+
+                    db.execSQL(
+                        "CREATE TABLE `routine_exercises_new` (" +
+                            "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `routineId` INTEGER NOT NULL, " +
+                            "`exerciseId` INTEGER NOT NULL, `position` INTEGER NOT NULL, `restSeconds` INTEGER, " +
+                            "`plannedSetsJson` TEXT NOT NULL, " +
+                            "FOREIGN KEY(`routineId`) REFERENCES `routines`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE, " +
+                            "FOREIGN KEY(`exerciseId`) REFERENCES `exercises`(`id`) ON UPDATE NO ACTION ON DELETE NO ACTION)",
+                    )
+                    db.execSQL(
+                        "INSERT INTO `routine_exercises_new` (`id`,`routineId`,`exerciseId`,`position`,`restSeconds`,`plannedSetsJson`) " +
+                            "SELECT `id`,`routineId`,`exerciseId`,`position`,`restSeconds`,`plannedSetsJson` FROM `routine_exercises`",
+                    )
+                    db.execSQL("DROP TABLE `routine_exercises`")
+                    db.execSQL("ALTER TABLE `routine_exercises_new` RENAME TO `routine_exercises`")
+                    db.execSQL("CREATE INDEX `index_routine_exercises_routineId` ON `routine_exercises` (`routineId`)")
+                    db.execSQL("CREATE INDEX `index_routine_exercises_exerciseId` ON `routine_exercises` (`exerciseId`)")
+
+                    db.execSQL("CREATE TABLE `workout_sets_v11_backup` AS SELECT * FROM `workout_sets`")
+                    db.execSQL(
+                        "CREATE TABLE `workout_exercises_new` (" +
+                            "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `workoutId` TEXT NOT NULL, " +
+                            "`exerciseId` INTEGER NOT NULL, `sectionId` TEXT NOT NULL, `position` INTEGER NOT NULL, " +
+                            "FOREIGN KEY(`workoutId`) REFERENCES `workouts`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE, " +
+                            "FOREIGN KEY(`exerciseId`) REFERENCES `exercises`(`id`) ON UPDATE NO ACTION ON DELETE NO ACTION)",
+                    )
+                    db.execSQL(
+                        "INSERT INTO `workout_exercises_new` (`id`,`workoutId`,`exerciseId`,`sectionId`,`position`) " +
+                            "SELECT `id`,`workoutId`,`exerciseId`,`sectionId`,`position` FROM `workout_exercises`",
+                    )
+                    db.execSQL("DROP TABLE `workout_exercises`")
+                    db.execSQL("ALTER TABLE `workout_exercises_new` RENAME TO `workout_exercises`")
+                    db.execSQL("DELETE FROM `workout_sets`")
+                    db.execSQL(
+                        "INSERT INTO `workout_sets` (`id`,`workoutExerciseId`,`setIndex`,`weightKg`,`reps`," +
+                            "`durationSec`,`speedKmh`,`inclinePct`,`isCompleted`,`completedAt`) " +
+                            "SELECT `id`,`workoutExerciseId`,`setIndex`,`weightKg`,`reps`,`durationSec`," +
+                            "`speedKmh`,`inclinePct`,`isCompleted`,`completedAt` FROM `workout_sets_v11_backup`",
+                    )
+                    db.execSQL("DROP TABLE `workout_sets_v11_backup`")
+                    db.execSQL("CREATE INDEX `index_workout_exercises_workoutId` ON `workout_exercises` (`workoutId`)")
+                    db.execSQL("CREATE INDEX `index_workout_exercises_exerciseId` ON `workout_exercises` (`exerciseId`)")
+                    db.execSQL("CREATE UNIQUE INDEX `index_workout_exercises_sectionId` ON `workout_exercises` (`sectionId`)")
+
+                    db.execSQL("DROP TABLE `exercise_variants`")
+                    db.setTransactionSuccessful()
+                } finally {
+                    db.endTransaction()
+                }
+            }
+        }
+
+        /** Единственный production/test реестр всех поддерживаемых путей до текущей схемы. */
+        val ALL_MIGRATIONS: Array<Migration> = arrayOf(
+            MIGRATION_1_2,
+            MIGRATION_2_3,
+            MIGRATION_3_4,
+            MIGRATION_4_5,
+            MIGRATION_5_6,
+            MIGRATION_6_7,
+            MIGRATION_7_8,
+            MIGRATION_8_9,
+            MIGRATION_9_10,
+            MIGRATION_10_12,
+            MIGRATION_11_12,
+        )
     }
 }

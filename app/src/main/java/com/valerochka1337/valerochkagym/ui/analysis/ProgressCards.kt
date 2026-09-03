@@ -18,7 +18,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import com.valerochka1337.valerochkagym.domain.ExerciseExecutionKey
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -106,9 +105,9 @@ internal fun SummaryCard(
 @Composable
 internal fun ExerciseProgressCard(
     state: AnalysisUiState,
-    onExerciseSelected: (ExerciseExecutionKey) -> Unit,
+    onExerciseSelected: (Long) -> Unit,
     onSessionSelected: (Int?) -> Unit,
-    onExerciseClick: (Long, String?) -> Unit,
+    onExerciseClick: (Long) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val exercises = state.report.exercises
@@ -122,15 +121,13 @@ internal fun ExerciseProgressCard(
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             ScrollableChipRow(
-                options = exercises.take(MAX_PICKABLE_EXERCISES).map { ExerciseExecutionKey(it.exerciseId, it.variantSyncId) },
-                selected = ExerciseExecutionKey(shown.exerciseId, shown.variantSyncId),
-                label = { key -> exercises.first { ExerciseExecutionKey(it.exerciseId, it.variantSyncId) == key }.let {
-                    "${it.name}${it.variantNameSnapshot?.let { name -> " · $name" }.orEmpty()}"
-                } },
+                options = exercises.take(MAX_PICKABLE_EXERCISES).map { it.exerciseId },
+                selected = shown.exerciseId,
+                label = { id -> exercises.first { it.exerciseId == id }.name },
                 onSelect = onExerciseSelected,
                 modifier = Modifier.weight(1f),
             )
-            IconButton(onClick = { onExerciseClick(shown.exerciseId, shown.variantSyncId) }) {
+            IconButton(onClick = { onExerciseClick(shown.exerciseId) }) {
                 Icon(Icons.Rounded.Info, contentDescription = "Открыть карточку упражнения")
             }
         }
@@ -259,7 +256,7 @@ private fun SessionDetails(
 @Composable
 internal fun RecordsCard(
     state: AnalysisUiState,
-    onExerciseClick: (Long, String?) -> Unit,
+    onExerciseClick: (Long) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val records = state.report.records.take(MAX_RECORDS)
@@ -276,12 +273,12 @@ internal fun RecordsCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .heightIn(min = 48.dp)
-                    .clickable { onExerciseClick(record.exerciseId, record.variantSyncId) },
+                    .clickable { onExerciseClick(record.exerciseId) },
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "${record.name}${record.variantNameSnapshot?.let { " · $it" }.orEmpty()}",
+                        text = record.name,
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 1,

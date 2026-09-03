@@ -60,8 +60,8 @@ di/        Hilt-модули (Data, Domain, Google, Network) и квалифик
 
 ## База данных
 
-Room v8, схемы коммитятся в `app/schemas/`, миграции только рукописные
-(`MIGRATION_1_2` … `MIGRATION_7_8`) — `fallbackToDestructiveMigration` запрещён. Замеры тела лежат отдельно в `body_measurements`: все
+Room v12, схемы коммитятся в `app/schemas/`, миграции только рукописные
+(`MIGRATION_1_2` … `MIGRATION_11_12`) — `fallbackToDestructiveMigration` запрещён. Замеры тела лежат отдельно в `body_measurements`: все
 показатели nullable (пропуск не равен нулю), а масса жира и WHR при отсутствии явного
 InBody-значения вычисляются из сохранённых показателей. В v5 добавлены фактические поля полного
 отчёта и фиксированные nullable-поля пяти сегментов; ID, пол, возраст, рост, цели контроля веса,

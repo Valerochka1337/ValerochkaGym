@@ -29,10 +29,8 @@ object RoutineRowMapper {
         "variant_id",
     )
 
-    /** Формат до stable exercise ids: импорт по-прежнему принимает эти 11 колонок. */
+    /** Формат до gym-config: импорт по-прежнему принимает эти 11 колонок. */
     val LEGACY_HEADER_ROW: List<String> = HEADER_ROW.take(11)
-    /** Current pre-variant app header (A:L). */
-    val STABLE_EXERCISE_HEADER_ROW: List<String> = HEADER_ROW.take(12)
 
     fun rows(routine: RoutineWithExercises): List<List<Any?>> {
         val base = listOf<Any?>(
@@ -56,7 +54,7 @@ object RoutineRowMapper {
                 item.routineExercise.restSeconds,
                 JSON.encodeToString(item.routineExercise.plannedSets),
                 item.exercise.syncId,
-                item.routineExercise.variantSyncId,
+                "",
             )
         }
     }

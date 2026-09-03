@@ -60,7 +60,7 @@ import com.valerochka1337.valerochkagym.ui.haptics.gymHaptics
 @Composable
 fun WorkoutDetailScreen(
     onBack: () -> Unit,
-    onExerciseClick: (Long, String?) -> Unit,
+    onExerciseClick: (Long) -> Unit,
     modifier: Modifier = Modifier,
     viewModel: WorkoutDetailViewModel = hiltViewModel(),
 ) {
@@ -117,7 +117,7 @@ fun WorkoutDetailScreen(
                             exercise = exercise,
                             onClick = {
                                 haptics.tap()
-                                onExerciseClick(exercise.exerciseId, exercise.variantSyncId)
+                                onExerciseClick(exercise.exerciseId)
                             },
                             modifier = Modifier.animateItem(),
                         )
@@ -341,9 +341,6 @@ private fun ExerciseCard(
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
-                exercise.variantName?.let { variant ->
-                    Text("Вариант: $variant", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
                 Text(
                     text = exercise.muscleGroup,
                     style = MaterialTheme.typography.labelMedium,

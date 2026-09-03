@@ -21,20 +21,13 @@ import com.valerochka1337.valerochkagym.data.db.PlannedSet
             parentColumns = ["id"],
             childColumns = ["exerciseId"],
         ),
-        ForeignKey(
-            entity = ExerciseVariantEntity::class,
-            parentColumns = ["exerciseId", "syncId"],
-            childColumns = ["exerciseId", "variantSyncId"],
-        ),
     ],
-    indices = [Index("routineId"), Index("exerciseId"), Index(value = ["exerciseId", "variantSyncId"])],
+    indices = [Index("routineId"), Index("exerciseId")],
 )
 data class RoutineExerciseEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val routineId: Long,
     val exerciseId: Long,
-    /** Null is the durable and comparable "Без варианта" group. */
-    val variantSyncId: String? = null,
     val position: Int,
     val restSeconds: Int? = null,
     @ColumnInfo(name = "plannedSetsJson") val plannedSets: List<PlannedSet> = emptyList(),
