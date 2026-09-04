@@ -27,7 +27,7 @@ class MuscleHeatmapProjectionTest {
     }
 
     @Test
-    fun `selected member keeps sector heatmap fill and uses a scrim outline`() {
+    fun `selected member keeps sector heatmap fill and uses the theme foreground outline`() {
         val loads = mapOf(
             Muscle.UPPER_CHEST to summary(Muscle.UPPER_CHEST, 12.0, VolumeZone.GROWTH_GUIDE),
             Muscle.LOWER_CHEST to summary(Muscle.LOWER_CHEST, 3.0, VolumeZone.BASE),
@@ -39,6 +39,10 @@ class MuscleHeatmapProjectionTest {
         assertEquals(
             Color.Black,
             selectedOutlineColorFor(Muscle.LOWER_CHEST, chest, Color.Black),
+        )
+        assertEquals(
+            Color.White,
+            selectedOutlineColorFor(Muscle.LOWER_CHEST, chest, Color.White),
         )
     }
 
