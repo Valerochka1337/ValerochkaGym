@@ -48,9 +48,10 @@ import com.valerochka1337.valerochkagym.data.db.entity.Muscle
 import com.valerochka1337.valerochkagym.domain.displayName
 import com.valerochka1337.valerochkagym.ui.haptics.gymHaptics
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlin.math.abs
+
+internal val MuscleSelectorCellWidth = 144.dp
 
 /** Pure virtual-wheel math. A virtual index is intentionally never part of the UI contract. */
 internal object MuscleSelectorState {
@@ -291,7 +292,7 @@ fun MuscleSelector(
                 .align(Alignment.CenterHorizontally)
                 .wrapContentHeight(),
         ) {
-            val cellWidth = 136.dp
+            val cellWidth = MuscleSelectorCellWidth
             val sidePeekWidth = ((maxWidth - cellWidth) / 2).coerceAtLeast(0.dp)
             // Lazy layouts have no intrinsic measurement. This invisible, semantic-free row gives
             // the box its real wrapped height before the matching LazyRow is measured.

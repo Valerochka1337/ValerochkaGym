@@ -78,12 +78,6 @@ class MuscleSelectorComposeTest {
         compose.runOnIdle {
             assertEquals(listOf(Muscle.LOWER_CHEST), selections)
             assertEquals(1, recorder.performed.size)
-            val previous = compose.onNodeWithTag("muscle_selector_previous").fetchSemanticsNode().boundsInRoot
-            val current = compose.onNodeWithTag("muscle_selector_current").fetchSemanticsNode().boundsInRoot
-            val next = compose.onNodeWithTag("muscle_selector_next").fetchSemanticsNode().boundsInRoot
-            assertEquals(previous.width, current.width, 1.1f)
-            assertEquals(previous.right, current.left, 1.1f)
-            assertEquals(current.right, next.left, 1.1f)
         }
 
         compose.onNodeWithTag("muscle_selector_next").performClick()
@@ -330,17 +324,14 @@ class MuscleSelectorComposeTest {
         assertTrue(tibialis.top >= viewport.top && tibialis.bottom <= viewport.bottom)
         assertTrue(longRole.top >= viewport.top && longRole.bottom <= viewport.bottom)
         assertTrue(previousDivider.height == viewport.height && nextDivider.height == viewport.height)
-        assertEquals(previousSlot.width, currentSlot.width, 1.1f)
-        assertEquals(previousSlot.width, nextSlot.width, 1.1f)
-        assertEquals(previousSlot.right, currentSlot.left, 1.1f)
-        assertEquals(currentSlot.right, nextSlot.left, 1.1f)
+        assertEquals(MuscleSelectorCellWidth.value, nextDivider.left - previousDivider.left, 1.1f)
         val minTouchHeight = 48f
         assertTrue(previousSlot.height >= minTouchHeight)
         assertTrue(nextSlot.height >= minTouchHeight)
     }
 
     @Test
-    fun `selector centres equal cells and lets neighbors peek beyond its compact viewport`() {
+    fun `selector centers its compact selection area in the full-width carousel`() {
         val recorder = RecordingHaptics()
         compose.setContent {
             SelectorContent(recorder = recorder, selected = Muscle.UPPER_CHEST, onSelected = {})
@@ -352,15 +343,21 @@ class MuscleSelectorComposeTest {
         val minTouchHeight = 48f * compose.density.density
 
         val viewport = compose.onNodeWithTag("muscle_selector_viewport").fetchSemanticsNode().boundsInRoot
+        val previousDivider = compose.onNodeWithTag("muscle_selector_divider_previous").fetchSemanticsNode().boundsInRoot
+        val nextDivider = compose.onNodeWithTag("muscle_selector_divider_next").fetchSemanticsNode().boundsInRoot
 
-        assertEquals(previous.width, current.width, 1.1f)
-        assertEquals(previous.width, next.width, 1.1f)
-        assertEquals(previous.right, current.left, 1.1f)
-        assertEquals(current.right, next.left, 1.1f)
+        assertEquals(
+            MuscleSelectorCellWidth.value * compose.density.density,
+            nextDivider.left - previousDivider.left,
+            1.1f,
+        )
+        assertEquals(
+            (viewport.left + viewport.right) / 2f,
+            (previousDivider.left + nextDivider.left) / 2f,
+            1.1f,
+        )
         assertTrue(current.left > viewport.left)
         assertTrue(current.right < viewport.right)
-        assertTrue(previous.left < viewport.left)
-        assertTrue(next.right > viewport.right)
         assertTrue(previous.height >= minTouchHeight)
         assertTrue(next.height >= minTouchHeight)
     }
