@@ -149,7 +149,7 @@ fun BodyMap(
     val haptics = gymHaptics()
     val body = MaterialTheme.colorScheme.surfaceContainerHighest
     val surface = MaterialTheme.colorScheme.surfaceContainerHigh
-    val selectedOutline = MaterialTheme.colorScheme.scrim
+    val selectedOutline = MaterialTheme.colorScheme.onSurface
     val outline = MaterialTheme.colorScheme.outline
     val accessibleMuscles = remember(parsed) { parsed.sectors.flatMap { it.sector.members }.distinct() }
 
@@ -225,8 +225,8 @@ fun BodyMap(
 internal fun selectedOutlineColorFor(
     selectedMuscle: Muscle?,
     sector: MuscleSector,
-    scrim: Color,
-): Color = if (selectedMuscle in sector.members) scrim else Color.Unspecified
+    onSurface: Color,
+): Color = if (selectedMuscle in sector.members) onSurface else Color.Unspecified
 
 private fun BodyView.title(): String = if (this == BodyView.FRONT) "Спереди" else "Сзади"
 
