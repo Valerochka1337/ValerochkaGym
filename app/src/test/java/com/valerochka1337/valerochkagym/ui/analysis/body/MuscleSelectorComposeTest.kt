@@ -6,15 +6,17 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.hapticfeedback.HapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.unit.Density
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsSelected
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.junit4.StateRestorationTester
+import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
@@ -22,9 +24,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeLeft
-import androidx.compose.ui.semantics.SemanticsActions
-import androidx.compose.ui.semantics.SemanticsProperties
-import androidx.compose.ui.test.junit4.StateRestorationTester
+import androidx.compose.ui.unit.Density
 import com.valerochka1337.valerochkagym.data.db.entity.Muscle
 import com.valerochka1337.valerochkagym.domain.displayName
 import com.valerochka1337.valerochkagym.ui.haptics.LocalGymHaptics
@@ -42,352 +42,373 @@ import org.robolectric.annotation.Config
 @Config(application = Application::class, qualifiers = "w420dp-h800dp-xhdpi")
 class MuscleSelectorComposeTest {
 
-    @get:Rule
-    val compose = createComposeRule()
+  @get:Rule val compose = createComposeRule()
 
-    @Test
-    fun `selector exposes three text slots and two decorative dividers without arrows or chips`() {
-        val recorder = RecordingHaptics()
-        compose.setContent {
-            SelectorContent(recorder = recorder, selected = Muscle.UPPER_CHEST, onSelected = {})
-        }
-
-        assertEquals(1, compose.onAllNodesWithTag("muscle_selector_previous").fetchSemanticsNodes().size)
-        assertEquals(1, compose.onAllNodesWithTag("muscle_selector_current").fetchSemanticsNodes().size)
-        assertEquals(1, compose.onAllNodesWithTag("muscle_selector_next").fetchSemanticsNodes().size)
-        compose.onNodeWithTag("muscle_selector_current").assertIsNotEnabled().assertIsSelected()
-        assertEquals(1, compose.onAllNodesWithTag("muscle_selector_divider_previous").fetchSemanticsNodes().size)
-        assertEquals(1, compose.onAllNodesWithTag("muscle_selector_divider_next").fetchSemanticsNodes().size)
-        assertEquals(0, compose.onAllNodesWithText("Открыть весь список").fetchSemanticsNodes().size)
+  @Test
+  fun `selector exposes three text slots and two decorative dividers without arrows or chips`() {
+    val recorder = RecordingHaptics()
+    compose.setContent {
+      SelectorContent(recorder = recorder, selected = Muscle.UPPER_CHEST, onSelected = {})
     }
 
-    @Test
-    fun `neighbor tap emits one changed logical selection and haptic`() {
-        val recorder = RecordingHaptics()
-        val selections = mutableListOf<Muscle>()
-        compose.setContent {
-            SelectorContent(
-                recorder = recorder,
-                selected = Muscle.UPPER_CHEST,
-                onSelected = { selections += it },
-            )
-        }
+    assertEquals(
+        1,
+        compose.onAllNodesWithTag("muscle_selector_previous").fetchSemanticsNodes().size,
+    )
+    assertEquals(1, compose.onAllNodesWithTag("muscle_selector_current").fetchSemanticsNodes().size)
+    assertEquals(1, compose.onAllNodesWithTag("muscle_selector_next").fetchSemanticsNodes().size)
+    compose.onNodeWithTag("muscle_selector_current").assertIsNotEnabled().assertIsSelected()
+    assertEquals(
+        1,
+        compose.onAllNodesWithTag("muscle_selector_divider_previous").fetchSemanticsNodes().size,
+    )
+    assertEquals(
+        1,
+        compose.onAllNodesWithTag("muscle_selector_divider_next").fetchSemanticsNodes().size,
+    )
+    assertEquals(0, compose.onAllNodesWithText("Открыть весь список").fetchSemanticsNodes().size)
+  }
 
-        compose.onNodeWithTag("muscle_selector_next").performClick()
-        compose.waitForIdle()
-        compose.runOnIdle {
-            assertEquals(listOf(Muscle.LOWER_CHEST), selections)
-            assertEquals(1, recorder.performed.size)
-        }
-
-        compose.onNodeWithTag("muscle_selector_next").performClick()
-        compose.waitForIdle()
-
-        compose.runOnIdle {
-            assertEquals(
-                listOf(Muscle.LOWER_CHEST, Muscle.FRONT_DELTS),
-                selections,
-            )
-            assertEquals(2, recorder.performed.size)
-        }
+  @Test
+  fun `neighbor tap emits one changed logical selection and haptic`() {
+    val recorder = RecordingHaptics()
+    val selections = mutableListOf<Muscle>()
+    compose.setContent {
+      SelectorContent(
+          recorder = recorder,
+          selected = Muscle.UPPER_CHEST,
+          onSelected = { selections += it },
+      )
     }
 
-    @Test
-    fun `external selection and null initial choice reconcile silently as logical muscles`() {
-        val recorder = RecordingHaptics()
-        val selections = mutableListOf<Muscle>()
-        var external by mutableStateOf<Muscle?>(null)
-        compose.setContent {
-            SelectorContent(
-                recorder = recorder,
-                selected = external,
-                onSelected = { selections += it },
-            )
-        }
-
-        compose.runOnIdle { external = Muscle.LATS }
-        compose.waitForIdle()
-
-        compose.runOnIdle {
-            assertEquals(emptyList<Muscle>(), selections)
-            assertEquals(0, recorder.performed.size)
-        }
-        compose.onNodeWithText(Muscle.LATS.displayName()).fetchSemanticsNode()
+    compose.onNodeWithTag("muscle_selector_next").performClick()
+    compose.waitForIdle()
+    compose.runOnIdle {
+      assertEquals(listOf(Muscle.LOWER_CHEST), selections)
+      assertEquals(1, recorder.performed.size)
     }
 
-    @Test
-    fun `recreation anchors from restored logical muscle instead of a virtual position`() {
-        val restoration = StateRestorationTester(compose)
-        restoration.setContent {
-            SelectorContent(
-                recorder = RecordingHaptics(),
-                selected = Muscle.UPPER_CHEST,
-                onSelected = {},
-            )
-        }
+    compose.onNodeWithTag("muscle_selector_next").performClick()
+    compose.waitForIdle()
 
-        compose.onNodeWithTag("muscle_selector_viewport").performTouchInput { swipeLeft() }
-        compose.waitForIdle()
-        restoration.emulateSavedInstanceStateRestore()
-        compose.waitForIdle()
+    compose.runOnIdle {
+      assertEquals(
+          listOf(Muscle.LOWER_CHEST, Muscle.FRONT_DELTS),
+          selections,
+      )
+      assertEquals(2, recorder.performed.size)
+    }
+  }
 
-        compose.onNodeWithTag("muscle_selector_current").fetchSemanticsNode()
-        compose.onNodeWithText(Muscle.UPPER_CHEST.displayName()).fetchSemanticsNode()
+  @Test
+  fun `external selection and null initial choice reconcile silently as logical muscles`() {
+    val recorder = RecordingHaptics()
+    val selections = mutableListOf<Muscle>()
+    var external by mutableStateOf<Muscle?>(null)
+    compose.setContent {
+      SelectorContent(
+          recorder = recorder,
+          selected = external,
+          onSelected = { selections += it },
+      )
     }
 
-    @Test
-    fun `fast fling ticks each crossed centre and taps the final selection`() {
-        val recorder = RecordingHaptics()
-        val selections = mutableListOf<Muscle>()
-        compose.setContent {
-            SelectorContent(
-                recorder = recorder,
-                selected = Muscle.UPPER_CHEST,
-                onSelected = { selections += it },
-            )
-        }
+    compose.runOnIdle { external = Muscle.LATS }
+    compose.waitForIdle()
 
-        compose.onNodeWithTag("muscle_selector_viewport").performTouchInput { swipeLeft() }
-        compose.waitForIdle()
+    compose.runOnIdle {
+      assertEquals(emptyList<Muscle>(), selections)
+      assertEquals(0, recorder.performed.size)
+    }
+    compose.onNodeWithText(Muscle.LATS.displayName()).fetchSemanticsNode()
+  }
 
-        compose.runOnIdle {
-            assertEquals(1, selections.size)
-            assertTrue(selections.single() !in MuscleSelectorState.visible(Muscle.UPPER_CHEST))
-            val expectedCrossings = Math.floorMod(
-                Muscle.entries.indexOf(selections.single()) - Muscle.entries.indexOf(Muscle.UPPER_CHEST),
-                Muscle.entries.size,
-            )
-            assertEquals(
-                expectedCrossings,
-                recorder.performed.count { it == HapticFeedbackType.SegmentFrequentTick },
-            )
-            assertEquals(HapticFeedbackType.ContextClick, recorder.performed.last())
-        }
+  @Test
+  fun `recreation anchors from restored logical muscle instead of a virtual position`() {
+    val restoration = StateRestorationTester(compose)
+    restoration.setContent {
+      SelectorContent(
+          recorder = RecordingHaptics(),
+          selected = Muscle.UPPER_CHEST,
+          onSelected = {},
+      )
     }
 
-    @Test
-    fun `external selection arriving during a held drag does not steal the user settlement`() {
-        val recorder = RecordingHaptics()
-        val selections = mutableListOf<Muscle>()
-        var external by mutableStateOf<Muscle?>(Muscle.UPPER_CHEST)
-        compose.setContent {
-            SelectorContent(
-                recorder = recorder,
-                selected = external,
-                onSelected = { muscle ->
-                    selections += muscle
-                    external = muscle
-                },
-            )
-        }
+    compose.onNodeWithTag("muscle_selector_viewport").performTouchInput { swipeLeft() }
+    compose.waitForIdle()
+    restoration.emulateSavedInstanceStateRestore()
+    compose.waitForIdle()
 
-        // Input state deliberately spans two calls: the external update is applied while the
-        // imaginary finger remains down, rather than queued after the gesture has ended.
-        compose.onNodeWithTag("muscle_selector_viewport").performTouchInput {
-            down(center)
-            moveTo(Offset(0f, center.y), delayMillis = 300)
-        }
-        compose.runOnIdle { external = Muscle.LATS }
-        compose.waitForIdle()
-        compose.runOnIdle {
-            assertEquals(emptyList<Muscle>(), selections)
-            assertEquals(0, recorder.performed.size)
-        }
+    compose.onNodeWithTag("muscle_selector_current").fetchSemanticsNode()
+    compose.onNodeWithText(Muscle.UPPER_CHEST.displayName()).fetchSemanticsNode()
+  }
 
-        compose.onNodeWithTag("muscle_selector_viewport").performTouchInput { up() }
-        compose.waitForIdle()
-
-        compose.runOnIdle {
-            assertEquals(1, selections.size)
-            assertTrue(selections.single() != Muscle.LATS)
-            assertEquals(selections.single(), external)
-            assertEquals(HapticFeedbackType.ContextClick, recorder.performed.last())
-        }
+  @Test
+  fun `fast fling ticks each crossed centre and taps the final selection`() {
+    val recorder = RecordingHaptics()
+    val selections = mutableListOf<Muscle>()
+    compose.setContent {
+      SelectorContent(
+          recorder = recorder,
+          selected = Muscle.UPPER_CHEST,
+          onSelected = { selections += it },
+      )
     }
 
-    @Test
-    fun `a cancelled drag does not block a later external selection`() {
-        val recorder = RecordingHaptics()
-        var external by mutableStateOf<Muscle?>(Muscle.UPPER_CHEST)
-        compose.setContent {
-            SelectorContent(
-                recorder = recorder,
-                selected = external,
-                onSelected = { external = it },
-            )
-        }
+    compose.onNodeWithTag("muscle_selector_viewport").performTouchInput { swipeLeft() }
+    compose.waitForIdle()
 
-        // Cross the drag threshold, then return to the original centre before lifting. This
-        // must leave no stale user gesture that would reject the next external update.
-        compose.onNodeWithTag("muscle_selector_viewport").performTouchInput {
-            down(center)
-            moveTo(Offset(center.x - 24f, center.y), delayMillis = 100)
-            moveTo(center, delayMillis = 100)
-            up()
-        }
-        compose.waitForIdle()
-        val hapticsBeforeExternal = recorder.performed.toList()
-        compose.runOnIdle { external = Muscle.LATS }
-        compose.waitForIdle()
+    compose.runOnIdle {
+      assertEquals(1, selections.size)
+      assertTrue(selections.single() !in MuscleSelectorState.visible(Muscle.UPPER_CHEST))
+      val expectedCrossings =
+          Math.floorMod(
+              Muscle.entries.indexOf(selections.single()) -
+                  Muscle.entries.indexOf(Muscle.UPPER_CHEST),
+              Muscle.entries.size,
+          )
+      assertEquals(
+          expectedCrossings,
+          recorder.performed.count { it == HapticFeedbackType.SegmentFrequentTick },
+      )
+      assertEquals(HapticFeedbackType.ContextClick, recorder.performed.last())
+    }
+  }
 
-        compose.runOnIdle {
-            assertEquals(hapticsBeforeExternal, recorder.performed)
-        }
-        compose.onNodeWithText(Muscle.LATS.displayName()).fetchSemanticsNode()
+  @Test
+  fun `external selection arriving during a held drag does not steal the user settlement`() {
+    val recorder = RecordingHaptics()
+    val selections = mutableListOf<Muscle>()
+    var external by mutableStateOf<Muscle?>(Muscle.UPPER_CHEST)
+    compose.setContent {
+      SelectorContent(
+          recorder = recorder,
+          selected = external,
+          onSelected = { muscle ->
+            selections += muscle
+            external = muscle
+          },
+      )
     }
 
-    @Test
-    fun `talkback previous and next actions settle once and describe the selected role`() {
-        val recorder = RecordingHaptics()
-        val selections = mutableListOf<Muscle>()
-        compose.setContent {
-            SelectorContent(
-                recorder = recorder,
-                selected = Muscle.UPPER_CHEST,
-                onSelected = { selections += it },
-            )
-        }
+    // Input state deliberately spans two calls: the external update is applied while the
+    // imaginary finger remains down, rather than queued after the gesture has ended.
+    compose.onNodeWithTag("muscle_selector_viewport").performTouchInput {
+      down(center)
+      moveTo(Offset(0f, center.y), delayMillis = 300)
+    }
+    compose.runOnIdle { external = Muscle.LATS }
+    compose.waitForIdle()
+    compose.runOnIdle {
+      assertEquals(emptyList<Muscle>(), selections)
+      assertEquals(0, recorder.performed.size)
+    }
 
-        val initial = compose.onNodeWithTag("muscle_selector").fetchSemanticsNode()
-        assertEquals(
-            listOf("Предыдущая мышца", "Следующая мышца"),
-            initial.config[SemanticsActions.CustomActions].map { it.label },
+    compose.onNodeWithTag("muscle_selector_viewport").performTouchInput { up() }
+    compose.waitForIdle()
+
+    compose.runOnIdle {
+      assertEquals(1, selections.size)
+      assertTrue(selections.single() != Muscle.LATS)
+      assertEquals(selections.single(), external)
+      assertEquals(HapticFeedbackType.ContextClick, recorder.performed.last())
+    }
+  }
+
+  @Test
+  fun `a cancelled drag does not block a later external selection`() {
+    val recorder = RecordingHaptics()
+    var external by mutableStateOf<Muscle?>(Muscle.UPPER_CHEST)
+    compose.setContent {
+      SelectorContent(
+          recorder = recorder,
+          selected = external,
+          onSelected = { external = it },
+      )
+    }
+
+    // Cross the drag threshold, then return to the original centre before lifting. This
+    // must leave no stale user gesture that would reject the next external update.
+    compose.onNodeWithTag("muscle_selector_viewport").performTouchInput {
+      down(center)
+      moveTo(Offset(center.x - 24f, center.y), delayMillis = 100)
+      moveTo(center, delayMillis = 100)
+      up()
+    }
+    compose.waitForIdle()
+    val hapticsBeforeExternal = recorder.performed.toList()
+    compose.runOnIdle { external = Muscle.LATS }
+    compose.waitForIdle()
+
+    compose.runOnIdle { assertEquals(hapticsBeforeExternal, recorder.performed) }
+    compose.onNodeWithText(Muscle.LATS.displayName()).fetchSemanticsNode()
+  }
+
+  @Test
+  fun `talkback previous and next actions settle once and describe the selected role`() {
+    val recorder = RecordingHaptics()
+    val selections = mutableListOf<Muscle>()
+    compose.setContent {
+      SelectorContent(
+          recorder = recorder,
+          selected = Muscle.UPPER_CHEST,
+          onSelected = { selections += it },
+      )
+    }
+
+    val initial = compose.onNodeWithTag("muscle_selector").fetchSemanticsNode()
+    assertEquals(
+        listOf("Предыдущая мышца", "Следующая мышца"),
+        initial.config[SemanticsActions.CustomActions].map { it.label },
+    )
+    assertEquals(
+        "${Muscle.UPPER_CHEST.displayName()}: Роль",
+        initial.config[SemanticsProperties.StateDescription],
+    )
+
+    compose.runOnIdle { initial.config[SemanticsActions.CustomActions][1].action() }
+    compose.waitForIdle()
+    val afterNext = compose.onNodeWithTag("muscle_selector").fetchSemanticsNode()
+    assertEquals(
+        "${Muscle.LOWER_CHEST.displayName()}: Роль",
+        afterNext.config[SemanticsProperties.StateDescription],
+    )
+    compose.runOnIdle { afterNext.config[SemanticsActions.CustomActions][0].action() }
+    compose.waitForIdle()
+
+    compose.runOnIdle {
+      assertEquals(listOf(Muscle.LOWER_CHEST, Muscle.UPPER_CHEST), selections)
+      assertEquals(2, recorder.performed.size)
+    }
+  }
+
+  @Test
+  fun `selector without role shows only the muscle name and describes it without an empty value`() {
+    compose.setContent {
+      SelectorContent(
+          recorder = RecordingHaptics(),
+          selected = Muscle.UPPER_CHEST,
+          roleText = null,
+          onSelected = {},
+      )
+    }
+
+    assertEquals(
+        0,
+        compose.onAllNodesWithText("Мышца-стабилизатор").fetchSemanticsNodes().size,
+    )
+    val selector = compose.onNodeWithTag("muscle_selector").fetchSemanticsNode()
+    assertEquals(
+        Muscle.UPPER_CHEST.displayName(),
+        selector.config[SemanticsProperties.StateDescription],
+    )
+  }
+
+  @Test
+  fun `selector grows for full names and a long role at two times font scale`() {
+    val recorder = RecordingHaptics()
+    compose.setContent {
+      CompositionLocalProvider(LocalDensity provides Density(density = 1f, fontScale = 2f)) {
+        SelectorContent(
+            recorder = recorder,
+            selected = Muscle.TIBIALIS_ANTERIOR,
+            roleText = { "Мышца-стабилизатор" },
+            onSelected = {},
         )
-        assertEquals(
-            "${Muscle.UPPER_CHEST.displayName()}: Роль",
-            initial.config[SemanticsProperties.StateDescription],
-        )
-
-        compose.runOnIdle { initial.config[SemanticsActions.CustomActions][1].action() }
-        compose.waitForIdle()
-        val afterNext = compose.onNodeWithTag("muscle_selector").fetchSemanticsNode()
-        assertEquals(
-            "${Muscle.LOWER_CHEST.displayName()}: Роль",
-            afterNext.config[SemanticsProperties.StateDescription],
-        )
-        compose.runOnIdle { afterNext.config[SemanticsActions.CustomActions][0].action() }
-        compose.waitForIdle()
-
-        compose.runOnIdle {
-            assertEquals(listOf(Muscle.LOWER_CHEST, Muscle.UPPER_CHEST), selections)
-            assertEquals(2, recorder.performed.size)
-        }
+      }
     }
 
-    @Test
-    fun `selector without role shows only the muscle name and describes it without an empty value`() {
-        compose.setContent {
-            SelectorContent(
-                recorder = RecordingHaptics(),
-                selected = Muscle.UPPER_CHEST,
-                roleText = null,
-                onSelected = {},
-            )
-        }
+    val previousSlot =
+        compose.onNodeWithTag("muscle_selector_previous").fetchSemanticsNode().boundsInRoot
+    val currentSlot =
+        compose.onNodeWithTag("muscle_selector_current").fetchSemanticsNode().boundsInRoot
+    val nextSlot = compose.onNodeWithTag("muscle_selector_next").fetchSemanticsNode().boundsInRoot
+    val viewport =
+        compose.onNodeWithTag("muscle_selector_viewport").fetchSemanticsNode().boundsInRoot
+    val previousDivider =
+        compose.onNodeWithTag("muscle_selector_divider_previous").fetchSemanticsNode().boundsInRoot
+    val nextDivider =
+        compose.onNodeWithTag("muscle_selector_divider_next").fetchSemanticsNode().boundsInRoot
+    val tibialis =
+        compose
+            .onNodeWithText(Muscle.TIBIALIS_ANTERIOR.displayName())
+            .fetchSemanticsNode()
+            .boundsInRoot
+    val longRole = compose.onNodeWithText("Мышца-стабилизатор").fetchSemanticsNode().boundsInRoot
 
-        assertEquals(
-            0,
-            compose.onAllNodesWithText("Мышца-стабилизатор").fetchSemanticsNodes().size,
-        )
-        val selector = compose.onNodeWithTag("muscle_selector").fetchSemanticsNode()
-        assertEquals(
-            Muscle.UPPER_CHEST.displayName(),
-            selector.config[SemanticsProperties.StateDescription],
-        )
+    assertTrue(tibialis.left >= currentSlot.left && tibialis.right <= currentSlot.right)
+    assertTrue(longRole.left >= currentSlot.left && longRole.right <= currentSlot.right)
+    assertTrue(tibialis.top >= viewport.top && tibialis.bottom <= viewport.bottom)
+    assertTrue(longRole.top >= viewport.top && longRole.bottom <= viewport.bottom)
+    assertTrue(previousDivider.height == viewport.height && nextDivider.height == viewport.height)
+    assertEquals(MuscleSelectorCellWidth.value, nextDivider.left - previousDivider.left, 1.1f)
+    val minTouchHeight = 48f
+    assertTrue(previousSlot.height >= minTouchHeight)
+    assertTrue(nextSlot.height >= minTouchHeight)
+  }
+
+  @Test
+  fun `selector centers its compact selection area in the full-width carousel`() {
+    val recorder = RecordingHaptics()
+    compose.setContent {
+      SelectorContent(recorder = recorder, selected = Muscle.UPPER_CHEST, onSelected = {})
     }
 
-    @Test
-    fun `selector grows for full names and a long role at two times font scale`() {
-        val recorder = RecordingHaptics()
-        compose.setContent {
-            CompositionLocalProvider(LocalDensity provides Density(density = 1f, fontScale = 2f)) {
-                SelectorContent(
-                    recorder = recorder,
-                    selected = Muscle.TIBIALIS_ANTERIOR,
-                    roleText = { "Мышца-стабилизатор" },
-                    onSelected = {},
-                )
-            }
-        }
+    val previous =
+        compose.onNodeWithTag("muscle_selector_previous").fetchSemanticsNode().boundsInRoot
+    val current = compose.onNodeWithTag("muscle_selector_current").fetchSemanticsNode().boundsInRoot
+    val next = compose.onNodeWithTag("muscle_selector_next").fetchSemanticsNode().boundsInRoot
+    val minTouchHeight = 48f * compose.density.density
 
-        val previousSlot = compose.onNodeWithTag("muscle_selector_previous").fetchSemanticsNode().boundsInRoot
-        val currentSlot = compose.onNodeWithTag("muscle_selector_current").fetchSemanticsNode().boundsInRoot
-        val nextSlot = compose.onNodeWithTag("muscle_selector_next").fetchSemanticsNode().boundsInRoot
-        val viewport = compose.onNodeWithTag("muscle_selector_viewport").fetchSemanticsNode().boundsInRoot
-        val previousDivider = compose.onNodeWithTag("muscle_selector_divider_previous").fetchSemanticsNode().boundsInRoot
-        val nextDivider = compose.onNodeWithTag("muscle_selector_divider_next").fetchSemanticsNode().boundsInRoot
-        val tibialis = compose.onNodeWithText(Muscle.TIBIALIS_ANTERIOR.displayName()).fetchSemanticsNode().boundsInRoot
-        val longRole = compose.onNodeWithText("Мышца-стабилизатор").fetchSemanticsNode().boundsInRoot
+    val viewport =
+        compose.onNodeWithTag("muscle_selector_viewport").fetchSemanticsNode().boundsInRoot
+    val previousDivider =
+        compose.onNodeWithTag("muscle_selector_divider_previous").fetchSemanticsNode().boundsInRoot
+    val nextDivider =
+        compose.onNodeWithTag("muscle_selector_divider_next").fetchSemanticsNode().boundsInRoot
 
-        assertTrue(tibialis.left >= currentSlot.left && tibialis.right <= currentSlot.right)
-        assertTrue(longRole.left >= currentSlot.left && longRole.right <= currentSlot.right)
-        assertTrue(tibialis.top >= viewport.top && tibialis.bottom <= viewport.bottom)
-        assertTrue(longRole.top >= viewport.top && longRole.bottom <= viewport.bottom)
-        assertTrue(previousDivider.height == viewport.height && nextDivider.height == viewport.height)
-        assertEquals(MuscleSelectorCellWidth.value, nextDivider.left - previousDivider.left, 1.1f)
-        val minTouchHeight = 48f
-        assertTrue(previousSlot.height >= minTouchHeight)
-        assertTrue(nextSlot.height >= minTouchHeight)
+    assertEquals(
+        MuscleSelectorCellWidth.value * compose.density.density,
+        nextDivider.left - previousDivider.left,
+        1.1f,
+    )
+    assertEquals(
+        (viewport.left + viewport.right) / 2f,
+        (previousDivider.left + nextDivider.left) / 2f,
+        1.1f,
+    )
+    assertTrue(current.left > viewport.left)
+    assertTrue(current.right < viewport.right)
+    assertTrue(previous.height >= minTouchHeight)
+    assertTrue(next.height >= minTouchHeight)
+  }
+
+  private class RecordingHaptics : HapticFeedback {
+    val performed = mutableListOf<HapticFeedbackType>()
+
+    override fun performHapticFeedback(hapticFeedbackType: HapticFeedbackType) {
+      performed += hapticFeedbackType
     }
+  }
 
-    @Test
-    fun `selector centers its compact selection area in the full-width carousel`() {
-        val recorder = RecordingHaptics()
-        compose.setContent {
-            SelectorContent(recorder = recorder, selected = Muscle.UPPER_CHEST, onSelected = {})
+  @Composable
+  private fun SelectorContent(
+      recorder: RecordingHaptics,
+      selected: Muscle?,
+      roleText: ((Muscle) -> String)? = { "Роль" },
+      onSelected: (Muscle) -> Unit,
+  ) {
+    CompositionLocalProvider(LocalHapticFeedback provides recorder) {
+      val haptics = rememberGymHaptics(enabled = true)
+      CompositionLocalProvider(LocalGymHaptics provides haptics) {
+        GymTheme {
+          MuscleSelector(
+              selected = selected,
+              roleText = roleText,
+              onSelected = onSelected,
+          )
         }
-
-        val previous = compose.onNodeWithTag("muscle_selector_previous").fetchSemanticsNode().boundsInRoot
-        val current = compose.onNodeWithTag("muscle_selector_current").fetchSemanticsNode().boundsInRoot
-        val next = compose.onNodeWithTag("muscle_selector_next").fetchSemanticsNode().boundsInRoot
-        val minTouchHeight = 48f * compose.density.density
-
-        val viewport = compose.onNodeWithTag("muscle_selector_viewport").fetchSemanticsNode().boundsInRoot
-        val previousDivider = compose.onNodeWithTag("muscle_selector_divider_previous").fetchSemanticsNode().boundsInRoot
-        val nextDivider = compose.onNodeWithTag("muscle_selector_divider_next").fetchSemanticsNode().boundsInRoot
-
-        assertEquals(
-            MuscleSelectorCellWidth.value * compose.density.density,
-            nextDivider.left - previousDivider.left,
-            1.1f,
-        )
-        assertEquals(
-            (viewport.left + viewport.right) / 2f,
-            (previousDivider.left + nextDivider.left) / 2f,
-            1.1f,
-        )
-        assertTrue(current.left > viewport.left)
-        assertTrue(current.right < viewport.right)
-        assertTrue(previous.height >= minTouchHeight)
-        assertTrue(next.height >= minTouchHeight)
+      }
     }
-
-    private class RecordingHaptics : HapticFeedback {
-        val performed = mutableListOf<HapticFeedbackType>()
-
-        override fun performHapticFeedback(hapticFeedbackType: HapticFeedbackType) {
-            performed += hapticFeedbackType
-        }
-    }
-
-    @Composable
-    private fun SelectorContent(
-        recorder: RecordingHaptics,
-        selected: Muscle?,
-        roleText: ((Muscle) -> String)? = { "Роль" },
-        onSelected: (Muscle) -> Unit,
-    ) {
-        CompositionLocalProvider(LocalHapticFeedback provides recorder) {
-            val haptics = rememberGymHaptics(enabled = true)
-            CompositionLocalProvider(LocalGymHaptics provides haptics) {
-                GymTheme {
-                    MuscleSelector(
-                        selected = selected,
-                        roleText = roleText,
-                        onSelected = onSelected,
-                    )
-                }
-            }
-        }
-    }
+  }
 }

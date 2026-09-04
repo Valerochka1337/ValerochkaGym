@@ -14,14 +14,15 @@ internal const val AI_REQUEST_TIMEOUT_MESSAGE =
 internal fun isAiModelUnavailable(errorType: String?, code: Int?): Boolean =
     errorType in MODEL_UNAVAILABLE_ERROR_TYPES || code in MODEL_UNAVAILABLE_HTTP_CODES
 
-private val MODEL_UNAVAILABLE_ERROR_TYPES = setOf(
-    "model_not_found",
-    "model_unavailable",
-    "provider_overloaded",
-    "provider_unavailable",
-    "no_endpoints_found",
-    "unsupported_model",
-    "unsupported_parameters",
-)
+private val MODEL_UNAVAILABLE_ERROR_TYPES =
+    setOf(
+        "model_not_found",
+        "model_unavailable",
+        "provider_overloaded",
+        "provider_unavailable",
+        "no_endpoints_found",
+        "unsupported_model",
+        "unsupported_parameters",
+    )
 
 private val MODEL_UNAVAILABLE_HTTP_CODES = setOf(404, 422, 502, 503)

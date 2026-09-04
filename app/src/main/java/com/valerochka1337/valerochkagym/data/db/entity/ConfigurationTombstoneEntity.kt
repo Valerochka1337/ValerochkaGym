@@ -14,6 +14,6 @@ data class ConfigurationTombstoneEntity(
 )
 
 object ConfigurationTombstoneKind {
-    const val GYM = "gym"
-    const val ROUTINE = "routine"
+  const val GYM = "gym"
+  const val ROUTINE = "routine"
 }

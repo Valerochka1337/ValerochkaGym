@@ -36,4 +36,5 @@ fun ExerciseEntity.withNextUpdatedAt(now: Long = System.currentTimeMillis()): Ex
     copy(updatedAt = maxOf(now, updatedAt + 1))
 
 private fun deterministicExerciseSyncId(identity: String): String =
-    UUID.nameUUIDFromBytes("ValerochkaGym.exercise:$identity".toByteArray(StandardCharsets.UTF_8)).toString()
+    UUID.nameUUIDFromBytes("ValerochkaGym.exercise:$identity".toByteArray(StandardCharsets.UTF_8))
+        .toString()

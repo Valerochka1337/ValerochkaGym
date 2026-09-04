@@ -51,129 +51,127 @@ internal fun AiExerciseCreationSheet(
     onOpenSettings: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = rememberBottomSheetState(
-            initialValue = SheetValue.Hidden,
-            enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded),
-        ),
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
+  ModalBottomSheet(
+      onDismissRequest = onDismiss,
+      sheetState =
+          rememberBottomSheetState(
+              initialValue = SheetValue.Hidden,
+              enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded),
+          ),
+  ) {
+    Column(
+        modifier =
+            Modifier.fillMaxWidth()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 24.dp)
                 .padding(bottom = 32.dp),
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    imageVector = Icons.Rounded.AutoAwesome,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                )
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    text = "Новое упражнение",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-            }
-            Spacer(Modifier.height(16.dp))
-            OutlinedTextField(
-                value = state.description,
-                onValueChange = onDescriptionChange,
-                modifier = Modifier.fillMaxWidth(),
-                enabled = !state.isGenerating,
-                minLines = 4,
-                maxLines = 7,
-                label = { Text("Описание упражнения") },
-                placeholder = { Text("Например: тяга гантели к поясу одной рукой в наклоне") },
-                shape = MaterialTheme.shapes.medium,
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                keyboardActions = KeyboardActions(onDone = { onGenerate() }),
+    ) {
+      Row(verticalAlignment = Alignment.CenterVertically) {
+        Icon(
+            imageVector = Icons.Rounded.AutoAwesome,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+        )
+        Spacer(Modifier.width(8.dp))
+        Text(
+            text = "Новое упражнение",
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+      }
+      Spacer(Modifier.height(16.dp))
+      OutlinedTextField(
+          value = state.description,
+          onValueChange = onDescriptionChange,
+          modifier = Modifier.fillMaxWidth(),
+          enabled = !state.isGenerating,
+          minLines = 4,
+          maxLines = 7,
+          label = { Text("Описание упражнения") },
+          placeholder = { Text("Например: тяга гантели к поясу одной рукой в наклоне") },
+          shape = MaterialTheme.shapes.medium,
+          keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+          keyboardActions = KeyboardActions(onDone = { onGenerate() }),
+      )
+
+      if (state.error != null) {
+        Spacer(Modifier.height(8.dp))
+        Text(
+            text = state.error,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.error,
+        )
+        if (state.modelUnavailable) {
+          Spacer(Modifier.height(8.dp))
+          OutlinedButton(onClick = onOpenSettings, enabled = !state.isGenerating) {
+            Icon(
+                imageVector = Icons.Rounded.Settings,
+                contentDescription = null,
             )
-
-            if (state.error != null) {
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    text = state.error,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error,
-                )
-                if (state.modelUnavailable) {
-                    Spacer(Modifier.height(8.dp))
-                    OutlinedButton(onClick = onOpenSettings, enabled = !state.isGenerating) {
-                        Icon(
-                            imageVector = Icons.Rounded.Settings,
-                            contentDescription = null,
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Text("Выбрать другую модель")
-                    }
-                }
-            }
-
-            if (!state.aiConfigured) {
-                Spacer(Modifier.height(12.dp))
-                Text(
-                    text = "Настройте нейросеть в настройках.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.height(8.dp))
-                OutlinedButton(onClick = onOpenSettings, enabled = !state.isGenerating) {
-                    Icon(
-                        imageVector = Icons.Rounded.Settings,
-                        contentDescription = null,
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text("Открыть настройки")
-                }
-            }
-
-            if (state.isGenerating) {
-                Spacer(Modifier.height(16.dp))
-                FadeInContent {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        CircularWavyProgressIndicator(
-                            modifier = Modifier.size(28.dp),
-                            color = MaterialTheme.colorScheme.primary,
-                            trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-                            waveSpeed = WavyProgressIndicatorDefaults.CircularWavelength * 1.5f,
-                        )
-                        Spacer(Modifier.width(12.dp))
-                        Text(
-                            text = "Создаю упражнение…",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-            }
-
-            Spacer(Modifier.height(20.dp))
-            PillButton(
-                text = if (state.isGenerating) "Создаю…" else "Создать с ИИ",
-                onClick = onGenerate,
-                enabled = !state.isGenerating &&
-                    state.aiConfigured &&
-                    state.description.trim().isNotEmpty(),
-                leadingIcon = Icons.Rounded.AutoAwesome,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Spacer(Modifier.height(8.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.Center,
-            ) {
-                TextButton(onClick = onCreateManually, enabled = !state.isGenerating) {
-                    Text("Создать вручную")
-                }
-                TextButton(onClick = onDismiss) {
-                    Text("Отмена")
-                }
-            }
+            Spacer(Modifier.width(8.dp))
+            Text("Выбрать другую модель")
+          }
         }
+      }
+
+      if (!state.aiConfigured) {
+        Spacer(Modifier.height(12.dp))
+        Text(
+            text = "Настройте нейросеть в настройках.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(8.dp))
+        OutlinedButton(onClick = onOpenSettings, enabled = !state.isGenerating) {
+          Icon(
+              imageVector = Icons.Rounded.Settings,
+              contentDescription = null,
+          )
+          Spacer(Modifier.width(8.dp))
+          Text("Открыть настройки")
+        }
+      }
+
+      if (state.isGenerating) {
+        Spacer(Modifier.height(16.dp))
+        FadeInContent {
+          Row(verticalAlignment = Alignment.CenterVertically) {
+            CircularWavyProgressIndicator(
+                modifier = Modifier.size(28.dp),
+                color = MaterialTheme.colorScheme.primary,
+                trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                waveSpeed = WavyProgressIndicatorDefaults.CircularWavelength * 1.5f,
+            )
+            Spacer(Modifier.width(12.dp))
+            Text(
+                text = "Создаю упражнение…",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+          }
+        }
+      }
+
+      Spacer(Modifier.height(20.dp))
+      PillButton(
+          text = if (state.isGenerating) "Создаю…" else "Создать с ИИ",
+          onClick = onGenerate,
+          enabled =
+              !state.isGenerating && state.aiConfigured && state.description.trim().isNotEmpty(),
+          leadingIcon = Icons.Rounded.AutoAwesome,
+          modifier = Modifier.fillMaxWidth(),
+      )
+      Spacer(Modifier.height(8.dp))
+      Row(
+          modifier = Modifier.fillMaxWidth(),
+          horizontalArrangement = Arrangement.Center,
+      ) {
+        TextButton(onClick = onCreateManually, enabled = !state.isGenerating) {
+          Text("Создать вручную")
+        }
+        TextButton(onClick = onDismiss) { Text("Отмена") }
+      }
     }
+  }
 }

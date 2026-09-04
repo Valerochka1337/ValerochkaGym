@@ -20,8 +20,9 @@ private val ReorderAutoScrollZone = 96.dp
 internal fun rememberGymReorderableLazyListState(
     lazyListState: LazyListState,
     onMove: suspend CoroutineScope.(from: LazyListItemInfo, to: LazyListItemInfo) -> Unit,
-): ReorderableLazyListState = rememberReorderableLazyListState(
-    lazyListState = lazyListState,
-    scrollThreshold = ReorderAutoScrollZone,
-    onMove = onMove,
-)
+): ReorderableLazyListState =
+    rememberReorderableLazyListState(
+        lazyListState = lazyListState,
+        scrollThreshold = ReorderAutoScrollZone,
+        onMove = onMove,
+    )

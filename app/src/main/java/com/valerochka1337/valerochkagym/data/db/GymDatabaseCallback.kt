@@ -3,11 +3,11 @@ package com.valerochka1337.valerochkagym.data.db
 import androidx.room.RoomDatabase
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.valerochka1337.valerochkagym.di.ApplicationScope
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.launch
 import javax.inject.Inject
 import javax.inject.Provider
 import javax.inject.Singleton
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
 
 /**
  * Seeds the built-in exercises. Seeding lives entirely in [onOpen], which fires on every open
@@ -18,18 +18,20 @@ import javax.inject.Singleton
  * dependency of the database).
  */
 @Singleton
-class GymDatabaseCallback @Inject constructor(
+class GymDatabaseCallback
+@Inject
+constructor(
     private val database: Provider<GymDatabase>,
     @param:ApplicationScope private val scope: CoroutineScope,
 ) : RoomDatabase.Callback() {
 
-    override fun onOpen(db: SupportSQLiteDatabase) {
-        super.onOpen(db)
-        scope.launch {
-            val database = database.get()
-            // The canonical catalogue is the local authority. This is idempotent and deliberately
-            // never writes gym links or fallback maps for arbitrary custom/imported exercises.
-            reconcileCanonicalExerciseCatalog(database)
-        }
+  override fun onOpen(db: SupportSQLiteDatabase) {
+    super.onOpen(db)
+    scope.launch {
+      val database = database.get()
+      // The canonical catalogue is the local authority. This is idempotent and deliberately
+      // never writes gym links or fallback maps for arbitrary custom/imported exercises.
+      reconcileCanonicalExerciseCatalog(database)
     }
+  }
 }

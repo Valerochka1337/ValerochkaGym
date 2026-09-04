@@ -97,6 +97,10 @@ jobs:
         with:
           cache-provider: basic
 
+      - name: Check code style
+        if: github.event_name != 'pull_request' || steps.code_changes.outputs.changed == 'true'
+        run: ./gradlew spotlessCheck --stacktrace
+
       - name: Build debug APK
         if: github.event_name == 'pull_request' && steps.code_changes.outputs.changed == 'true'
         run: ./gradlew :app:assembleDebug --stacktrace

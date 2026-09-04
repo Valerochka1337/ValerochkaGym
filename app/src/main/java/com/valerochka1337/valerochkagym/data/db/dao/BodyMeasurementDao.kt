@@ -12,33 +12,30 @@ import kotlinx.coroutines.flow.Flow
 @Dao
 interface BodyMeasurementDao {
 
-    @Insert
-    suspend fun insert(measurement: BodyMeasurementEntity)
+  @Insert suspend fun insert(measurement: BodyMeasurementEntity)
 
-    @Update
-    suspend fun update(measurement: BodyMeasurementEntity)
+  @Update suspend fun update(measurement: BodyMeasurementEntity)
 
-    @Query("SELECT * FROM body_measurements ORDER BY measuredAt DESC")
-    fun observeAll(): Flow<List<BodyMeasurementEntity>>
+  @Query("SELECT * FROM body_measurements ORDER BY measuredAt DESC")
+  fun observeAll(): Flow<List<BodyMeasurementEntity>>
 
-    @Query("SELECT * FROM body_measurements WHERE id = :id")
-    suspend fun getById(id: String): BodyMeasurementEntity?
+  @Query("SELECT * FROM body_measurements WHERE id = :id")
+  suspend fun getById(id: String): BodyMeasurementEntity?
 
-    @Query(
-        "UPDATE body_measurements SET uploadStatus = :status, uploadError = :error WHERE id = :measurementId",
-    )
-    suspend fun setUploadStatus(measurementId: String, status: UploadStatus, error: String?)
+  @Query(
+      "UPDATE body_measurements SET uploadStatus = :status, uploadError = :error WHERE id = :measurementId",
+  )
+  suspend fun setUploadStatus(measurementId: String, status: UploadStatus, error: String?)
 
-    /** Замеры, ещё не попавшие в Sheets: нужны действию «Выгрузить всё». */
-    @Query(
-        """
+  /** Замеры, ещё не попавшие в Sheets: нужны действию «Выгрузить всё». */
+  @Query(
+      """
         SELECT id FROM body_measurements
         WHERE uploadStatus IN ('PENDING', 'FAILED')
         ORDER BY measuredAt DESC
         """,
-    )
-    suspend fun getNotUploaded(): List<String>
+  )
+  suspend fun getNotUploaded(): List<String>
 
-    @Query("DELETE FROM body_measurements WHERE id = :id")
-    suspend fun delete(id: String)
+  @Query("DELETE FROM body_measurements WHERE id = :id") suspend fun delete(id: String)
 }

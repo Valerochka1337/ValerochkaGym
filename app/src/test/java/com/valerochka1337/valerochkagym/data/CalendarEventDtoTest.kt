@@ -4,7 +4,6 @@ import com.valerochka1337.valerochkagym.data.google.CalendarEventDto
 import com.valerochka1337.valerochkagym.data.google.EventDateTimeDto
 import com.valerochka1337.valerochkagym.data.google.EventReminderOverrideDto
 import com.valerochka1337.valerochkagym.data.google.EventRemindersDto
-import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -18,41 +17,51 @@ import org.junit.Test
  */
 class CalendarEventDtoTest {
 
-    private val json = Json {
-        ignoreUnknownKeys = true
-        encodeDefaults = true
-    }
+  private val json = Json {
+    ignoreUnknownKeys = true
+    encodeDefaults = true
+  }
 
-    private fun event(recurrence: List<String>? = null) = CalendarEventDto(
-        summary = "Тренировка: Ноги",
-        start = EventDateTimeDto("2026-08-03T18:00:00+03:00"),
-        end = EventDateTimeDto("2026-08-03T19:00:00+03:00"),
-        reminders = EventRemindersDto(
-            useDefault = false,
-            overrides = listOf(EventReminderOverrideDto(method = "popup", minutes = 30)),
-        ),
-        recurrence = recurrence,
+  private fun event(recurrence: List<String>? = null) =
+      CalendarEventDto(
+          summary = "Тренировка: Ноги",
+          start = EventDateTimeDto("2026-08-03T18:00:00+03:00"),
+          end = EventDateTimeDto("2026-08-03T19:00:00+03:00"),
+          reminders =
+              EventRemindersDto(
+                  useDefault = false,
+                  overrides = listOf(EventReminderOverrideDto(method = "popup", minutes = 30)),
+              ),
+          recurrence = recurrence,
+      )
+
+  @Test
+  fun `single event omits recurrence and timeZone entirely`() {
+    val encoded = json.encodeToString(event(recurrence = null))
+
+    assertFalse(
+        "recurrence must not appear for single events: $encoded",
+        encoded.contains("recurrence"),
     )
+    assertFalse("id must not appear for single events: $encoded", encoded.contains("\"id\""))
+    assertFalse(
+        "timeZone must not appear for single events: $encoded",
+        encoded.contains("timeZone"),
+    )
+  }
 
-    @Test
-    fun `single event omits recurrence and timeZone entirely`() {
-        val encoded = json.encodeToString(event(recurrence = null))
-
-        assertFalse("recurrence must not appear for single events: $encoded", encoded.contains("recurrence"))
-        assertFalse("id must not appear for single events: $encoded", encoded.contains("\"id\""))
-        assertFalse("timeZone must not appear for single events: $encoded", encoded.contains("timeZone"))
-    }
-
-    @Test
-    fun `recurring event includes the RRULE`() {
-        val encoded = json.encodeToString(
-            event(recurrence = listOf("RRULE:FREQ=WEEKLY;BYDAY=MO")).copy(
-                id = "0123456789abcdef0123456789abcdef",
-            ),
+  @Test
+  fun `recurring event includes the RRULE`() {
+    val encoded =
+        json.encodeToString(
+            event(recurrence = listOf("RRULE:FREQ=WEEKLY;BYDAY=MO"))
+                .copy(
+                    id = "0123456789abcdef0123456789abcdef",
+                ),
         )
 
-        assertTrue(encoded.contains("\"recurrence\""))
-        assertTrue(encoded.contains("RRULE:FREQ=WEEKLY;BYDAY=MO"))
-        assertTrue(encoded.contains("\"id\":\"0123456789abcdef0123456789abcdef\""))
-    }
+    assertTrue(encoded.contains("\"recurrence\""))
+    assertTrue(encoded.contains("RRULE:FREQ=WEEKLY;BYDAY=MO"))
+    assertTrue(encoded.contains("\"id\":\"0123456789abcdef0123456789abcdef\""))
+  }
 }

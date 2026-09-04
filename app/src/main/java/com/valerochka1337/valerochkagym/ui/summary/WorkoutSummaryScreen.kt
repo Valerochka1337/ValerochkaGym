@@ -14,8 +14,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.sizeIn
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -45,8 +45,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.valerochka1337.valerochkagym.domain.PrResult
 import com.valerochka1337.valerochkagym.ui.components.ExerciseAvatar
 import com.valerochka1337.valerochkagym.ui.components.GlowBackground
-import com.valerochka1337.valerochkagym.ui.components.LoadingState
 import com.valerochka1337.valerochkagym.ui.components.GymCard
+import com.valerochka1337.valerochkagym.ui.components.LoadingState
 import com.valerochka1337.valerochkagym.ui.components.PillButton
 import com.valerochka1337.valerochkagym.ui.components.SaveWorkoutAsProgramDialog
 import com.valerochka1337.valerochkagym.ui.haptics.gymHaptics
@@ -54,9 +54,8 @@ import com.valerochka1337.valerochkagym.ui.theme.GymMotion
 import java.math.BigDecimal
 
 /**
- * Итоги завершённой тренировки: длительность, объём, новые рекорды и сводка упражнений.
- * Если факт разошёлся с программой — один раз предлагает обновить программу. [onDone]
- * возвращает на главную.
+ * Итоги завершённой тренировки: длительность, объём, новые рекорды и сводка упражнений. Если факт
+ * разошёлся с программой — один раз предлагает обновить программу. [onDone] возвращает на главную.
  */
 @Composable
 fun WorkoutSummaryScreen(
@@ -65,164 +64,160 @@ fun WorkoutSummaryScreen(
     modifier: Modifier = Modifier,
     viewModel: WorkoutSummaryViewModel = hiltViewModel(),
 ) {
-    val state by viewModel.uiState.collectAsStateWithLifecycle()
-    val snackbarHostState = remember { SnackbarHostState() }
+  val state by viewModel.uiState.collectAsStateWithLifecycle()
+  val snackbarHostState = remember { SnackbarHostState() }
 
-    // Один success-отклик на появление рекордов — вместе с их «впрыгивающими» карточками.
-    val haptics = gymHaptics()
-    LaunchedEffect(state.prs.isNotEmpty()) {
-        if (state.prs.isNotEmpty()) haptics.success()
+  // Один success-отклик на появление рекордов — вместе с их «впрыгивающими» карточками.
+  val haptics = gymHaptics()
+  LaunchedEffect(state.prs.isNotEmpty()) { if (state.prs.isNotEmpty()) haptics.success() }
+  LaunchedEffect(Unit) {
+    viewModel.saveEvents.collect {
+      haptics.success()
+      snackbarHostState.showSnackbar("Программа сохранена")
     }
-    LaunchedEffect(Unit) {
-        viewModel.saveEvents.collect {
-            haptics.success()
-            snackbarHostState.showSnackbar("Программа сохранена")
-        }
-    }
+  }
 
-    GlowBackground(modifier = modifier) {
-        if (state.loading) {
-            LoadingState(label = "Подводим итоги…")
-            return@GlowBackground
-        }
-
-        Box(modifier = Modifier.fillMaxSize()) {
-            Column(modifier = Modifier.fillMaxSize()) {
-            Text(
-                text = "Тренировка завершена",
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onBackground,
-                modifier = Modifier.padding(start = 24.dp, end = 24.dp, top = 16.dp, bottom = 4.dp),
-            )
-            Text(
-                text = state.workoutName,
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 24.dp),
-            )
-
-            LazyColumn(
-                modifier = Modifier.weight(1f),
-                contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = 16.dp, bottom = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                item {
-                    StatsCard(
-                        durationSeconds = state.durationSeconds,
-                        volumeKg = state.volumeKg,
-                    )
-                }
-
-                if (state.prs.isNotEmpty()) {
-                    item {
-                        Text(
-                            text = "Новые рекорды",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onBackground,
-                        )
-                    }
-                    items(state.prs, key = { it.exerciseId }) { pr ->
-                        PrCard(
-                            pr = pr,
-                            onClick = {
-                                haptics.tap()
-                                onExerciseClick(pr.exerciseId)
-                            },
-                        )
-                    }
-                }
-
-                if (state.exercises.isNotEmpty()) {
-                    item {
-                        Text(
-                            text = "Упражнения",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onBackground,
-                        )
-                    }
-                    items(state.exercises, key = { it.id }) { exercise ->
-                        GymCard(
-                            modifier = Modifier.fillMaxWidth().animateItem(),
-                            onClick = {
-                                haptics.tap()
-                                onExerciseClick(exercise.exerciseId)
-                            },
-                            contentPadding = PaddingValues(horizontal = 18.dp, vertical = 14.dp),
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                ExerciseAvatar(name = exercise.name)
-                                Spacer(Modifier.width(12.dp))
-                                Text(
-                                    text = exercise.name,
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                )
-                            }
-                            if (exercise.setsSummary.isNotEmpty()) {
-                                Spacer(Modifier.height(2.dp))
-                                Text(
-                                    text = exercise.setsSummary,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-
-                WorkoutSummaryActions(
-                    canSaveAsProgram = state.canSaveAsProgram,
-                    onSaveAsProgram = {
-                        haptics.tap()
-                        viewModel.openSaveAsProgram()
-                    },
-                    onDone = onDone,
-                )
-            }
-            SnackbarHost(
-                hostState = snackbarHostState,
-                modifier = Modifier.align(Alignment.BottomCenter),
-            )
-        }
+  GlowBackground(modifier = modifier) {
+    if (state.loading) {
+      LoadingState(label = "Подводим итоги…")
+      return@GlowBackground
     }
 
-    if (state.showUpdateRoutineDialog) {
-        AlertDialog(
-            onDismissRequest = viewModel::dismissRoutineUpdate,
-            title = { Text("Обновить программу?") },
-            text = {
-                Text("Фактически выполненные упражнения и подходы отличаются от программы. Перезаписать программу по факту тренировки?")
-            },
-            confirmButton = {
-                TextButton(onClick = viewModel::applyRoutineUpdate) {
-                    Text("Обновить")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = viewModel::dismissRoutineUpdate) {
-                    Text("Не сейчас")
-                }
-            },
+    Box(modifier = Modifier.fillMaxSize()) {
+      Column(modifier = Modifier.fillMaxSize()) {
+        Text(
+            text = "Тренировка завершена",
+            style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onBackground,
+            modifier = Modifier.padding(start = 24.dp, end = 24.dp, top = 16.dp, bottom = 4.dp),
         )
-    }
-    if (state.showSaveAsProgramDialog) {
-        SaveWorkoutAsProgramDialog(
-            name = state.saveAsProgramName,
-            isSaving = state.isSavingAsProgram,
-            error = state.saveAsProgramError,
-            onNameChange = viewModel::changeSaveAsProgramName,
-            onConfirm = {
-                haptics.tap()
-                viewModel.confirmSaveAsProgram()
-            },
-            onDismiss = viewModel::dismissSaveAsProgram,
+        Text(
+            text = state.workoutName,
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 24.dp),
         )
+
+        LazyColumn(
+            modifier = Modifier.weight(1f),
+            contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = 16.dp, bottom = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+          item {
+            StatsCard(
+                durationSeconds = state.durationSeconds,
+                volumeKg = state.volumeKg,
+            )
+          }
+
+          if (state.prs.isNotEmpty()) {
+            item {
+              Text(
+                  text = "Новые рекорды",
+                  style = MaterialTheme.typography.titleMedium,
+                  fontWeight = FontWeight.SemiBold,
+                  color = MaterialTheme.colorScheme.onBackground,
+              )
+            }
+            items(state.prs, key = { it.exerciseId }) { pr ->
+              PrCard(
+                  pr = pr,
+                  onClick = {
+                    haptics.tap()
+                    onExerciseClick(pr.exerciseId)
+                  },
+              )
+            }
+          }
+
+          if (state.exercises.isNotEmpty()) {
+            item {
+              Text(
+                  text = "Упражнения",
+                  style = MaterialTheme.typography.titleMedium,
+                  fontWeight = FontWeight.SemiBold,
+                  color = MaterialTheme.colorScheme.onBackground,
+              )
+            }
+            items(state.exercises, key = { it.id }) { exercise ->
+              GymCard(
+                  modifier = Modifier.fillMaxWidth().animateItem(),
+                  onClick = {
+                    haptics.tap()
+                    onExerciseClick(exercise.exerciseId)
+                  },
+                  contentPadding = PaddingValues(horizontal = 18.dp, vertical = 14.dp),
+              ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                  ExerciseAvatar(name = exercise.name)
+                  Spacer(Modifier.width(12.dp))
+                  Text(
+                      text = exercise.name,
+                      style = MaterialTheme.typography.titleMedium,
+                      fontWeight = FontWeight.SemiBold,
+                      color = MaterialTheme.colorScheme.onSurface,
+                  )
+                }
+                if (exercise.setsSummary.isNotEmpty()) {
+                  Spacer(Modifier.height(2.dp))
+                  Text(
+                      text = exercise.setsSummary,
+                      style = MaterialTheme.typography.bodyMedium,
+                      color = MaterialTheme.colorScheme.onSurfaceVariant,
+                  )
+                }
+              }
+            }
+          }
+        }
+
+        WorkoutSummaryActions(
+            canSaveAsProgram = state.canSaveAsProgram,
+            onSaveAsProgram = {
+              haptics.tap()
+              viewModel.openSaveAsProgram()
+            },
+            onDone = onDone,
+        )
+      }
+      SnackbarHost(
+          hostState = snackbarHostState,
+          modifier = Modifier.align(Alignment.BottomCenter),
+      )
     }
+  }
+
+  if (state.showUpdateRoutineDialog) {
+    AlertDialog(
+        onDismissRequest = viewModel::dismissRoutineUpdate,
+        title = { Text("Обновить программу?") },
+        text = {
+          Text(
+              "Фактически выполненные упражнения и подходы отличаются от программы. Перезаписать программу по факту тренировки?"
+          )
+        },
+        confirmButton = {
+          TextButton(onClick = viewModel::applyRoutineUpdate) { Text("Обновить") }
+        },
+        dismissButton = {
+          TextButton(onClick = viewModel::dismissRoutineUpdate) { Text("Не сейчас") }
+        },
+    )
+  }
+  if (state.showSaveAsProgramDialog) {
+    SaveWorkoutAsProgramDialog(
+        name = state.saveAsProgramName,
+        isSaving = state.isSavingAsProgram,
+        error = state.saveAsProgramError,
+        onNameChange = viewModel::changeSaveAsProgramName,
+        onConfirm = {
+          haptics.tap()
+          viewModel.confirmSaveAsProgram()
+        },
+        onDismiss = viewModel::dismissSaveAsProgram,
+    )
+  }
 }
 
 @Composable
@@ -231,22 +226,23 @@ internal fun WorkoutSummaryActions(
     onSaveAsProgram: () -> Unit,
     onDone: () -> Unit,
 ) {
-    if (canSaveAsProgram) {
-        TextButton(
-            onClick = onSaveAsProgram,
-            modifier = Modifier
-                .padding(start = 24.dp, end = 24.dp, top = 8.dp)
+  if (canSaveAsProgram) {
+    TextButton(
+        onClick = onSaveAsProgram,
+        modifier =
+            Modifier.padding(start = 24.dp, end = 24.dp, top = 8.dp)
                 .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
                 .semantics { contentDescription = "Сохранить тренировку как программу" },
-        ) { Text("Сохранить") }
+    ) {
+      Text("Сохранить")
     }
-    PillButton(
-        text = "Готово",
-        onClick = onDone,
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(start = 24.dp, end = 24.dp, top = 8.dp, bottom = 16.dp),
-    )
+  }
+  PillButton(
+      text = "Готово",
+      onClick = onDone,
+      modifier =
+          Modifier.fillMaxWidth().padding(start = 24.dp, end = 24.dp, top = 8.dp, bottom = 16.dp),
+  )
 }
 
 @Composable
@@ -254,25 +250,25 @@ private fun StatsCard(
     durationSeconds: Long,
     volumeKg: Double,
 ) {
-    GymCard(
-        modifier = Modifier.fillMaxWidth(),
-        contentPadding = PaddingValues(20.dp),
-    ) {
-        Row(modifier = Modifier.fillMaxWidth()) {
-            StatTile(
-                icon = Icons.Rounded.Timer,
-                contentDescription = "Длительность",
-                value = formatDuration(durationSeconds),
-                modifier = Modifier.weight(1f),
-            )
-            StatTile(
-                icon = Icons.Rounded.FitnessCenter,
-                contentDescription = "Объём",
-                value = "${formatNumber(volumeKg)} кг",
-                modifier = Modifier.weight(1f),
-            )
-        }
+  GymCard(
+      modifier = Modifier.fillMaxWidth(),
+      contentPadding = PaddingValues(20.dp),
+  ) {
+    Row(modifier = Modifier.fillMaxWidth()) {
+      StatTile(
+          icon = Icons.Rounded.Timer,
+          contentDescription = "Длительность",
+          value = formatDuration(durationSeconds),
+          modifier = Modifier.weight(1f),
+      )
+      StatTile(
+          icon = Icons.Rounded.FitnessCenter,
+          contentDescription = "Объём",
+          value = "${formatNumber(volumeKg)} кг",
+          modifier = Modifier.weight(1f),
+      )
     }
+  }
 }
 
 @Composable
@@ -282,66 +278,67 @@ private fun StatTile(
     value: String,
     modifier: Modifier = Modifier,
 ) {
-    Column(modifier = modifier) {
-        Icon(
-            icon,
-            contentDescription = contentDescription,
-            tint = MaterialTheme.colorScheme.primary,
-        )
-        Spacer(Modifier.height(8.dp))
-        Text(
-            text = value,
-            style = MaterialTheme.typography.headlineSmall,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
-    }
+  Column(modifier = modifier) {
+    Icon(
+        icon,
+        contentDescription = contentDescription,
+        tint = MaterialTheme.colorScheme.primary,
+    )
+    Spacer(Modifier.height(8.dp))
+    Text(
+        text = value,
+        style = MaterialTheme.typography.headlineSmall,
+        fontWeight = FontWeight.Bold,
+        color = MaterialTheme.colorScheme.onSurface,
+    )
+  }
 }
 
 @Composable
 private fun PrCard(pr: PrResult, onClick: () -> Unit) {
-    // Каждая строка рекорда «впрыгивает» отдельно (expressive bouncy scale + затухание) —
-    // акцент на достижении. Анимация запускается один раз при первом появлении карточки.
-    val appear = remember { MutableTransitionState(false).apply { targetState = true } }
-    AnimatedVisibility(
-        visibleState = appear,
-        enter = scaleIn(animationSpec = GymMotion.spatialDefault(), initialScale = 0.8f) +
-            fadeIn(animationSpec = GymMotion.effectsDefault()),
+  // Каждая строка рекорда «впрыгивает» отдельно (expressive bouncy scale + затухание) —
+  // акцент на достижении. Анимация запускается один раз при первом появлении карточки.
+  val appear = remember { MutableTransitionState(false).apply { targetState = true } }
+  AnimatedVisibility(
+      visibleState = appear,
+      enter =
+          scaleIn(animationSpec = GymMotion.spatialDefault(), initialScale = 0.8f) +
+              fadeIn(animationSpec = GymMotion.effectsDefault()),
+  ) {
+    GymCard(
+        modifier = Modifier.fillMaxWidth(),
+        onClick = onClick,
+        contentPadding = PaddingValues(horizontal = 18.dp, vertical = 14.dp),
     ) {
-        GymCard(
-            modifier = Modifier.fillMaxWidth(),
-            onClick = onClick,
-            contentPadding = PaddingValues(horizontal = 18.dp, vertical = 14.dp),
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    Icons.Rounded.EmojiEvents,
-                    contentDescription = "Личный рекорд",
-                    tint = MaterialTheme.colorScheme.primary,
-                )
-                Spacer(Modifier.width(12.dp))
-                Text(
-                    text = pr.exerciseName,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.weight(1f),
-                )
-                Text(
-                    text = "${formatNumber(pr.weightKg)} кг",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-            }
-        }
+      Row(verticalAlignment = Alignment.CenterVertically) {
+        Icon(
+            Icons.Rounded.EmojiEvents,
+            contentDescription = "Личный рекорд",
+            tint = MaterialTheme.colorScheme.primary,
+        )
+        Spacer(Modifier.width(12.dp))
+        Text(
+            text = pr.exerciseName,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            text = "${formatNumber(pr.weightKg)} кг",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.primary,
+        )
+      }
     }
+  }
 }
 
 private fun formatDuration(totalSeconds: Long): String {
-    val hours = totalSeconds / 3600
-    val minutes = (totalSeconds % 3600) / 60
-    return if (hours > 0) "$hours ч $minutes мин" else "$minutes мин"
+  val hours = totalSeconds / 3600
+  val minutes = (totalSeconds % 3600) / 60
+  return if (hours > 0) "$hours ч $minutes мин" else "$minutes мин"
 }
 
 /** Число без хвостовых нулей, локаль-независимо. */

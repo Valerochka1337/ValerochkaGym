@@ -10,7 +10,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffold
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onRoot
 import com.valerochka1337.valerochkagym.ui.theme.GymTheme
@@ -27,58 +27,56 @@ private const val CONTENT_TAG = "adaptive-content"
 @Config(application = Application::class, qualifiers = "w360dp-h800dp-xhdpi")
 class CompactNavigationTest {
 
-    @get:Rule
-    val composeRule = createComposeRule()
+  @get:Rule val composeRule = createComposeRule()
 
-    @Test
-    fun `compact window reserves the bottom edge for navigation`() {
-        composeRule.setAdaptiveNavigationContent()
+  @Test
+  fun `compact window reserves the bottom edge for navigation`() {
+    composeRule.setAdaptiveNavigationContent()
 
-        val root = composeRule.onRoot().fetchSemanticsNode().boundsInRoot
-        val content = composeRule.onNodeWithTag(CONTENT_TAG).fetchSemanticsNode().boundsInRoot
-        assertTrue(content.left == root.left)
-        assertTrue(content.bottom < root.bottom)
-    }
+    val root = composeRule.onRoot().fetchSemanticsNode().boundsInRoot
+    val content = composeRule.onNodeWithTag(CONTENT_TAG).fetchSemanticsNode().boundsInRoot
+    assertTrue(content.left == root.left)
+    assertTrue(content.bottom < root.bottom)
+  }
 }
 
 @RunWith(RobolectricTestRunner::class)
 @Config(application = Application::class, qualifiers = "w1200dp-h800dp-xhdpi")
 class ExpandedNavigationTest {
 
-    @get:Rule
-    val composeRule = createComposeRule()
+  @get:Rule val composeRule = createComposeRule()
 
-    @Test
-    fun `expanded window reserves the start edge for navigation rail`() {
-        composeRule.setAdaptiveNavigationContent()
+  @Test
+  fun `expanded window reserves the start edge for navigation rail`() {
+    composeRule.setAdaptiveNavigationContent()
 
-        val root = composeRule.onRoot().fetchSemanticsNode().boundsInRoot
-        val content = composeRule.onNodeWithTag(CONTENT_TAG).fetchSemanticsNode().boundsInRoot
-        assertTrue(content.left > root.left)
-        assertTrue(content.bottom == root.bottom)
-    }
+    val root = composeRule.onRoot().fetchSemanticsNode().boundsInRoot
+    val content = composeRule.onNodeWithTag(CONTENT_TAG).fetchSemanticsNode().boundsInRoot
+    assertTrue(content.left > root.left)
+    assertTrue(content.bottom == root.bottom)
+  }
 }
 
 private fun androidx.compose.ui.test.junit4.ComposeContentTestRule.setAdaptiveNavigationContent() {
-    setContent {
-        GymTheme {
-            NavigationSuiteScaffold(
-                navigationSuiteItems = {
-                    item(
-                        selected = true,
-                        onClick = {},
-                        icon = {
-                            Icon(
-                                imageVector = Icons.Outlined.FitnessCenter,
-                                contentDescription = "Тренировки",
-                            )
-                        },
-                        label = { Text("Тренировки") },
-                    )
+  setContent {
+    GymTheme {
+      NavigationSuiteScaffold(
+          navigationSuiteItems = {
+            item(
+                selected = true,
+                onClick = {},
+                icon = {
+                  Icon(
+                      imageVector = Icons.Outlined.FitnessCenter,
+                      contentDescription = "Тренировки",
+                  )
                 },
-            ) {
-                Box(modifier = Modifier.fillMaxSize().testTag(CONTENT_TAG))
-            }
-        }
+                label = { Text("Тренировки") },
+            )
+          },
+      ) {
+        Box(modifier = Modifier.fillMaxSize().testTag(CONTENT_TAG))
+      }
     }
+  }
 }

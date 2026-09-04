@@ -9,36 +9,28 @@ import kotlinx.serialization.json.Json
 
 class Converters {
 
-    private val json = Json { ignoreUnknownKeys = true }
+  private val json = Json { ignoreUnknownKeys = true }
 
-    @TypeConverter
-    fun fromMuscleGroup(value: MuscleGroup): String = value.name
+  @TypeConverter fun fromMuscleGroup(value: MuscleGroup): String = value.name
 
-    @TypeConverter
-    fun toMuscleGroup(value: String): MuscleGroup = MuscleGroup.valueOf(value)
+  @TypeConverter fun toMuscleGroup(value: String): MuscleGroup = MuscleGroup.valueOf(value)
 
-    @TypeConverter
-    fun fromMuscle(value: Muscle): String = value.name
+  @TypeConverter fun fromMuscle(value: Muscle): String = value.name
 
-    @TypeConverter
-    fun toMuscle(value: String): Muscle = Muscle.valueOf(value)
+  @TypeConverter fun toMuscle(value: String): Muscle = Muscle.valueOf(value)
 
-    @TypeConverter
-    fun fromExerciseType(value: ExerciseType): String = value.name
+  @TypeConverter fun fromExerciseType(value: ExerciseType): String = value.name
 
-    @TypeConverter
-    fun toExerciseType(value: String): ExerciseType = ExerciseType.valueOf(value)
+  @TypeConverter fun toExerciseType(value: String): ExerciseType = ExerciseType.valueOf(value)
 
-    @TypeConverter
-    fun fromUploadStatus(value: UploadStatus): String = value.name
+  @TypeConverter fun fromUploadStatus(value: UploadStatus): String = value.name
 
-    @TypeConverter
-    fun toUploadStatus(value: String): UploadStatus = UploadStatus.valueOf(value)
+  @TypeConverter fun toUploadStatus(value: String): UploadStatus = UploadStatus.valueOf(value)
 
-    @TypeConverter
-    fun fromPlannedSetList(value: List<PlannedSet>): String = json.encodeToString(value)
+  @TypeConverter
+  fun fromPlannedSetList(value: List<PlannedSet>): String = json.encodeToString(value)
 
-    @TypeConverter
-    fun toPlannedSetList(value: String): List<PlannedSet> =
-        if (value.isBlank()) emptyList() else json.decodeFromString(value)
+  @TypeConverter
+  fun toPlannedSetList(value: String): List<PlannedSet> =
+      if (value.isBlank()) emptyList() else json.decodeFromString(value)
 }

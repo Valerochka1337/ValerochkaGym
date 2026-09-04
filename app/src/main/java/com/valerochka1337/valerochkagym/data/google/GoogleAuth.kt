@@ -6,15 +6,17 @@ import android.app.PendingIntent
 /**
  * Результат запроса OAuth-доступа к Google Sheets/Calendar.
  *
- * [Granted] — доступ уже выдан, токен доступен.
- * [NeedsConsent] — требуется явное согласие пользователя; [pendingIntent] нужно
- * запустить через `StartIntentSenderForResult`, после чего повторить [GoogleAuth.authorize].
- * [Failed] — запрос не удался (нет сети, пользователь не залогинен и т. п.).
+ * [Granted] — доступ уже выдан, токен доступен. [NeedsConsent] — требуется явное согласие
+ * пользователя; [NeedsConsent.pendingIntent] нужно запустить через `StartIntentSenderForResult`,
+ * после чего повторить [GoogleAuth.authorize]. [Failed] — запрос не удался (нет сети, пользователь
+ * не залогинен и т. п.).
  */
 sealed interface AuthorizeOutcome {
-    data object Granted : AuthorizeOutcome
-    data class NeedsConsent(val pendingIntent: PendingIntent) : AuthorizeOutcome
-    data class Failed(val error: Throwable?) : AuthorizeOutcome
+  data object Granted : AuthorizeOutcome
+
+  data class NeedsConsent(val pendingIntent: PendingIntent) : AuthorizeOutcome
+
+  data class Failed(val error: Throwable?) : AuthorizeOutcome
 }
 
 /**
@@ -24,42 +26,44 @@ sealed interface AuthorizeOutcome {
  * [GoogleAuth.authorize] с Activity. [Failed] — запрос не удался (нет сети и т. п.).
  */
 sealed interface TokenResult {
-    data class Success(val token: String) : TokenResult
-    data object NeedsConsent : TokenResult
-    data class Failed(val error: Throwable?) : TokenResult
+  data class Success(val token: String) : TokenResult
+
+  data object NeedsConsent : TokenResult
+
+  data class Failed(val error: Throwable?) : TokenResult
 }
 
 /**
- * Вход через Google и выдача OAuth-доступа к нужным API. Интерфейс отделяет UI и будущие
- * загрузчики (Стадии 19/21) от конкретной реализации на Credential Manager /
- * AuthorizationClient — чтобы их можно было мокать в тестах.
+ * Вход через Google и выдача OAuth-доступа к нужным API. Интерфейс отделяет UI и будущие загрузчики
+ * (Стадии 19/21) от конкретной реализации на Credential Manager / AuthorizationClient — чтобы их
+ * можно было мокать в тестах.
  */
 interface GoogleAuth {
 
-    /**
-     * Вход через Credential Manager. Требует Activity-контекст (системный UI выбора аккаунта).
-     * В случае успеха email сохраняется в настройки и возвращается в [Result]. Отмена
-     * пользователем — «тихий» [Result.failure] без побочных эффектов.
-     */
-    suspend fun signIn(activity: Activity): Result<String>
+  /**
+   * Вход через Credential Manager. Требует Activity-контекст (системный UI выбора аккаунта). В
+   * случае успеха email сохраняется в настройки и возвращается в [Result]. Отмена пользователем —
+   * «тихий» [Result.failure] без побочных эффектов.
+   */
+  suspend fun signIn(activity: Activity): Result<String>
 
-    /**
-     * Запрашивает OAuth-доступ (scopes Sheets + Calendar). Может потребовать согласия
-     * пользователя — тогда возвращает [AuthorizeOutcome.NeedsConsent] с [PendingIntent].
-     */
-    suspend fun authorize(activity: Activity): AuthorizeOutcome
+  /**
+   * Запрашивает OAuth-доступ (scopes Sheets + Calendar). Может потребовать согласия пользователя —
+   * тогда возвращает [AuthorizeOutcome.NeedsConsent] с [PendingIntent].
+   */
+  suspend fun authorize(activity: Activity): AuthorizeOutcome
 
-    /**
-     * Access-токен для Bearer-авторизации без участия Activity. [TokenResult.NeedsConsent],
-     * если доступ ещё не выдан (требуется [authorize]) или пользователь не залогинен.
-     */
-    suspend fun getAccessToken(): TokenResult
+  /**
+   * Access-токен для Bearer-авторизации без участия Activity. [TokenResult.NeedsConsent], если
+   * доступ ещё не выдан (требуется [authorize]) или пользователь не залогинен.
+   */
+  suspend fun getAccessToken(): TokenResult
 
-    /** Выход: очищает состояние Credential Manager и стирает сохранённый email. */
-    suspend fun signOut()
+  /** Выход: очищает состояние Credential Manager и стирает сохранённый email. */
+  suspend fun signOut()
 }
 
-/** OAuth seam that guarantees the returned token belongs to [expectedEmail]. */
+/** OAuth seam that guarantees the returned token belongs to expectedEmail. */
 interface AccountBoundGoogleAuth {
-    suspend fun getAccessTokenForAccount(expectedEmail: String): TokenResult
+  suspend fun getAccessTokenForAccount(expectedEmail: String): TokenResult
 }

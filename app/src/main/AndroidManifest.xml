@@ -61,6 +61,16 @@
             android:name=".data.update.AppUpdateInstallStatusReceiver"
             android:exported="false" />
 
+        <!-- Системный broadcast после замены собственного APK. Не запускает Activity: только
+             сохраняет pending-маркер и публикует notification для явного тапа пользователя. -->
+        <receiver
+            android:name=".data.update.AppUpdateReplacementReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+
         <!-- Иконки под акценты. Включён ровно один; переключает AppIconManager по настройке.
              Порядок и имена связаны с AccentColor.aliasName — менять только вместе. -->
         <activity-alias

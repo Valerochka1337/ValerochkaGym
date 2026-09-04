@@ -12,8 +12,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
-import androidx.navigation.NavBackStackEntry
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -25,9 +25,9 @@ import com.valerochka1337.valerochkagym.ui.analysis.AnalysisScreen
 import com.valerochka1337.valerochkagym.ui.calendar.CalendarScreen
 import com.valerochka1337.valerochkagym.ui.calendar.ScheduleEditorScreen
 import com.valerochka1337.valerochkagym.ui.exercise.ExerciseDetailScreen
-import com.valerochka1337.valerochkagym.ui.history.WorkoutDetailScreen
 import com.valerochka1337.valerochkagym.ui.gyms.GymEditorScreen
 import com.valerochka1337.valerochkagym.ui.gyms.GymsScreen
+import com.valerochka1337.valerochkagym.ui.history.WorkoutDetailScreen
 import com.valerochka1337.valerochkagym.ui.library.ExerciseLibraryScreen
 import com.valerochka1337.valerochkagym.ui.measurements.MeasurementEditorScreen
 import com.valerochka1337.valerochkagym.ui.measurements.MeasurementsScreen
@@ -40,61 +40,68 @@ import com.valerochka1337.valerochkagym.ui.update.AppUpdateUiState
 import com.valerochka1337.valerochkagym.ui.workouts.WorkoutsScreen
 
 /**
- * All navigation routes in the app. The three tab roots use plain constants;
- * parameterized routes expose a builder that fills in the argument.
+ * All navigation routes in the app. The three tab roots use plain constants; parameterized routes
+ * expose a builder that fills in the argument.
  */
 object GymRoutes {
-    const val GYM_IDS_ARG = "gymIds"
-    const val WORKOUT_ID_ARG = "workoutId"
-    const val WORKOUTS = "workouts"
-    const val CALENDAR = "calendar"
-    const val ANALYSIS = "analysis"
-    const val MEASUREMENTS = "measurements"
-    const val SETTINGS = "settings"
-    const val GYMS = "gyms"
-    const val LIBRARY =
-        "library?$GYM_IDS_ARG={$GYM_IDS_ARG}&$WORKOUT_ID_ARG={$WORKOUT_ID_ARG}"
-    const val ACTIVE_WORKOUT = "active_workout"
-    const val SCHEDULE_EDITOR = "schedule_editor"
+  const val GYM_IDS_ARG = "gymIds"
+  const val WORKOUT_ID_ARG = "workoutId"
+  const val WORKOUTS = "workouts"
+  const val CALENDAR = "calendar"
+  const val ANALYSIS = "analysis"
+  const val MEASUREMENTS = "measurements"
+  const val SETTINGS = "settings"
+  const val GYMS = "gyms"
+  const val LIBRARY = "library?$GYM_IDS_ARG={$GYM_IDS_ARG}&$WORKOUT_ID_ARG={$WORKOUT_ID_ARG}"
+  const val ACTIVE_WORKOUT = "active_workout"
+  const val SCHEDULE_EDITOR = "schedule_editor"
 
-    const val ROUTINE_ID_ARG = "routineId"
-    const val MEASUREMENT_ID_ARG = "measurementId"
-    const val EXERCISE_ID_ARG = "exerciseId"
-    private const val LEGACY_EXECUTION_GROUP_ARG = "executionGroup"
-    const val GYM_ID_ARG = "gymId"
+  const val ROUTINE_ID_ARG = "routineId"
+  const val MEASUREMENT_ID_ARG = "measurementId"
+  const val EXERCISE_ID_ARG = "exerciseId"
+  private const val LEGACY_EXECUTION_GROUP_ARG = "executionGroup"
+  const val GYM_ID_ARG = "gymId"
 
-    /** Ключ savedStateHandle, через который библиотека-пикер возвращает выбранное упражнение. */
-    const val SELECTED_EXERCISE_ID = "selected_exercise_id"
+  /** Ключ savedStateHandle, через который библиотека-пикер возвращает выбранное упражнение. */
+  const val SELECTED_EXERCISE_ID = "selected_exercise_id"
 
-    const val ROUTINE_EDITOR = "routine_editor?$ROUTINE_ID_ARG={$ROUTINE_ID_ARG}"
-    const val WORKOUT_SUMMARY = "workout_summary/{$WORKOUT_ID_ARG}"
-    const val WORKOUT_DETAIL = "workout_detail/{$WORKOUT_ID_ARG}"
-    const val MEASUREMENT_EDITOR = "measurement_editor?$MEASUREMENT_ID_ARG={$MEASUREMENT_ID_ARG}"
-    const val EXERCISE_DETAIL = "exercise_detail/{$EXERCISE_ID_ARG}"
-    const val LEGACY_EXERCISE_DETAIL = "exercise_detail/{$EXERCISE_ID_ARG}/{$LEGACY_EXECUTION_GROUP_ARG}"
-    const val GYM_EDITOR = "gym_editor?$GYM_ID_ARG={$GYM_ID_ARG}"
+  const val ROUTINE_EDITOR = "routine_editor?$ROUTINE_ID_ARG={$ROUTINE_ID_ARG}"
+  const val WORKOUT_SUMMARY = "workout_summary/{$WORKOUT_ID_ARG}"
+  const val WORKOUT_DETAIL = "workout_detail/{$WORKOUT_ID_ARG}"
+  const val MEASUREMENT_EDITOR = "measurement_editor?$MEASUREMENT_ID_ARG={$MEASUREMENT_ID_ARG}"
+  const val EXERCISE_DETAIL = "exercise_detail/{$EXERCISE_ID_ARG}"
+  const val LEGACY_EXERCISE_DETAIL =
+      "exercise_detail/{$EXERCISE_ID_ARG}/{$LEGACY_EXECUTION_GROUP_ARG}"
+  const val GYM_EDITOR = "gym_editor?$GYM_ID_ARG={$GYM_ID_ARG}"
 
-    fun routineEditor(routineId: String? = null) =
-        if (routineId != null) "routine_editor?$ROUTINE_ID_ARG=$routineId" else "routine_editor"
-    fun workoutSummary(workoutId: String) = "workout_summary/$workoutId"
-    fun workoutDetail(workoutId: String) = "workout_detail/$workoutId"
-    fun exerciseDetail(exerciseId: Long) = "exercise_detail/$exerciseId"
-    fun measurementEditor(measurementId: String? = null) =
-        if (measurementId == null) "measurement_editor" else "measurement_editor?$MEASUREMENT_ID_ARG=$measurementId"
-    fun gymEditor(gymId: String? = null) =
-        if (gymId == null) "gym_editor" else "gym_editor?$GYM_ID_ARG=${Uri.encode(gymId)}"
-    fun library(
-        gymIds: Set<String> = emptySet(),
-        workoutId: String? = null,
-    ): String {
-        val arguments = buildList {
-            if (gymIds.isNotEmpty()) {
-                add("$GYM_IDS_ARG=${Uri.encode(gymIds.sorted().joinToString(","))}")
-            }
-            if (workoutId != null) add("$WORKOUT_ID_ARG=${Uri.encode(workoutId)}")
-        }
-        return if (arguments.isEmpty()) "library" else "library?${arguments.joinToString("&")}"
+  fun routineEditor(routineId: String? = null) =
+      if (routineId != null) "routine_editor?$ROUTINE_ID_ARG=$routineId" else "routine_editor"
+
+  fun workoutSummary(workoutId: String) = "workout_summary/$workoutId"
+
+  fun workoutDetail(workoutId: String) = "workout_detail/$workoutId"
+
+  fun exerciseDetail(exerciseId: Long) = "exercise_detail/$exerciseId"
+
+  fun measurementEditor(measurementId: String? = null) =
+      if (measurementId == null) "measurement_editor"
+      else "measurement_editor?$MEASUREMENT_ID_ARG=$measurementId"
+
+  fun gymEditor(gymId: String? = null) =
+      if (gymId == null) "gym_editor" else "gym_editor?$GYM_ID_ARG=${Uri.encode(gymId)}"
+
+  fun library(
+      gymIds: Set<String> = emptySet(),
+      workoutId: String? = null,
+  ): String {
+    val arguments = buildList {
+      if (gymIds.isNotEmpty()) {
+        add("$GYM_IDS_ARG=${Uri.encode(gymIds.sorted().joinToString(","))}")
+      }
+      if (workoutId != null) add("$WORKOUT_ID_ARG=${Uri.encode(workoutId)}")
     }
+    return if (arguments.isEmpty()) "library" else "library?${arguments.joinToString("&")}"
+  }
 }
 
 /** The tab root that the app opens on and that back navigation returns to. */
@@ -106,40 +113,42 @@ private val NavFadeSpec = GymMotion.NavFadeSpec
 private val TabFadeSpec = GymMotion.TabFadeSpec
 
 /** Порядок нижних вкладок слева направо; -1 — маршрут не является вкладкой. */
-private fun tabIndex(route: String?): Int = when (route) {
-    GymRoutes.WORKOUTS -> 0
-    GymRoutes.CALENDAR -> 1
-    GymRoutes.ANALYSIS -> 2
-    else -> -1
-}
+private fun tabIndex(route: String?): Int =
+    when (route) {
+      GymRoutes.WORKOUTS -> 0
+      GymRoutes.CALENDAR -> 1
+      GymRoutes.ANALYSIS -> 2
+      else -> -1
+    }
 
 /**
- * Полноэкранные модальные маршруты: всплывают снизу поверх неподвижного фона. Фон под ними
- * НЕ должен уезжать/затухать — иначе сквозь всплывающую панель мелькает пустой скаффолд.
+ * Полноэкранные модальные маршруты: всплывают снизу поверх неподвижного фона. Фон под ними НЕ
+ * должен уезжать/затухать — иначе сквозь всплывающую панель мелькает пустой скаффолд.
  */
-private fun isModalRoute(route: String?): Boolean = when (route) {
-    GymRoutes.ACTIVE_WORKOUT,
-    GymRoutes.ROUTINE_EDITOR,
-    GymRoutes.WORKOUT_SUMMARY,
-    GymRoutes.SCHEDULE_EDITOR,
-    GymRoutes.MEASUREMENT_EDITOR,
-    GymRoutes.GYM_EDITOR -> true
-    else -> false
-}
+private fun isModalRoute(route: String?): Boolean =
+    when (route) {
+      GymRoutes.ACTIVE_WORKOUT,
+      GymRoutes.ROUTINE_EDITOR,
+      GymRoutes.WORKOUT_SUMMARY,
+      GymRoutes.SCHEDULE_EDITOR,
+      GymRoutes.MEASUREMENT_EDITOR,
+      GymRoutes.GYM_EDITOR -> true
+      else -> false
+    }
 
 /**
- * Вкладки нижнего меню — сиблинги, а не иерархия, поэтому между ними используем чистый
- * кроссфейд (направление слайда для них не имеет смысла и подтормаживает при restoreState).
+ * Вкладки нижнего меню — сиблинги, а не иерархия, поэтому между ними используем чистый кроссфейд
+ * (направление слайда для них не имеет смысла и подтормаживает при restoreState).
  */
 private fun AnimatedContentTransitionScope<NavBackStackEntry>.isTabSwitch(): Boolean {
-    val from = tabIndex(initialState.destination.route)
-    val to = tabIndex(targetState.destination.route)
-    return from >= 0 && to >= 0 && from != to
+  val from = tabIndex(initialState.destination.route)
+  val to = tabIndex(targetState.destination.route)
+  return from >= 0 && to >= 0 && from != to
 }
 
 /**
- * Hosts every destination. [modifier] carries the padding from the enclosing
- * [MainScaffold] so tab content sits above the navigation bar.
+ * Hosts every destination. [modifier] carries the padding from the enclosing [MainScaffold] so tab
+ * content sits above the navigation bar.
  */
 @Composable
 fun GymNavGraph(
@@ -152,269 +161,278 @@ fun GymNavGraph(
     onInstallUpdate: () -> Unit,
     onRetryUpdate: () -> Unit,
 ) {
-    NavHost(
-        navController = navController,
-        startDestination = GYM_START_DESTINATION,
-        modifier = modifier,
-        // Базовый переход для обычных экранов: сдвиг по горизонтали + затухание.
-        enterTransition = {
-            if (isTabSwitch()) fadeIn(TabFadeSpec)
-            else fadeIn(NavFadeSpec) + slideIntoContainer(SlideDirection.Start, NavSlideSpec)
-        },
-        exitTransition = {
-            when {
-                // Уходим под всплывающую модалку — стоим на месте и держим непрозрачность.
-                isModalRoute(targetState.destination.route) -> ExitTransition.None
-                isTabSwitch() -> fadeOut(TabFadeSpec)
-                else -> fadeOut(NavFadeSpec) + slideOutOfContainer(SlideDirection.Start, NavSlideSpec)
-            }
-        },
-        popEnterTransition = {
-            when {
-                // Модалка над нами уезжает вниз — мы всё это время были под ней, просто остаёмся.
-                isModalRoute(initialState.destination.route) -> EnterTransition.None
-                isTabSwitch() -> fadeIn(TabFadeSpec)
-                else -> fadeIn(NavFadeSpec) + slideIntoContainer(SlideDirection.End, NavSlideSpec)
-            }
-        },
-        popExitTransition = {
-            if (isTabSwitch()) fadeOut(TabFadeSpec)
-            else fadeOut(NavFadeSpec) + slideOutOfContainer(SlideDirection.End, NavSlideSpec)
-        },
-    ) {
-        composable(GymRoutes.WORKOUTS) {
-            WorkoutsScreen(
-                onCreateRoutine = { navController.navigate(GymRoutes.routineEditor(null)) },
-                onEditRoutine = { id -> navController.navigate(GymRoutes.routineEditor(id.toString())) },
-                onStartWorkout = { navController.navigate(GymRoutes.ACTIVE_WORKOUT) },
-                onOpenSettings = { navController.navigate(GymRoutes.SETTINGS) },
-            )
+  NavHost(
+      navController = navController,
+      startDestination = GYM_START_DESTINATION,
+      modifier = modifier,
+      // Базовый переход для обычных экранов: сдвиг по горизонтали + затухание.
+      enterTransition = {
+        if (isTabSwitch()) fadeIn(TabFadeSpec)
+        else fadeIn(NavFadeSpec) + slideIntoContainer(SlideDirection.Start, NavSlideSpec)
+      },
+      exitTransition = {
+        when {
+          // Уходим под всплывающую модалку — стоим на месте и держим непрозрачность.
+          isModalRoute(targetState.destination.route) -> ExitTransition.None
+          isTabSwitch() -> fadeOut(TabFadeSpec)
+          else -> fadeOut(NavFadeSpec) + slideOutOfContainer(SlideDirection.Start, NavSlideSpec)
         }
-        composable(GymRoutes.CALENDAR) {
-            CalendarScreen(
-                onWorkoutClick = { workoutId -> navController.navigate(GymRoutes.workoutDetail(workoutId)) },
-                onStartWorkout = { navController.navigate(GymRoutes.ACTIVE_WORKOUT) },
-                onOpenSchedule = { navController.navigate(GymRoutes.SCHEDULE_EDITOR) },
-                onOpenSettings = { navController.navigate(GymRoutes.SETTINGS) },
-            )
+      },
+      popEnterTransition = {
+        when {
+          // Модалка над нами уезжает вниз — мы всё это время были под ней, просто остаёмся.
+          isModalRoute(initialState.destination.route) -> EnterTransition.None
+          isTabSwitch() -> fadeIn(TabFadeSpec)
+          else -> fadeIn(NavFadeSpec) + slideIntoContainer(SlideDirection.End, NavSlideSpec)
         }
-        composable(GymRoutes.ANALYSIS) {
-            AnalysisScreen(
-                onOpenSettings = { navController.navigate(GymRoutes.SETTINGS) },
-                onOpenMeasurements = { navController.navigate(GymRoutes.MEASUREMENTS) },
-                onExerciseClick = { id -> navController.navigate(GymRoutes.exerciseDetail(id)) },
-            )
-        }
-        composable(GymRoutes.MEASUREMENTS) {
-            MeasurementsScreen(
-                onBack = { navController.popBackStack() },
-                onCreateMeasurement = { navController.navigate(GymRoutes.measurementEditor()) },
-                onEditMeasurement = { id -> navController.navigate(GymRoutes.measurementEditor(id)) },
-            )
-        }
-        composable(GymRoutes.SETTINGS) {
-            SettingsScreen(
-                onBack = { navController.popBackStack() },
-                onOpenGyms = { navController.navigate(GymRoutes.GYMS) },
-                appUpdateState = appUpdateState,
-                onCheckUpdate = onCheckUpdate,
-                onDownloadUpdate = onDownloadUpdate,
-                onInstallUpdate = onInstallUpdate,
-                onRetryUpdate = onRetryUpdate,
-            )
-        }
+      },
+      popExitTransition = {
+        if (isTabSwitch()) fadeOut(TabFadeSpec)
+        else fadeOut(NavFadeSpec) + slideOutOfContainer(SlideDirection.End, NavSlideSpec)
+      },
+  ) {
+    composable(GymRoutes.WORKOUTS) {
+      WorkoutsScreen(
+          onCreateRoutine = { navController.navigate(GymRoutes.routineEditor(null)) },
+          onEditRoutine = { id -> navController.navigate(GymRoutes.routineEditor(id.toString())) },
+          onStartWorkout = { navController.navigate(GymRoutes.ACTIVE_WORKOUT) },
+          onOpenSettings = { navController.navigate(GymRoutes.SETTINGS) },
+      )
+    }
+    composable(GymRoutes.CALENDAR) {
+      CalendarScreen(
+          onWorkoutClick = { workoutId ->
+            navController.navigate(GymRoutes.workoutDetail(workoutId))
+          },
+          onStartWorkout = { navController.navigate(GymRoutes.ACTIVE_WORKOUT) },
+          onOpenSchedule = { navController.navigate(GymRoutes.SCHEDULE_EDITOR) },
+          onOpenSettings = { navController.navigate(GymRoutes.SETTINGS) },
+      )
+    }
+    composable(GymRoutes.ANALYSIS) {
+      AnalysisScreen(
+          onOpenSettings = { navController.navigate(GymRoutes.SETTINGS) },
+          onOpenMeasurements = { navController.navigate(GymRoutes.MEASUREMENTS) },
+          onExerciseClick = { id -> navController.navigate(GymRoutes.exerciseDetail(id)) },
+      )
+    }
+    composable(GymRoutes.MEASUREMENTS) {
+      MeasurementsScreen(
+          onBack = { navController.popBackStack() },
+          onCreateMeasurement = { navController.navigate(GymRoutes.measurementEditor()) },
+          onEditMeasurement = { id -> navController.navigate(GymRoutes.measurementEditor(id)) },
+      )
+    }
+    composable(GymRoutes.SETTINGS) {
+      SettingsScreen(
+          onBack = { navController.popBackStack() },
+          onOpenGyms = { navController.navigate(GymRoutes.GYMS) },
+          appUpdateState = appUpdateState,
+          onCheckUpdate = onCheckUpdate,
+          onDownloadUpdate = onDownloadUpdate,
+          onInstallUpdate = onInstallUpdate,
+          onRetryUpdate = onRetryUpdate,
+      )
+    }
 
-        composable(GymRoutes.GYMS) {
-            GymsScreen(
-                onBack = { navController.popBackStack() },
-                onCreateGym = { navController.navigate(GymRoutes.gymEditor()) },
-                onEditGym = { id -> navController.navigate(GymRoutes.gymEditor(id)) },
-            )
-        }
+    composable(GymRoutes.GYMS) {
+      GymsScreen(
+          onBack = { navController.popBackStack() },
+          onCreateGym = { navController.navigate(GymRoutes.gymEditor()) },
+          onEditGym = { id -> navController.navigate(GymRoutes.gymEditor(id)) },
+      )
+    }
 
-        composable(
-            route = GymRoutes.GYM_EDITOR,
-            arguments = listOf(
+    composable(
+        route = GymRoutes.GYM_EDITOR,
+        arguments =
+            listOf(
                 navArgument(GymRoutes.GYM_ID_ARG) {
-                    type = NavType.StringType
-                    nullable = true
-                    defaultValue = null
+                  type = NavType.StringType
+                  nullable = true
+                  defaultValue = null
                 },
             ),
-            enterTransition = { slideIntoContainer(SlideDirection.Up, NavSlideSpec) },
-            popExitTransition = { slideOutOfContainer(SlideDirection.Down, NavSlideSpec) },
-        ) {
-            GymEditorScreen(onBack = { navController.popBackStack() })
-        }
+        enterTransition = { slideIntoContainer(SlideDirection.Up, NavSlideSpec) },
+        popExitTransition = { slideOutOfContainer(SlideDirection.Down, NavSlideSpec) },
+    ) {
+      GymEditorScreen(onBack = { navController.popBackStack() })
+    }
 
-        composable(
-            route = GymRoutes.LIBRARY,
-            arguments = listOf(
+    composable(
+        route = GymRoutes.LIBRARY,
+        arguments =
+            listOf(
                 navArgument(GymRoutes.GYM_IDS_ARG) {
-                    type = NavType.StringType
-                    nullable = true
-                    defaultValue = null
+                  type = NavType.StringType
+                  nullable = true
+                  defaultValue = null
                 },
                 navArgument(GymRoutes.WORKOUT_ID_ARG) {
-                    type = NavType.StringType
-                    nullable = true
-                    defaultValue = null
+                  type = NavType.StringType
+                  nullable = true
+                  defaultValue = null
                 },
             ),
-        ) {
-            ExerciseLibraryScreen(
-                onBack = { navController.popBackStack() },
-                onOpenSettings = { navController.navigate(GymRoutes.SETTINGS) },
-                windowWidthClass = windowWidthClass,
-                // Открыта из редактора программы: возвращаем выбранное упражнение назад.
-                onExerciseSelected = { exercise ->
-                    navController.previousBackStackEntry?.savedStateHandle
-                        ?.set(GymRoutes.SELECTED_EXERCISE_ID, exercise.id)
-                    navController.popBackStack()
-                },
-                onExerciseAddedToWorkout = { navController.popBackStack() },
-                onExerciseInfo = { exercise ->
-                    navController.navigate(GymRoutes.exerciseDetail(exercise.id))
-                },
-            )
-        }
-        composable(
-            GymRoutes.ACTIVE_WORKOUT,
-            // Полноэкранный маршрут — выезжает снизу и уезжает вниз.
-            enterTransition = { slideIntoContainer(SlideDirection.Up, NavSlideSpec) },
-            popExitTransition = { slideOutOfContainer(SlideDirection.Down, NavSlideSpec) },
-        ) { backStackEntry ->
-            val viewModel = hiltViewModel<ActiveWorkoutViewModel>(backStackEntry)
-            val selectedExerciseId by backStackEntry.savedStateHandle
-                .getStateFlow<Long?>(GymRoutes.SELECTED_EXERCISE_ID, null)
-                .collectAsStateWithLifecycle()
-            LaunchedEffect(selectedExerciseId) {
-                val id = selectedExerciseId ?: return@LaunchedEffect
-                viewModel.addExerciseById(id)
-                backStackEntry.savedStateHandle[GymRoutes.SELECTED_EXERCISE_ID] = null
+    ) {
+      ExerciseLibraryScreen(
+          onBack = { navController.popBackStack() },
+          onOpenSettings = { navController.navigate(GymRoutes.SETTINGS) },
+          windowWidthClass = windowWidthClass,
+          // Открыта из редактора программы: возвращаем выбранное упражнение назад.
+          onExerciseSelected = { exercise ->
+            navController.previousBackStackEntry
+                ?.savedStateHandle
+                ?.set(GymRoutes.SELECTED_EXERCISE_ID, exercise.id)
+            navController.popBackStack()
+          },
+          onExerciseAddedToWorkout = { navController.popBackStack() },
+          onExerciseInfo = { exercise ->
+            navController.navigate(GymRoutes.exerciseDetail(exercise.id))
+          },
+      )
+    }
+    composable(
+        GymRoutes.ACTIVE_WORKOUT,
+        // Полноэкранный маршрут — выезжает снизу и уезжает вниз.
+        enterTransition = { slideIntoContainer(SlideDirection.Up, NavSlideSpec) },
+        popExitTransition = { slideOutOfContainer(SlideDirection.Down, NavSlideSpec) },
+    ) { backStackEntry ->
+      val viewModel = hiltViewModel<ActiveWorkoutViewModel>(backStackEntry)
+      val selectedExerciseId by
+          backStackEntry.savedStateHandle
+              .getStateFlow<Long?>(GymRoutes.SELECTED_EXERCISE_ID, null)
+              .collectAsStateWithLifecycle()
+      LaunchedEffect(selectedExerciseId) {
+        val id = selectedExerciseId ?: return@LaunchedEffect
+        viewModel.addExerciseById(id)
+        backStackEntry.savedStateHandle[GymRoutes.SELECTED_EXERCISE_ID] = null
+      }
+      ActiveWorkoutScreen(
+          onFinished = { workoutId ->
+            navController.navigate(GymRoutes.workoutSummary(workoutId)) {
+              popUpTo(GymRoutes.ACTIVE_WORKOUT) { inclusive = true }
             }
-            ActiveWorkoutScreen(
-                onFinished = { workoutId ->
-                    navController.navigate(GymRoutes.workoutSummary(workoutId)) {
-                        popUpTo(GymRoutes.ACTIVE_WORKOUT) { inclusive = true }
-                    }
-                },
-                onDiscarded = { navController.popBackStack(GymRoutes.WORKOUTS, inclusive = false) },
-                onNavigateBack = { navController.popBackStack() },
-                onAddExercise = {
-                    val gymIds = viewModel.uiState.value.workout?.gyms
-                        .orEmpty()
-                        .mapTo(linkedSetOf()) { it.syncId }
-                    navController.navigate(
-                        GymRoutes.library(
-                            gymIds = gymIds,
-                            workoutId = viewModel.uiState.value.workout?.workout?.id,
-                        ),
-                    )
-                },
-                onExerciseClick = { id -> navController.navigate(GymRoutes.exerciseDetail(id)) },
-                viewModel = viewModel,
+          },
+          onDiscarded = { navController.popBackStack(GymRoutes.WORKOUTS, inclusive = false) },
+          onNavigateBack = { navController.popBackStack() },
+          onAddExercise = {
+            val gymIds =
+                viewModel.uiState.value.workout?.gyms.orEmpty().mapTo(linkedSetOf()) { it.syncId }
+            navController.navigate(
+                GymRoutes.library(
+                    gymIds = gymIds,
+                    workoutId = viewModel.uiState.value.workout?.workout?.id,
+                ),
             )
-        }
+          },
+          onExerciseClick = { id -> navController.navigate(GymRoutes.exerciseDetail(id)) },
+          viewModel = viewModel,
+      )
+    }
 
-        composable(
-            route = GymRoutes.ROUTINE_EDITOR,
-            arguments = listOf(
+    composable(
+        route = GymRoutes.ROUTINE_EDITOR,
+        arguments =
+            listOf(
                 navArgument(GymRoutes.ROUTINE_ID_ARG) {
-                    type = NavType.StringType
-                    nullable = true
-                    defaultValue = null
+                  type = NavType.StringType
+                  nullable = true
+                  defaultValue = null
                 },
             ),
-            // Редактор — полноэкранная модалка, как активная тренировка и итоги:
-            // выезжает снизу, уезжает вниз (единое правило для модальных маршрутов).
-            enterTransition = { slideIntoContainer(SlideDirection.Up, NavSlideSpec) },
-            popExitTransition = { slideOutOfContainer(SlideDirection.Down, NavSlideSpec) },
-        ) { backStackEntry ->
-            val viewModel = hiltViewModel<RoutineEditorViewModel>(backStackEntry)
-            val selectedExerciseId by backStackEntry.savedStateHandle
-                .getStateFlow<Long?>(GymRoutes.SELECTED_EXERCISE_ID, null)
-                .collectAsStateWithLifecycle()
-            LaunchedEffect(selectedExerciseId) {
-                val id = selectedExerciseId ?: return@LaunchedEffect
-                viewModel.addExerciseById(id)
-                backStackEntry.savedStateHandle[GymRoutes.SELECTED_EXERCISE_ID] = null
-            }
-            RoutineEditorScreen(
-                onBack = { navController.popBackStack() },
-                onAddExercise = {
-                    navController.navigate(GymRoutes.library(viewModel.uiState.value.selectedGymIds))
-                },
-                viewModel = viewModel,
-            )
-        }
+        // Редактор — полноэкранная модалка, как активная тренировка и итоги:
+        // выезжает снизу, уезжает вниз (единое правило для модальных маршрутов).
+        enterTransition = { slideIntoContainer(SlideDirection.Up, NavSlideSpec) },
+        popExitTransition = { slideOutOfContainer(SlideDirection.Down, NavSlideSpec) },
+    ) { backStackEntry ->
+      val viewModel = hiltViewModel<RoutineEditorViewModel>(backStackEntry)
+      val selectedExerciseId by
+          backStackEntry.savedStateHandle
+              .getStateFlow<Long?>(GymRoutes.SELECTED_EXERCISE_ID, null)
+              .collectAsStateWithLifecycle()
+      LaunchedEffect(selectedExerciseId) {
+        val id = selectedExerciseId ?: return@LaunchedEffect
+        viewModel.addExerciseById(id)
+        backStackEntry.savedStateHandle[GymRoutes.SELECTED_EXERCISE_ID] = null
+      }
+      RoutineEditorScreen(
+          onBack = { navController.popBackStack() },
+          onAddExercise = {
+            navController.navigate(GymRoutes.library(viewModel.uiState.value.selectedGymIds))
+          },
+          viewModel = viewModel,
+      )
+    }
 
-        composable(
-            route = GymRoutes.WORKOUT_SUMMARY,
-            arguments = listOf(navArgument(GymRoutes.WORKOUT_ID_ARG) { type = NavType.StringType }),
-            // Итоги — тоже полноэкранные: выезжают снизу, уезжают вниз.
-            enterTransition = { slideIntoContainer(SlideDirection.Up, NavSlideSpec) },
-            popExitTransition = { slideOutOfContainer(SlideDirection.Down, NavSlideSpec) },
-        ) {
-            WorkoutSummaryScreen(
-                onDone = { navController.popBackStack(GymRoutes.WORKOUTS, inclusive = false) },
-                onExerciseClick = { id -> navController.navigate(GymRoutes.exerciseDetail(id)) },
-            )
-        }
+    composable(
+        route = GymRoutes.WORKOUT_SUMMARY,
+        arguments = listOf(navArgument(GymRoutes.WORKOUT_ID_ARG) { type = NavType.StringType }),
+        // Итоги — тоже полноэкранные: выезжают снизу, уезжают вниз.
+        enterTransition = { slideIntoContainer(SlideDirection.Up, NavSlideSpec) },
+        popExitTransition = { slideOutOfContainer(SlideDirection.Down, NavSlideSpec) },
+    ) {
+      WorkoutSummaryScreen(
+          onDone = { navController.popBackStack(GymRoutes.WORKOUTS, inclusive = false) },
+          onExerciseClick = { id -> navController.navigate(GymRoutes.exerciseDetail(id)) },
+      )
+    }
 
-        composable(
-            route = GymRoutes.WORKOUT_DETAIL,
-            arguments = listOf(navArgument(GymRoutes.WORKOUT_ID_ARG) { type = NavType.StringType }),
-        ) {
-            WorkoutDetailScreen(
-                onBack = { navController.popBackStack() },
-                onExerciseClick = { id -> navController.navigate(GymRoutes.exerciseDetail(id)) },
-            )
-        }
+    composable(
+        route = GymRoutes.WORKOUT_DETAIL,
+        arguments = listOf(navArgument(GymRoutes.WORKOUT_ID_ARG) { type = NavType.StringType }),
+    ) {
+      WorkoutDetailScreen(
+          onBack = { navController.popBackStack() },
+          onExerciseClick = { id -> navController.navigate(GymRoutes.exerciseDetail(id)) },
+      )
+    }
 
-        composable(
-            route = GymRoutes.EXERCISE_DETAIL,
-            arguments = listOf(navArgument(GymRoutes.EXERCISE_ID_ARG) { type = NavType.LongType }),
-        ) {
-            ExerciseDetailScreen(onBack = { navController.popBackStack() })
-        }
+    composable(
+        route = GymRoutes.EXERCISE_DETAIL,
+        arguments = listOf(navArgument(GymRoutes.EXERCISE_ID_ARG) { type = NavType.LongType }),
+    ) {
+      ExerciseDetailScreen(onBack = { navController.popBackStack() })
+    }
 
-        composable(
-            route = GymRoutes.LEGACY_EXERCISE_DETAIL,
-            arguments = listOf(
+    composable(
+        route = GymRoutes.LEGACY_EXERCISE_DETAIL,
+        arguments =
+            listOf(
                 navArgument(GymRoutes.EXERCISE_ID_ARG) { type = NavType.LongType },
                 navArgument("executionGroup") { type = NavType.StringType },
             ),
-        ) {
-            ExerciseDetailScreen(onBack = { navController.popBackStack() })
-        }
+    ) {
+      ExerciseDetailScreen(onBack = { navController.popBackStack() })
+    }
 
-        composable(
-            route = GymRoutes.SCHEDULE_EDITOR,
-            // Редактор расписания — полноэкранная модалка: выезжает снизу, уезжает вниз.
-            enterTransition = { slideIntoContainer(SlideDirection.Up, NavSlideSpec) },
-            popExitTransition = { slideOutOfContainer(SlideDirection.Down, NavSlideSpec) },
-        ) {
-            ScheduleEditorScreen(onBack = { navController.popBackStack() })
-        }
+    composable(
+        route = GymRoutes.SCHEDULE_EDITOR,
+        // Редактор расписания — полноэкранная модалка: выезжает снизу, уезжает вниз.
+        enterTransition = { slideIntoContainer(SlideDirection.Up, NavSlideSpec) },
+        popExitTransition = { slideOutOfContainer(SlideDirection.Down, NavSlideSpec) },
+    ) {
+      ScheduleEditorScreen(onBack = { navController.popBackStack() })
+    }
 
-        composable(
-            route = GymRoutes.MEASUREMENT_EDITOR,
-            arguments = listOf(
+    composable(
+        route = GymRoutes.MEASUREMENT_EDITOR,
+        arguments =
+            listOf(
                 navArgument(GymRoutes.MEASUREMENT_ID_ARG) {
-                    type = NavType.StringType
-                    nullable = true
-                    defaultValue = null
+                  type = NavType.StringType
+                  nullable = true
+                  defaultValue = null
                 },
             ),
-            // Редактор замера — полноэкранная форма, как редакторы программы и расписания.
-            enterTransition = { slideIntoContainer(SlideDirection.Up, NavSlideSpec) },
-            popExitTransition = { slideOutOfContainer(SlideDirection.Down, NavSlideSpec) },
-        ) {
-            MeasurementEditorScreen(
-                onBack = { navController.popBackStack() },
-                onOpenSettings = { navController.navigate(GymRoutes.SETTINGS) },
-            )
-        }
+        // Редактор замера — полноэкранная форма, как редакторы программы и расписания.
+        enterTransition = { slideIntoContainer(SlideDirection.Up, NavSlideSpec) },
+        popExitTransition = { slideOutOfContainer(SlideDirection.Down, NavSlideSpec) },
+    ) {
+      MeasurementEditorScreen(
+          onBack = { navController.popBackStack() },
+          onOpenSettings = { navController.navigate(GymRoutes.SETTINGS) },
+      )
     }
+  }
 }

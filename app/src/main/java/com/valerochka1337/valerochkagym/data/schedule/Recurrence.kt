@@ -11,8 +11,8 @@ private val BY_DAY = arrayOf("MO", "TU", "WE", "TH", "FR", "SA", "SU")
  * Значения вне диапазона отсекаются исключением — вызывающий обязан передавать `DayOfWeek.value`.
  */
 fun byDayOf(isoDay: Int): String {
-    require(isoDay in 1..7) { "isoDay must be in 1..7, was $isoDay" }
-    return BY_DAY[isoDay - 1]
+  require(isoDay in 1..7) { "isoDay must be in 1..7, was $isoDay" }
+  return BY_DAY[isoDay - 1]
 }
 
 /**
@@ -29,11 +29,11 @@ fun nextOccurrenceMillis(
     zone: ZoneId,
     from: LocalDate,
 ): Long {
-    require(isoDay in 1..7) { "isoDay must be in 1..7, was $isoDay" }
-    var date = from
-    // Не более 7 шагов: дойти до ближайшего дня недели, совпадающего с isoDay.
-    while (date.dayOfWeek.value != isoDay) {
-        date = date.plusDays(1)
-    }
-    return date.atTime(hour, minute).atZone(zone).toInstant().toEpochMilli()
+  require(isoDay in 1..7) { "isoDay must be in 1..7, was $isoDay" }
+  var date = from
+  // Не более 7 шагов: дойти до ближайшего дня недели, совпадающего с isoDay.
+  while (date.dayOfWeek.value != isoDay) {
+    date = date.plusDays(1)
+  }
+  return date.atTime(hour, minute).atZone(zone).toInstant().toEpochMilli()
 }

@@ -14,41 +14,42 @@ const val MIN_ANALYSIS_RANGE_DAYS = 7L
  * [AnalyticsInput]. Ручной диапазон уже содержит обе даты. Выбор живёт только в ViewModel.
  */
 sealed interface AnalysisPeriod {
-    /** Последние семь календарных дней, включая сегодня. Значение по умолчанию. */
-    data object LAST_7_DAYS : AnalysisPeriod
+  /** Последние семь календарных дней, включая сегодня. Значение по умолчанию. */
+  data object LAST_7_DAYS : AnalysisPeriod
 
-    data object WEEKS_4 : AnalysisPeriod
+  data object WEEKS_4 : AnalysisPeriod
 
-    data object WEEKS_12 : AnalysisPeriod
+  data object WEEKS_12 : AnalysisPeriod
 
-    data object WEEKS_52 : AnalysisPeriod
+  data object WEEKS_52 : AnalysisPeriod
 
-    /** Вся известная история, от первой активности до сегодня. */
-    data object ALL_TIME : AnalysisPeriod
+  /** Вся известная история, от первой активности до сегодня. */
+  data object ALL_TIME : AnalysisPeriod
 
-    /** Ручной диапазон с обеими включительными границами. */
-    data class Custom(
-        val start: LocalDate,
-        val endInclusive: LocalDate,
-    ) : AnalysisPeriod {
-        init {
-            require(!endInclusive.isBefore(start)) { "Конец периода не может быть раньше начала" }
-            require(ChronoUnit.DAYS.between(start, endInclusive) + 1 >= MIN_ANALYSIS_RANGE_DAYS) {
-                "Период аналитики должен занимать не меньше семи дней"
-            }
-        }
+  /** Ручной диапазон с обеими включительными границами. */
+  data class Custom(
+      val start: LocalDate,
+      val endInclusive: LocalDate,
+  ) : AnalysisPeriod {
+    init {
+      require(!endInclusive.isBefore(start)) { "Конец периода не может быть раньше начала" }
+      require(ChronoUnit.DAYS.between(start, endInclusive) + 1 >= MIN_ANALYSIS_RANGE_DAYS) {
+        "Период аналитики должен занимать не меньше семи дней"
+      }
     }
+  }
 
-    companion object {
-        /** Порядок пунктов одного выпадающего меню. */
-        val presets: List<AnalysisPeriod> = listOf(
+  companion object {
+    /** Порядок пунктов одного выпадающего меню. */
+    val presets: List<AnalysisPeriod> =
+        listOf(
             LAST_7_DAYS,
             WEEKS_4,
             WEEKS_12,
             WEEKS_52,
             ALL_TIME,
         )
-    }
+  }
 }
 
 /** Фактический диапазон отчёта: обе даты входят в него. */
@@ -56,38 +57,43 @@ data class AnalysisDateRange(
     val start: LocalDate,
     val endInclusive: LocalDate,
 ) {
-    init {
-        require(!endInclusive.isBefore(start)) { "Конец периода не может быть раньше начала" }
-    }
+  init {
+    require(!endInclusive.isBefore(start)) { "Конец периода не может быть раньше начала" }
+  }
 
-    val days: Long get() = ChronoUnit.DAYS.between(start, endInclusive) + 1
+  val days: Long
+    get() = ChronoUnit.DAYS.between(start, endInclusive) + 1
 
-    /** Не раздуваем среднее за неделю для короткой начальной истории. */
-    val weeks: Double get() = maxOf(1.0, days / 7.0)
+  /** Не раздуваем среднее за неделю для короткой начальной истории. */
+  val weeks: Double
+    get() = maxOf(1.0, days / 7.0)
 
-    fun contains(date: LocalDate): Boolean = !date.isBefore(start) && !date.isAfter(endInclusive)
+  fun contains(date: LocalDate): Boolean = !date.isBefore(start) && !date.isAfter(endInclusive)
 }
 
 /** Разворачивает пресет в календарные даты для конкретного дня и истории. */
 fun AnalysisPeriod.resolveRange(
     today: LocalDate,
     firstActivity: LocalDate?,
-): AnalysisDateRange = when (this) {
-    AnalysisPeriod.LAST_7_DAYS -> recentRange(today, 7)
-    AnalysisPeriod.WEEKS_4 -> recentRange(today, 4 * 7)
-    AnalysisPeriod.WEEKS_12 -> recentRange(today, 12 * 7)
-    AnalysisPeriod.WEEKS_52 -> recentRange(today, 52 * 7)
-    AnalysisPeriod.ALL_TIME -> AnalysisDateRange(
-        start = firstActivity ?: today.minusDays(MIN_ANALYSIS_RANGE_DAYS - 1),
+): AnalysisDateRange =
+    when (this) {
+      AnalysisPeriod.LAST_7_DAYS -> recentRange(today, 7)
+      AnalysisPeriod.WEEKS_4 -> recentRange(today, 4 * 7)
+      AnalysisPeriod.WEEKS_12 -> recentRange(today, 12 * 7)
+      AnalysisPeriod.WEEKS_52 -> recentRange(today, 52 * 7)
+      AnalysisPeriod.ALL_TIME ->
+          AnalysisDateRange(
+              start = firstActivity ?: today.minusDays(MIN_ANALYSIS_RANGE_DAYS - 1),
+              endInclusive = today,
+          )
+      is AnalysisPeriod.Custom -> AnalysisDateRange(start, endInclusive)
+    }
+
+private fun recentRange(today: LocalDate, days: Long): AnalysisDateRange =
+    AnalysisDateRange(
+        start = today.minusDays(days - 1),
         endInclusive = today,
     )
-    is AnalysisPeriod.Custom -> AnalysisDateRange(start, endInclusive)
-}
-
-private fun recentRange(today: LocalDate, days: Long): AnalysisDateRange = AnalysisDateRange(
-    start = today.minusDays(days - 1),
-    endInclusive = today,
-)
 
 /** Точка недельного графика. [partial] — последний блок короче семи дней. */
 data class WeeklyPoint(
@@ -103,8 +109,8 @@ data class WeeklyPoint(
 /**
  * Недельная нагрузка на одну мышцу.
  *
- * [weeklySets] — среднее число эффективных подходов в неделю за выбранный диапазон (а не
- * сумма). Шкала зон — общий UX-ориентир для гипертрофии, а не индивидуальный диагноз.
+ * [weeklySets] — среднее число эффективных подходов в неделю за выбранный диапазон (а не сумма).
+ * Шкала зон — общий UX-ориентир для гипертрофии, а не индивидуальный диагноз.
  */
 data class MuscleLoadSummary(
     val muscle: Muscle,
@@ -137,23 +143,23 @@ data class RepMaxPoint(
 
 /** Вердикт по тренду силы — то, ради чего человек и смотрит на график. */
 enum class TrendVerdict {
-    /** Меньше 5 тренировок: наклон по такой выборке — шум. */
-    NOT_ENOUGH_DATA,
+  /** Меньше 5 тренировок: наклон по такой выборке — шум. */
+  NOT_ENOUGH_DATA,
 
-    /** Рост за месяц больше порога заметности. */
-    GROWING,
+  /** Рост за месяц больше порога заметности. */
+  GROWING,
 
-    /** Изменение меньше порога: плато. */
-    STALLED,
+  /** Изменение меньше порога: плато. */
+  STALLED,
 
-    /** Устойчивое снижение. */
-    REGRESSING,
+  /** Устойчивое снижение. */
+  REGRESSING,
 }
 
 /**
- * Прогресс одного упражнения. [trendPercentPerMonth] — наклон линейной регрессии e1RM по
- * времени, приведённый к процентам от среднего за месяц: «+2%/мес» читается, а «+0.7 кг/день»
- * нет. Считается только при ≥ 3 тренировках, вердикт — при ≥ 5.
+ * Прогресс одного упражнения. [trendPercentPerMonth] — наклон линейной регрессии e1RM по времени,
+ * приведённый к процентам от среднего за месяц: «+2%/мес» читается, а «+0.7 кг/день» нет. Считается
+ * только при ≥ 3 тренировках, вердикт — при ≥ 5.
  */
 data class ExerciseProgress(
     val exerciseId: Long,
@@ -167,9 +173,9 @@ data class ExerciseProgress(
 )
 
 /**
- * Соотношение острой (7 дней) и хронической (среднее за 28 дней) нагрузки в эффективных
- * подходах. Оба окна заканчиваются последней датой выбранного диапазона и берут данные только
- * из него. При диапазоне короче 28 дней показатель не показываем.
+ * Соотношение острой (7 дней) и хронической (среднее за 28 дней) нагрузки в эффективных подходах.
+ * Оба окна заканчиваются последней датой выбранного диапазона и берут данные только из него. При
+ * диапазоне короче 28 дней показатель не показываем.
  */
 data class WorkloadRatio(
     val acuteSets: Double,
@@ -179,8 +185,8 @@ data class WorkloadRatio(
 )
 
 /**
- * Баланс двух наборов мышц по эффективным подходам за диапазон. [ratio] = [leftSets] /
- * [rightSets]; `null`, когда правая часть пуста (делить не на что).
+ * Баланс двух наборов мышц по эффективным подходам за диапазон. [ratio] = [leftSets] / [rightSets];
+ * `null`, когда правая часть пуста (делить не на что).
  */
 data class BalanceRatio(
     val id: BalanceId,
@@ -190,11 +196,17 @@ data class BalanceRatio(
     val targetLow: Double,
     val targetHigh: Double,
 ) {
-    val inTarget: Boolean get() = ratio != null && ratio in targetLow..targetHigh
+  val inTarget: Boolean
+    get() = ratio != null && ratio in targetLow..targetHigh
 }
 
 /** Какие именно балансы считаем; подписи живут в UI. */
-enum class BalanceId { PUSH_PULL, ANTERIOR_POSTERIOR, UPPER_LOWER, QUAD_HAMSTRING }
+enum class BalanceId {
+  PUSH_PULL,
+  ANTERIOR_POSTERIOR,
+  UPPER_LOWER,
+  QUAD_HAMSTRING,
+}
 
 /** Личный рекорд по упражнению за всю историю (выбранный диапазон на него не влияет). */
 data class ExerciseRecord(
@@ -207,9 +219,9 @@ data class ExerciseRecord(
 )
 
 /**
- * Полный отчёт вкладки «Анализы» за один диапазон. Пустой диапазон — [hasData] = false, все
- * его списки пустые: экран показывает объяснение вместо графиков из нулей. [records] остаются
- * за всю историю и потому могут быть непустыми даже для пустого диапазона.
+ * Полный отчёт вкладки «Анализы» за один диапазон. Пустой диапазон — [hasData] = false, все его
+ * списки пустые: экран показывает объяснение вместо графиков из нулей. [records] остаются за всю
+ * историю и потому могут быть непустыми даже для пустого диапазона.
  */
 data class AnalyticsReport(
     val hasData: Boolean,
@@ -232,12 +244,13 @@ data class AnalyticsReport(
     val streakWeeks: Int,
     val daysSinceLast: Int?,
 ) {
-    companion object {
-        fun empty(
-            period: AnalysisPeriod,
-            range: AnalysisDateRange = period.resolveRange(LocalDate.now(), firstActivity = null),
-            records: List<ExerciseRecord> = emptyList(),
-        ): AnalyticsReport = AnalyticsReport(
+  companion object {
+    fun empty(
+        period: AnalysisPeriod,
+        range: AnalysisDateRange = period.resolveRange(LocalDate.now(), firstActivity = null),
+        records: List<ExerciseRecord> = emptyList(),
+    ): AnalyticsReport =
+        AnalyticsReport(
             hasData = false,
             period = period,
             range = range,
@@ -258,5 +271,5 @@ data class AnalyticsReport(
             streakWeeks = 0,
             daysSinceLast = null,
         )
-    }
+  }
 }

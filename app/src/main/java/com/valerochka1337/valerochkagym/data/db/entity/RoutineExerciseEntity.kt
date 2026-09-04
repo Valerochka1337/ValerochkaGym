@@ -9,19 +9,20 @@ import com.valerochka1337.valerochkagym.data.db.PlannedSet
 
 @Entity(
     tableName = "routine_exercises",
-    foreignKeys = [
-        ForeignKey(
-            entity = RoutineEntity::class,
-            parentColumns = ["id"],
-            childColumns = ["routineId"],
-            onDelete = ForeignKey.CASCADE,
-        ),
-        ForeignKey(
-            entity = ExerciseEntity::class,
-            parentColumns = ["id"],
-            childColumns = ["exerciseId"],
-        ),
-    ],
+    foreignKeys =
+        [
+            ForeignKey(
+                entity = RoutineEntity::class,
+                parentColumns = ["id"],
+                childColumns = ["routineId"],
+                onDelete = ForeignKey.CASCADE,
+            ),
+            ForeignKey(
+                entity = ExerciseEntity::class,
+                parentColumns = ["id"],
+                childColumns = ["exerciseId"],
+            ),
+        ],
     indices = [Index("routineId"), Index("exerciseId")],
 )
 data class RoutineExerciseEntity(

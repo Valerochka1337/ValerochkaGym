@@ -7,6 +7,5 @@ import com.valerochka1337.valerochkagym.data.db.entity.RoutineExerciseEntity
 
 data class RoutineExerciseWithExercise(
     @Embedded val routineExercise: RoutineExerciseEntity,
-    @Relation(parentColumn = "exerciseId", entityColumn = "id")
-    val exercise: ExerciseEntity,
+    @Relation(parentColumn = "exerciseId", entityColumn = "id") val exercise: ExerciseEntity,
 )

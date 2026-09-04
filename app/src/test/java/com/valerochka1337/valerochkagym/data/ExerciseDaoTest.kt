@@ -24,157 +24,164 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
-import javax.inject.Provider
 
 /**
  * Exercises the real [GymDatabaseCallback] wiring. Seeding runs asynchronously on a coroutine scope
- * through the single onOpen path, so each test triggers the open and then waits for the catalogue to
- * settle.
+ * through the single onOpen path, so each test triggers the open and then waits for the catalogue
+ * to settle.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(application = android.app.Application::class)
 class ExerciseDaoTest {
 
-    private val openDatabases = mutableListOf<GymDatabase>()
-    private val seedingScopes = mutableMapOf<GymDatabase, CoroutineScope>()
+  private val openDatabases = mutableListOf<GymDatabase>()
+  private val seedingScopes = mutableMapOf<GymDatabase, CoroutineScope>()
 
-    @After
-    fun tearDown() {
-        // GymDatabaseCallback seeds from a fire-and-forget coroutine. Stop and join it before
-        // closing Room; otherwise a slower CI runner can continue seeding against a closed DB and
-        // leak the exception into the next runTest as UncaughtExceptionsBeforeTest.
-        runBlocking {
-            seedingScopes.values.forEach { scope ->
-                scope.coroutineContext[Job]?.cancelAndJoin()
-            }
-        }
-        openDatabases.forEach { it.close() }
-        seedingScopes.clear()
-        openDatabases.clear()
+  @After
+  fun tearDown() {
+    // GymDatabaseCallback seeds from a fire-and-forget coroutine. Stop and join it before
+    // closing Room; otherwise a slower CI runner can continue seeding against a closed DB and
+    // leak the exception into the next runTest as UncaughtExceptionsBeforeTest.
+    runBlocking {
+      seedingScopes.values.forEach { scope -> scope.coroutineContext[Job]?.cancelAndJoin() }
     }
+    openDatabases.forEach { it.close() }
+    seedingScopes.clear()
+    openDatabases.clear()
+  }
 
-    @Test
-    fun `first open seeds the whole built-in catalogue`() {
-        val db = buildSeedingDatabase(fileName = null)
-        db.openHelper.writableDatabase // triggers onOpen on the freshly created database
+  @Test
+  fun `first open seeds the whole built-in catalogue`() {
+    val db = buildSeedingDatabase(fileName = null)
+    db.openHelper.writableDatabase // triggers onOpen on the freshly created database
 
-        awaitExerciseCount(db.exerciseDao(), seedExercises.size)
+    awaitExerciseCount(db.exerciseDao(), seedExercises.size)
 
-        val all = runBlocking { db.exerciseDao().getAll().first() }
-        assertEquals(seedExercises.size, all.size)
-        // Seed-composition contract: every muscle group must be represented in the built-in catalogue.
-        assertEquals(MuscleGroup.entries.toSet(), all.map { it.muscleGroup }.toSet())
+    val all = runBlocking { db.exerciseDao().getAll().first() }
+    assertEquals(seedExercises.size, all.size)
+    // Seed-composition contract: every muscle group must be represented in the built-in catalogue.
+    assertEquals(MuscleGroup.entries.toSet(), all.map { it.muscleGroup }.toSet())
+  }
+
+  @Test
+  fun `onOpen reseeds when the exercises table is empty`() {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val dbFile = context.getDatabasePath("exercise-dao-reseed-test.db")
+    dbFile.parentFile?.mkdirs()
+    dbFile.delete()
+    try {
+      // Create the schema with an empty exercises table (no seeding callback), simulating a
+      // process death that interrupted the initial seed.
+      val plain =
+          Room.databaseBuilder(context, GymDatabase::class.java, dbFile.absolutePath)
+              .allowMainThreadQueries()
+              .build()
+      plain.openHelper.writableDatabase
+      assertEquals(0, runBlocking { plain.exerciseDao().count() })
+      plain.close()
+
+      // Reopen with the real callback: onOpen must re-seed because the table is empty.
+      val db = buildSeedingDatabase(fileName = dbFile.absolutePath)
+      db.openHelper.writableDatabase
+
+      awaitExerciseCount(db.exerciseDao(), seedExercises.size)
+    } finally {
+      dbFile.delete()
     }
+  }
 
-    @Test
-    fun `onOpen reseeds when the exercises table is empty`() {
-        val context = ApplicationProvider.getApplicationContext<Context>()
-        val dbFile = context.getDatabasePath("exercise-dao-reseed-test.db")
-        dbFile.parentFile?.mkdirs()
-        dbFile.delete()
-        try {
-            // Create the schema with an empty exercises table (no seeding callback), simulating a
-            // process death that interrupted the initial seed.
-            val plain = Room.databaseBuilder(context, GymDatabase::class.java, dbFile.absolutePath)
-                .allowMainThreadQueries()
-                .build()
-            plain.openHelper.writableDatabase
-            assertEquals(0, runBlocking { plain.exerciseDao().count() })
-            plain.close()
+  @Test
+  fun `onOpen keeps the catalogue intact when it is already seeded`() {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val dbFile = context.getDatabasePath("exercise-dao-keep-test.db")
+    dbFile.parentFile?.mkdirs()
+    dbFile.delete()
+    try {
+      val first = buildSeedingDatabase(fileName = dbFile.absolutePath)
+      first.openHelper.writableDatabase // onOpen seeds the fresh database
+      awaitExerciseCount(first.exerciseDao(), seedExercises.size)
+      closeSeedingDatabase(first)
 
-            // Reopen with the real callback: onOpen must re-seed because the table is empty.
-            val db = buildSeedingDatabase(fileName = dbFile.absolutePath)
-            db.openHelper.writableDatabase
-
-            awaitExerciseCount(db.exerciseDao(), seedExercises.size)
-        } finally {
-            dbFile.delete()
-        }
+      // Reopen: onOpen sees a non-empty table and must not add duplicates.
+      val second = buildSeedingDatabase(fileName = dbFile.absolutePath)
+      second.openHelper.writableDatabase
+      awaitExerciseCount(second.exerciseDao(), seedExercises.size)
+      assertEquals(seedExercises.size, runBlocking { second.exerciseDao().count() })
+    } finally {
+      dbFile.delete()
     }
+  }
 
-    @Test
-    fun `onOpen keeps the catalogue intact when it is already seeded`() {
-        val context = ApplicationProvider.getApplicationContext<Context>()
-        val dbFile = context.getDatabasePath("exercise-dao-keep-test.db")
-        dbFile.parentFile?.mkdirs()
-        dbFile.delete()
-        try {
-            val first = buildSeedingDatabase(fileName = dbFile.absolutePath)
-            first.openHelper.writableDatabase // onOpen seeds the fresh database
-            awaitExerciseCount(first.exerciseDao(), seedExercises.size)
-            closeSeedingDatabase(first)
+  @Test
+  fun `getAllOnce returns every inserted exercise`() = runTest {
+    val dao = plainDatabase().exerciseDao()
+    dao.insert(
+        ExerciseEntity(
+            name = "Жим лёжа",
+            muscleGroup = MuscleGroup.CHEST,
+            type = ExerciseType.STRENGTH,
+        )
+    )
+    dao.insert(
+        ExerciseEntity(
+            name = "Присед",
+            muscleGroup = MuscleGroup.LEGS,
+            type = ExerciseType.STRENGTH,
+        )
+    )
 
-            // Reopen: onOpen sees a non-empty table and must not add duplicates.
-            val second = buildSeedingDatabase(fileName = dbFile.absolutePath)
-            second.openHelper.writableDatabase
-            awaitExerciseCount(second.exerciseDao(), seedExercises.size)
-            assertEquals(seedExercises.size, runBlocking { second.exerciseDao().count() })
-        } finally {
-            dbFile.delete()
-        }
-    }
+    val all = dao.getAllOnce()
 
-    @Test
-    fun `getAllOnce returns every inserted exercise`() = runTest {
-        val dao = plainDatabase().exerciseDao()
-        dao.insert(ExerciseEntity(name = "Жим лёжа", muscleGroup = MuscleGroup.CHEST, type = ExerciseType.STRENGTH))
-        dao.insert(ExerciseEntity(name = "Присед", muscleGroup = MuscleGroup.LEGS, type = ExerciseType.STRENGTH))
+    assertEquals(2, all.size)
+    assertEquals(setOf("Жим лёжа", "Присед"), all.map { it.name }.toSet())
+  }
 
-        val all = dao.getAllOnce()
-
-        assertEquals(2, all.size)
-        assertEquals(setOf("Жим лёжа", "Присед"), all.map { it.name }.toSet())
-    }
-
-    /** Пустая (без сидинга) in-memory БД для точечных DAO-проверок. */
-    private fun plainDatabase(): GymDatabase {
-        val context = ApplicationProvider.getApplicationContext<Context>()
-        val db = Room.inMemoryDatabaseBuilder(context, GymDatabase::class.java)
+  /** Пустая (без сидинга) in-memory БД для точечных DAO-проверок. */
+  private fun plainDatabase(): GymDatabase {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val db =
+        Room.inMemoryDatabaseBuilder(context, GymDatabase::class.java)
             .allowMainThreadQueries()
             .build()
-        openDatabases += db
-        return db
-    }
+    openDatabases += db
+    return db
+  }
 
-    private fun buildSeedingDatabase(fileName: String?): GymDatabase {
-        val context = ApplicationProvider.getApplicationContext<Context>()
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+  private fun buildSeedingDatabase(fileName: String?): GymDatabase {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-        lateinit var holder: GymDatabase
-        val callback = GymDatabaseCallback(Provider { holder }, scope)
-        val builder = if (fileName == null) {
-            Room.inMemoryDatabaseBuilder(context, GymDatabase::class.java)
+    lateinit var holder: GymDatabase
+    val callback = GymDatabaseCallback({ holder }, scope)
+    val builder =
+        if (fileName == null) {
+          Room.inMemoryDatabaseBuilder(context, GymDatabase::class.java)
         } else {
-            Room.databaseBuilder(context, GymDatabase::class.java, fileName)
+          Room.databaseBuilder(context, GymDatabase::class.java, fileName)
         }
-        val db = builder
-            .allowMainThreadQueries()
-            .addCallback(callback)
-            .build()
-        holder = db
-        openDatabases += db
-        seedingScopes[db] = scope
-        return db
-    }
+    val db = builder.allowMainThreadQueries().addCallback(callback).build()
+    holder = db
+    openDatabases += db
+    seedingScopes[db] = scope
+    return db
+  }
 
-    private fun closeSeedingDatabase(db: GymDatabase) {
-        runBlocking {
-            seedingScopes.remove(db)?.coroutineContext?.get(Job)?.cancelAndJoin()
-        }
-        db.close()
-        openDatabases.remove(db)
-    }
+  private fun closeSeedingDatabase(db: GymDatabase) {
+    runBlocking { seedingScopes.remove(db)?.coroutineContext?.get(Job)?.cancelAndJoin() }
+    db.close()
+    openDatabases.remove(db)
+  }
 
-    // Seeding is a fire-and-forget scope.launch inside onOpen with no awaitable Job or Flow, so
-    // there is nothing for runTest/turbine to join on — polling the count is the way to wait for it.
-    private fun awaitExerciseCount(dao: ExerciseDao, expected: Int, timeoutMs: Long = 10_000) {
-        val deadline = System.currentTimeMillis() + timeoutMs
-        var last = -1
-        while (System.currentTimeMillis() < deadline) {
-            last = runBlocking { dao.count() }
-            if (last == expected) return
-            Thread.sleep(25)
-        }
-        throw AssertionError("Expected $expected exercises within ${timeoutMs}ms, last count was $last")
+  // Seeding is a fire-and-forget scope.launch inside onOpen with no awaitable Job or Flow, so
+  // there is nothing for runTest/turbine to join on — polling the count is the way to wait for it.
+  private fun awaitExerciseCount(dao: ExerciseDao, expected: Int, timeoutMs: Long = 10_000) {
+    val deadline = System.currentTimeMillis() + timeoutMs
+    var last = -1
+    while (System.currentTimeMillis() < deadline) {
+      last = runBlocking { dao.count() }
+      if (last == expected) return
+      Thread.sleep(25)
     }
+    throw AssertionError("Expected $expected exercises within ${timeoutMs}ms, last count was $last")
+  }
 }

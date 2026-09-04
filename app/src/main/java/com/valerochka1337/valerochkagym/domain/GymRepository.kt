@@ -23,8 +23,8 @@ data class GymRoutineReference(
 )
 
 /**
- * Несовместимое изменение состава зала: перечислены затронутые программы и упражнения,
- * которые перестанут быть доступными хотя бы в одном из привязанных залов.
+ * Несовместимое изменение состава зала: перечислены затронутые программы и упражнения, которые
+ * перестанут быть доступными хотя бы в одном из привязанных залов.
  */
 data class GymConfigurationConflict(
     val routines: List<GymRoutineReference>,
@@ -32,18 +32,25 @@ data class GymConfigurationConflict(
 )
 
 sealed interface SaveGymResult {
-    data class Saved(val gymId: String) : SaveGymResult
-    data class Conflict(val details: GymConfigurationConflict) : SaveGymResult
-    data object NameAlreadyExists : SaveGymResult
-    data object NotFound : SaveGymResult
-    data object Failure : SaveGymResult
+  data class Saved(val gymId: String) : SaveGymResult
+
+  data class Conflict(val details: GymConfigurationConflict) : SaveGymResult
+
+  data object NameAlreadyExists : SaveGymResult
+
+  data object NotFound : SaveGymResult
+
+  data object Failure : SaveGymResult
 }
 
 sealed interface DeleteGymResult {
-    data object Deleted : DeleteGymResult
-    data class InUse(val routines: List<GymRoutineReference>) : DeleteGymResult
-    data object NotFound : DeleteGymResult
-    data object Failure : DeleteGymResult
+  data object Deleted : DeleteGymResult
+
+  data class InUse(val routines: List<GymRoutineReference>) : DeleteGymResult
+
+  data object NotFound : DeleteGymResult
+
+  data object Failure : DeleteGymResult
 }
 
 /** Полный несохранённый снимок программы, который записывается одной Room-транзакцией. */
@@ -54,14 +61,16 @@ data class RoutineConfigurationDraft(
 )
 
 sealed interface SaveRoutineConfigurationResult {
-    data class Saved(
-        val routineId: Long,
-        val routine: RoutineEntity,
-    ) : SaveRoutineConfigurationResult
+  data class Saved(
+      val routineId: Long,
+      val routine: RoutineEntity,
+  ) : SaveRoutineConfigurationResult
 
-    data class Conflict(val exercises: List<ExerciseEntity>) : SaveRoutineConfigurationResult
-    data object GymNotFound : SaveRoutineConfigurationResult
-    data object Failure : SaveRoutineConfigurationResult
+  data class Conflict(val exercises: List<ExerciseEntity>) : SaveRoutineConfigurationResult
+
+  data object GymNotFound : SaveRoutineConfigurationResult
+
+  data object Failure : SaveRoutineConfigurationResult
 }
 
 /** Данные новой записи каталога вместе с полной картой мышц. */
@@ -80,86 +89,86 @@ data class RoutineDeletion(
  * локальную реализацию можно позднее заменить серверной без изменения экранов.
  */
 interface GymRepository {
-    fun observeGyms(): Flow<List<GymConfiguration>>
+  fun observeGyms(): Flow<List<GymConfiguration>>
 
-    fun observeExerciseCatalog(): Flow<List<ExerciseEntity>>
+  fun observeExerciseCatalog(): Flow<List<ExerciseEntity>>
 
-    suspend fun getGym(id: String): GymConfiguration?
+  suspend fun getGym(id: String): GymConfiguration?
 
-    suspend fun saveGym(
-        id: String?,
-        name: String,
-        exerciseIds: Set<Long>,
-    ): SaveGymResult
+  suspend fun saveGym(
+      id: String?,
+      name: String,
+      exerciseIds: Set<Long>,
+  ): SaveGymResult
 
-    suspend fun deleteGym(id: String): DeleteGymResult
+  suspend fun deleteGym(id: String): DeleteGymResult
 
-    /** Полный каталог при пустом наборе, иначе пересечение упражнений указанных залов. */
-    fun observeAvailableExercises(gymIds: Set<String>): Flow<List<ExerciseEntity>> =
-        observeExerciseCatalog()
+  /** Полный каталог при пустом наборе, иначе пересечение упражнений указанных залов. */
+  fun observeAvailableExercises(gymIds: Set<String>): Flow<List<ExerciseEntity>> =
+      observeExerciseCatalog()
 
-    /** Возвращает упражнения, отсутствующие хотя бы в одном из указанных залов. */
-    suspend fun unavailableExercises(
-        gymIds: Set<String>,
-        exerciseIds: Set<Long>,
-    ): List<ExerciseEntity> = emptyList()
+  /** Возвращает упражнения, отсутствующие хотя бы в одном из указанных залов. */
+  suspend fun unavailableExercises(
+      gymIds: Set<String>,
+      exerciseIds: Set<Long>,
+  ): List<ExerciseEntity> = emptyList()
 
-    /** Каталог, мышцы и связи с залами создаются одной транзакцией. */
-    suspend fun createExerciseAndAssign(
-        configuration: NewExerciseConfiguration,
-        gymIds: Set<String>,
-    ): ExerciseEntity? = null
+  /** Каталог, мышцы и связи с залами создаются одной транзакцией. */
+  suspend fun createExerciseAndAssign(
+      configuration: NewExerciseConfiguration,
+      gymIds: Set<String>,
+  ): ExerciseEntity? = null
 
-    /** То же создание плюс вставка в активную тренировку в рамках одной транзакции. */
-    suspend fun createExerciseAssignAndAddToWorkout(
-        configuration: NewExerciseConfiguration,
-        gymIds: Set<String>,
-        workoutId: String,
-    ): ExerciseEntity? = null
+  /** То же создание плюс вставка в активную тренировку в рамках одной транзакции. */
+  suspend fun createExerciseAssignAndAddToWorkout(
+      configuration: NewExerciseConfiguration,
+      gymIds: Set<String>,
+      workoutId: String,
+  ): ExerciseEntity? = null
 
-    /** Правка каталога/мышц и, при необходимости, добавление в залы — одна транзакция. */
-    suspend fun updateExerciseAndAssign(
-        configuration: NewExerciseConfiguration,
-        gymIds: Set<String>,
-    ): ExerciseEntity? = null
+  /** Правка каталога/мышц и, при необходимости, добавление в залы — одна транзакция. */
+  suspend fun updateExerciseAndAssign(
+      configuration: NewExerciseConfiguration,
+      gymIds: Set<String>,
+  ): ExerciseEntity? = null
 
-    /** Подтверждённая AI-запись обновляется, назначается залам и добавляется в workout атомарно. */
-    suspend fun updateExerciseAssignAndAddToWorkout(
-        configuration: NewExerciseConfiguration,
-        gymIds: Set<String>,
-        workoutId: String,
-    ): ExerciseEntity? = null
+  /** Подтверждённая AI-запись обновляется, назначается залам и добавляется в workout атомарно. */
+  suspend fun updateExerciseAssignAndAddToWorkout(
+      configuration: NewExerciseConfiguration,
+      gymIds: Set<String>,
+      workoutId: String,
+  ): ExerciseEntity? = null
 
-    /** Явно включает уже существующую запись во все выбранные залы. */
-    suspend fun assignExerciseToGyms(exerciseId: Long, gymIds: Set<String>): Boolean = false
+  /** Явно включает уже существующую запись во все выбранные залы. */
+  suspend fun assignExerciseToGyms(exerciseId: Long, gymIds: Set<String>): Boolean = false
 
-    /** Программа, её упражнения и связи с залами сохраняются атомарно после валидации. */
-    suspend fun saveRoutineConfiguration(
-        draft: RoutineConfigurationDraft,
-    ): SaveRoutineConfigurationResult = SaveRoutineConfigurationResult.Failure
+  /** Программа, её упражнения и связи с залами сохраняются атомарно после валидации. */
+  suspend fun saveRoutineConfiguration(
+      draft: RoutineConfigurationDraft,
+  ): SaveRoutineConfigurationResult = SaveRoutineConfigurationResult.Failure
 
-    /** Создаёт полную копию программы, упражнений и залов одной транзакцией. */
-    suspend fun duplicateRoutine(sourceRoutineId: Long): RoutineEntity? = null
+  /** Создаёт полную копию программы, упражнений и залов одной транзакцией. */
+  suspend fun duplicateRoutine(sourceRoutineId: Long): RoutineEntity? = null
 
-    /** Удаляет программу и фиксирует durable tombstone одной транзакцией. */
-    suspend fun deleteRoutine(routineId: Long): RoutineDeletion? = null
+  /** Удаляет программу и фиксирует durable tombstone одной транзакцией. */
+  suspend fun deleteRoutine(routineId: Long): RoutineDeletion? = null
 }
 
 /** Беззаловый fallback сохраняет прежнее поведение прямых ViewModel unit-тестов. */
 object NoOpGymRepository : GymRepository {
-    override fun observeGyms(): Flow<List<GymConfiguration>> =
-        kotlinx.coroutines.flow.flowOf(emptyList())
+  override fun observeGyms(): Flow<List<GymConfiguration>> =
+      kotlinx.coroutines.flow.flowOf(emptyList())
 
-    override fun observeExerciseCatalog(): Flow<List<ExerciseEntity>> =
-        kotlinx.coroutines.flow.flowOf(emptyList())
+  override fun observeExerciseCatalog(): Flow<List<ExerciseEntity>> =
+      kotlinx.coroutines.flow.flowOf(emptyList())
 
-    override suspend fun getGym(id: String): GymConfiguration? = null
+  override suspend fun getGym(id: String): GymConfiguration? = null
 
-    override suspend fun saveGym(
-        id: String?,
-        name: String,
-        exerciseIds: Set<Long>,
-    ): SaveGymResult = SaveGymResult.Failure
+  override suspend fun saveGym(
+      id: String?,
+      name: String,
+      exerciseIds: Set<Long>,
+  ): SaveGymResult = SaveGymResult.Failure
 
-    override suspend fun deleteGym(id: String): DeleteGymResult = DeleteGymResult.NotFound
+  override suspend fun deleteGym(id: String): DeleteGymResult = DeleteGymResult.NotFound
 }

@@ -8,20 +8,22 @@ import java.util.UUID
 
 @Entity(
     tableName = "workout_exercises",
-    foreignKeys = [
-        ForeignKey(
-            entity = WorkoutEntity::class,
-            parentColumns = ["id"],
-            childColumns = ["workoutId"],
-            onDelete = ForeignKey.CASCADE,
-        ),
-        ForeignKey(
-            entity = ExerciseEntity::class,
-            parentColumns = ["id"],
-            childColumns = ["exerciseId"],
-        ),
-    ],
-    indices = [Index("workoutId"), Index("exerciseId"), Index(value = ["sectionId"], unique = true)],
+    foreignKeys =
+        [
+            ForeignKey(
+                entity = WorkoutEntity::class,
+                parentColumns = ["id"],
+                childColumns = ["workoutId"],
+                onDelete = ForeignKey.CASCADE,
+            ),
+            ForeignKey(
+                entity = ExerciseEntity::class,
+                parentColumns = ["id"],
+                childColumns = ["exerciseId"],
+            ),
+        ],
+    indices =
+        [Index("workoutId"), Index("exerciseId"), Index(value = ["sectionId"], unique = true)],
 )
 data class WorkoutExerciseEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
@@ -31,7 +33,7 @@ data class WorkoutExerciseEntity(
     val sectionId: String = UUID.randomUUID().toString(),
     val position: Int,
 ) {
-    init {
-        require(sectionId.isNotBlank()) { "Workout section id must be nonblank" }
-    }
+  init {
+    require(sectionId.isNotBlank()) { "Workout section id must be nonblank" }
+  }
 }

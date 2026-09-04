@@ -10,24 +10,24 @@ internal class HeartRateConnectionLifecycle(
     private val emitState: (HeartRateConnectionState) -> Unit,
 ) {
 
-    fun fail(message: String) {
-        closeGatt()
-        clearReading()
-        emitState(HeartRateConnectionState.Error(message))
-    }
+  fun fail(message: String) {
+    closeGatt()
+    clearReading()
+    emitState(HeartRateConnectionState.Error(message))
+  }
 
-    fun lose(device: HeartRateDevice?) {
-        closeGatt()
-        clearReading()
-        emitState(
-            device?.let(HeartRateConnectionState::Lost)
-                ?: HeartRateConnectionState.Error("Связь с пульсометром потеряна"),
-        )
-    }
+  fun lose(device: HeartRateDevice?) {
+    closeGatt()
+    clearReading()
+    emitState(
+        device?.let(HeartRateConnectionState::Lost)
+            ?: HeartRateConnectionState.Error("Связь с пульсометром потеряна"),
+    )
+  }
 
-    fun stop() {
-        closeGatt()
-        clearReading()
-        emitState(HeartRateConnectionState.Idle)
-    }
+  fun stop() {
+    closeGatt()
+    clearReading()
+    emitState(HeartRateConnectionState.Idle)
+  }
 }

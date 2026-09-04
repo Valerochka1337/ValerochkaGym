@@ -31,46 +31,45 @@ import com.valerochka1337.valerochkagym.ui.theme.GymMotion
  */
 @Composable
 fun UploadStatusBadge(status: UploadStatus) {
-    // Спеки берутся здесь: transitionSpec-лямбда не @Composable.
-    val fadeSpec = GymMotion.effectsFast<Float>()
-    val scaleSpec = GymMotion.spatialFast<Float>()
-    AnimatedContent(
-        targetState = status,
-        transitionSpec = {
-            (fadeIn(fadeSpec) + scaleIn(scaleSpec, initialScale = 0.8f))
-                .togetherWith(fadeOut(fadeSpec))
-        },
-        label = "upload-status",
-    ) { shown ->
-        val icon: ImageVector
-        val color: Color
-        val description: String
-        when (shown) {
-            UploadStatus.PENDING -> {
-                icon = Icons.Rounded.CloudQueue
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-                description = "Ожидает выгрузки"
-            }
-            UploadStatus.UPLOADED -> {
-                icon = Icons.Rounded.CloudDone
-                color = MaterialTheme.colorScheme.primary
-                description = "Выгружено"
-            }
-            UploadStatus.FAILED -> {
-                icon = Icons.Rounded.CloudOff
-                color = MaterialTheme.colorScheme.error
-                description = "Ошибка выгрузки"
-            }
-        }
-        Icon(
-            imageVector = icon,
-            contentDescription = description,
-            tint = color,
-            modifier = Modifier
-                .clip(RoundedCornerShape(8.dp))
+  // Спеки берутся здесь: transitionSpec-лямбда не @Composable.
+  val fadeSpec = GymMotion.effectsFast<Float>()
+  val scaleSpec = GymMotion.spatialFast<Float>()
+  AnimatedContent(
+      targetState = status,
+      transitionSpec = {
+        (fadeIn(fadeSpec) + scaleIn(scaleSpec, initialScale = 0.8f)).togetherWith(fadeOut(fadeSpec))
+      },
+      label = "upload-status",
+  ) { shown ->
+    val icon: ImageVector
+    val color: Color
+    val description: String
+    when (shown) {
+      UploadStatus.PENDING -> {
+        icon = Icons.Rounded.CloudQueue
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+        description = "Ожидает выгрузки"
+      }
+      UploadStatus.UPLOADED -> {
+        icon = Icons.Rounded.CloudDone
+        color = MaterialTheme.colorScheme.primary
+        description = "Выгружено"
+      }
+      UploadStatus.FAILED -> {
+        icon = Icons.Rounded.CloudOff
+        color = MaterialTheme.colorScheme.error
+        description = "Ошибка выгрузки"
+      }
+    }
+    Icon(
+        imageVector = icon,
+        contentDescription = description,
+        tint = color,
+        modifier =
+            Modifier.clip(RoundedCornerShape(8.dp))
                 .background(color.copy(alpha = 0.15f))
                 .padding(5.dp)
                 .size(18.dp),
-        )
-    }
+    )
+  }
 }

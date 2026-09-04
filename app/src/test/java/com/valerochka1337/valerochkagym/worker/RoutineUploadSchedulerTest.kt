@@ -23,65 +23,78 @@ import org.robolectric.annotation.Config
 @Config(application = android.app.Application::class)
 class RoutineUploadSchedulerTest {
 
-    private lateinit var workManager: WorkManager
+  private lateinit var workManager: WorkManager
 
-    @org.junit.Before
-    fun setUp() {
-        val context = ApplicationProvider.getApplicationContext<Context>()
-        WorkManagerTestInitHelper.initializeTestWorkManager(context, Configuration.Builder().build())
-        workManager = WorkManager.getInstance(context)
-    }
+  @org.junit.Before
+  fun setUp() {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    WorkManagerTestInitHelper.initializeTestWorkManager(context, Configuration.Builder().build())
+    workManager = WorkManager.getInstance(context)
+  }
 
-    @Test
-    fun `schedule all enqueues the current snapshot of every routine`() = runTest {
-        val scheduler = WorkManagerRoutineUploadScheduler(
+  @Test
+  fun `schedule all enqueues the current snapshot of every routine`() = runTest {
+    val scheduler =
+        WorkManagerRoutineUploadScheduler(
             workManager,
             FakeRoutineDao(listOf(routine("a"), routine("b"))),
         )
 
-        val count = scheduler.scheduleAll()
+    val count = scheduler.scheduleAll()
 
-        assertEquals(2, count)
-        assertEquals(1, workManager.getWorkInfosForUniqueWork("upload_routine_a").get().size)
-        assertEquals(1, workManager.getWorkInfosForUniqueWork("upload_routine_b").get().size)
-    }
+    assertEquals(2, count)
+    assertEquals(1, workManager.getWorkInfosForUniqueWork("upload_routine_a").get().size)
+    assertEquals(1, workManager.getWorkInfosForUniqueWork("upload_routine_b").get().size)
+  }
 
-    @Test
-    fun `a deletion replaces the snapshot work with the same routine key`() = runTest {
-        val scheduler = WorkManagerRoutineUploadScheduler(workManager, FakeRoutineDao())
+  @Test
+  fun `a deletion replaces the snapshot work with the same routine key`() = runTest {
+    val scheduler = WorkManagerRoutineUploadScheduler(workManager, FakeRoutineDao())
 
-        scheduler.schedule("deleted")
-        scheduler.scheduleDeletion("deleted", 123L)
+    scheduler.schedule("deleted")
+    scheduler.scheduleDeletion("deleted", 123L)
 
-        assertEquals(1, workManager.getWorkInfosForUniqueWork("upload_routine_deleted").get().size)
-    }
+    assertEquals(1, workManager.getWorkInfosForUniqueWork("upload_routine_deleted").get().size)
+  }
 
-    private fun routine(syncId: String): RoutineWithExercises = RoutineWithExercises(
-        routine = RoutineEntity(id = syncId.hashCode().toLong(), syncId = syncId, updatedAt = 1, name = syncId),
-        exercises = emptyList(),
-    )
+  private fun routine(syncId: String): RoutineWithExercises =
+      RoutineWithExercises(
+          routine =
+              RoutineEntity(
+                  id = syncId.hashCode().toLong(),
+                  syncId = syncId,
+                  updatedAt = 1,
+                  name = syncId,
+              ),
+          exercises = emptyList(),
+      )
 
-    private class FakeRoutineDao(
-        private val routines: List<RoutineWithExercises> = emptyList(),
-    ) : RoutineDao {
-        override fun observeRoutinesWithCount(): Flow<List<RoutineWithCount>> = flowOf(emptyList())
+  private class FakeRoutineDao(
+      private val routines: List<RoutineWithExercises> = emptyList(),
+  ) : RoutineDao {
+    override fun observeRoutinesWithCount(): Flow<List<RoutineWithCount>> = flowOf(emptyList())
 
-        override fun observeRoutinesFull(): Flow<List<RoutineWithExercises>> = flowOf(routines)
+    override fun observeRoutinesFull(): Flow<List<RoutineWithExercises>> = flowOf(routines)
 
-        override suspend fun getRoutineWithExercises(id: Long): RoutineWithExercises? = null
+    override suspend fun getRoutineWithExercises(id: Long): RoutineWithExercises? = null
 
-        override suspend fun getRoutineBySyncId(syncId: String): RoutineEntity? = null
+    override suspend fun getRoutineBySyncId(syncId: String): RoutineEntity? = null
 
-        override suspend fun getRoutineName(id: Long): String? = null
+    override suspend fun getRoutineName(id: Long): String? = null
 
-        override suspend fun upsertRoutine(routine: RoutineEntity): Long = routine.id
+    override suspend fun upsertRoutine(routine: RoutineEntity): Long = routine.id
 
-        override suspend fun deleteRoutine(id: Long) = Unit
+    override suspend fun deleteRoutine(id: Long) = Unit
 
-        override suspend fun insertRoutineExercises(routineExercises: List<RoutineExerciseEntity>): List<Long> = emptyList()
+    override suspend fun insertRoutineExercises(
+        routineExercises: List<RoutineExerciseEntity>
+    ): List<Long> = emptyList()
 
-        override suspend fun deleteRoutineExercises(routineId: Long) = Unit
+    override suspend fun deleteRoutineExercises(routineId: Long) = Unit
 
-        override suspend fun replaceRoutineExercises(routineId: Long, list: List<RoutineExerciseEntity>) = Unit
-    }
+    override suspend fun replaceRoutineExercises(
+        routineId: Long,
+        list: List<RoutineExerciseEntity>,
+    ) = Unit
+  }
 }

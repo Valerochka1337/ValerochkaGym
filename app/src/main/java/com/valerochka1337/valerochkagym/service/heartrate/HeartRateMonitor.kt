@@ -8,22 +8,25 @@ import kotlinx.coroutines.flow.StateFlow
  */
 interface HeartRateMonitor {
 
-    val state: StateFlow<HeartRateConnectionState>
+  val state: StateFlow<HeartRateConnectionState>
 
-    /** Null, когда измерения ещё нет или последнее уведомление от датчика уже устарело. */
-    val reading: StateFlow<HeartRateReading?>
+  /** Null, когда измерения ещё нет или последнее уведомление от датчика уже устарело. */
+  val reading: StateFlow<HeartRateReading?>
 
-    /** Начинает короткий поиск BLE-датчиков со стандартным Heart Rate Service. */
-    fun scan()
+  /** Начинает короткий поиск BLE-датчиков со стандартным Heart Rate Service. */
+  fun scan()
 
-    /** Подключает выбранный пользователем источник после результата [HeartRateConnectionState.Selection]. */
-    fun connect(device: HeartRateDevice)
+  /**
+   * Подключает выбранный пользователем источник после результата
+   * [HeartRateConnectionState.Selection].
+   */
+  fun connect(device: HeartRateDevice)
 
-    /** Снимает scan/GATT и забывает временное значение при завершении тренировки. */
-    fun stop()
+  /** Снимает scan/GATT и забывает временное значение при завершении тренировки. */
+  fun stop()
 
-    /** Переводит плитку в ошибку, если Android не разрешил удерживать BLE-сессию в FGS. */
-    fun reportError(message: String)
+  /** Переводит плитку в ошибку, если Android не разрешил удерживать BLE-сессию в FGS. */
+  fun reportError(message: String)
 }
 
 data class HeartRateReading(
@@ -36,36 +39,46 @@ data class HeartRateDevice(
     val name: String?,
     val rssi: Int,
 ) {
-    val label: String
-        get() = name?.takeIf { it.isNotBlank() } ?: "Пульсометр • ${address.takeLast(5)}"
+  val label: String
+    get() = name?.takeIf { it.isNotBlank() } ?: "Пульсометр • ${address.takeLast(5)}"
 }
 
 /** Небольшая, честная модель статусов для плитки пульса активной тренировки. */
 sealed interface HeartRateConnectionState {
-    data object Idle : HeartRateConnectionState
-    data object PermissionRequired : HeartRateConnectionState
-    data object Searching : HeartRateConnectionState
-    data class Selection(val devices: List<HeartRateDevice>) : HeartRateConnectionState
-    data class Connecting(val device: HeartRateDevice) : HeartRateConnectionState
-    data class Connected(val device: HeartRateDevice) : HeartRateConnectionState
-    data class Live(val device: HeartRateDevice, val reading: HeartRateReading) : HeartRateConnectionState
-    data class Lost(val device: HeartRateDevice) : HeartRateConnectionState
-    data class Error(val message: String) : HeartRateConnectionState
+  data object Idle : HeartRateConnectionState
+
+  data object PermissionRequired : HeartRateConnectionState
+
+  data object Searching : HeartRateConnectionState
+
+  data class Selection(val devices: List<HeartRateDevice>) : HeartRateConnectionState
+
+  data class Connecting(val device: HeartRateDevice) : HeartRateConnectionState
+
+  data class Connected(val device: HeartRateDevice) : HeartRateConnectionState
+
+  data class Live(val device: HeartRateDevice, val reading: HeartRateReading) :
+      HeartRateConnectionState
+
+  data class Lost(val device: HeartRateDevice) : HeartRateConnectionState
+
+  data class Error(val message: String) : HeartRateConnectionState
 }
 
 /** Bluetooth Heart Rate Measurement (0x2A37): flag bit 0 switches the value to uint16 LE. */
 internal fun parseHeartRateMeasurement(value: ByteArray): Int? {
-    if (value.size < HEART_RATE_8_BIT_PACKET_SIZE) return null
+  if (value.size < HEART_RATE_8_BIT_PACKET_SIZE) return null
 
-    val flags = value[0].toInt() and BYTE_MASK
-    val isSixteenBit = flags and HEART_RATE_16_BIT_FLAG != 0
-    val bpm = if (isSixteenBit) {
+  val flags = value[0].toInt() and BYTE_MASK
+  val isSixteenBit = flags and HEART_RATE_16_BIT_FLAG != 0
+  val bpm =
+      if (isSixteenBit) {
         if (value.size < HEART_RATE_16_BIT_PACKET_SIZE) return null
         (value[1].toInt() and BYTE_MASK) or ((value[2].toInt() and BYTE_MASK) shl 8)
-    } else {
+      } else {
         value[1].toInt() and BYTE_MASK
-    }
-    return bpm.takeIf { it > 0 }
+      }
+  return bpm.takeIf { it > 0 }
 }
 
 internal fun HeartRateReading?.freshAt(

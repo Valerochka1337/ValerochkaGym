@@ -9,10 +9,11 @@ import org.junit.Test
 
 class ExerciseEditorSheetTest {
 
-    @Test
-    fun `editor shared sector keeps its strongest role colour`() {
-        val chest = muscleSectors(BodyView.FRONT).first { it.slug == "chest" }
-        val fillFor = editorSectorFillFor(
+  @Test
+  fun `editor shared sector keeps its strongest role colour`() {
+    val chest = muscleSectors(BodyView.FRONT).first { it.slug == "chest" }
+    val fillFor =
+        editorSectorFillFor(
             loads = mapOf(Muscle.UPPER_CHEST to 50, Muscle.LOWER_CHEST to 100),
             inactive = Color.Gray,
             primary = Color.Red,
@@ -20,7 +21,6 @@ class ExerciseEditorSheetTest {
             stabilizer = Color.Blue,
         )
 
-        assertEquals(Color.Red, fillFor(chest))
-    }
-
+    assertEquals(Color.Red, fillFor(chest))
+  }
 }

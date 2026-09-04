@@ -24,62 +24,83 @@ import org.robolectric.annotation.Config
 @Config(application = android.app.Application::class)
 abstract class RoomDaoTest {
 
-    protected lateinit var db: GymDatabase
+  protected lateinit var db: GymDatabase
 
-    @Before
-    fun createDatabase() {
-        val context = ApplicationProvider.getApplicationContext<Context>()
-        db = Room.inMemoryDatabaseBuilder(context, GymDatabase::class.java)
+  @Before
+  fun createDatabase() {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    db =
+        Room.inMemoryDatabaseBuilder(context, GymDatabase::class.java)
             .allowMainThreadQueries()
             .build()
-    }
+  }
 
-    @After
-    fun closeDatabase() {
-        db.close()
-    }
+  @After
+  fun closeDatabase() {
+    db.close()
+  }
 
-    protected fun tableCount(table: String): Int =
-        db.query(SimpleSQLiteQuery("SELECT COUNT(*) FROM $table")).use { cursor ->
-            cursor.moveToFirst()
-            cursor.getInt(0)
-        }
+  protected fun tableCount(table: String): Int =
+      db.query(SimpleSQLiteQuery("SELECT COUNT(*) FROM $table")).use { cursor ->
+        cursor.moveToFirst()
+        cursor.getInt(0)
+      }
 
-    /** Inserts a workout named `Workout $id`; only [id] is required, timing has sane defaults. */
-    protected suspend fun insertWorkout(id: String, startedAt: Long = 1_000, finishedAt: Long? = null): String {
-        db.workoutDao().insertWorkout(
-            WorkoutEntity(id = id, name = "Workout $id", startedAt = startedAt, finishedAt = finishedAt),
-        )
-        return id
-    }
-
-    protected suspend fun insertWorkoutExercise(workoutId: String, exerciseId: Long, position: Int = 0): Long =
-        db.workoutDao().insertWorkoutExercise(
-            WorkoutExerciseEntity(workoutId = workoutId, exerciseId = exerciseId, position = position),
-        )
-
-    protected suspend fun insertSet(
-        workoutExerciseId: Long,
-        setIndex: Int,
-        weightKg: Double? = null,
-        reps: Int? = null,
-        durationSec: Int? = null,
-        speedKmh: Double? = null,
-        inclinePct: Double? = null,
-        isCompleted: Boolean = false,
-    ): Long =
-        db.workoutDao().insertSet(
-            WorkoutSetEntity(
-                workoutExerciseId = workoutExerciseId,
-                setIndex = setIndex,
-                weightKg = weightKg,
-                reps = reps,
-                durationSec = durationSec,
-                speedKmh = speedKmh,
-                inclinePct = inclinePct,
-                isCompleted = isCompleted,
+  /** Inserts a workout named `Workout $id`; only [id] is required, timing has sane defaults. */
+  protected suspend fun insertWorkout(
+      id: String,
+      startedAt: Long = 1_000,
+      finishedAt: Long? = null,
+  ): String {
+    db.workoutDao()
+        .insertWorkout(
+            WorkoutEntity(
+                id = id,
+                name = "Workout $id",
+                startedAt = startedAt,
+                finishedAt = finishedAt,
             ),
         )
+    return id
+  }
 
-    protected suspend fun workoutFull(id: String): WorkoutFull = db.workoutDao().getWorkoutFull(id)!!
+  protected suspend fun insertWorkoutExercise(
+      workoutId: String,
+      exerciseId: Long,
+      position: Int = 0,
+  ): Long =
+      db.workoutDao()
+          .insertWorkoutExercise(
+              WorkoutExerciseEntity(
+                  workoutId = workoutId,
+                  exerciseId = exerciseId,
+                  position = position,
+              ),
+          )
+
+  protected suspend fun insertSet(
+      workoutExerciseId: Long,
+      setIndex: Int,
+      weightKg: Double? = null,
+      reps: Int? = null,
+      durationSec: Int? = null,
+      speedKmh: Double? = null,
+      inclinePct: Double? = null,
+      isCompleted: Boolean = false,
+  ): Long =
+      db.workoutDao()
+          .insertSet(
+              WorkoutSetEntity(
+                  workoutExerciseId = workoutExerciseId,
+                  setIndex = setIndex,
+                  weightKg = weightKg,
+                  reps = reps,
+                  durationSec = durationSec,
+                  speedKmh = speedKmh,
+                  inclinePct = inclinePct,
+                  isCompleted = isCompleted,
+              ),
+          )
+
+  protected suspend fun workoutFull(id: String): WorkoutFull = db.workoutDao().getWorkoutFull(id)!!
 }

@@ -12,9 +12,9 @@ import com.valerochka1337.valerochkagym.data.db.entity.WorkoutSetEntity
 import com.valerochka1337.valerochkagym.data.db.relation.AnalyticsSetRow
 import com.valerochka1337.valerochkagym.data.db.relation.WorkoutExerciseWithSets
 import com.valerochka1337.valerochkagym.data.db.relation.WorkoutFull
-import com.valerochka1337.valerochkagym.domain.PreviousSetsUseCase
 import com.valerochka1337.valerochkagym.domain.GymRepository
 import com.valerochka1337.valerochkagym.domain.NoOpGymRepository
+import com.valerochka1337.valerochkagym.domain.PreviousSetsUseCase
 import com.valerochka1337.valerochkagym.domain.RoutineConfigurationDraft
 import com.valerochka1337.valerochkagym.domain.SaveCompletedWorkoutAsRoutineUseCase
 import com.valerochka1337.valerochkagym.domain.SaveRoutineConfigurationResult
@@ -22,11 +22,11 @@ import com.valerochka1337.valerochkagym.domain.WorkoutStatsUseCase
 import com.valerochka1337.valerochkagym.ui.history.WorkoutDetailViewModel
 import com.valerochka1337.valerochkagym.ui.navigation.GymRoutes
 import com.valerochka1337.valerochkagym.util.MainDispatcherRule
-import com.valerochka1337.valerochkagym.worker.UploadScheduler
 import com.valerochka1337.valerochkagym.worker.NoOpRoutineUploadScheduler
-import kotlinx.coroutines.ExperimentalCoroutinesApi
+import com.valerochka1337.valerochkagym.worker.UploadScheduler
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.Flow
@@ -50,379 +50,507 @@ import org.junit.Test
 @OptIn(ExperimentalCoroutinesApi::class)
 class WorkoutDetailViewModelTest {
 
-    @get:Rule
-    val mainDispatcherRule = MainDispatcherRule()
+  @get:Rule val mainDispatcherRule = MainDispatcherRule()
 
-    @Test
-    fun `the workout tree is loaded sorted by position and set index`() =
-        runTest(mainDispatcherRule.testDispatcher.scheduler) {
-            val dao = FakeWorkoutDao(fullWorkout())
-            val viewModel = viewModel(dao)
+  @Test
+  fun `the workout tree is loaded sorted by position and set index`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val dao = FakeWorkoutDao(fullWorkout())
+        val viewModel = viewModel(dao)
 
-            val state = viewModel.uiState.value
-            assertFalse(state.loading)
-            assertEquals("Грудь", state.name)
-            // Упражнения пришли в обратном порядке позиций — экран сортирует.
-            assertEquals(listOf("Жим лёжа", "Разводка"), state.exercises.map { it.name })
-            // Подходы пришли в обратном порядке setIndex — тоже сортируются, нумерация с 1.
-            assertEquals(listOf("80×8", "80×10"), state.exercises.first().sets.map { it.summary })
-            assertEquals(listOf(1, 2), state.exercises.first().sets.map { it.number })
-            assertEquals("1 ч 00 мин", state.duration)
-            // Объём: только выполненные силовые подходы, 80×8 + 80×10 = 1 440.
-            assertEquals("1 440 кг", state.volume)
+        val state = viewModel.uiState.value
+        assertFalse(state.loading)
+        assertEquals("Грудь", state.name)
+        // Упражнения пришли в обратном порядке позиций — экран сортирует.
+        assertEquals(listOf("Жим лёжа", "Разводка"), state.exercises.map { it.name })
+        // Подходы пришли в обратном порядке setIndex — тоже сортируются, нумерация с 1.
+        assertEquals(listOf("80×8", "80×10"), state.exercises.first().sets.map { it.summary })
+        assertEquals(listOf(1, 2), state.exercises.first().sets.map { it.number })
+        assertEquals("1 ч 00 мин", state.duration)
+        // Объём: только выполненные силовые подходы, 80×8 + 80×10 = 1 440.
+        assertEquals("1 440 кг", state.volume)
+      }
+
+  @Test
+  fun `a missing id or workout just clears the loading flag`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val viewModel = viewModel(FakeWorkoutDao(full = null))
+
+        assertFalse(viewModel.uiState.value.loading)
+        assertTrue(viewModel.uiState.value.exercises.isEmpty())
+      }
+
+  @Test
+  fun `upload status keeps updating after the initial load`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val dao = FakeWorkoutDao(fullWorkout())
+        val viewModel = viewModel(dao)
+        assertEquals(UploadStatus.PENDING, viewModel.uiState.value.uploadStatus)
+
+        dao.workoutStream.value =
+            dao.full!!
+                .workout
+                .copy(
+                    uploadStatus = UploadStatus.FAILED,
+                    uploadError = "Нет доступа к таблице",
+                )
+
+        assertEquals(UploadStatus.FAILED, viewModel.uiState.value.uploadStatus)
+        assertEquals("Нет доступа к таблице", viewModel.uiState.value.uploadError)
+      }
+
+  @Test
+  fun `retry delegates to the upload scheduler`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val scheduler = FakeUploadScheduler()
+        val viewModel = viewModel(FakeWorkoutDao(fullWorkout()), scheduler)
+
+        viewModel.retryUpload()
+
+        assertEquals(listOf("w1"), scheduler.retriedIds)
+      }
+
+  @Test
+  fun `delete removes the workout and emits the navigation event`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val dao = FakeWorkoutDao(fullWorkout())
+        val viewModel = viewModel(dao)
+        val events = mutableListOf<Unit>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+          viewModel.deleteEvents.collect { events += it }
         }
 
-    @Test
-    fun `a missing id or workout just clears the loading flag`() =
-        runTest(mainDispatcherRule.testDispatcher.scheduler) {
-            val viewModel = viewModel(FakeWorkoutDao(full = null))
+        viewModel.delete()
 
-            assertFalse(viewModel.uiState.value.loading)
-            assertTrue(viewModel.uiState.value.exercises.isEmpty())
-        }
+        assertEquals(listOf("w1"), dao.deletedWorkouts)
+        assertEquals(1, events.size)
+      }
 
-    @Test
-    fun `upload status keeps updating after the initial load`() =
-        runTest(mainDispatcherRule.testDispatcher.scheduler) {
-            val dao = FakeWorkoutDao(fullWorkout())
-            val viewModel = viewModel(dao)
-            assertEquals(UploadStatus.PENDING, viewModel.uiState.value.uploadStatus)
-
-            dao.workoutStream.value = dao.full!!.workout.copy(
-                uploadStatus = UploadStatus.FAILED,
-                uploadError = "Нет доступа к таблице",
-            )
-
-            assertEquals(UploadStatus.FAILED, viewModel.uiState.value.uploadStatus)
-            assertEquals("Нет доступа к таблице", viewModel.uiState.value.uploadError)
-        }
-
-    @Test
-    fun `retry delegates to the upload scheduler`() =
-        runTest(mainDispatcherRule.testDispatcher.scheduler) {
-            val scheduler = FakeUploadScheduler()
-            val viewModel = viewModel(FakeWorkoutDao(fullWorkout()), scheduler)
-
-            viewModel.retryUpload()
-
-            assertEquals(listOf("w1"), scheduler.retriedIds)
-        }
-
-    @Test
-    fun `delete removes the workout and emits the navigation event`() =
-        runTest(mainDispatcherRule.testDispatcher.scheduler) {
-            val dao = FakeWorkoutDao(fullWorkout())
-            val viewModel = viewModel(dao)
-            val events = mutableListOf<Unit>()
-            backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
-                viewModel.deleteEvents.collect { events += it }
-            }
-
-            viewModel.delete()
-
-            assertEquals(listOf("w1"), dao.deletedWorkouts)
-            assertEquals(1, events.size)
-        }
-
-    @Test
-    fun `eligible history pre-fills and saves a program without a navigation event`() =
-        runTest(mainDispatcherRule.testDispatcher.scheduler) {
-            val repository = FakeSaveGymRepository()
-            val viewModel = viewModel(
+  @Test
+  fun `eligible history pre-fills and saves a program without a navigation event`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val repository = FakeSaveGymRepository()
+        val viewModel =
+            viewModel(
                 FakeWorkoutDao(fullWorkout()),
-                saveUseCase = SaveCompletedWorkoutAsRoutineUseCase(repository, NoOpRoutineUploadScheduler),
+                saveUseCase =
+                    SaveCompletedWorkoutAsRoutineUseCase(repository, NoOpRoutineUploadScheduler),
             )
-            val events = mutableListOf<Unit>()
-            backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
-                viewModel.saveEvents.collect { events += it }
-            }
-
-            assertTrue(viewModel.uiState.value.canSaveAsProgram)
-            viewModel.openSaveAsProgram()
-            assertEquals("Грудь", viewModel.uiState.value.saveAsProgramName)
-            viewModel.confirmSaveAsProgram()
-
-            assertFalse(viewModel.uiState.value.showSaveAsProgramDialog)
-            assertEquals("Грудь", repository.drafts.single().routine.name)
-            assertEquals(listOf(Unit), events)
+        val events = mutableListOf<Unit>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+          viewModel.saveEvents.collect { events += it }
         }
 
-    @Test
-    fun `history does not expose saving for an unfinished workout`() =
-        runTest(mainDispatcherRule.testDispatcher.scheduler) {
-            val full = fullWorkout().copy(workout = fullWorkout().workout.copy(finishedAt = null))
-            val viewModel = viewModel(FakeWorkoutDao(full))
+        assertTrue(viewModel.uiState.value.canSaveAsProgram)
+        viewModel.openSaveAsProgram()
+        assertEquals("Грудь", viewModel.uiState.value.saveAsProgramName)
+        viewModel.confirmSaveAsProgram()
 
-            assertFalse(viewModel.uiState.value.canSaveAsProgram)
-            viewModel.openSaveAsProgram()
-            assertFalse(viewModel.uiState.value.showSaveAsProgramDialog)
-        }
+        assertFalse(viewModel.uiState.value.showSaveAsProgramDialog)
+        assertEquals("Грудь", repository.drafts.single().routine.name)
+        assertEquals(listOf(Unit), events)
+      }
 
-    @Test
-    fun `finished history without completed sets does not expose saving as a program`() =
-        runTest(mainDispatcherRule.testDispatcher.scheduler) {
-            val complete = fullWorkout()
-            val noCompletedSets = complete.copy(
-                exercises = complete.exercises.map { section ->
-                    section.copy(sets = section.sets.map { it.copy(isCompleted = false) })
+  @Test
+  fun `history does not expose saving for an unfinished workout`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val full = fullWorkout().copy(workout = fullWorkout().workout.copy(finishedAt = null))
+        val viewModel = viewModel(FakeWorkoutDao(full))
+
+        assertFalse(viewModel.uiState.value.canSaveAsProgram)
+        viewModel.openSaveAsProgram()
+        assertFalse(viewModel.uiState.value.showSaveAsProgramDialog)
+      }
+
+  @Test
+  fun `finished history without completed sets does not expose saving as a program`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val complete = fullWorkout()
+        val noCompletedSets =
+            complete.copy(
+                exercises =
+                    complete.exercises.map { section ->
+                      section.copy(sets = section.sets.map { it.copy(isCompleted = false) })
+                    },
+            )
+        val viewModel = viewModel(FakeWorkoutDao(noCompletedSets))
+
+        assertFalse(viewModel.uiState.value.canSaveAsProgram)
+      }
+
+  @Test
+  fun `history keeps dialog open when saving conflicts`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val repository = FakeSaveGymRepository(SaveRoutineConfigurationResult.Failure)
+        val viewModel =
+            viewModel(
+                FakeWorkoutDao(fullWorkout()),
+                saveUseCase =
+                    SaveCompletedWorkoutAsRoutineUseCase(repository, NoOpRoutineUploadScheduler),
+            )
+
+        viewModel.openSaveAsProgram()
+        viewModel.confirmSaveAsProgram()
+
+        assertTrue(viewModel.uiState.value.showSaveAsProgramDialog)
+        assertEquals(
+            "Не удалось сохранить программу. Попробуйте ещё раз.",
+            viewModel.uiState.value.saveAsProgramError,
+        )
+      }
+
+  @Test
+  fun `concurrent history confirmation invokes saving only once`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val repository = BlockingSaveGymRepository()
+        val viewModel =
+            viewModel(
+                FakeWorkoutDao(fullWorkout()),
+                saveUseCase =
+                    SaveCompletedWorkoutAsRoutineUseCase(repository, NoOpRoutineUploadScheduler),
+            )
+        viewModel.openSaveAsProgram()
+
+        val start = CompletableDeferred<Unit>()
+        listOf(
+                async(Dispatchers.Default) {
+                  start.await()
+                  viewModel.confirmSaveAsProgram()
+                },
+                async(Dispatchers.Default) {
+                  start.await()
+                  viewModel.confirmSaveAsProgram()
                 },
             )
-            val viewModel = viewModel(FakeWorkoutDao(noCompletedSets))
+            .also { start.complete(Unit) }
+            .awaitAll()
 
-            assertFalse(viewModel.uiState.value.canSaveAsProgram)
-        }
+        assertTrue(viewModel.uiState.value.isSavingAsProgram)
+        assertEquals(1, repository.drafts.size)
+        repository.release.complete(Unit)
+      }
 
-    @Test
-    fun `history keeps dialog open when saving conflicts`() =
-        runTest(mainDispatcherRule.testDispatcher.scheduler) {
-            val repository = FakeSaveGymRepository(SaveRoutineConfigurationResult.Failure)
-            val viewModel = viewModel(
+  @Test
+  fun `recreated history restores an in-progress draft as editable and dismissible`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val handle = SavedStateHandle(mapOf(GymRoutes.WORKOUT_ID_ARG to "w1"))
+        val blockingRepository = BlockingSaveGymRepository()
+        val first =
+            viewModel(
                 FakeWorkoutDao(fullWorkout()),
-                saveUseCase = SaveCompletedWorkoutAsRoutineUseCase(repository, NoOpRoutineUploadScheduler),
-            )
-
-            viewModel.openSaveAsProgram()
-            viewModel.confirmSaveAsProgram()
-
-            assertTrue(viewModel.uiState.value.showSaveAsProgramDialog)
-            assertEquals("Не удалось сохранить программу. Попробуйте ещё раз.", viewModel.uiState.value.saveAsProgramError)
-        }
-
-    @Test
-    fun `concurrent history confirmation invokes saving only once`() =
-        runTest(mainDispatcherRule.testDispatcher.scheduler) {
-            val repository = BlockingSaveGymRepository()
-            val viewModel = viewModel(
-                FakeWorkoutDao(fullWorkout()),
-                saveUseCase = SaveCompletedWorkoutAsRoutineUseCase(repository, NoOpRoutineUploadScheduler),
-            )
-            viewModel.openSaveAsProgram()
-
-            val start = CompletableDeferred<Unit>()
-            listOf(
-                async(Dispatchers.Default) { start.await(); viewModel.confirmSaveAsProgram() },
-                async(Dispatchers.Default) { start.await(); viewModel.confirmSaveAsProgram() },
-            ).also { start.complete(Unit) }.awaitAll()
-
-            assertTrue(viewModel.uiState.value.isSavingAsProgram)
-            assertEquals(1, repository.drafts.size)
-            repository.release.complete(Unit)
-        }
-
-    @Test
-    fun `recreated history restores an in-progress draft as editable and dismissible`() =
-        runTest(mainDispatcherRule.testDispatcher.scheduler) {
-            val handle = SavedStateHandle(mapOf(GymRoutes.WORKOUT_ID_ARG to "w1"))
-            val blockingRepository = BlockingSaveGymRepository()
-            val first = viewModel(
-                FakeWorkoutDao(fullWorkout()),
-                saveUseCase = SaveCompletedWorkoutAsRoutineUseCase(blockingRepository, NoOpRoutineUploadScheduler),
+                saveUseCase =
+                    SaveCompletedWorkoutAsRoutineUseCase(
+                        blockingRepository,
+                        NoOpRoutineUploadScheduler,
+                    ),
                 savedStateHandle = handle,
             )
-            first.openSaveAsProgram()
-            first.changeSaveAsProgramName("Мой снимок")
-            first.confirmSaveAsProgram()
-            assertTrue(first.uiState.value.isSavingAsProgram)
+        first.openSaveAsProgram()
+        first.changeSaveAsProgramName("Мой снимок")
+        first.confirmSaveAsProgram()
+        assertTrue(first.uiState.value.isSavingAsProgram)
 
-            val recreated = viewModel(FakeWorkoutDao(fullWorkout()), savedStateHandle = handle)
+        val recreated = viewModel(FakeWorkoutDao(fullWorkout()), savedStateHandle = handle)
 
-            assertTrue(recreated.uiState.value.showSaveAsProgramDialog)
-            assertEquals("Мой снимок", recreated.uiState.value.saveAsProgramName)
-            assertFalse(recreated.uiState.value.isSavingAsProgram)
-            recreated.changeSaveAsProgramName("Повтор")
-            recreated.dismissSaveAsProgram()
-            assertFalse(recreated.uiState.value.showSaveAsProgramDialog)
-        }
+        assertTrue(recreated.uiState.value.showSaveAsProgramDialog)
+        assertEquals("Мой снимок", recreated.uiState.value.saveAsProgramName)
+        assertFalse(recreated.uiState.value.isSavingAsProgram)
+        recreated.changeSaveAsProgramName("Повтор")
+        recreated.dismissSaveAsProgram()
+        assertFalse(recreated.uiState.value.showSaveAsProgramDialog)
+      }
 
-    @Test
-    fun `recreated history replays a committed operation once and a new dialog gets a new operation`() =
-        runTest(mainDispatcherRule.testDispatcher.scheduler) {
-            val handle = SavedStateHandle(mapOf(GymRoutes.WORKOUT_ID_ARG to "w1"))
-            val repository = CommitThenSuspendSaveGymRepository()
-            val first = viewModel(
+  @Test
+  fun `recreated history replays a committed operation once and a new dialog gets a new operation`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val handle = SavedStateHandle(mapOf(GymRoutes.WORKOUT_ID_ARG to "w1"))
+        val repository = CommitThenSuspendSaveGymRepository()
+        val first =
+            viewModel(
                 FakeWorkoutDao(fullWorkout()),
-                saveUseCase = SaveCompletedWorkoutAsRoutineUseCase(repository, NoOpRoutineUploadScheduler),
+                saveUseCase =
+                    SaveCompletedWorkoutAsRoutineUseCase(repository, NoOpRoutineUploadScheduler),
                 savedStateHandle = handle,
             )
-            first.openSaveAsProgram()
-            val operationId = handle.get<String>("save_as_program_operation_sync_id")!!
-            first.confirmSaveAsProgram()
-            repository.firstCommit.await()
+        first.openSaveAsProgram()
+        val operationId = handle.get<String>("save_as_program_operation_sync_id")!!
+        first.confirmSaveAsProgram()
+        repository.firstCommit.await()
 
-            val recreated = viewModel(
+        val recreated =
+            viewModel(
                 FakeWorkoutDao(fullWorkout()),
-                saveUseCase = SaveCompletedWorkoutAsRoutineUseCase(repository, NoOpRoutineUploadScheduler),
+                saveUseCase =
+                    SaveCompletedWorkoutAsRoutineUseCase(repository, NoOpRoutineUploadScheduler),
                 savedStateHandle = handle,
             )
-            recreated.confirmSaveAsProgram()
+        recreated.confirmSaveAsProgram()
 
-            assertEquals(1, repository.durableRoutines.size)
-            assertEquals(operationId, repository.durableRoutines.values.single().syncId)
-            assertFalse(recreated.uiState.value.showSaveAsProgramDialog)
+        assertEquals(1, repository.durableRoutines.size)
+        assertEquals(operationId, repository.durableRoutines.values.single().syncId)
+        assertFalse(recreated.uiState.value.showSaveAsProgramDialog)
 
-            recreated.openSaveAsProgram()
-            val freshOperationId = handle.get<String>("save_as_program_operation_sync_id")!!
-            recreated.confirmSaveAsProgram()
-            assertTrue(freshOperationId != operationId)
-            assertEquals(2, repository.durableRoutines.size)
-            repository.release.complete(Unit)
-        }
+        recreated.openSaveAsProgram()
+        val freshOperationId = handle.get<String>("save_as_program_operation_sync_id")!!
+        recreated.confirmSaveAsProgram()
+        assertTrue(freshOperationId != operationId)
+        assertEquals(2, repository.durableRoutines.size)
+        repository.release.complete(Unit)
+      }
 
-    @Test
-    fun `orphaned history draft closes without writing and a later open creates an operation`() =
-        runTest(mainDispatcherRule.testDispatcher.scheduler) {
-            val handle = SavedStateHandle(
+  @Test
+  fun `orphaned history draft closes without writing and a later open creates an operation`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val handle =
+            SavedStateHandle(
                 mapOf(
                     GymRoutes.WORKOUT_ID_ARG to "w1",
                     "save_as_program_dialog_visible" to true,
                     "save_as_program_name" to "Старый черновик",
                 ),
             )
-            val repository = FakeSaveGymRepository()
-            val viewModel = viewModel(
+        val repository = FakeSaveGymRepository()
+        val viewModel =
+            viewModel(
                 FakeWorkoutDao(fullWorkout()),
-                saveUseCase = SaveCompletedWorkoutAsRoutineUseCase(repository, NoOpRoutineUploadScheduler),
+                saveUseCase =
+                    SaveCompletedWorkoutAsRoutineUseCase(repository, NoOpRoutineUploadScheduler),
                 savedStateHandle = handle,
             )
 
-            assertFalse(viewModel.uiState.value.showSaveAsProgramDialog)
-            viewModel.confirmSaveAsProgram()
-            assertTrue(repository.drafts.isEmpty())
+        assertFalse(viewModel.uiState.value.showSaveAsProgramDialog)
+        viewModel.confirmSaveAsProgram()
+        assertTrue(repository.drafts.isEmpty())
 
-            viewModel.openSaveAsProgram()
-            assertTrue(handle.get<String>("save_as_program_operation_sync_id")?.isNotBlank() == true)
-            viewModel.confirmSaveAsProgram()
-            assertEquals(1, repository.durableRoutines.size)
-        }
+        viewModel.openSaveAsProgram()
+        assertTrue(handle.get<String>("save_as_program_operation_sync_id")?.isNotBlank() == true)
+        viewModel.confirmSaveAsProgram()
+        assertEquals(1, repository.durableRoutines.size)
+      }
 
-    private fun TestScope.viewModel(
-        dao: FakeWorkoutDao,
-        scheduler: UploadScheduler = FakeUploadScheduler(),
-        saveUseCase: SaveCompletedWorkoutAsRoutineUseCase = SaveCompletedWorkoutAsRoutineUseCase(
-            NoOpGymRepository,
-            NoOpRoutineUploadScheduler,
-        ),
-        savedStateHandle: SavedStateHandle? = null,
-    ): WorkoutDetailViewModel = WorkoutDetailViewModel(
-        savedStateHandle = savedStateHandle ?: SavedStateHandle(
-            if (dao.full != null) mapOf(GymRoutes.WORKOUT_ID_ARG to "w1") else emptyMap(),
-        ),
-        workoutDao = dao,
-        statsUseCase = WorkoutStatsUseCase(dao),
-        previousSetsUseCase = PreviousSetsUseCase(dao),
-        uploadScheduler = scheduler,
-        saveCompletedWorkoutAsRoutineUseCase = saveUseCase,
-    )
+  private fun TestScope.viewModel(
+      dao: FakeWorkoutDao,
+      scheduler: UploadScheduler = FakeUploadScheduler(),
+      saveUseCase: SaveCompletedWorkoutAsRoutineUseCase =
+          SaveCompletedWorkoutAsRoutineUseCase(
+              NoOpGymRepository,
+              NoOpRoutineUploadScheduler,
+          ),
+      savedStateHandle: SavedStateHandle? = null,
+  ): WorkoutDetailViewModel =
+      WorkoutDetailViewModel(
+          savedStateHandle =
+              savedStateHandle
+                  ?: SavedStateHandle(
+                      if (dao.full != null) mapOf(GymRoutes.WORKOUT_ID_ARG to "w1") else emptyMap(),
+                  ),
+          workoutDao = dao,
+          statsUseCase = WorkoutStatsUseCase(dao),
+          previousSetsUseCase = PreviousSetsUseCase(dao),
+          uploadScheduler = scheduler,
+          saveCompletedWorkoutAsRoutineUseCase = saveUseCase,
+      )
 
-    /** Тренировка «Грудь»: упражнения и подходы намеренно в обратном порядке для проверки сортировки. */
-    private fun fullWorkout(): WorkoutFull = WorkoutFull(
-        workout = WorkoutEntity(
-            id = "w1",
-            name = "Грудь",
-            startedAt = 0L,
-            finishedAt = 60L * 60_000,
-        ),
-        exercises = listOf(
-            WorkoutExerciseWithSets(
-                workoutExercise = WorkoutExerciseEntity(id = 2, workoutId = "w1", exerciseId = 2, position = 1),
-                exercise = ExerciseEntity(id = 2, name = "Разводка", muscleGroup = MuscleGroup.CHEST, type = ExerciseType.STRENGTH),
-                sets = emptyList(),
-            ),
-            WorkoutExerciseWithSets(
-                workoutExercise = WorkoutExerciseEntity(id = 1, workoutId = "w1", exerciseId = 1, position = 0),
-                exercise = ExerciseEntity(id = 1, name = "Жим лёжа", muscleGroup = MuscleGroup.CHEST, type = ExerciseType.STRENGTH),
-                sets = listOf(
-                    WorkoutSetEntity(id = 11, workoutExerciseId = 1, setIndex = 1, weightKg = 80.0, reps = 10, isCompleted = true),
-                    WorkoutSetEntity(id = 10, workoutExerciseId = 1, setIndex = 0, weightKg = 80.0, reps = 8, isCompleted = true),
-                ),
-            ),
-        ),
-    )
+  /**
+   * Тренировка «Грудь»: упражнения и подходы намеренно в обратном порядке для проверки сортировки.
+   */
+  private fun fullWorkout(): WorkoutFull =
+      WorkoutFull(
+          workout =
+              WorkoutEntity(
+                  id = "w1",
+                  name = "Грудь",
+                  startedAt = 0L,
+                  finishedAt = 60L * 60_000,
+              ),
+          exercises =
+              listOf(
+                  WorkoutExerciseWithSets(
+                      workoutExercise =
+                          WorkoutExerciseEntity(
+                              id = 2,
+                              workoutId = "w1",
+                              exerciseId = 2,
+                              position = 1,
+                          ),
+                      exercise =
+                          ExerciseEntity(
+                              id = 2,
+                              name = "Разводка",
+                              muscleGroup = MuscleGroup.CHEST,
+                              type = ExerciseType.STRENGTH,
+                          ),
+                      sets = emptyList(),
+                  ),
+                  WorkoutExerciseWithSets(
+                      workoutExercise =
+                          WorkoutExerciseEntity(
+                              id = 1,
+                              workoutId = "w1",
+                              exerciseId = 1,
+                              position = 0,
+                          ),
+                      exercise =
+                          ExerciseEntity(
+                              id = 1,
+                              name = "Жим лёжа",
+                              muscleGroup = MuscleGroup.CHEST,
+                              type = ExerciseType.STRENGTH,
+                          ),
+                      sets =
+                          listOf(
+                              WorkoutSetEntity(
+                                  id = 11,
+                                  workoutExerciseId = 1,
+                                  setIndex = 1,
+                                  weightKg = 80.0,
+                                  reps = 10,
+                                  isCompleted = true,
+                              ),
+                              WorkoutSetEntity(
+                                  id = 10,
+                                  workoutExerciseId = 1,
+                                  setIndex = 0,
+                                  weightKg = 80.0,
+                                  reps = 8,
+                                  isCompleted = true,
+                              ),
+                          ),
+                  ),
+              ),
+      )
 
-    private class FakeWorkoutDao(val full: WorkoutFull?) : WorkoutDao {
-        override fun observeFinishedExerciseHistory() = flowOf(emptyList<com.valerochka1337.valerochkagym.data.db.relation.ExerciseWorkoutHistoryRow>())
-        val workoutStream = MutableStateFlow(full?.workout)
-        val deletedWorkouts = mutableListOf<String>()
+  private class FakeWorkoutDao(val full: WorkoutFull?) : WorkoutDao {
+    override fun observeFinishedExerciseHistory() =
+        flowOf(
+            emptyList<com.valerochka1337.valerochkagym.data.db.relation.ExerciseWorkoutHistoryRow>()
+        )
 
-        override suspend fun getWorkoutFull(id: String): WorkoutFull? = full
-        override fun observeWorkout(id: String): Flow<WorkoutEntity?> = workoutStream
-        override suspend fun deleteWorkout(id: String) {
-            deletedWorkouts += id
-        }
+    val workoutStream = MutableStateFlow(full?.workout)
+    val deletedWorkouts = mutableListOf<String>()
 
-        override suspend fun insertWorkout(workout: WorkoutEntity) = Unit
-        override suspend fun insertWorkoutExercise(workoutExercise: WorkoutExerciseEntity): Long = 0
-        override suspend fun insertSet(set: WorkoutSetEntity): Long = 0
-        override suspend fun insertSets(sets: List<WorkoutSetEntity>): List<Long> = emptyList()
-        override suspend fun updateSet(set: WorkoutSetEntity) = Unit
-        override suspend fun updateWorkoutExercises(exercises: List<WorkoutExerciseEntity>) = Unit
-        override suspend fun setSetCompleted(setId: Long, completed: Boolean, completedAt: Long?) = Unit
-        override suspend fun getSet(setId: Long): WorkoutSetEntity? = null
-        override suspend fun getSetsForWorkoutExercise(workoutExerciseId: Long): List<WorkoutSetEntity> = emptyList()
-        override suspend fun getWorkoutExercises(workoutId: String): List<WorkoutExerciseEntity> = emptyList()
-        override suspend fun setFinishedAt(id: String, finishedAt: Long) = Unit
-        override fun observeActiveWorkout(): Flow<WorkoutFull?> = flowOf(null)
-        override suspend fun getActiveWorkoutId(): String? = null
-        override fun observeFinishedWorkouts(): Flow<List<WorkoutEntity>> = flowOf(emptyList())
-        override fun observeCompletedSets(): Flow<List<AnalyticsSetRow>> = flowOf(emptyList())
-        override suspend fun lastCompletedSetsForExercise(exerciseId: Long): List<WorkoutSetEntity> = emptyList()
-        override suspend fun maxCompletedWeight(exerciseId: Long, excludeWorkoutId: String): Double? = null
-        override suspend fun setUploadStatus(workoutId: String, status: UploadStatus, error: String?) = Unit
-        override suspend fun getFinishedNotUploaded(): List<String> = emptyList()
-        override suspend fun getExistingWorkoutIds(): List<String> = emptyList()
-        override suspend fun deleteSet(id: Long) = Unit
-        override suspend fun deleteWorkoutExercise(id: Long) = Unit
+    override suspend fun getWorkoutFull(id: String): WorkoutFull? = full
+
+    override fun observeWorkout(id: String): Flow<WorkoutEntity?> = workoutStream
+
+    override suspend fun deleteWorkout(id: String) {
+      deletedWorkouts += id
     }
 
-    private class FakeUploadScheduler : UploadScheduler {
-        val retriedIds = mutableListOf<String>()
-        override fun schedule(workoutId: String) = Unit
-        override suspend fun retry(workoutId: String) {
-            retriedIds += workoutId
-        }
-        override suspend fun scheduleAllPending(): Int = 0
+    override suspend fun insertWorkout(workout: WorkoutEntity) = Unit
+
+    override suspend fun insertWorkoutExercise(workoutExercise: WorkoutExerciseEntity): Long = 0
+
+    override suspend fun insertSet(set: WorkoutSetEntity): Long = 0
+
+    override suspend fun insertSets(sets: List<WorkoutSetEntity>): List<Long> = emptyList()
+
+    override suspend fun updateSet(set: WorkoutSetEntity) = Unit
+
+    override suspend fun updateWorkoutExercises(exercises: List<WorkoutExerciseEntity>) = Unit
+
+    override suspend fun setSetCompleted(setId: Long, completed: Boolean, completedAt: Long?) = Unit
+
+    override suspend fun getSet(setId: Long): WorkoutSetEntity? = null
+
+    override suspend fun getSetsForWorkoutExercise(
+        workoutExerciseId: Long
+    ): List<WorkoutSetEntity> = emptyList()
+
+    override suspend fun getWorkoutExercises(workoutId: String): List<WorkoutExerciseEntity> =
+        emptyList()
+
+    override suspend fun setFinishedAt(id: String, finishedAt: Long) = Unit
+
+    override fun observeActiveWorkout(): Flow<WorkoutFull?> = flowOf(null)
+
+    override suspend fun getActiveWorkoutId(): String? = null
+
+    override fun observeFinishedWorkouts(): Flow<List<WorkoutEntity>> = flowOf(emptyList())
+
+    override fun observeCompletedSets(): Flow<List<AnalyticsSetRow>> = flowOf(emptyList())
+
+    override suspend fun lastCompletedSetsForExercise(exerciseId: Long): List<WorkoutSetEntity> =
+        emptyList()
+
+    override suspend fun maxCompletedWeight(exerciseId: Long, excludeWorkoutId: String): Double? =
+        null
+
+    override suspend fun setUploadStatus(workoutId: String, status: UploadStatus, error: String?) =
+        Unit
+
+    override suspend fun getFinishedNotUploaded(): List<String> = emptyList()
+
+    override suspend fun getExistingWorkoutIds(): List<String> = emptyList()
+
+    override suspend fun deleteSet(id: Long) = Unit
+
+    override suspend fun deleteWorkoutExercise(id: Long) = Unit
+  }
+
+  private class FakeUploadScheduler : UploadScheduler {
+    val retriedIds = mutableListOf<String>()
+
+    override fun schedule(workoutId: String) = Unit
+
+    override suspend fun retry(workoutId: String) {
+      retriedIds += workoutId
     }
 
-    private class FakeSaveGymRepository(
-        private val result: SaveRoutineConfigurationResult? = null,
-    ) : GymRepository by NoOpGymRepository {
-        val drafts = mutableListOf<RoutineConfigurationDraft>()
-        val durableRoutines = linkedMapOf<String, com.valerochka1337.valerochkagym.data.db.entity.RoutineEntity>()
+    override suspend fun scheduleAllPending(): Int = 0
+  }
 
-        override suspend fun saveRoutineConfiguration(draft: RoutineConfigurationDraft): SaveRoutineConfigurationResult {
-            drafts += draft
-            result?.let { return it }
-            val saved = durableRoutines.getOrPut(draft.routine.syncId) {
-                draft.routine.copy(id = durableRoutines.size + 1L)
-            }
-            return SaveRoutineConfigurationResult.Saved(saved.id, saved)
-        }
+  private class FakeSaveGymRepository(
+      private val result: SaveRoutineConfigurationResult? = null,
+  ) : GymRepository by NoOpGymRepository {
+    val drafts = mutableListOf<RoutineConfigurationDraft>()
+    val durableRoutines =
+        linkedMapOf<String, com.valerochka1337.valerochkagym.data.db.entity.RoutineEntity>()
+
+    override suspend fun saveRoutineConfiguration(
+        draft: RoutineConfigurationDraft
+    ): SaveRoutineConfigurationResult {
+      drafts += draft
+      result?.let {
+        return it
+      }
+      val saved =
+          durableRoutines.getOrPut(draft.routine.syncId) {
+            draft.routine.copy(id = durableRoutines.size + 1L)
+          }
+      return SaveRoutineConfigurationResult.Saved(saved.id, saved)
     }
+  }
 
-    private class BlockingSaveGymRepository : GymRepository by NoOpGymRepository {
-        val drafts = mutableListOf<RoutineConfigurationDraft>()
-        val release = CompletableDeferred<Unit>()
+  private class BlockingSaveGymRepository : GymRepository by NoOpGymRepository {
+    val drafts = mutableListOf<RoutineConfigurationDraft>()
+    val release = CompletableDeferred<Unit>()
 
-        override suspend fun saveRoutineConfiguration(draft: RoutineConfigurationDraft): SaveRoutineConfigurationResult {
-            drafts += draft
-            release.await()
-            return SaveRoutineConfigurationResult.Saved(1L, draft.routine)
-        }
+    override suspend fun saveRoutineConfiguration(
+        draft: RoutineConfigurationDraft
+    ): SaveRoutineConfigurationResult {
+      drafts += draft
+      release.await()
+      return SaveRoutineConfigurationResult.Saved(1L, draft.routine)
     }
+  }
 
-    private class CommitThenSuspendSaveGymRepository : GymRepository by NoOpGymRepository {
-        val durableRoutines = linkedMapOf<String, com.valerochka1337.valerochkagym.data.db.entity.RoutineEntity>()
-        val firstCommit = CompletableDeferred<Unit>()
-        val release = CompletableDeferred<Unit>()
+  private class CommitThenSuspendSaveGymRepository : GymRepository by NoOpGymRepository {
+    val durableRoutines =
+        linkedMapOf<String, com.valerochka1337.valerochkagym.data.db.entity.RoutineEntity>()
+    val firstCommit = CompletableDeferred<Unit>()
+    val release = CompletableDeferred<Unit>()
 
-        override suspend fun saveRoutineConfiguration(draft: RoutineConfigurationDraft): SaveRoutineConfigurationResult {
-            val existing = durableRoutines[draft.routine.syncId]
-            if (existing != null) return SaveRoutineConfigurationResult.Saved(existing.id, existing)
-            val saved = draft.routine.copy(id = durableRoutines.size + 1L)
-            durableRoutines[saved.syncId] = saved
-            firstCommit.complete(Unit)
-            release.await()
-            return SaveRoutineConfigurationResult.Saved(saved.id, saved)
-        }
+    override suspend fun saveRoutineConfiguration(
+        draft: RoutineConfigurationDraft
+    ): SaveRoutineConfigurationResult {
+      val existing = durableRoutines[draft.routine.syncId]
+      if (existing != null) return SaveRoutineConfigurationResult.Saved(existing.id, existing)
+      val saved = draft.routine.copy(id = durableRoutines.size + 1L)
+      durableRoutines[saved.syncId] = saved
+      firstCommit.complete(Unit)
+      release.await()
+      return SaveRoutineConfigurationResult.Saved(saved.id, saved)
     }
+  }
 }

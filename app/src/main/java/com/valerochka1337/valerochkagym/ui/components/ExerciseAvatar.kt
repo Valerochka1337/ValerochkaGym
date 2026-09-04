@@ -21,9 +21,9 @@ import com.valerochka1337.valerochkagym.data.db.entity.MuscleGroup
 import com.valerochka1337.valerochkagym.domain.iconResFor
 
 /**
- * Ведущий аватар упражнения: иконка снаряда/движения (см. [iconResFor]) на скруглённой
- * подложке [surfaceContainerHigh], по стилю совпадает с [CircleIconButton] и иконками табов.
- * Нейтральный тинт, чтобы не размывать единый зелёный акцент.
+ * Ведущий аватар упражнения: иконка снаряда/движения (см. [iconResFor]) на скруглённой подложке
+ * surfaceContainerHigh, по стилю совпадает с [CircleIconButton] и иконками табов. Нейтральный тинт,
+ * чтобы не размывать единый зелёный акцент.
  */
 @Composable
 fun ExerciseAvatar(
@@ -31,12 +31,12 @@ fun ExerciseAvatar(
     modifier: Modifier = Modifier,
     tint: Color = MaterialTheme.colorScheme.onSurfaceVariant,
 ) {
-    ExerciseAvatarBox(iconResFor(exercise), modifier, tint)
+  ExerciseAvatarBox(iconResFor(exercise), modifier, tint)
 }
 
 /**
- * Вариант для экранов без полной [ExerciseEntity] (история, итоги, редактор программы):
- * иконка выводится из названия, [type]/[group] нужны только для фоллбэка.
+ * Вариант для экранов без полной [ExerciseEntity] (история, итоги, редактор программы): иконка
+ * выводится из названия, [type]/[group] нужны только для фоллбэка.
  */
 @Composable
 fun ExerciseAvatar(
@@ -46,7 +46,7 @@ fun ExerciseAvatar(
     group: MuscleGroup? = null,
     tint: Color = MaterialTheme.colorScheme.onSurfaceVariant,
 ) {
-    ExerciseAvatarBox(iconResFor(name, type, group), modifier, tint)
+  ExerciseAvatarBox(iconResFor(name, type, group), modifier, tint)
 }
 
 @Composable
@@ -55,18 +55,19 @@ private fun ExerciseAvatarBox(
     modifier: Modifier,
     tint: Color,
 ) {
-    Box(
-        modifier = modifier
-            .size(44.dp)
-            .clip(RoundedCornerShape(12.dp))
-            .background(MaterialTheme.colorScheme.surfaceContainerHigh),
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(
-            imageVector = ImageVector.vectorResource(iconRes),
-            contentDescription = null,
-            tint = tint,
-            modifier = Modifier.size(24.dp),
-        )
-    }
+  Box(
+      modifier =
+          modifier
+              .size(44.dp)
+              .clip(RoundedCornerShape(12.dp))
+              .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+      contentAlignment = Alignment.Center,
+  ) {
+    Icon(
+        imageVector = ImageVector.vectorResource(iconRes),
+        contentDescription = null,
+        tint = tint,
+        modifier = Modifier.size(24.dp),
+    )
+  }
 }

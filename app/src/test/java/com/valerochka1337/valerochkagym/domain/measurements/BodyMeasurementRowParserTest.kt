@@ -11,12 +11,14 @@ import org.junit.Test
 
 class BodyMeasurementRowParserTest {
 
-    @Test
-    fun `parsing a full InBody row restores every exported measurement`() = runTest {
-        val zone = ZoneId.systemDefault()
-        val measurement = BodyMeasurementEntity(
+  @Test
+  fun `parsing a full InBody row restores every exported measurement`() = runTest {
+    val zone = ZoneId.systemDefault()
+    val measurement =
+        BodyMeasurementEntity(
             id = "measurement-1",
-            measuredAt = LocalDateTime.of(2026, 8, 20, 9, 30).atZone(zone).toInstant().toEpochMilli(),
+            measuredAt =
+                LocalDateTime.of(2026, 8, 20, 9, 30).atZone(zone).toInstant().toEpochMilli(),
             weightKg = 70.2,
             skeletalMuscleMassKg = 29.4,
             bodyFatPercentage = 21.7,
@@ -58,49 +60,53 @@ class BodyMeasurementRowParserTest {
             rightThighCm = 54.0,
         )
 
-        val result = BodyMeasurementRowParser.parse(
+    val result =
+        BodyMeasurementRowParser.parse(
             listOf(
                 BodyMeasurementRowMapper.HEADER_ROW,
                 BodyMeasurementRowMapper.row(measurement, zone).map { it?.toString().orEmpty() },
             ),
         )
 
-        assertEquals(0, result.skippedRows)
-        assertEquals(
-            measurement.copy(uploadStatus = UploadStatus.UPLOADED, uploadError = null),
-            result.measurements.single(),
-        )
-    }
+    assertEquals(0, result.skippedRows)
+    assertEquals(
+        measurement.copy(uploadStatus = UploadStatus.UPLOADED, uploadError = null),
+        result.measurements.single(),
+    )
+  }
 
-    @Test
-    fun `parsing a legacy fourteen column row keeps newer InBody fields empty`() = runTest {
-        val zone = ZoneId.systemDefault()
-        val measurement = BodyMeasurementEntity(
+  @Test
+  fun `parsing a legacy fourteen column row keeps newer InBody fields empty`() = runTest {
+    val zone = ZoneId.systemDefault()
+    val measurement =
+        BodyMeasurementEntity(
             id = "legacy-measurement",
-            measuredAt = LocalDateTime.of(2026, 1, 2, 10, 15).atZone(zone).toInstant().toEpochMilli(),
+            measuredAt =
+                LocalDateTime.of(2026, 1, 2, 10, 15).atZone(zone).toInstant().toEpochMilli(),
             weightKg = 71.0,
             bodyFatPercentage = 20.0,
             visceralFatLevel = 5,
             waistCm = 73.0,
         )
-        val legacyHeader = BodyMeasurementRowMapper.HEADER_ROW.take(14)
-        val legacyRow = BodyMeasurementRowMapper.row(measurement, zone)
-            .take(14)
-            .map { it?.toString().orEmpty() }
+    val legacyHeader = BodyMeasurementRowMapper.HEADER_ROW.take(14)
+    val legacyRow =
+        BodyMeasurementRowMapper.row(measurement, zone).take(14).map { it?.toString().orEmpty() }
 
-        val restored = BodyMeasurementRowParser.parse(listOf(legacyHeader, legacyRow)).measurements.single()
+    val restored =
+        BodyMeasurementRowParser.parse(listOf(legacyHeader, legacyRow)).measurements.single()
 
-        assertEquals("legacy-measurement", restored.id)
-        assertEquals(71.0, restored.weightKg ?: 0.0, 0.0)
-        assertEquals(UploadStatus.UPLOADED, restored.uploadStatus)
-        assertNull(restored.inBodyScore)
-        assertNull(restored.leftArmLeanMassKg)
-        assertNull(restored.rightLegFatPercentage)
-    }
+    assertEquals("legacy-measurement", restored.id)
+    assertEquals(71.0, restored.weightKg ?: 0.0, 0.0)
+    assertEquals(UploadStatus.UPLOADED, restored.uploadStatus)
+    assertNull(restored.inBodyScore)
+    assertNull(restored.leftArmLeanMassKg)
+    assertNull(restored.rightLegFatPercentage)
+  }
 
-    @Test
-    fun `parsing rows skips a measurement with an invalid date or time`() = runTest {
-        val result = BodyMeasurementRowParser.parse(
+  @Test
+  fun `parsing rows skips a measurement with an invalid date or time`() = runTest {
+    val result =
+        BodyMeasurementRowParser.parse(
             listOf(
                 BodyMeasurementRowMapper.HEADER_ROW,
                 listOf("bad", "2026-02-30", "10:00"),
@@ -108,7 +114,7 @@ class BodyMeasurementRowParserTest {
             ),
         )
 
-        assertEquals(emptyList<BodyMeasurementEntity>(), result.measurements)
-        assertEquals(2, result.skippedRows)
-    }
+    assertEquals(emptyList<BodyMeasurementEntity>(), result.measurements)
+    assertEquals(2, result.skippedRows)
+  }
 }

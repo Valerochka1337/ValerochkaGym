@@ -17,9 +17,8 @@ import androidx.compose.ui.unit.dp
 val GymCardShape = RoundedCornerShape(24.dp)
 
 /**
- * Flat surface card. Depth is conveyed by the tonal [surfaceContainerHigh] fill, not a
- * gradient. When [onClick] is non-null the card is clickable and shows a ripple clipped
- * to [shape].
+ * Flat surface card. Depth is conveyed by the tonal `surfaceContainerHigh` fill, not a gradient.
+ * When [onClick] is non-null the card is clickable and shows a ripple clipped to [shape].
  */
 @Composable
 fun GymCard(
@@ -29,17 +28,18 @@ fun GymCard(
     contentPadding: PaddingValues = PaddingValues(20.dp),
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    val colors = CardDefaults.cardColors(
-        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-        contentColor = MaterialTheme.colorScheme.onSurface,
-    )
-    if (onClick != null) {
-        Card(onClick = onClick, modifier = modifier, shape = shape, colors = colors) {
-            Column(modifier = Modifier.padding(contentPadding), content = content)
-        }
-    } else {
-        Card(modifier = modifier, shape = shape, colors = colors) {
-            Column(modifier = Modifier.padding(contentPadding), content = content)
-        }
+  val colors =
+      CardDefaults.cardColors(
+          containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+          contentColor = MaterialTheme.colorScheme.onSurface,
+      )
+  if (onClick != null) {
+    Card(onClick = onClick, modifier = modifier, shape = shape, colors = colors) {
+      Column(modifier = Modifier.padding(contentPadding), content = content)
     }
+  } else {
+    Card(modifier = modifier, shape = shape, colors = colors) {
+      Column(modifier = Modifier.padding(contentPadding), content = content)
+    }
+  }
 }
