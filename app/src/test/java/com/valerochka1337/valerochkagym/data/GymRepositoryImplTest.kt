@@ -105,6 +105,71 @@ class GymRepositoryImplTest : RoomDaoTest() {
     }
 
     @Test
+    fun `replaying a new routine sync id returns the committed row without rewriting it`() = runTest {
+        val exerciseId = db.exerciseDao().insert(exercise("Жим"))
+        val first = repository.saveRoutineConfiguration(
+            RoutineConfigurationDraft(
+                routine = RoutineEntity(syncId = "save-operation", name = "Первое имя", note = "Первый текст"),
+                exercises = listOf(RoutineExerciseEntity(routineId = 0, exerciseId = exerciseId, position = 0)),
+                gymIds = emptySet(),
+            ),
+        ) as SaveRoutineConfigurationResult.Saved
+
+        val replay = repository.saveRoutineConfiguration(
+            RoutineConfigurationDraft(
+                routine = RoutineEntity(syncId = "save-operation", name = "Не должно замениться", note = "Другой текст"),
+                exercises = emptyList(),
+                gymIds = emptySet(),
+            ),
+        ) as SaveRoutineConfigurationResult.Saved
+        val distinct = repository.saveRoutineConfiguration(
+            RoutineConfigurationDraft(
+                routine = RoutineEntity(syncId = "next-operation", name = "Следующая программа"),
+                exercises = emptyList(),
+                gymIds = emptySet(),
+            ),
+        ) as SaveRoutineConfigurationResult.Saved
+
+        assertEquals(first.routine, replay.routine)
+        assertEquals(first.routineId, replay.routineId)
+        assertEquals(2, tableCount("routines"))
+        assertEquals(1, tableCount("routine_exercises"))
+        assertEquals("Первое имя", db.routineDao().getRoutineWithExercises(first.routineId)?.routine?.name)
+        assertTrue(distinct.routineId != first.routineId)
+    }
+
+    @Test
+    fun `editing a nonzero routine id still replaces its fields exercises and gyms`() = runTest {
+        val firstExercise = db.exerciseDao().insert(exercise("Жим"))
+        val replacementExercise = db.exerciseDao().insert(exercise("Тяга"))
+        val alpha = savedGym("Альфа", setOf(firstExercise))
+        val beta = savedGym("Бета", setOf(replacementExercise))
+        val created = repository.saveRoutineConfiguration(
+            RoutineConfigurationDraft(
+                routine = RoutineEntity(syncId = "editor-routine", name = "Старая", note = "До правки"),
+                exercises = listOf(RoutineExerciseEntity(routineId = 0, exerciseId = firstExercise, position = 0)),
+                gymIds = setOf(alpha),
+            ),
+        ) as SaveRoutineConfigurationResult.Saved
+
+        val updated = repository.saveRoutineConfiguration(
+            RoutineConfigurationDraft(
+                routine = created.routine.copy(name = "Новая", note = "После правки"),
+                exercises = listOf(RoutineExerciseEntity(routineId = 0, exerciseId = replacementExercise, position = 5)),
+                gymIds = setOf(beta),
+            ),
+        ) as SaveRoutineConfigurationResult.Saved
+        val full = db.routineDao().getRoutineWithExercises(created.routineId)!!
+
+        assertEquals(created.routineId, updated.routineId)
+        assertEquals("Новая", full.routine.name)
+        assertEquals("После правки", full.routine.note)
+        assertEquals(listOf(replacementExercise), full.exercises.map { it.exercise.id })
+        assertEquals(listOf(5), full.exercises.map { it.routineExercise.position })
+        assertEquals(listOf(beta), full.gyms.map { it.syncId })
+    }
+
+    @Test
     fun `deleting a gym linked to a routine is blocked`() = runTest {
         val exerciseId = db.exerciseDao().insert(exercise("Тяга"))
         val gym = savedGym("Альфа", setOf(exerciseId))

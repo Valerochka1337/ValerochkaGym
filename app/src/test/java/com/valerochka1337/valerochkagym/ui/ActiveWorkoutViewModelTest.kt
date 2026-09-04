@@ -526,6 +526,7 @@ class ActiveWorkoutViewModelTest {
         override fun observeRoutinesWithCount(): Flow<List<RoutineWithCount>> = flowOf(emptyList())
         override fun observeRoutinesFull(): Flow<List<RoutineWithExercises>> = flowOf(emptyList())
         override suspend fun getRoutineWithExercises(id: Long): RoutineWithExercises? = null
+        override suspend fun getRoutineBySyncId(syncId: String): RoutineEntity? = null
         override suspend fun getRoutineName(id: Long): String? = null
         override suspend fun upsertRoutine(routine: RoutineEntity): Long = 0
         override suspend fun deleteRoutine(id: Long) = Unit

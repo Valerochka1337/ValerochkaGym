@@ -384,6 +384,7 @@ class CalendarViewModelTest {
         override fun observeRoutinesWithCount(): Flow<List<RoutineWithCount>> = MutableStateFlow(list)
         override fun observeRoutinesFull(): Flow<List<RoutineWithExercises>> = flowOf(emptyList())
         override suspend fun getRoutineWithExercises(id: Long): RoutineWithExercises? = null
+        override suspend fun getRoutineBySyncId(syncId: String): RoutineEntity? = null
         override suspend fun getRoutineName(id: Long): String? = list.find { it.routine.id == id }?.routine?.name
         override suspend fun upsertRoutine(routine: RoutineEntity): Long = 0
         override suspend fun deleteRoutine(id: Long) = Unit

@@ -7,6 +7,7 @@ import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -21,6 +22,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -40,6 +42,7 @@ import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.valerochka1337.valerochkagym.data.db.entity.Muscle
 import com.valerochka1337.valerochkagym.domain.displayName
@@ -47,6 +50,8 @@ import com.valerochka1337.valerochkagym.ui.haptics.gymHaptics
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlin.math.abs
+
+internal val MuscleSelectorCellWidth = 144.dp
 
 /** Pure virtual-wheel math. A virtual index is intentionally never part of the UI contract. */
 internal object MuscleSelectorState {
@@ -134,7 +139,7 @@ internal object MuscleSelectorState {
     }
 }
 
-/** Three equal text slots in a genuinely scrollable cyclic wheel. */
+/** A compact cyclic wheel: the chosen muscle is centred, neighboring cells intentionally peek in. */
 @Composable
 @OptIn(ExperimentalFoundationApi::class)
 fun MuscleSelector(
@@ -147,7 +152,7 @@ fun MuscleSelector(
     val external = selected ?: Muscle.entries.first()
     // Deliberately not rememberSaveable: virtual wheel position has no durable meaning. A fresh
     // composition recreates this state from the externally restored logical muscle instead.
-    val listState = remember { LazyListState(MuscleSelectorState.anchoredIndex(external) - 1) }
+    val listState = remember { LazyListState(MuscleSelectorState.anchoredIndex(external)) }
     val flingBehavior = rememberSnapFlingBehavior(listState)
     val scope = rememberCoroutineScope()
     val dragged by listState.interactionSource.collectIsDraggedAsState()
@@ -155,6 +160,7 @@ fun MuscleSelector(
     var userGesturePending by remember { mutableStateOf(false) }
     var programmaticScroll by remember { mutableStateOf<Job?>(null) }
     var pendingExternal by remember { mutableStateOf<Muscle?>(null) }
+    var lastUserCrossedCenter by remember { mutableStateOf<Int?>(null) }
 
     fun centeredVirtualIndex(): Int? = listState.centeredVirtualIndex()
 
@@ -170,8 +176,10 @@ fun MuscleSelector(
         programmaticScroll?.cancel()
         programmaticScroll = scope.launch {
             val from = centeredVirtualIndex() ?: MuscleSelectorState.anchoredIndex(settledMuscle)
-            listState.animateScrollToItem(MuscleSelectorState.nearestEquivalentIndex(from, muscle) - 1)
-            emitUserSelection(muscleAtCenterOrNull(listState) ?: muscle)
+            val targetIndex = MuscleSelectorState.nearestEquivalentIndex(from, muscle)
+            listState.animateScrollToItem(targetIndex)
+            val selectedIndex = centeredVirtualIndex() ?: targetIndex
+            emitUserSelection(MuscleSelectorState.muscleAt(selectedIndex))
         }
     }
 
@@ -180,6 +188,28 @@ fun MuscleSelector(
         if (dragged) {
             programmaticScroll?.cancel()
             userGesturePending = true
+            // The initial measured centre is only a baseline. Haptics start with the next
+            // distinct centre crossing, then continue through the fling after the finger lifts.
+            lastUserCrossedCenter = centeredVirtualIndex()
+        } else if (userGesturePending && !listState.isScrollInProgress) {
+            // A touch which never starts LazyRow scrolling must not indefinitely defer later
+            // selections arriving from the body map or another external control.
+            userGesturePending = false
+            lastUserCrossedCenter = null
+        }
+    }
+
+    LaunchedEffect(listState) {
+        snapshotFlow { centeredVirtualIndex() }.collect { center ->
+            if (
+                center != null &&
+                userGesturePending &&
+                (dragged || listState.isScrollInProgress) &&
+                center != lastUserCrossedCenter
+            ) {
+                lastUserCrossedCenter = center
+                haptics.stepFrequent()
+            }
         }
     }
 
@@ -208,7 +238,8 @@ fun MuscleSelector(
         }
         programmaticScroll = scope.launch {
             val from = centeredVirtualIndex() ?: MuscleSelectorState.anchoredIndex(target)
-            listState.animateScrollToItem(MuscleSelectorState.nearestEquivalentIndex(from, target) - 1)
+            val targetIndex = MuscleSelectorState.nearestEquivalentIndex(from, target)
+            listState.animateScrollToItem(targetIndex)
             if (!dragged && !userGesturePending && pendingExternal == target) {
                 settledMuscle = target
                 pendingExternal = null
@@ -223,18 +254,21 @@ fun MuscleSelector(
             val centeredIndex = centeredVirtualIndex() ?: return@LaunchedEffect
             if (userGesturePending) {
                 userGesturePending = false
+                lastUserCrossedCenter = null
                 // A user-settled centre supersedes any external value that arrived mid-gesture.
                 pendingExternal = null
                 emitUserSelection(MuscleSelectorState.muscleAt(centeredIndex))
             }
             if (!dragged && !userGesturePending && MuscleSelectorState.shouldRecenter(centeredIndex)) {
-                listState.scrollToItem(MuscleSelectorState.anchoredIndex(MuscleSelectorState.muscleAt(centeredIndex)) - 1)
+                listState.scrollToItem(MuscleSelectorState.anchoredIndex(MuscleSelectorState.muscleAt(centeredIndex)))
             }
         }
     }
 
     Column(
-        modifier = modifier.semantics {
+        modifier = modifier
+            .fillMaxWidth()
+            .semantics {
             stateDescription = roleText?.invoke(settledMuscle)
                 ?.let { "${settledMuscle.displayName()}: $it" }
                 ?: settledMuscle.displayName()
@@ -248,14 +282,18 @@ fun MuscleSelector(
                     true
                 },
             )
-        }.testTag("muscle_selector"),
+        }
+            .testTag("muscle_selector"),
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         BoxWithConstraints(
             modifier = Modifier
                 .fillMaxWidth()
+                .align(Alignment.CenterHorizontally)
                 .wrapContentHeight(),
         ) {
-            val slotWidth = maxWidth / 3
+            val cellWidth = MuscleSelectorCellWidth
+            val sidePeekWidth = ((maxWidth - cellWidth) / 2).coerceAtLeast(0.dp)
             // Lazy layouts have no intrinsic measurement. This invisible, semantic-free row gives
             // the box its real wrapped height before the matching LazyRow is measured.
             Row(
@@ -267,18 +305,18 @@ fun MuscleSelector(
                 SelectorSlot(
                     muscle = MuscleSelectorState.next(settledMuscle, -1),
                     onClick = null,
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.width(cellWidth),
                 )
                 SelectorSlot(
                     muscle = settledMuscle,
                     onClick = null,
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.width(cellWidth),
                     roleText = roleText?.invoke(settledMuscle),
                 )
                 SelectorSlot(
                     muscle = MuscleSelectorState.next(settledMuscle, 1),
                     onClick = null,
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.width(cellWidth),
                 )
             }
             LazyRow(
@@ -287,6 +325,7 @@ fun MuscleSelector(
                     .matchParentSize()
                     .testTag("muscle_selector_viewport"),
                 flingBehavior = flingBehavior,
+                contentPadding = PaddingValues(horizontal = sidePeekWidth),
             ) {
                 items(count = 1_000_001, key = { it }) { virtualIndex ->
                     val muscle = MuscleSelectorState.muscleAt(virtualIndex)
@@ -298,7 +337,9 @@ fun MuscleSelector(
                             "muscle_selector_previous", "muscle_selector_next" -> { { requestUserSelection(muscle) } }
                             else -> null
                         },
-                        modifier = Modifier.width(slotWidth).testTag(slot),
+                        modifier = Modifier
+                            .width(cellWidth)
+                            .testTag(slot),
                         focusProfile = focusProfile,
                         textColor = lerp(
                             MaterialTheme.colorScheme.onSurfaceVariant,
@@ -316,7 +357,7 @@ fun MuscleSelector(
                 VerticalDivider(
                     modifier = Modifier
                         .align(Alignment.CenterStart)
-                        .offset(x = slotWidth)
+                        .offset(x = sidePeekWidth)
                         .width(1.dp)
                         .fillMaxHeight()
                         .testTag("muscle_selector_divider_previous"),
@@ -325,7 +366,7 @@ fun MuscleSelector(
                 VerticalDivider(
                     modifier = Modifier
                         .align(Alignment.CenterStart)
-                        .offset(x = slotWidth * 2)
+                        .offset(x = sidePeekWidth + cellWidth)
                         .width(1.dp)
                         .fillMaxHeight()
                         .testTag("muscle_selector_divider_next"),
@@ -363,9 +404,6 @@ private fun LazyListState.focusProfileFor(virtualIndex: Int): MuscleSelectorStat
     )
 }
 
-private fun muscleAtCenterOrNull(state: LazyListState): Muscle? =
-    state.centeredVirtualIndex()?.let(MuscleSelectorState::muscleAt)
-
 @Composable
 private fun SelectorSlot(
     muscle: Muscle,
@@ -402,6 +440,9 @@ private fun SelectorSlot(
                 style = MaterialTheme.typography.labelLarge,
                 color = textColor,
                 textAlign = TextAlign.Center,
+                maxLines = 2,
+                softWrap = true,
+                overflow = TextOverflow.Ellipsis,
             )
             roleText?.let {
                 Text(

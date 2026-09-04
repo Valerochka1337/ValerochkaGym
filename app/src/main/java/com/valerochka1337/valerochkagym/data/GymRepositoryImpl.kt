@@ -369,6 +369,14 @@ class GymRepositoryImpl @Inject constructor(
         draft: RoutineConfigurationDraft,
     ): SaveRoutineConfigurationResult = try {
         database.withTransaction {
+            if (draft.routine.id == 0L) {
+                routineDao.getRoutineBySyncId(draft.routine.syncId)?.let { existing ->
+                    return@withTransaction SaveRoutineConfigurationResult.Saved(
+                        routineId = existing.id,
+                        routine = existing,
+                    )
+                }
+            }
             val gyms = resolveGyms(draft.gymIds)
                 ?: return@withTransaction SaveRoutineConfigurationResult.GymNotFound
             if (gyms.isNotEmpty()) {

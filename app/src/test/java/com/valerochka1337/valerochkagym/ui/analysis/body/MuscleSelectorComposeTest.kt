@@ -136,7 +136,7 @@ class MuscleSelectorComposeTest {
     }
 
     @Test
-    fun `fast fling can settle beyond one neighboring muscle`() {
+    fun `fast fling ticks each crossed centre and taps the final selection`() {
         val recorder = RecordingHaptics()
         val selections = mutableListOf<Muscle>()
         compose.setContent {
@@ -153,7 +153,15 @@ class MuscleSelectorComposeTest {
         compose.runOnIdle {
             assertEquals(1, selections.size)
             assertTrue(selections.single() !in MuscleSelectorState.visible(Muscle.UPPER_CHEST))
-            assertEquals(1, recorder.performed.size)
+            val expectedCrossings = Math.floorMod(
+                Muscle.entries.indexOf(selections.single()) - Muscle.entries.indexOf(Muscle.UPPER_CHEST),
+                Muscle.entries.size,
+            )
+            assertEquals(
+                expectedCrossings,
+                recorder.performed.count { it == HapticFeedbackType.SegmentFrequentTick },
+            )
+            assertEquals(HapticFeedbackType.ContextClick, recorder.performed.last())
         }
     }
 
@@ -193,8 +201,39 @@ class MuscleSelectorComposeTest {
             assertEquals(1, selections.size)
             assertTrue(selections.single() != Muscle.LATS)
             assertEquals(selections.single(), external)
-            assertEquals(1, recorder.performed.size)
+            assertEquals(HapticFeedbackType.ContextClick, recorder.performed.last())
         }
+    }
+
+    @Test
+    fun `a cancelled drag does not block a later external selection`() {
+        val recorder = RecordingHaptics()
+        var external by mutableStateOf<Muscle?>(Muscle.UPPER_CHEST)
+        compose.setContent {
+            SelectorContent(
+                recorder = recorder,
+                selected = external,
+                onSelected = { external = it },
+            )
+        }
+
+        // Cross the drag threshold, then return to the original centre before lifting. This
+        // must leave no stale user gesture that would reject the next external update.
+        compose.onNodeWithTag("muscle_selector_viewport").performTouchInput {
+            down(center)
+            moveTo(Offset(center.x - 24f, center.y), delayMillis = 100)
+            moveTo(center, delayMillis = 100)
+            up()
+        }
+        compose.waitForIdle()
+        val hapticsBeforeExternal = recorder.performed.toList()
+        compose.runOnIdle { external = Muscle.LATS }
+        compose.waitForIdle()
+
+        compose.runOnIdle {
+            assertEquals(hapticsBeforeExternal, recorder.performed)
+        }
+        compose.onNodeWithText(Muscle.LATS.displayName()).fetchSemanticsNode()
     }
 
     @Test
@@ -285,16 +324,14 @@ class MuscleSelectorComposeTest {
         assertTrue(tibialis.top >= viewport.top && tibialis.bottom <= viewport.bottom)
         assertTrue(longRole.top >= viewport.top && longRole.bottom <= viewport.bottom)
         assertTrue(previousDivider.height == viewport.height && nextDivider.height == viewport.height)
-        // Pixel remainder from two 1px dividers may make one weighted slot 1px wider.
-        assertEquals(previousSlot.width, currentSlot.width, 1.1f)
-        assertEquals(currentSlot.width, nextSlot.width, 1.1f)
+        assertEquals(MuscleSelectorCellWidth.value, nextDivider.left - previousDivider.left, 1.1f)
         val minTouchHeight = 48f
         assertTrue(previousSlot.height >= minTouchHeight)
         assertTrue(nextSlot.height >= minTouchHeight)
     }
 
     @Test
-    fun `selector slots have equal widths and neighbor touch targets`() {
+    fun `selector centers its compact selection area in the full-width carousel`() {
         val recorder = RecordingHaptics()
         compose.setContent {
             SelectorContent(recorder = recorder, selected = Muscle.UPPER_CHEST, onSelected = {})
@@ -305,9 +342,22 @@ class MuscleSelectorComposeTest {
         val next = compose.onNodeWithTag("muscle_selector_next").fetchSemanticsNode().boundsInRoot
         val minTouchHeight = 48f * compose.density.density
 
-        // Pixel remainder from two 1px dividers may make one weighted slot 1px wider.
-        assertEquals(previous.width, current.width, 1.1f)
-        assertEquals(current.width, next.width, 1.1f)
+        val viewport = compose.onNodeWithTag("muscle_selector_viewport").fetchSemanticsNode().boundsInRoot
+        val previousDivider = compose.onNodeWithTag("muscle_selector_divider_previous").fetchSemanticsNode().boundsInRoot
+        val nextDivider = compose.onNodeWithTag("muscle_selector_divider_next").fetchSemanticsNode().boundsInRoot
+
+        assertEquals(
+            MuscleSelectorCellWidth.value * compose.density.density,
+            nextDivider.left - previousDivider.left,
+            1.1f,
+        )
+        assertEquals(
+            (viewport.left + viewport.right) / 2f,
+            (previousDivider.left + nextDivider.left) / 2f,
+            1.1f,
+        )
+        assertTrue(current.left > viewport.left)
+        assertTrue(current.right < viewport.right)
         assertTrue(previous.height >= minTouchHeight)
         assertTrue(next.height >= minTouchHeight)
     }
