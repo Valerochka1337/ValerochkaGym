@@ -15,16 +15,20 @@ import com.valerochka1337.valerochkagym.ui.analysis.AnalysisViewModel
 import com.valerochka1337.valerochkagym.ui.analysis.WeeklyMetric
 import com.valerochka1337.valerochkagym.util.MainDispatcherRule
 import androidx.lifecycle.SavedStateHandle
+import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.cancelAndJoin
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.After
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -50,6 +54,7 @@ class AnalysisViewModelTest : RoomDaoTest() {
     private val day = 86_400_000L
 
     private var benchId: Long = 0
+    private val createdViewModels = mutableListOf<AnalysisViewModel>()
 
     @Before
     fun seedCatalogue() = runTest {
@@ -62,6 +67,14 @@ class AnalysisViewModelTest : RoomDaoTest() {
                 ExerciseMuscleEntity(benchId, Muscle.TRICEPS, 65),
             ),
         )
+    }
+
+    @After
+    fun cancelViewModels() = runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        createdViewModels.forEach { viewModel ->
+            viewModel.viewModelScope.coroutineContext[Job]?.cancelAndJoin()
+        }
+        createdViewModels.clear()
     }
 
     @Test
@@ -259,7 +272,7 @@ class AnalysisViewModelTest : RoomDaoTest() {
     private fun viewModel(
         notice: MuscleLoadUpgradeNotice = FakeUpgradeNotice(acknowledged = true),
         savedStateHandle: SavedStateHandle = SavedStateHandle(),
-    ) = AnalysisViewModel(
+    ): AnalysisViewModel = AnalysisViewModel(
         workoutDao = db.workoutDao(),
         exerciseMuscleDao = db.exerciseMuscleDao(),
         engine = AnalyticsEngine(),
@@ -267,7 +280,7 @@ class AnalysisViewModelTest : RoomDaoTest() {
         computeDispatcher = mainDispatcherRule.testDispatcher,
         upgradeNotice = notice,
         savedStateHandle = savedStateHandle,
-    )
+    ).also(createdViewModels::add)
 
     private class FakeUpgradeNotice(private var acknowledged: Boolean = false) : MuscleLoadUpgradeNotice {
         var calls = 0
