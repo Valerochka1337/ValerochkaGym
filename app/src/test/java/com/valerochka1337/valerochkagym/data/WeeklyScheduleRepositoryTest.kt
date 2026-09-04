@@ -344,8 +344,7 @@ class WeeklyScheduleRepositoryTest : RoomDaoTest() {
               WeeklySchedule(listOf(DayRule(2, routine, 9, 0))),
           )
       fail("CancellationException expected")
-    } catch (_: CancellationException) {
-    }
+    } catch (_: CancellationException) {}
     val committed = repository(api, settings, operations).observe().first()
     assertFalse(committed == old)
     settings.afterUpdate = null
@@ -632,8 +631,7 @@ class WeeklyScheduleRepositoryTest : RoomDaoTest() {
     try {
       repository(api, settings, operations, scheduler = scheduler).save(WeeklySchedule())
       fail("CancellationException expected")
-    } catch (_: CancellationException) {
-    }
+    } catch (_: CancellationException) {}
     api.deleteFailure = httpException(404)
     val recovered =
         repository(api, settings, operations, scheduler = scheduler).resumePendingOperation()

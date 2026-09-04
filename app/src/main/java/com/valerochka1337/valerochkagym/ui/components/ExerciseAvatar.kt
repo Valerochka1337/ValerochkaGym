@@ -22,8 +22,8 @@ import com.valerochka1337.valerochkagym.domain.iconResFor
 
 /**
  * Ведущий аватар упражнения: иконка снаряда/движения (см. [iconResFor]) на скруглённой подложке
- * surfaceContainerHigh, по стилю совпадает с [CircleIconButton] и иконками табов. Нейтральный
- * тинт, чтобы не размывать единый зелёный акцент.
+ * surfaceContainerHigh, по стилю совпадает с [CircleIconButton] и иконками табов. Нейтральный тинт,
+ * чтобы не размывать единый зелёный акцент.
  */
 @Composable
 fun ExerciseAvatar(

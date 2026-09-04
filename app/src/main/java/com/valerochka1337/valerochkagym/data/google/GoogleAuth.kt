@@ -7,9 +7,9 @@ import android.app.PendingIntent
  * Результат запроса OAuth-доступа к Google Sheets/Calendar.
  *
  * [Granted] — доступ уже выдан, токен доступен. [NeedsConsent] — требуется явное согласие
- * пользователя; [NeedsConsent.pendingIntent] нужно запустить через `StartIntentSenderForResult`, после чего
- * повторить [GoogleAuth.authorize]. [Failed] — запрос не удался (нет сети, пользователь не
- * залогинен и т. п.).
+ * пользователя; [NeedsConsent.pendingIntent] нужно запустить через `StartIntentSenderForResult`,
+ * после чего повторить [GoogleAuth.authorize]. [Failed] — запрос не удался (нет сети, пользователь
+ * не залогинен и т. п.).
  */
 sealed interface AuthorizeOutcome {
   data object Granted : AuthorizeOutcome

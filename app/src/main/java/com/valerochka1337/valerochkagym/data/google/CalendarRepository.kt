@@ -46,9 +46,9 @@ interface CalendarRepository {
 /**
  * Реализация планирования в календарь `primary`.
  *
- * Порядок [schedule]: токен → имя программы → `events.insert` (start=[], end=+1ч,
- * ISO-8601 со смещением зоны устройства) → на успех вставка dateTimeMillis. HTTP-ошибки
- * классифицируются в понятные сообщения (см. [insertFailureMessage]).
+ * Порядок [schedule]: токен → имя программы → `events.insert` (start=[], end=+1ч, ISO-8601 со
+ * смещением зоны устройства) → на успех вставка dateTimeMillis. HTTP-ошибки классифицируются в
+ * понятные сообщения (см. [insertFailureMessage]).
  */
 class CalendarRepositoryImpl
 @Inject

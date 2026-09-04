@@ -454,7 +454,11 @@ class ExerciseLibraryViewModelTest {
         val viewModel = ExerciseLibraryViewModel(dao, FakeExerciseMuscleDao())
 
         viewModel.openManualCreate()
-        viewModel.saveEditor("   ", ExerciseType.STRENGTH, listOf(MuscleLoad(Muscle.UPPER_CHEST, 100)))
+        viewModel.saveEditor(
+            "   ",
+            ExerciseType.STRENGTH,
+            listOf(MuscleLoad(Muscle.UPPER_CHEST, 100)),
+        )
         viewModel.saveEditor("Жим", ExerciseType.STRENGTH, emptyList())
 
         assertEquals(0, dao.insertCount)
@@ -781,7 +785,7 @@ class ExerciseLibraryViewModelTest {
     override suspend fun insert(exercise: ExerciseEntity): Long {
       val id = (items.value.maxOfOrNull { it.id } ?: 0L) + 1
       val row = exercise.copy(id = id)
-        items.value += row
+      items.value += row
       insertCount++
       lastInserted = row
       return id

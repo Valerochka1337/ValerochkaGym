@@ -26,11 +26,10 @@ import retrofit2.HttpException
 import retrofit2.Response
 
 /**
- * Tests for [CalendarRepositoryImpl] over a real in-memory GymDatabase (via [RoomDaoTest]) so
- * that [ScheduledWorkoutEntity] rows are persisted and read back from genuine Room DAOs. Only the
- * Google side is faked: [FakeCalendarApi] captures the inserted event body, records deleted event
- * ids and exposes insert/delete failure knobs, while [FakeGoogleAuth] returns a programmable
- * [TokenResult].
+ * Tests for [CalendarRepositoryImpl] over a real in-memory GymDatabase (via [RoomDaoTest]) so that
+ * [ScheduledWorkoutEntity] rows are persisted and read back from genuine Room DAOs. Only the Google
+ * side is faked: [FakeCalendarApi] captures the inserted event body, records deleted event ids and
+ * exposes insert/delete failure knobs, while [FakeGoogleAuth] returns a programmable [TokenResult].
  */
 class CalendarRepositoryTest : RoomDaoTest() {
 

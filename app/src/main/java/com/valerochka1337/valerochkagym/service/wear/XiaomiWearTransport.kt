@@ -54,15 +54,14 @@ constructor(
         }
       }
 
-  private val messageListener =
-      OnMessageReceivedListener { nodeId, message ->
-          val copy = message.copyOf()
-          mainHandler.post {
-              if (started && nodeId == this@XiaomiWearTransport.nodeId) {
-                  onMessage?.invoke(copy)
-              }
-          }
+  private val messageListener = OnMessageReceivedListener { nodeId, message ->
+    val copy = message.copyOf()
+    mainHandler.post {
+      if (started && nodeId == this@XiaomiWearTransport.nodeId) {
+        onMessage?.invoke(copy)
       }
+    }
+  }
 
   private val serviceConnectionListener =
       object : OnServiceConnectionListener {
@@ -117,17 +116,15 @@ constructor(
       if (!started || !listenerRegistered || destination == null) return@post
 
       runCatching {
-            messageApi
-                .sendMessage(destination, copy)
-                .addOnFailureListener {
-                    mainHandler.post {
-                        if (destination == nodeId) {
-                            listenerRegistered = false
-                            restartDiscovery()
-                        }
-                    }
+            messageApi.sendMessage(destination, copy).addOnFailureListener {
+              mainHandler.post {
+                if (destination == nodeId) {
+                  listenerRegistered = false
+                  restartDiscovery()
                 }
-      }
+              }
+            }
+          }
           .onFailure {
             listenerRegistered = false
             restartDiscovery()
@@ -146,8 +143,7 @@ constructor(
 
     discoveryInFlight = true
     runCatching {
-          nodeApi
-              .connectedNodes
+          nodeApi.connectedNodes
               .addOnSuccessListener(
                   OnSuccessListener { nodes ->
                     mainHandler.post {
@@ -157,7 +153,7 @@ constructor(
                   },
               )
               .addOnFailureListener { mainHandler.post { discoveryInFlight = false } }
-    }
+        }
         .onFailure { discoveryInFlight = false }
   }
 
@@ -201,14 +197,14 @@ constructor(
                   },
               )
               .addOnFailureListener {
-                  mainHandler.post {
-                      permissionCheckInFlight = false
-                      if (isCurrentNode(currentNodeId)) {
-                          requestDeviceManagerPermission(currentNodeId)
-                      }
+                mainHandler.post {
+                  permissionCheckInFlight = false
+                  if (isCurrentNode(currentNodeId)) {
+                    requestDeviceManagerPermission(currentNodeId)
                   }
+                }
               }
-    }
+        }
         .onFailure { permissionCheckInFlight = false }
   }
 
@@ -237,7 +233,7 @@ constructor(
                   },
               )
               .addOnFailureListener { mainHandler.post { permissionRequestInFlight = false } }
-    }
+        }
         .onFailure { permissionRequestInFlight = false }
   }
 
@@ -263,7 +259,7 @@ constructor(
                   },
               )
               .addOnFailureListener { mainHandler.post { listenerRegistrationInFlight = false } }
-    }
+        }
         .onFailure { listenerRegistrationInFlight = false }
   }
 

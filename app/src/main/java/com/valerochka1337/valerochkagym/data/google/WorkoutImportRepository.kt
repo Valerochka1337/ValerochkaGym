@@ -43,11 +43,11 @@ import com.valerochka1337.valerochkagym.domain.WorkoutRowParser
 import com.valerochka1337.valerochkagym.domain.measurements.BodyMeasurementRowParser
 import com.valerochka1337.valerochkagym.domain.measurements.ParsedMeasurements
 import java.io.IOException
+import java.util.UUID
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
 import retrofit2.HttpException
-import java.util.UUID
 
 /**
  * Результат разового импорта app-managed данных из Google Sheets.
@@ -121,7 +121,7 @@ constructor(
                 api.getValues(bearer, spreadsheetId, WORKOUTS_RANGE).values.orEmpty()
             )
           } else {
-              ParsedRows(emptyList(), 0)
+            ParsedRows(emptyList(), 0)
           }
       workouts.fatalError?.let {
         return ImportResult.Failure(it)
@@ -132,7 +132,7 @@ constructor(
                 api.getValues(bearer, spreadsheetId, MEASUREMENTS_RANGE).values.orEmpty(),
             )
           } else {
-              ParsedMeasurements(emptyList(), 0)
+            ParsedMeasurements(emptyList(), 0)
           }
       val routines =
           if (ROUTINES_SHEET in sheetTitles) {
@@ -140,7 +140,7 @@ constructor(
                 api.getValues(bearer, spreadsheetId, ROUTINES_RANGE).values.orEmpty()
             )
           } else {
-              ParsedRoutineRows(emptyList(), 0)
+            ParsedRoutineRows(emptyList(), 0)
           }
       val exercises =
           if (ExerciseSheetRowMapper.SHEET_NAME in sheetTitles) {
@@ -202,8 +202,8 @@ constructor(
       // Новые имена добавляются в карту, поэтому одно и то же custom-упражнение создаётся
       // ровно раз даже если встретилось в программе и истории тренировок.
       var byName: MutableMap<String, Long>
-        var bySyncId: MutableMap<String, Long>
-        var importedRoutines = 0
+      var bySyncId: MutableMap<String, Long>
+      var importedRoutines = 0
       var importedExercises = 0
       var importedGyms = 0
       var importedRoutineGyms = 0

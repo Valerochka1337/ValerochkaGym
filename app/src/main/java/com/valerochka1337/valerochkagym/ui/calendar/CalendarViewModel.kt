@@ -19,6 +19,7 @@ import java.time.LocalDate
 import java.time.YearMonth
 import java.time.ZoneId
 import javax.inject.Inject
+import kotlin.time.Duration.Companion.milliseconds
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -31,7 +32,6 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import kotlin.time.Duration.Companion.milliseconds
 
 /** Стиль точки в ячейке дня: без точки, залитая (тренировка была) или контурная (запланировано). */
 enum class DotStyle {

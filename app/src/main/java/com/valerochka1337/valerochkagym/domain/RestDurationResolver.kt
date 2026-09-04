@@ -9,9 +9,11 @@ import kotlinx.coroutines.flow.first
 
 /**
  * Определяет длительность отдыха для завершённого подхода. Персональный отдых упражнения хранится
- * не в тренировке, а в программе ([com.valerochka1337.valerochkagym.data.db.entity.RoutineExerciseEntity.restSeconds], nullable)
- * . Поэтому: если у тренировки есть [WorkoutFull.workout].routineId — берём restSeconds упражнения из программы;
- * иначе (или если он не задан) — [com.valerochka1337.valerochkagym.data.settings.GymSettings.defaultRestSeconds] из настроек.
+ * не в тренировке, а в программе
+ * ([com.valerochka1337.valerochkagym.data.db.entity.RoutineExerciseEntity.restSeconds], nullable) .
+ * Поэтому: если у тренировки есть [WorkoutFull.workout].routineId — берём restSeconds упражнения из
+ * программы; иначе (или если он не задан) —
+ * [com.valerochka1337.valerochkagym.data.settings.GymSettings.defaultRestSeconds] из настроек.
  */
 @Singleton
 class RestDurationResolver

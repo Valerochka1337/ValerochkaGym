@@ -714,7 +714,7 @@ class SheetsRepositoryTest : RoomDaoTest() {
       addedSheets += properties
     }
 
-      @Suppress("SameParameterValue")
+    @Suppress("SameParameterValue")
     private fun httpException(code: Int): HttpException =
         HttpException(Response.error<Unit>(code, "".toResponseBody()))
   }

@@ -51,7 +51,7 @@ class WorkoutImportRepositoryTest : RoomDaoTest() {
   private val header = WorkoutRowMapper.HEADER_ROW.take(14)
   private val v9Header = WorkoutRowMapper.HEADER_ROW
 
-    @Suppress("SameParameterValue")
+  @Suppress("SameParameterValue")
   private fun dataRow(
       id: String,
       date: String,
@@ -514,7 +514,7 @@ class WorkoutImportRepositoryTest : RoomDaoTest() {
     return SettingsRepository(FakeDataStore(prefs))
   }
 
-    @Suppress("SameParameterValue")
+  @Suppress("SameParameterValue")
   private fun httpException(code: Int): HttpException =
       HttpException(Response.error<Unit>(code, "".toResponseBody()))
 

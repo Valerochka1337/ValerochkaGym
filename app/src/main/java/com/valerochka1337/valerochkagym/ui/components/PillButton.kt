@@ -19,9 +19,9 @@ import androidx.compose.ui.unit.dp
 
 /**
  * Fully-rounded pill button — the app's primary action. Flat solid primary fill with a dark
- * onPrimary label. Add fillMaxWidth via [modifier] to span the full width. [compact]
- * is reserved for dense top-bar actions such as «Замеры»; normal primary actions stay at the 56dp
- * touch target used throughout forms and screens.
+ * onPrimary label. Add fillMaxWidth via [modifier] to span the full width. [compact] is reserved
+ * for dense top-bar actions such as «Замеры»; normal primary actions stay at the 56dp touch target
+ * used throughout forms and screens.
  */
 @Composable
 fun PillButton(
