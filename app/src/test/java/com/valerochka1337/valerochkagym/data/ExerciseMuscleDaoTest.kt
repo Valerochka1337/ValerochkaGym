@@ -3,6 +3,7 @@ package com.valerochka1337.valerochkagym.data
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseDao
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseMuscleDao
 import com.valerochka1337.valerochkagym.data.db.defaultMuscleLoads
+import com.valerochka1337.valerochkagym.data.db.CanonicalExerciseRegistry
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseMuscleEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
@@ -11,6 +12,9 @@ import com.valerochka1337.valerochkagym.data.db.entity.MuscleGroup
 import com.valerochka1337.valerochkagym.data.db.seedExerciseMuscles
 import com.valerochka1337.valerochkagym.data.db.seedExercises
 import com.valerochka1337.valerochkagym.data.db.seedMissingExerciseMuscles
+import com.valerochka1337.valerochkagym.data.db.reconcileCanonicalExerciseCatalog
+import com.valerochka1337.valerochkagym.data.db.entity.GymEntity
+import com.valerochka1337.valerochkagym.data.db.entity.GymExerciseEntity
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -60,6 +64,62 @@ class ExerciseMuscleDaoTest : RoomDaoTest() {
     }
 
     @Test
+    fun `explicit stabilizer and multiple primaries round trip without becoming absence`() = runTest {
+        val exerciseId = insertExercise("Сложное", MuscleGroup.FULL_BODY)
+        muscleDao.replaceForExercise(exerciseId, listOf(
+            ExerciseMuscleEntity(exerciseId, Muscle.UPPER_CHEST, 100),
+            ExerciseMuscleEntity(exerciseId, Muscle.LOWER_CHEST, 100),
+            ExerciseMuscleEntity(exerciseId, Muscle.LOWER_BACK, 0),
+        ))
+
+        assertEquals(
+            mapOf(Muscle.UPPER_CHEST to 100, Muscle.LOWER_CHEST to 100, Muscle.LOWER_BACK to 0),
+            muscleDao.getForExercise(exerciseId).associate { it.muscle to it.contribution },
+        )
+    }
+
+    @Test
+    fun `registry reconcile preserves legacy id links and leaves custom maps authoritative`() = runTest {
+        val legacy = ExerciseEntity(name = "Жим штанги лёжа", muscleGroup = MuscleGroup.CHEST, type = ExerciseType.STRENGTH)
+        val legacyId = exerciseDao.insert(legacy)
+        val customId = exerciseDao.insert(ExerciseEntity(name = "Личное", muscleGroup = MuscleGroup.CORE, type = ExerciseType.STRENGTH, isCustom = true))
+        muscleDao.upsertAll(listOf(ExerciseMuscleEntity(customId, Muscle.LOWER_BACK, 0)))
+        val emptyCustomId = exerciseDao.insert(ExerciseEntity(name = "Без карты", muscleGroup = MuscleGroup.CORE, type = ExerciseType.STRENGTH, isCustom = true))
+        val gymId = db.gymDao().insertGym(GymEntity(name = "Зал"))
+        db.gymDao().insertGymExercises(listOf(GymExerciseEntity(gymId, legacyId)))
+        insertWorkout("history", startedAt = 1, finishedAt = 2)
+        insertWorkoutExercise("history", legacyId)
+
+        reconcileCanonicalExerciseCatalog(db)
+        reconcileCanonicalExerciseCatalog(db)
+
+        assertEquals(legacyId, exerciseDao.getAllOnce().single { it.name == "Жим штанги лёжа" }.id)
+        assertEquals(listOf(legacyId), db.gymDao().getGymExerciseIds(gymId))
+        assertEquals(legacyId, workoutFull("history").exercises.single().exercise.id)
+        assertEquals(0, muscleDao.getForExercise(emptyCustomId).size)
+        assertEquals(listOf(0), muscleDao.getForExercise(customId).map { it.contribution })
+        assertEquals(CanonicalExerciseRegistry.entries.size + 2, exerciseDao.count())
+    }
+
+    @Test
+    fun `reconcile leaves custom exercise with built in display name untouched`() = runTest {
+        val id = exerciseDao.insert(
+            ExerciseEntity(
+                name = "Жим штанги лёжа",
+                muscleGroup = MuscleGroup.CHEST,
+                type = ExerciseType.STRENGTH,
+                isCustom = true,
+            ),
+        )
+        muscleDao.upsertAll(listOf(ExerciseMuscleEntity(id, Muscle.LOWER_BACK, 0)))
+
+        reconcileCanonicalExerciseCatalog(db)
+
+        assertEquals(listOf(Muscle.LOWER_BACK to 0), muscleDao.getForExercise(id).map { it.muscle to it.contribution })
+        assertTrue(exerciseDao.getById(id)!!.isCustom)
+    }
+
+    @Test
     fun `replaceForExercise drops muscles that are no longer selected`() = runTest {
         val exerciseId = insertExercise("Тяга", MuscleGroup.BACK)
         muscleDao.upsertAll(
@@ -97,21 +157,21 @@ class ExerciseMuscleDaoTest : RoomDaoTest() {
 
         seedMissingExerciseMuscles(exerciseDao, muscleDao)
 
-        val expected = seedExerciseMuscles.getValue("жим штанги лёжа")
-            .associate { it.muscle to it.contribution }
+        val expected = requireNotNull(CanonicalExerciseRegistry.loadsFor(
+            ExerciseEntity(id = exerciseId, name = "Жим штанги лёжа", muscleGroup = MuscleGroup.CHEST, type = ExerciseType.STRENGTH),
+        )).associate { it.muscle to it.contribution }
         val actual = muscleDao.getForExercise(exerciseId).associate { it.muscle to it.contribution }
         assertEquals(expected, actual)
     }
 
     @Test
-    fun `seeding falls back to the muscle group for an unknown exercise`() = runTest {
+    fun `seeding leaves an unmapped custom exercise absent`() = runTest {
         val exerciseId = insertExercise("Жим одной левой", MuscleGroup.CHEST)
 
         seedMissingExerciseMuscles(exerciseDao, muscleDao)
 
-        val expected = MuscleGroup.CHEST.defaultMuscleLoads().associate { it.muscle to it.contribution }
         val actual = muscleDao.getForExercise(exerciseId).associate { it.muscle to it.contribution }
-        assertEquals(expected, actual)
+        assertEquals(emptyMap<Muscle, Int>(), actual)
     }
 
     @Test
@@ -140,7 +200,7 @@ class ExerciseMuscleDaoTest : RoomDaoTest() {
     }
 
     @Test
-    fun `catalogue uses one global load scale across exercises`() {
+    fun `catalogue uses canonical role loads across exercises`() {
         val squatQuads = seedExerciseMuscles.getValue("приседания со штангой")
             .single { it.muscle == Muscle.QUADS }
             .contribution
@@ -149,7 +209,7 @@ class ExerciseMuscleDaoTest : RoomDaoTest() {
             .contribution
 
         assertEquals(100, squatQuads)
-        assertEquals(20, treadmillQuads)
+        assertEquals(50, treadmillQuads)
         assertTrue(treadmillQuads < squatQuads)
     }
 

@@ -9,6 +9,7 @@ import com.valerochka1337.valerochkagym.data.db.dao.BodyMeasurementDao
 import com.valerochka1337.valerochkagym.data.db.dao.ConfigurationTombstoneDao
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseDao
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseMuscleDao
+import com.valerochka1337.valerochkagym.data.db.dao.MuscleLoadUpgradeNoticeDao
 import com.valerochka1337.valerochkagym.data.db.dao.GymDao
 import com.valerochka1337.valerochkagym.data.db.dao.RoutineDao
 import com.valerochka1337.valerochkagym.data.db.dao.ScheduledWorkoutDao
@@ -17,6 +18,7 @@ import com.valerochka1337.valerochkagym.data.db.entity.BodyMeasurementEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ConfigurationTombstoneEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseMuscleEntity
+import com.valerochka1337.valerochkagym.data.db.entity.MuscleLoadUpgradeNoticeEntity
 import com.valerochka1337.valerochkagym.data.db.entity.GymEntity
 import com.valerochka1337.valerochkagym.data.db.entity.GymExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.RoutineEntity
@@ -37,6 +39,7 @@ import java.util.UUID
         ConfigurationTombstoneEntity::class,
         ExerciseEntity::class,
         ExerciseMuscleEntity::class,
+        MuscleLoadUpgradeNoticeEntity::class,
         GymEntity::class,
         GymExerciseEntity::class,
         RoutineEntity::class,
@@ -48,7 +51,7 @@ import java.util.UUID
         WorkoutGymEntity::class,
         WorkoutSetEntity::class,
     ],
-    version = 12,
+    version = 13,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -57,6 +60,7 @@ abstract class GymDatabase : RoomDatabase() {
     abstract fun configurationTombstoneDao(): ConfigurationTombstoneDao
     abstract fun exerciseDao(): ExerciseDao
     abstract fun exerciseMuscleDao(): ExerciseMuscleDao
+    abstract fun muscleLoadUpgradeNoticeDao(): MuscleLoadUpgradeNoticeDao
     abstract fun gymDao(): GymDao
     abstract fun routineDao(): RoutineDao
     abstract fun workoutDao(): WorkoutDao
@@ -472,6 +476,55 @@ abstract class GymDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * v12 → v13 changes percentage-like load values into the durable role encoding.
+         * A legacy zero meant "not involved", so only this migration removes zero rows. From
+         * v13 onward an explicit zero is a stabilizer and must remain distinct from absence.
+         */
+        val MIGRATION_12_13: Migration = object : Migration(12, 13) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.beginTransaction()
+                try {
+                    // Recovery fixtures (and interrupted vendor restores) can carry the current
+                    // column while their user_version is still older. The normal v12 schema does
+                    // not, but guarding this DDL keeps the handwritten migration reopen-safe.
+                    val hasReviewColumn = db.query("PRAGMA table_info(exercises)").use { columns ->
+                        var found = false
+                        while (columns.moveToNext()) if (columns.getString(1) == "needsMuscleMapReview") found = true
+                        found
+                    }
+                    if (!hasReviewColumn) {
+                        db.execSQL("ALTER TABLE exercises ADD COLUMN needsMuscleMapReview INTEGER NOT NULL DEFAULT 0")
+                    }
+                    db.execSQL("CREATE TABLE IF NOT EXISTS `muscle_load_upgrade_notice` (`id` INTEGER NOT NULL, PRIMARY KEY(`id`))")
+                    db.execSQL("INSERT OR IGNORE INTO muscle_load_upgrade_notice(id) VALUES(1)")
+                    db.execSQL("DELETE FROM exercise_muscles WHERE contribution = 0")
+                    db.execSQL(
+                        "UPDATE exercise_muscles SET contribution = CASE " +
+                            "WHEN contribution >= 60 THEN 100 " +
+                            "WHEN contribution >= 25 THEN 50 ELSE 0 END",
+                    )
+                    // Keep the existing local row identity by moving old CHEST to upper chest.
+                    db.execSQL("UPDATE exercise_muscles SET muscle = 'UPPER_CHEST' WHERE muscle = 'CHEST'")
+                    // CHEST was approximate. Only custom maps are duplicated and flagged for review.
+                    db.execSQL(
+                        "INSERT INTO exercise_muscles(exerciseId, muscle, contribution) " +
+                            "SELECT m.exerciseId, 'LOWER_CHEST', m.contribution " +
+                            "FROM exercise_muscles m JOIN exercises e ON e.id = m.exerciseId " +
+                            "WHERE m.muscle = 'UPPER_CHEST' AND e.isCustom = 1",
+                    )
+                    db.execSQL(
+                        "UPDATE exercises SET needsMuscleMapReview = 1 WHERE isCustom = 1 AND id IN " +
+                            "(SELECT exerciseId FROM exercise_muscles WHERE muscle IN ('UPPER_CHEST','LOWER_CHEST') " +
+                            "GROUP BY exerciseId HAVING COUNT(*) = 2)",
+                    )
+                    db.setTransactionSuccessful()
+                } finally {
+                    db.endTransaction()
+                }
+            }
+        }
+
         /** Единственный production/test реестр всех поддерживаемых путей до текущей схемы. */
         val ALL_MIGRATIONS: Array<Migration> = arrayOf(
             MIGRATION_1_2,
@@ -485,6 +538,7 @@ abstract class GymDatabase : RoomDatabase() {
             MIGRATION_9_10,
             MIGRATION_10_12,
             MIGRATION_11_12,
+            MIGRATION_12_13,
         )
     }
 }

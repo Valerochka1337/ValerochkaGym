@@ -55,6 +55,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.valerochka1337.valerochkagym.data.db.CanonicalExerciseRegistry
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleGroup
 import com.valerochka1337.valerochkagym.domain.displayName
@@ -183,11 +184,17 @@ fun ExerciseLibraryScreen(
                                     exercise = exercise,
                                     onClick = onExerciseSelected
                                         ?.let { callback -> { callback(exercise) } }
-                                        ?: { viewModel.openEdit(exercise) },
+                                        ?: if (CanonicalExerciseRegistry.isBuiltIn(exercise)) {
+                                            null
+                                        } else {
+                                            { viewModel.openEdit(exercise) }
+                                        },
                                     onInfo = onExerciseInfo?.let { callback ->
                                         { haptics.tap(); callback(exercise) }
                                     },
-                                    modifier = Modifier.animateItem(placementSpec = GymMotion.spatialFast()),
+                                    modifier = Modifier
+                                        .testTag("exercise_catalog_row_${exercise.id}")
+                                        .animateItem(placementSpec = GymMotion.spatialFast()),
                                 )
                             }
                         }

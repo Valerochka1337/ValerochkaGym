@@ -285,7 +285,8 @@ class AiApiExerciseAiGenerator @Inject constructor(
         val loadsAreValid = loads.size == responseLoads.size &&
             loads.size <= Muscle.entries.size &&
             loads.map { it.muscle }.distinct().size == loads.size &&
-            loads.all { it.contribution in MIN_CONTRIBUTION..MAX_CONTRIBUTION && it.contribution % LOAD_STEP == 0 }
+            loads.all { it.contribution in CANONICAL_CONTRIBUTIONS } &&
+            loads.any { it.contribution == 100 }
         if (!loadsAreValid) return ExerciseAiGenerationResult.Failure(INVALID_RESPONSE_MESSAGE)
 
         return ExerciseAiGenerationResult.New(
@@ -373,9 +374,7 @@ class AiApiExerciseAiGenerator @Inject constructor(
         const val RESULT_EXISTING = "existing"
         const val RESULT_NEW = "new"
         const val MAX_COMPLETION_TOKENS = 2_048
-        const val MIN_CONTRIBUTION = 5
-        const val MAX_CONTRIBUTION = 100
-        const val LOAD_STEP = 5
+        val CANONICAL_CONTRIBUTIONS = setOf(100, 50, 0)
         const val FINISH_REASON_ERROR = "error"
         const val FINISH_REASON_LENGTH = "length"
 
@@ -420,13 +419,12 @@ class AiApiExerciseAiGenerator @Inject constructor(
 
             Для kind="new" поставь existingExerciseId=null и обязательно заполни name, type и loads.
             loads — непустой список
-            уникальных мышц строго из Schema. contribution — целое число 5..100, кратное 5. Шкала общая для всех
-            упражнений, а не нормализованная внутри одного: 100 — целевая мышца тяжёлого силового подхода, 60..85 —
-            сильная прямая нагрузка, 25..55 — умеренная или косвенная, 5..20 — стабилизация или выносливость. Максимум карты
-            может быть ниже 100; для обычного кардио не ставь выше 35.
+            уникальных мышц строго из Schema. contribution — только 100, 50 или 0: 100 — основная,
+            50 — вторичная, 0 — явно сохранённый стабилизатор. В новой карте минимум одна мышца
+            обязана иметь 100. Это роли эффективных подходов, не физиологические проценты.
             Пример формы: {"kind":"new","existingExerciseId":null,"name":"Тяга гантели в наклоне одной рукой",
             "type":"STRENGTH","loads":[{"muscle":"LATS","contribution":100},
-            {"muscle":"BICEPS","contribution":55}]}.
+            {"muscle":"BICEPS","contribution":50},{"muscle":"LOWER_BACK","contribution":0}]}.
         """.trimIndent()
 
         val RESPONSE_SCHEMA: JsonObject = buildJsonObject {
@@ -487,10 +485,8 @@ class AiApiExerciseAiGenerator @Inject constructor(
                             }
                             putJsonObject("contribution") {
                                 put("type", "integer")
-                                put("minimum", MIN_CONTRIBUTION)
-                                put("maximum", MAX_CONTRIBUTION)
-                                put("multipleOf", LOAD_STEP)
-                                put("description", "Integer muscle contribution from 5 to 100 in steps of 5.")
+                                put("description", "Canonical role: 100 primary, 50 secondary, 0 stabilizer.")
+                                putJsonArray("enum") { CANONICAL_CONTRIBUTIONS.forEach { add(JsonPrimitive(it)) } }
                             }
                         }
                         putJsonArray("required") {

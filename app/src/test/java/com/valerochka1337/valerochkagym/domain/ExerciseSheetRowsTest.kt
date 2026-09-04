@@ -11,6 +11,48 @@ import org.junit.Test
 class ExerciseSheetRowsTest {
 
     @Test
+    fun `legacy zero only snapshot remains a valid empty custom map`() {
+        val parsed = ExerciseSheetRowParser.parse(listOf(
+            listOf(EXERCISE_ID, "200", "false", "Пустое", "CORE", "STRENGTH", "true", "ABS", "0"),
+        ))
+        val snapshot = parsed.records.single() as ExerciseSheetRecord.Snapshot
+        assertEquals(emptyMap<Muscle, Int>(), snapshot.muscleLoads)
+        assertEquals("Пустое", snapshot.name)
+    }
+
+    @Test
+    fun `canonical version marker preserves explicit stabilizer zero`() {
+        val snapshot = ExerciseSheetRecord.Snapshot(
+            syncId = EXERCISE_ID,
+            updatedAt = 201,
+            name = "Канонический жим",
+            muscleGroup = MuscleGroup.CHEST,
+            type = ExerciseType.STRENGTH,
+            isCustom = true,
+            muscleLoads = mapOf(Muscle.UPPER_CHEST to 100, Muscle.ROTATOR_CUFF to 0),
+        )
+
+        assertEquals(snapshot, ExerciseSheetRowParser.parse(ExerciseSheetRowMapper.rows(snapshot).asStrings()).records.single())
+    }
+
+    @Test
+    fun `legacy chest row expands to canonical chest roles and drops legacy zero`() {
+        val parsed = ExerciseSheetRowParser.parse(
+            listOf(
+                ExerciseSheetRowMapper.HEADER_ROW,
+                listOf(EXERCISE_ID, "200", "false", "Старый жим", "CHEST", "STRENGTH", "true", "CHEST", "70"),
+                listOf(EXERCISE_ID, "200", "false", "Старый жим", "CHEST", "STRENGTH", "true", "TRICEPS", "0"),
+            ),
+        )
+        val snapshot = parsed.records.single() as ExerciseSheetRecord.Snapshot
+        val map = snapshot.muscleLoads
+        assertEquals(100, map[Muscle.UPPER_CHEST])
+        assertEquals(100, map[Muscle.LOWER_CHEST])
+        assertEquals(null, map[Muscle.TRICEPS])
+        assertTrue(snapshot.needsMuscleMapReview)
+    }
+
+    @Test
     fun `exercise header and rows keep the complete muscle map in stable order`() {
         val snapshot = ExerciseSheetRecord.Snapshot(
             syncId = EXERCISE_ID,
@@ -19,7 +61,7 @@ class ExerciseSheetRowsTest {
             muscleGroup = MuscleGroup.CHEST,
             type = ExerciseType.STRENGTH,
             isCustom = true,
-            muscleLoads = linkedMapOf(Muscle.TRICEPS to 65, Muscle.CHEST to 100),
+            muscleLoads = linkedMapOf(Muscle.TRICEPS to 50, Muscle.UPPER_CHEST to 100),
         )
 
         assertEquals(
@@ -33,14 +75,15 @@ class ExerciseSheetRowsTest {
                 "is_custom",
                 "muscle",
                 "contribution",
+                "model_version",
             ),
             ExerciseSheetRowMapper.HEADER_ROW,
         )
-        assertEquals("Exercises!A:I", ExerciseSheetRowMapper.RANGE)
+        assertEquals("Exercises!A:J", ExerciseSheetRowMapper.RANGE)
         assertEquals(
             listOf(
-                listOf(EXERCISE_ID, 200L, "false", "Жим лёжа", "CHEST", "STRENGTH", "true", "CHEST", 100),
-                listOf(EXERCISE_ID, 200L, "false", "Жим лёжа", "CHEST", "STRENGTH", "true", "TRICEPS", 65),
+                listOf(EXERCISE_ID, 200L, "false", "Жим лёжа", "CHEST", "STRENGTH", "true", "UPPER_CHEST", 100, 2),
+                listOf(EXERCISE_ID, 200L, "false", "Жим лёжа", "CHEST", "STRENGTH", "true", "TRICEPS", 50, 2),
             ),
             ExerciseSheetRowMapper.rows(snapshot),
         )
@@ -55,7 +98,7 @@ class ExerciseSheetRowsTest {
             muscleGroup = MuscleGroup.BACK,
             type = ExerciseType.CARDIO,
             isCustom = false,
-            muscleLoads = mapOf(Muscle.LATS to 80, Muscle.BICEPS to 35),
+            muscleLoads = mapOf(Muscle.LATS to 100, Muscle.BICEPS to 50),
         )
 
         val parsed = ExerciseSheetRowParser.parse(ExerciseSheetRowMapper.rows(snapshot).asStrings())
@@ -105,6 +148,7 @@ class ExerciseSheetRowsTest {
 
         assertEquals("", rows.single()[7])
         assertEquals("", rows.single()[8])
+        assertEquals(2, rows.single()[9])
         assertEquals(snapshot, parsed.records.single())
     }
 

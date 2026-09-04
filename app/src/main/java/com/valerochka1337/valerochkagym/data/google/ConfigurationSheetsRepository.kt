@@ -1,6 +1,7 @@
 package com.valerochka1337.valerochkagym.data.google
 
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseDao
+import com.valerochka1337.valerochkagym.data.db.CanonicalExerciseRegistry
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseMuscleDao
 import com.valerochka1337.valerochkagym.data.db.dao.GymDao
 import com.valerochka1337.valerochkagym.data.db.dao.RoutineDao
@@ -50,6 +51,7 @@ class ConfigurationSheetsRepositoryImpl @Inject constructor(
     override suspend fun uploadExercise(syncId: String): UploadResult {
         val exercise = exerciseDao.getAllOnce().firstOrNull { it.syncId == syncId }
             ?: return UploadResult.PermanentFailure("Упражнение не найдено")
+        if (CanonicalExerciseRegistry.isBuiltIn(exercise)) return UploadResult.Success
         val muscles = exerciseMuscleDao.getForExercise(exercise.id)
             .associate { it.muscle to it.contribution }
         return uploadVersion(
@@ -165,9 +167,18 @@ class ConfigurationSheetsRepositoryImpl @Inject constructor(
         return try {
             ensureSheet(bearer, spreadsheetId, sheetName)
             val existing = api.getValues(bearer, spreadsheetId, range).values.orEmpty()
-            if (existing.isNotEmpty() && existing.first() != header) {
+            val legacyExerciseHeader = sheetName == ExerciseSheetRowMapper.SHEET_NAME &&
+                existing.firstOrNull() == ExerciseSheetRowMapper.HEADER_ROW.dropLast(1)
+            if (existing.isNotEmpty() && existing.first() != header && !legacyExerciseHeader) {
                 return UploadResult.PermanentFailure(
                     "Заголовок листа $sheetName изменён вручную — выгрузка остановлена",
+                )
+            }
+            if (legacyExerciseHeader) {
+                // Append-only data remains untouched; only the known app-owned A:I heading gains J.
+                api.updateValues(
+                    bearer, spreadsheetId, "${ExerciseSheetRowMapper.SHEET_NAME}!A1:J1",
+                    UpdateValuesDto(jsonRows(listOf(header))), "RAW",
                 )
             }
             val existingVersion = existing.filter { row ->

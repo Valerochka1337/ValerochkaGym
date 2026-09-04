@@ -18,6 +18,7 @@ data class ExerciseEntity(
     val isCustom: Boolean = false,
     val syncId: String = UUID.randomUUID().toString(),
     val updatedAt: Long = System.currentTimeMillis(),
+    val needsMuscleMapReview: Boolean = false,
 )
 
 /** Stable identity shared by the same built-in catalogue entry on every installation. */

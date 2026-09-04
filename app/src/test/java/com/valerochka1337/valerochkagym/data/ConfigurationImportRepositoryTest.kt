@@ -69,7 +69,11 @@ class ConfigurationImportRepositoryTest : RoomDaoTest() {
                 muscleGroup = MuscleGroup.CHEST,
                 type = ExerciseType.STRENGTH,
                 isCustom = true,
-                muscleLoads = linkedMapOf(Muscle.CHEST to 100, Muscle.TRICEPS to 65),
+                muscleLoads = linkedMapOf(
+                    Muscle.UPPER_CHEST to 100,
+                    Muscle.TRICEPS to 50,
+                    Muscle.SERRATUS_ANTERIOR to 0,
+                ),
             ),
         ).map(::stringRow)
         val gymRows = GymSheetRowMapper.rows(
@@ -138,7 +142,11 @@ class ConfigurationImportRepositoryTest : RoomDaoTest() {
         assertEquals(ExerciseType.STRENGTH, exercise.type)
         assertEquals(true, exercise.isCustom)
         assertEquals(
-            mapOf(Muscle.CHEST to 100, Muscle.TRICEPS to 65),
+            mapOf(
+                Muscle.UPPER_CHEST to 100,
+                Muscle.TRICEPS to 50,
+                Muscle.SERRATUS_ANTERIOR to 0,
+            ),
             db.exerciseMuscleDao().getForExercise(exercise.id).associate { it.muscle to it.contribution },
         )
 

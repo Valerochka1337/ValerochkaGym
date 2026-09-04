@@ -22,6 +22,21 @@ import java.time.ZoneId
  */
 class AnalyticsEngineTest {
 
+    @Test
+    fun `upper and lower chest use per set maximum for push balance`() {
+        val report = analyze(
+            sets = listOf(set(BENCH, weight = 100.0, reps = 5, daysAgo = 1)),
+            muscles = mapOf(BENCH to listOf(
+                MuscleLoad(Muscle.UPPER_CHEST, 100),
+                MuscleLoad(Muscle.LOWER_CHEST, 50),
+            )),
+            period = AnalysisPeriod.ALL_TIME,
+        )
+        assertEquals(1.0, report.balances.first { it.id == BalanceId.PUSH_PULL }.leftSets, 1e-6)
+        assertEquals(1.0, report.balances.first { it.id == BalanceId.UPPER_LOWER }.leftSets, 1e-6)
+        assertEquals(1.0, report.balances.first { it.id == BalanceId.ANTERIOR_POSTERIOR }.leftSets, 1e-6)
+    }
+
     private val engine = AnalyticsEngine()
     private val zone: ZoneId = ZoneId.of("UTC")
     private val today: LocalDate = LocalDate.of(2026, 6, 10)

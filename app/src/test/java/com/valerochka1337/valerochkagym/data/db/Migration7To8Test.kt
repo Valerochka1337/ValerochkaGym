@@ -78,9 +78,11 @@ class Migration7To8Test {
 
     @Test
     fun `fresh seed and migrated catalogue use the same stable sync id`() {
-        val seed = seedExercises.single { it.name == "Жим штанги лёжа" }
-        assertEquals(builtInExerciseSyncId(seed.name), seed.syncId)
-        assertTrue(seed.updatedAt > 0L)
+        val legacyNames = legacySeedExercises.map { it.name }.toSet()
+        seedExercises.filter { it.name in legacyNames }.forEach { seed ->
+            assertEquals(builtInExerciseSyncId(seed.name), seed.syncId)
+            assertTrue(seed.updatedAt > 0L)
+        }
         assertEquals(seedExercises.size, seedExercises.map { it.syncId }.toSet().size)
     }
 

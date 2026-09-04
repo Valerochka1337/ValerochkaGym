@@ -36,6 +36,9 @@ import com.valerochka1337.valerochkagym.domain.analysis.MuscleLoadSummary
 import com.valerochka1337.valerochkagym.domain.analysis.VolumeZone
 import com.valerochka1337.valerochkagym.domain.displayName
 import com.valerochka1337.valerochkagym.ui.analysis.body.BodyMapFlip
+import com.valerochka1337.valerochkagym.ui.analysis.body.MuscleSector
+import com.valerochka1337.valerochkagym.ui.analysis.body.MuscleSelector
+import com.valerochka1337.valerochkagym.ui.analysis.body.maxMember
 import com.valerochka1337.valerochkagym.ui.analysis.charts.ChartSpec
 import com.valerochka1337.valerochkagym.ui.analysis.charts.rememberChartColors
 import com.valerochka1337.valerochkagym.ui.haptics.gymHaptics
@@ -53,6 +56,7 @@ import com.valerochka1337.valerochkagym.ui.theme.GymMotion
 internal fun MuscleHeatmapCard(
     state: AnalysisUiState,
     onMuscleClicked: (Muscle?) -> Unit,
+    onSelectorSelected: (Muscle) -> Unit = { onMuscleClicked(it) },
     modifier: Modifier = Modifier,
 ) {
     // Производные от отчёта, а не от выбора: пересобирать их на каждый тап по карте незачем.
@@ -65,9 +69,14 @@ internal fun MuscleHeatmapCard(
         modifier = modifier,
     ) {
         BodyMapFlip(
-            fillFor = { muscle -> ChartPalette.zoneColor(loads[muscle]?.zone ?: VolumeZone.LOW) },
+            fillFor = heatmapSectorFillFor(loads),
             selectedMuscle = state.selectedMuscle,
             onMuscleClick = onMuscleClicked,
+        )
+
+        MuscleSelector(
+            selected = state.selectedMuscle,
+            onSelected = onSelectorSelected,
         )
 
         Spacer(Modifier.height(12.dp))
@@ -80,6 +89,13 @@ internal fun MuscleHeatmapCard(
             modifier = Modifier.animateContentSize(GymMotion.spatialDefault()),
         )
     }
+}
+
+/** A shared SVG sector follows its hottest logical muscle, never an aggregate. */
+internal fun heatmapSectorFillFor(
+    loads: Map<Muscle, MuscleLoadSummary>,
+): (MuscleSector) -> androidx.compose.ui.graphics.Color = { sector ->
+    ChartPalette.zoneColor(sector.maxMember(loads) { it.weeklySets }?.zone ?: VolumeZone.LOW)
 }
 
 /** Правила, по которым рабочий подход превращается в вклад в конкретную мышцу. */
@@ -99,7 +115,7 @@ private fun EffectiveSetsExplanation() {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Text(
-            text = "На одну мышцу: ≥60% — 1 подход; 25–59% — 0,5; ниже 25% — 0.",
+            text = "На одну мышцу: основная — 1 подход, вторичная — 0,5, стабилизатор — 0.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

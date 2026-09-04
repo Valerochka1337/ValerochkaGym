@@ -6,81 +6,84 @@ import com.valerochka1337.valerochkagym.data.db.entity.Muscle
 /** Какую сторону тела показываем. */
 enum class BodyView { FRONT, BACK }
 
-/**
- * Связка между 18-мышечной моделью приложения ([Muscle]) и фигурой из
- * react-native-body-highlighter ([BodyPaths]).
- *
- * Рисунок огрубляет анатомию сильнее, чем модель нагрузки: плечо — одна фигура «дельта» на вид,
- * а спина — верх и низ без отдельной широчайшей. Поэтому каждая фигура библиотеки соответствует
- * одной характерной мышце, а те, которым фигуры не хватило ([offFigureMuscles]), остаются
- * доступными в списках-графиках вкладки «Анализы» и в отдельном выпадающем списке редактора
- * упражнения — на карте их просто не подсветить.
- *
- * Спереди виден бицепс, сзади — трицепс; общие для видов мышцы (трапеция, предплечье,
- * приводящие, икры) заданы в обоих отображениях.
- */
-
-/** Мышцы без своей фигуры на карте — их выбирают из списка, а не тапом по телу. */
-val offFigureMuscles: List<Muscle> = listOf(Muscle.SIDE_DELTS, Muscle.UPPER_BACK)
-
-/** Слаги фигуры → мышца для вида спереди. */
-private val FRONT_SLUGS: Map<String, Muscle> = mapOf(
-    "chest" to Muscle.CHEST,
-    "deltoids" to Muscle.FRONT_DELTS,
-    "trapezius" to Muscle.TRAPS,
-    "biceps" to Muscle.BICEPS,
-    "triceps" to Muscle.TRICEPS,
-    "forearm" to Muscle.FOREARMS,
-    "abs" to Muscle.ABS,
-    "obliques" to Muscle.OBLIQUES,
-    "quadriceps" to Muscle.QUADS,
-    "adductors" to Muscle.ADDUCTORS,
-    "calves" to Muscle.CALVES,
+/** One SVG sector and all persisted muscles it represents. */
+data class MuscleSector(
+    val slug: String,
+    val members: List<Muscle>,
+    val defaultMuscle: Muscle = members.first(),
 )
 
-/** Слаги фигуры → мышца для вида сзади. `upper-back` отдаём широчайшей — она заметнее и её чаще качают. */
-private val BACK_SLUGS: Map<String, Muscle> = mapOf(
-    "trapezius" to Muscle.TRAPS,
-    "deltoids" to Muscle.REAR_DELTS,
-    "upper-back" to Muscle.LATS,
-    "lower-back" to Muscle.LOWER_BACK,
-    "triceps" to Muscle.TRICEPS,
-    "forearm" to Muscle.FOREARMS,
-    "gluteal" to Muscle.GLUTES,
-    "hamstring" to Muscle.HAMSTRINGS,
-    "adductors" to Muscle.ADDUCTORS,
-    "calves" to Muscle.CALVES,
+/** Every logical muscle is reachable through an existing front or back sector. */
+val offFigureMuscles: List<Muscle> = emptyList()
+
+private val FRONT_SECTORS = listOf(
+    MuscleSector("chest", listOf(Muscle.UPPER_CHEST, Muscle.LOWER_CHEST)),
+    MuscleSector("deltoids", listOf(Muscle.FRONT_DELTS, Muscle.SIDE_DELTS)),
+    MuscleSector("trapezius", listOf(Muscle.TRAPS)),
+    MuscleSector("biceps", listOf(Muscle.BICEPS)),
+    MuscleSector("triceps", listOf(Muscle.TRICEPS)),
+    MuscleSector("forearm", listOf(Muscle.FOREARMS)),
+    MuscleSector("abs", listOf(Muscle.ABS)),
+    MuscleSector("obliques", listOf(Muscle.OBLIQUES, Muscle.SERRATUS_ANTERIOR)),
+    MuscleSector("quadriceps", listOf(Muscle.QUADS, Muscle.HIP_FLEXORS)),
+    MuscleSector("adductors", listOf(Muscle.ADDUCTORS)),
+    MuscleSector("calves", listOf(Muscle.CALVES)),
+    MuscleSector("neck", listOf(Muscle.NECK)),
+    MuscleSector("tibialis", listOf(Muscle.TIBIALIS_ANTERIOR)),
 )
 
-/** Мышцы вида и их SVG-контуры (`d`-строки) — источник заливки и попаданий по карте. */
-fun musclePaths(view: BodyView): Map<Muscle, List<String>> {
-    val (slugs, source) = when (view) {
-        BodyView.FRONT -> FRONT_SLUGS to BodyFrontPaths.muscles
-        BodyView.BACK -> BACK_SLUGS to BodyBackPaths.muscles
-    }
-    return slugs.mapNotNull { (slug, muscle) ->
-        source[slug]?.takeIf { it.isNotEmpty() }?.let { muscle to it }
-    }.toMap()
+private val BACK_SECTORS = listOf(
+    MuscleSector("neck", listOf(Muscle.NECK)),
+    MuscleSector("trapezius", listOf(Muscle.TRAPS)),
+    MuscleSector("deltoids", listOf(Muscle.REAR_DELTS, Muscle.ROTATOR_CUFF, Muscle.SIDE_DELTS)),
+    MuscleSector("upper-back", listOf(Muscle.LATS, Muscle.UPPER_BACK)),
+    MuscleSector("lower-back", listOf(Muscle.LOWER_BACK)),
+    MuscleSector("triceps", listOf(Muscle.TRICEPS)),
+    MuscleSector("forearm", listOf(Muscle.FOREARMS)),
+    MuscleSector("gluteal", listOf(Muscle.GLUTES, Muscle.HIP_ABDUCTORS)),
+    MuscleSector("hamstring", listOf(Muscle.HAMSTRINGS)),
+    MuscleSector("adductors", listOf(Muscle.ADDUCTORS)),
+    MuscleSector("calves", listOf(Muscle.CALVES)),
+)
+
+internal fun muscleSectors(view: BodyView): List<MuscleSector> =
+    if (view == BodyView.FRONT) FRONT_SECTORS else BACK_SECTORS
+
+internal fun sectorPaths(view: BodyView, sector: MuscleSector): List<String> =
+    (if (view == BodyView.FRONT) BodyFrontPaths.muscles else BodyBackPaths.muscles)[sector.slug].orEmpty()
+
+/** Explicit deterministic preferred side for selector/editor restoration. */
+fun preferredBodyView(muscle: Muscle): BodyView = when (muscle) {
+    Muscle.REAR_DELTS, Muscle.ROTATOR_CUFF, Muscle.HAMSTRINGS, Muscle.GLUTES,
+    Muscle.HIP_ABDUCTORS, Muscle.LOWER_BACK, Muscle.LATS, Muscle.UPPER_BACK -> BodyView.BACK
+    else -> BodyView.FRONT
 }
 
-/**
- * Части рисунка без мышц, достраивающие силуэт. Контур из библиотеки обрывается по линии волос
- * (спереди) и по шее (сзади): череп там — отдельные фигуры `head` и `hair`. Без них голова
- * выглядит срезанной, поэтому они идут в силуэт, а не в мышцы — тапом их не выбрать.
- */
+/** Selected logical member wins a shared-sector tap; otherwise use the frozen default. */
+internal fun MuscleSector.memberForTap(selected: Muscle?): Muscle =
+    selected?.takeIf { it in members } ?: defaultMuscle
+
+/** Heatmap sectors use the largest member value, never a sum or average. */
+internal fun <T> MuscleSector.maxMember(values: Map<Muscle, T>, value: (T) -> Double): T? =
+    members.mapNotNull { values[it] }.maxByOrNull(value)
+
+/** Detail/editor sectors use the strongest role, with frozen member order resolving ties. */
+internal fun <T> MuscleSector.strongestMember(values: Map<Muscle, T>, strength: (T) -> Int): T? =
+    members.mapNotNull { values[it] }.maxByOrNull(strength)
+
 private val SILHOUETTE_EXTRA_SLUGS = listOf("head", "hair")
 
-/** Контуры силуэта вида: сам контур плюс [SILHOUETTE_EXTRA_SLUGS]. Рисуются как одна фигура. */
 fun silhouettePaths(view: BodyView): List<String> {
-    val (silhouette, source) = when (view) {
-        BodyView.FRONT -> BodyFrontPaths.silhouette to BodyFrontPaths.muscles
-        BodyView.BACK -> BodyBackPaths.silhouette to BodyBackPaths.muscles
+    val (silhouette, source) = if (view == BodyView.FRONT) {
+        BodyFrontPaths.silhouette to BodyFrontPaths.muscles
+    } else {
+        BodyBackPaths.silhouette to BodyBackPaths.muscles
     }
     return listOf(silhouette) + SILHOUETTE_EXTRA_SLUGS.flatMap { source[it].orEmpty() }
 }
 
-/** Размер вьюпорта фигуры в координатах SVG. */
-fun viewportSize(view: BodyView): Size = when (view) {
-    BodyView.FRONT -> Size(BodyFrontPaths.VIEWPORT_W, BodyFrontPaths.VIEWPORT_H)
-    BodyView.BACK -> Size(BodyBackPaths.VIEWPORT_W, BodyBackPaths.VIEWPORT_H)
+fun viewportSize(view: BodyView): Size = if (view == BodyView.FRONT) {
+    Size(BodyFrontPaths.VIEWPORT_W, BodyFrontPaths.VIEWPORT_H)
+} else {
+    Size(BodyBackPaths.VIEWPORT_W, BodyBackPaths.VIEWPORT_H)
 }

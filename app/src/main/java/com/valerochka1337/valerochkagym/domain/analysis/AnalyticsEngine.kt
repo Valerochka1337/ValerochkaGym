@@ -75,7 +75,7 @@ class AnalyticsEngine @Inject constructor() {
             muscleLoads = muscleLoads,
             exercises = exerciseProgress(sets),
             workload = workloadRatio(hardSets, range, input.zone),
-            balances = balances(effectiveByMuscle),
+            balances = balances(effectiveByMuscle, chestTotal(hardSets, input.muscleMap)),
             // Рекорд не перестаёт быть достижением после смены календарного периода.
             records = allRecords,
             streakWeeks = streakWeeks(workouts, range, input.zone),
@@ -420,13 +420,23 @@ class AnalyticsEngine @Inject constructor() {
         )
     }
 
-    private fun balances(effectiveByMuscle: Map<Muscle, Double>): List<BalanceRatio> {
+    /** Upper/lower chest are separate regions, but never double-count one completed set. */
+    private fun chestTotal(
+        hardSets: List<AnalyticsSetRow>,
+        muscleMap: Map<Long, List<MuscleLoad>>,
+    ): Double = hardSets.sumOf { set ->
+        muscleMap[set.exerciseId].orEmpty()
+            .filter { it.muscle == Muscle.UPPER_CHEST || it.muscle == Muscle.LOWER_CHEST }
+            .maxOfOrNull { setWeightFor(it.contribution) } ?: 0.0
+    }
+
+    private fun balances(effectiveByMuscle: Map<Muscle, Double>, chest: Double): List<BalanceRatio> {
         fun sum(vararg muscles: Muscle) = muscles.sumOf { effectiveByMuscle[it] ?: 0.0 }
 
-        val push = sum(Muscle.CHEST, Muscle.FRONT_DELTS, Muscle.TRICEPS)
+        val push = chest + sum(Muscle.FRONT_DELTS, Muscle.TRICEPS)
         val pull = sum(Muscle.LATS, Muscle.UPPER_BACK, Muscle.REAR_DELTS, Muscle.BICEPS, Muscle.TRAPS)
-        val upper = sum(
-            Muscle.CHEST, Muscle.FRONT_DELTS, Muscle.SIDE_DELTS, Muscle.REAR_DELTS, Muscle.TRAPS,
+        val upper = chest + sum(
+            Muscle.FRONT_DELTS, Muscle.SIDE_DELTS, Muscle.REAR_DELTS, Muscle.TRAPS,
             Muscle.LATS, Muscle.UPPER_BACK, Muscle.BICEPS, Muscle.TRICEPS, Muscle.FOREARMS,
         )
         val lower = sum(
@@ -434,8 +444,8 @@ class AnalyticsEngine @Inject constructor() {
         )
         val quads = sum(Muscle.QUADS)
         val hamstrings = sum(Muscle.HAMSTRINGS)
-        val anterior = sum(
-            Muscle.CHEST, Muscle.FRONT_DELTS, Muscle.BICEPS, Muscle.ABS, Muscle.QUADS,
+        val anterior = chest + sum(
+            Muscle.FRONT_DELTS, Muscle.BICEPS, Muscle.ABS, Muscle.QUADS,
         )
         val posterior = sum(
             Muscle.LATS, Muscle.UPPER_BACK, Muscle.LOWER_BACK, Muscle.REAR_DELTS, Muscle.TRAPS,

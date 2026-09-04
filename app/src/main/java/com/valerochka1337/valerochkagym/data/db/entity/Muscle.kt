@@ -13,44 +13,71 @@ package com.valerochka1337.valerochkagym.data.db.entity
  * в списках и легенде.
  */
 enum class Muscle {
-    CHEST,
+    UPPER_CHEST,
+    LOWER_CHEST,
     FRONT_DELTS,
     SIDE_DELTS,
     REAR_DELTS,
-    TRAPS,
-    LATS,
-    UPPER_BACK,
-    LOWER_BACK,
+    ROTATOR_CUFF,
+    SERRATUS_ANTERIOR,
     BICEPS,
     TRICEPS,
     FOREARMS,
     ABS,
     OBLIQUES,
-    GLUTES,
-    QUADS,
-    HAMSTRINGS,
+    HIP_FLEXORS,
     ADDUCTORS,
+    QUADS,
+    TIBIALIS_ANTERIOR,
     CALVES,
+    HAMSTRINGS,
+    GLUTES,
+    HIP_ABDUCTORS,
+    LOWER_BACK,
+    LATS,
+    UPPER_BACK,
+    TRAPS,
+    NECK;
+
+    companion object {
+        /** Source-compatible alias for the old catalogue only; never a persisted v13 ID. */
+        @Deprecated("Use UPPER_CHEST or LOWER_CHEST") val CHEST get() = UPPER_CHEST
+    }
 }
 
-/**
- * Вовлечение [muscle] в упражнение: [contribution] — доля 0..100 на общей для всех упражнений шкале.
- * 100 означает прямую нагрузку тяжёлого силового подхода; максимум карты может быть ниже 100.
- *
- * Та же доля задаёт вклад «эффективного подхода»: ≥60 — прямой подход, 25–59 — половина
- * косвенного, меньшие значения стабилизации не считаются (см. `setWeightFor`).
- */
+/** The only values persisted after v13: primary=100, secondary=50, stabilizer=0. */
+enum class MuscleRole(val contribution: Int, val label: String) {
+    PRIMARY(100, "Основная"),
+    SECONDARY(50, "Вторичная"),
+    STABILIZER(0, "Стабилизатор");
+
+    companion object {
+        fun fromContribution(value: Int): MuscleRole? = entries.firstOrNull { it.contribution == value }
+        fun fromLegacyContribution(value: Int): MuscleRole? = when (value) {
+            in 60..100 -> PRIMARY
+            in 25..59 -> SECONDARY
+            in 1..24 -> STABILIZER
+            else -> null
+        }
+    }
+}
+
+/** No row is NOT_INVOLVED; a zero row is the explicit stabilizer role. */
 data class MuscleLoad(
     val muscle: Muscle,
     val contribution: Int,
-)
+) {
+    val role: MuscleRole? get() = MuscleRole.fromContribution(contribution)
+}
 
 /** Крупная категория, к которой относится мышца — для группировки в UI и фоллбэков. */
 fun Muscle.group(): MuscleGroup = when (this) {
-    Muscle.CHEST -> MuscleGroup.CHEST
-    Muscle.FRONT_DELTS, Muscle.SIDE_DELTS, Muscle.REAR_DELTS -> MuscleGroup.SHOULDERS
-    Muscle.TRAPS, Muscle.LATS, Muscle.UPPER_BACK, Muscle.LOWER_BACK -> MuscleGroup.BACK
+    Muscle.UPPER_CHEST, Muscle.LOWER_CHEST -> MuscleGroup.CHEST
+    Muscle.FRONT_DELTS, Muscle.SIDE_DELTS, Muscle.REAR_DELTS, Muscle.ROTATOR_CUFF,
+    Muscle.SERRATUS_ANTERIOR -> MuscleGroup.SHOULDERS
+    Muscle.TRAPS, Muscle.LATS, Muscle.UPPER_BACK, Muscle.LOWER_BACK, Muscle.NECK -> MuscleGroup.BACK
     Muscle.BICEPS, Muscle.TRICEPS, Muscle.FOREARMS -> MuscleGroup.ARMS
     Muscle.ABS, Muscle.OBLIQUES -> MuscleGroup.CORE
-    Muscle.GLUTES, Muscle.QUADS, Muscle.HAMSTRINGS, Muscle.ADDUCTORS, Muscle.CALVES -> MuscleGroup.LEGS
+    Muscle.GLUTES, Muscle.QUADS, Muscle.HAMSTRINGS, Muscle.ADDUCTORS, Muscle.CALVES,
+    Muscle.HIP_FLEXORS, Muscle.HIP_ABDUCTORS, Muscle.TIBIALIS_ANTERIOR -> MuscleGroup.LEGS
 }

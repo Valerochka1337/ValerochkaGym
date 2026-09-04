@@ -6,8 +6,9 @@ import android.graphics.Region
 import com.valerochka1337.valerochkagym.data.db.entity.Muscle
 import com.valerochka1337.valerochkagym.ui.analysis.body.BodyView
 import com.valerochka1337.valerochkagym.ui.analysis.body.ParsedBody
-import com.valerochka1337.valerochkagym.ui.analysis.body.musclePaths
+import com.valerochka1337.valerochkagym.ui.analysis.body.muscleSectors
 import com.valerochka1337.valerochkagym.ui.analysis.body.offFigureMuscles
+import com.valerochka1337.valerochkagym.ui.analysis.body.MuscleSelectorState
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -33,13 +34,25 @@ import org.robolectric.annotation.GraphicsMode
 class BodyMapHitTest {
 
     @Test
-    fun `every muscle except the off-figure ones is on some view`() {
+    fun `cyclic selector wraps and projects its three visible muscles`() {
+        assertEquals(Muscle.NECK, MuscleSelectorState.next(Muscle.UPPER_CHEST, -1))
+        assertEquals(Muscle.UPPER_CHEST, MuscleSelectorState.next(Muscle.NECK, 1))
+        assertEquals(
+            listOf(Muscle.NECK, Muscle.UPPER_CHEST, Muscle.LOWER_CHEST),
+            MuscleSelectorState.visible(Muscle.UPPER_CHEST),
+        )
+    }
+
+    @Test
+    fun `every persisted muscle belongs to a visible sector`() {
         val onFigure = BodyView.entries
-            .flatMap { musclePaths(it).keys }
+            .flatMap { view -> muscleSectors(view).flatMap { it.members } }
             .toSet()
 
-        assertEquals(Muscle.entries.toSet() - offFigureMuscles.toSet(), onFigure)
-        assertEquals(listOf(Muscle.SIDE_DELTS, Muscle.UPPER_BACK), offFigureMuscles)
+        assertEquals(Muscle.entries.toSet(), onFigure)
+        assertTrue(offFigureMuscles.isEmpty())
+        assertTrue(Muscle.LOWER_CHEST in muscleSectors(BodyView.FRONT).first { it.slug == "chest" }.members)
+        assertTrue(Muscle.UPPER_BACK in muscleSectors(BodyView.BACK).first { it.slug == "upper-back" }.members)
     }
 
     @Test
@@ -47,12 +60,15 @@ class BodyMapHitTest {
         val collisions = mutableListOf<String>()
         BodyView.entries.forEach { view ->
             val parsed = ParsedBody.of(view)
-            parsed.muscles.forEach { shape ->
+            parsed.sectors.forEach { shape ->
                 val point = interiorPoint(shape.region)
-                assertNotNull("$view ${shape.muscle}: пустой регион", point)
+                assertNotNull("$view ${shape.sector.slug}: пустой регион", point)
                 val (x, y) = point!!
                 val hit = parsed.muscleAt(x, y)
-                if (hit != shape.muscle) collisions += "$view ${shape.muscle} @($x,$y) → $hit"
+                if (hit != shape.sector.defaultMuscle) collisions += "$view ${shape.sector.slug} @($x,$y) → $hit"
+                shape.sector.members.forEach { member ->
+                    assertEquals(member, parsed.muscleAt(x, y, member))
+                }
             }
         }
 

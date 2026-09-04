@@ -28,6 +28,6 @@ import androidx.room.Index
 data class ExerciseMuscleEntity(
     val exerciseId: Long,
     val muscle: Muscle,
-    /** Доля вовлечения 0..100 (см. [MuscleLoad.contribution]). */
+    /** Canonical role encoding: 100 primary, 50 secondary, 0 explicit stabilizer. */
     val contribution: Int,
 )

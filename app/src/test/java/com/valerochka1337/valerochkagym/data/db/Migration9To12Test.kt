@@ -50,7 +50,7 @@ internal object MigrationRecoveryFixtures {
         return FrameworkSQLiteOpenHelperFactory().create(
             SupportSQLiteOpenHelper.Configuration.builder(context)
                 .name(name)
-                .callback(object : SupportSQLiteOpenHelper.Callback(12) {
+                .callback(object : SupportSQLiteOpenHelper.Callback(13) {
                     override fun onCreate(db: SupportSQLiteDatabase) = Unit
                     override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
                 })
@@ -117,7 +117,7 @@ internal object MigrationRecoveryFixtures {
     }
 
     fun seedVariantData(db: SupportSQLiteDatabase) {
-        db.execSQL("INSERT INTO exercises VALUES (1, 'Жим', 'CHEST', 'STRENGTH', 1, 'exercise-sync', 1)")
+        db.execSQL("INSERT INTO exercises VALUES (1, 'Жим', 'CHEST', 'STRENGTH', 1, 'exercise-sync', 1, 0)")
         db.execSQL("INSERT INTO routines VALUES (1, 'routine-sync', 2, 'A', '')")
         db.execSQL("INSERT INTO workouts VALUES ('complete', 1, 'Готовая', 1, 2, '', 'UPLOADED', NULL)")
         db.execSQL("INSERT INTO workouts VALUES ('active', 1, 'Активная', 3, NULL, '', 'PENDING', NULL)")
@@ -138,7 +138,7 @@ internal object MigrationRecoveryFixtures {
     fun assertBaseOnlyRecovery(sql: SupportSQLiteDatabase) {
         sql.query("PRAGMA user_version").use { cursor ->
             assertTrue(cursor.moveToFirst())
-            assertEquals(12, cursor.getInt(0))
+            assertEquals(13, cursor.getInt(0))
         }
         sql.query("SELECT id, routineId, exerciseId, position, restSeconds, plannedSetsJson FROM routine_exercises").use { cursor ->
             assertTrue(cursor.moveToFirst())

@@ -24,6 +24,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -75,13 +76,16 @@ private const val SELECTION_INNER_STROKE = 7f
  */
 @Composable
 fun BodyMapFlip(
-    fillFor: (Muscle) -> Color,
+    fillFor: (MuscleSector) -> Color,
     modifier: Modifier = Modifier,
     selectedMuscle: Muscle? = null,
     onMuscleClick: ((Muscle?) -> Unit)? = null,
     initialView: BodyView = BodyView.FRONT,
 ) {
     var view by remember { mutableStateOf(initialView) }
+    LaunchedEffect(selectedMuscle) {
+        selectedMuscle?.let(::preferredBodyView)?.let { view = it }
+    }
 
     Column(
         modifier = modifier.fillMaxWidth(),
@@ -136,7 +140,7 @@ fun BodyMapFlip(
 @Composable
 fun BodyMap(
     view: BodyView,
-    fillFor: (Muscle) -> Color,
+    fillFor: (MuscleSector) -> Color,
     modifier: Modifier = Modifier,
     selectedMuscle: Muscle? = null,
     onMuscleClick: ((Muscle?) -> Unit)? = null,
@@ -145,9 +149,9 @@ fun BodyMap(
     val haptics = gymHaptics()
     val body = MaterialTheme.colorScheme.surfaceContainerHighest
     val surface = MaterialTheme.colorScheme.surfaceContainerHigh
+    val selectedOutline = MaterialTheme.colorScheme.scrim
     val outline = MaterialTheme.colorScheme.outline
-    val selectionColor = MaterialTheme.colorScheme.onSurface
-    val accessibleMuscles = remember(parsed) { parsed.muscles.map { it.muscle }.distinct() }
+    val accessibleMuscles = remember(parsed) { parsed.sectors.flatMap { it.sector.members }.distinct() }
 
     Canvas(
         modifier = modifier
@@ -175,7 +179,7 @@ fun BodyMap(
                 } else {
                     Modifier.pointerInput(parsed) {
                         detectTapGestures { offset ->
-                            val muscle = parsed.muscleAt(offset, size.width.toFloat(), size.height.toFloat())
+                            val muscle = parsed.muscleAt(offset, size.width.toFloat(), size.height.toFloat(), selectedMuscle)
                             // Отбиваем только попадание в мышцу: тап мимо — осознанный сброс без отклика.
                             if (muscle != null) haptics.tap()
                             onMuscleClick(muscle)
@@ -193,8 +197,8 @@ fun BodyMap(
                 drawPath(parsed.silhouette, color = body)
                 drawPath(parsed.silhouette, color = outline.copy(alpha = 0.45f), style = Stroke(OUTLINE_STROKE))
 
-                parsed.muscles.forEach { shape ->
-                    val color = fillFor(shape.muscle)
+                parsed.sectors.forEach { shape ->
+                    val color = fillFor(shape.sector)
                     shape.paths.forEach { path ->
                         drawPath(path, color = color)
                         // Зазор цветом подложки: соседние мышцы соприкасаются краями.
@@ -202,10 +206,14 @@ fun BodyMap(
                     }
                 }
 
-                parsed.muscles.filter { it.muscle == selectedMuscle }.forEach { shape ->
+                parsed.sectors.filter { selectedMuscle in it.sector.members }.forEach { shape ->
                     shape.paths.forEach { path ->
                         drawPath(path, color = surface, style = Stroke(SELECTION_OUTER_STROKE, join = StrokeJoin.Round))
-                        drawPath(path, color = selectionColor, style = Stroke(SELECTION_INNER_STROKE, join = StrokeJoin.Round))
+                        drawPath(
+                            path,
+                            color = selectedOutlineColorFor(selectedMuscle, shape.sector, selectedOutline),
+                            style = Stroke(SELECTION_INNER_STROKE, join = StrokeJoin.Round),
+                        )
                     }
                 }
             }
@@ -213,11 +221,18 @@ fun BodyMap(
     }
 }
 
+/** The shared-sector fill and the selected logical member's outline intentionally resolve separately. */
+internal fun selectedOutlineColorFor(
+    selectedMuscle: Muscle?,
+    sector: MuscleSector,
+    scrim: Color,
+): Color = if (selectedMuscle in sector.members) scrim else Color.Unspecified
+
 private fun BodyView.title(): String = if (this == BodyView.FRONT) "Спереди" else "Сзади"
 
 /** Одна область карты: мышца, её контуры для отрисовки и регион для попадания тапом. */
-internal class MuscleShape(
-    val muscle: Muscle,
+internal class MuscleSectorShape(
+    val sector: MuscleSector,
     val paths: List<Path>,
     val region: Region,
     val area: Float,
@@ -232,25 +247,25 @@ internal class MuscleShape(
  */
 internal class ParsedBody(
     val silhouette: Path,
-    val muscles: List<MuscleShape>,
+    val sectors: List<MuscleSectorShape>,
     val viewportW: Float,
     val viewportH: Float,
 ) {
     /** Мышца под точкой канвы или `null`. */
-    fun muscleAt(offset: Offset, width: Float, height: Float): Muscle? {
+    fun muscleAt(offset: Offset, width: Float, height: Float, selected: Muscle? = null): Muscle? {
         val scale = min(width / viewportW, height / viewportH)
         if (scale <= 0f) return null
         val dx = (width - viewportW * scale) / 2f
         val dy = (height - viewportH * scale) / 2f
-        return muscleAt(((offset.x - dx) / scale).toInt(), ((offset.y - dy) / scale).toInt())
+        return muscleAt(((offset.x - dx) / scale).toInt(), ((offset.y - dy) / scale).toInt(), selected)
     }
 
     /**
      * Мышца в точке координат вьюпорта или `null`. Области проверяются от меньшей к большей:
      * крупный контур бедра иначе перекрыл бы узкие приводящие, лежащие внутри его габаритов.
      */
-    fun muscleAt(vx: Int, vy: Int): Muscle? =
-        muscles.firstOrNull { it.region.contains(vx, vy) }?.muscle
+    fun muscleAt(vx: Int, vy: Int, selected: Muscle? = null): Muscle? =
+        sectors.firstOrNull { it.region.contains(vx, vy) }?.sector?.memberForTap(selected)
 
     companion object {
         /**
@@ -265,13 +280,13 @@ internal class ParsedBody(
         private fun build(view: BodyView): ParsedBody {
             val backOffset = view == BodyView.BACK
             val silhouette = silhouetteOf(view, backOffset)
-            val muscles = musclePaths(view).map { (muscle, ds) ->
-                val paths = ds.map { parse(it, backOffset) }
+            val sectors = muscleSectors(view).map { sector ->
+                val paths = sectorPaths(view, sector).map { parse(it, backOffset) }
                 val region = regionOf(paths)
-                MuscleShape(muscle, paths, region, boundsArea(paths))
+                MuscleSectorShape(sector, paths, region, boundsArea(paths))
             }.sortedBy { it.area }
             val size = viewportSize(view)
-            return ParsedBody(silhouette, muscles, size.width, size.height)
+            return ParsedBody(silhouette, sectors, size.width, size.height)
         }
 
         /**

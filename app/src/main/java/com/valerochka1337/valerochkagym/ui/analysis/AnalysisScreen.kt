@@ -25,6 +25,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -67,6 +68,13 @@ fun AnalysisScreen(
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val haptics = gymHaptics()
     var section by rememberSaveable { mutableStateOf(AnalysisSection.OVERVIEW) }
+    var upgradeMessage by rememberSaveable { mutableStateOf<String?>(null) }
+    LaunchedEffect(viewModel) {
+        viewModel.messages.collect {
+            upgradeMessage = it
+            viewModel.acknowledgeUpgradeNotice()
+        }
+    }
 
     GlowBackground(modifier = modifier) {
         Column(modifier = Modifier.fillMaxSize()) {
@@ -91,6 +99,16 @@ fun AnalysisScreen(
                 contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 96.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
+                upgradeMessage?.let { message ->
+                    item {
+                        Text(
+                            text = message,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                }
                 item {
                     AnalysisPeriodSelector(
                         period = state.period,
@@ -178,6 +196,7 @@ fun AnalysisScreen(
                                 MuscleHeatmapCard(
                                     state = state,
                                     onMuscleClicked = viewModel::onMuscleClicked,
+                                    onSelectorSelected = viewModel::onSelectorMuscleSelected,
                                 )
                             }
                             item {

@@ -14,10 +14,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Info
-import androidx.compose.material3.AssistChip
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -26,7 +24,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -39,7 +36,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
@@ -48,12 +44,10 @@ import com.valerochka1337.valerochkagym.data.db.entity.MuscleLoad
 import com.valerochka1337.valerochkagym.data.db.entity.group
 import com.valerochka1337.valerochkagym.domain.displayName
 import com.valerochka1337.valerochkagym.ui.analysis.body.BodyMapFlip
-import com.valerochka1337.valerochkagym.ui.analysis.body.offFigureMuscles
+import com.valerochka1337.valerochkagym.ui.analysis.body.MuscleSector
+import com.valerochka1337.valerochkagym.ui.analysis.body.MuscleSelector
+import com.valerochka1337.valerochkagym.ui.analysis.body.strongestMember
 import com.valerochka1337.valerochkagym.ui.components.PillButton
-import com.valerochka1337.valerochkagym.ui.theme.ChartPalette
-
-/** Шаг ползунка вовлечения: 5% — предел осмысленной точности для такой оценки. */
-private const val LOAD_STEP = 5
 
 /**
  * Редактор упражнения: название, тип и разметка мышц на интерактивной модели тела.
@@ -81,10 +75,12 @@ internal fun ExerciseEditorSheet(
     var active by remember(initial) { mutableStateOf<Muscle?>(null) }
     val loads = remember(initial) { mutableStateMapOf<Muscle, Int>().apply { putAll(initial.loads) } }
     val type = ExerciseType.valueOf(typeName)
+    val inactiveColor = MaterialTheme.colorScheme.surfaceContainerHighest
+    val primaryColor = MaterialTheme.colorScheme.primaryContainer
+    val secondaryColor = primaryColor.copy(alpha = 0.62f)
+    val stabilizerColor = primaryColor.copy(alpha = 0.32f)
 
-    val base = MaterialTheme.colorScheme.surfaceContainerHighest
-    val accent = MaterialTheme.colorScheme.primary
-    val canSave = name.trim().isNotEmpty() && loads.isNotEmpty() && !initial.isSaving
+    val canSave = name.trim().isNotEmpty() && loads.values.any { it == 100 } && !initial.isSaving
 
     ModalBottomSheet(
         onDismissRequest = { if (!initial.isSaving) onDismiss() },
@@ -103,6 +99,14 @@ internal fun ExerciseEditorSheet(
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onSurface,
             )
+            if (initial.needsMuscleMapReview) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = "После обновления проверьте разделение верхней и нижней части груди.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
 
             if (initial.wasFoundByAi) {
                 Spacer(Modifier.height(12.dp))
@@ -149,18 +153,21 @@ internal fun ExerciseEditorSheet(
             Spacer(Modifier.height(20.dp))
             SheetLabel("Какие мышцы работают")
             Text(
-                text = "Общая шкала для всех упражнений: в аналитике ≥60% считается прямым вкладом " +
-                    "(1 подход), 25–59% — косвенным (0,5), меньше — стабилизацией. Максимум не обязан быть 100%.",
+                text = "Роли: основная даёт 1 эффективный подход, вторичная — 0,5, стабилизатор — 0. " +
+                    "Отсутствие строки означает «не участвует».",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
             Spacer(Modifier.height(12.dp))
             BodyMapFlip(
-                fillFor = { muscle ->
-                    val load = loads[muscle]
-                    if (load == null || load <= 0) ChartPalette.Empty else lerp(base, accent, load / 100f)
-                },
+                fillFor = editorSectorFillFor(
+                    loads = loads,
+                    inactive = inactiveColor,
+                    primary = primaryColor,
+                    secondary = secondaryColor,
+                    stabilizer = stabilizerColor,
+                ),
                 selectedMuscle = active,
                 onMuscleClick = { muscle ->
                     if (muscle == null) {
@@ -173,29 +180,14 @@ internal fun ExerciseEditorSheet(
                 },
             )
 
-            // Мышцы без своей области на фигуре не выбрать тапом — добавляем их кнопками.
-            val addable = offFigureMuscles.filter { it !in loads.keys }
-            if (addable.isNotEmpty()) {
-                Spacer(Modifier.height(8.dp))
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    addable.forEach { muscle ->
-                        AssistChip(
-                            onClick = {
-                                active = muscle
-                                if (loads[muscle] == null) loads[muscle] = DEFAULT_LOAD
-                            },
-                            label = { Text(muscle.displayName()) },
-                            leadingIcon = {
-                                Icon(
-                                    imageVector = Icons.Rounded.Add,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            },
-                        )
-                    }
-                }
-            }
+            MuscleSelector(
+                selected = active,
+                roleText = { muscle -> roleLabel(loads[muscle] ?: -1) },
+                onSelected = { muscle ->
+                    active = muscle
+                    if (loads[muscle] == null) loads[muscle] = DEFAULT_LOAD
+                },
+            )
 
             val activeMuscle = active
             if (activeMuscle != null) {
@@ -245,7 +237,7 @@ internal fun ExerciseEditorSheet(
                         initial.exerciseId == null -> "Создать"
                         initial.assignToSelectedGyms -> "Добавить в залы"
                         initial.wasFoundByAi -> "Изменить найденное"
-                        else -> "Сохранить"
+                        else -> if (initial.editableName) "Сохранить" else "Персонализировать"
                     },
                     onClick = {
                         onSave(
@@ -358,7 +350,7 @@ private fun ActiveMuscleEditor(
                 modifier = Modifier.weight(1f),
             )
             Text(
-                text = "$value%",
+                text = roleLabel(value),
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.primary,
@@ -371,12 +363,20 @@ private fun ActiveMuscleEditor(
                 )
             }
         }
-        Slider(
-            value = value.toFloat(),
-            onValueChange = { onValueChange((it / LOAD_STEP).toInt() * LOAD_STEP) },
-            valueRange = LOAD_STEP.toFloat()..100f,
-            steps = 100 / LOAD_STEP - 2,
-        )
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf(100 to "Основная", 50 to "Вторичная", 0 to "Стабилизатор").forEach { (role, label) ->
+                FilterChip(
+                    selected = value == role,
+                    onClick = { onValueChange(role) },
+                    label = { Text(label) },
+                )
+            }
+            FilterChip(
+                selected = false,
+                onClick = onRemove,
+                label = { Text("Не участвует") },
+            )
+        }
     }
 }
 
@@ -395,7 +395,7 @@ private fun SelectedMuscles(
             FilterChip(
                 selected = muscle == active,
                 onClick = { onSelect(muscle) },
-                label = { Text("${muscle.displayName()} $load%") },
+                label = { Text("${muscle.displayName()} · ${roleLabel(load)}") },
                 colors = FilterChipDefaults.filterChipColors(
                     selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
                     selectedLabelColor = MaterialTheme.colorScheme.onSecondaryContainer,
@@ -418,5 +418,28 @@ private fun SheetLabel(text: String) {
 /** Крупная группа упражнения выводится из самой вовлечённой мышцы — вручную её выбирать не нужно. */
 private fun primaryGroupLabel(loads: Map<Muscle, Int>): String =
     loads.maxByOrNull { it.value }?.key?.group()?.displayName() ?: "—"
+
+private fun roleLabel(value: Int): String = when (value) {
+    100 -> "Основная"
+    50 -> "Вторичная"
+    0 -> "Стабилизатор"
+    else -> "Не участвует"
+}
+
+/** Shared editor sectors keep the strongest member's role colour. */
+internal fun editorSectorFillFor(
+    loads: Map<Muscle, Int>,
+    inactive: androidx.compose.ui.graphics.Color,
+    primary: androidx.compose.ui.graphics.Color,
+    secondary: androidx.compose.ui.graphics.Color,
+    stabilizer: androidx.compose.ui.graphics.Color,
+): (MuscleSector) -> androidx.compose.ui.graphics.Color = { sector ->
+    when (sector.strongestMember(loads) { it }) {
+        100 -> primary
+        50 -> secondary
+        0 -> stabilizer
+        else -> inactive
+    }
+}
 
 private const val DEFAULT_LOAD = 50

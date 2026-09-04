@@ -1,6 +1,7 @@
 package com.valerochka1337.valerochkagym.ui
 
 import androidx.lifecycle.SavedStateHandle
+import com.valerochka1337.valerochkagym.data.db.CanonicalExerciseRegistry
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseDao
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseMuscleDao
 import com.valerochka1337.valerochkagym.data.db.dao.WorkoutDao
@@ -101,6 +102,36 @@ class ExerciseDetailViewModelTest {
             collector.cancel()
         }
 
+    @Test
+    fun `built-in exercise does not open an editor`() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val viewModel = viewModel(
+                FakeExerciseDao(builtIn = true),
+                FakeExerciseMuscleDao(),
+                FakeWorkoutDao(),
+            )
+            val collector = backgroundScope.launch(mainDispatcherRule.testDispatcher) { viewModel.uiState.collect {} }
+            advanceUntilIdle()
+
+            viewModel.openEditor()
+
+            assertEquals(null, viewModel.editor.value)
+            collector.cancel()
+        }
+
+    @Test
+    fun `non-built-in exercise remains editable regardless of its custom flag`() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val viewModel = viewModel(FakeExerciseDao(), FakeExerciseMuscleDao(), FakeWorkoutDao())
+            val collector = backgroundScope.launch(mainDispatcherRule.testDispatcher) { viewModel.uiState.collect {} }
+            advanceUntilIdle()
+
+            viewModel.openEditor()
+
+            assertEquals(true, viewModel.editor.value?.editableName)
+            collector.cancel()
+        }
+
     private fun viewModel(
         exerciseDao: ExerciseDao,
         muscleDao: ExerciseMuscleDao,
@@ -118,16 +149,23 @@ class ExerciseDetailViewModelTest {
         computeDispatcher = mainDispatcherRule.testDispatcher,
     )
 
-    private class FakeExerciseDao(isCustom: Boolean = false) : ExerciseDao {
+    private class FakeExerciseDao(
+        isCustom: Boolean = false,
+        builtIn: Boolean = false,
+    ) : ExerciseDao {
         val items = MutableStateFlow(
             listOf(
-                ExerciseEntity(
-                    id = EXERCISE_ID,
-                    name = "Жим лёжа",
-                    muscleGroup = MuscleGroup.CHEST,
-                    type = ExerciseType.STRENGTH,
-                    isCustom = isCustom,
-                ),
+                if (builtIn) {
+                    CanonicalExerciseRegistry.entries.first().exercise.copy(id = EXERCISE_ID)
+                } else {
+                    ExerciseEntity(
+                        id = EXERCISE_ID,
+                        name = "Жим лёжа",
+                        muscleGroup = MuscleGroup.CHEST,
+                        type = ExerciseType.STRENGTH,
+                        isCustom = isCustom,
+                    )
+                },
             ),
         )
 

@@ -26,7 +26,7 @@ class Migration10To12Test {
         val db = MigrationRecoveryFixtures.openThroughProductionList(context, name)
         try {
             db.openHelper.writableDatabase.query("PRAGMA user_version").use { cursor ->
-                assertEquals(12, cursor.run { moveToFirst(); getInt(0) })
+                assertEquals(13, cursor.run { moveToFirst(); getInt(0) })
             }
         } finally {
             db.close()

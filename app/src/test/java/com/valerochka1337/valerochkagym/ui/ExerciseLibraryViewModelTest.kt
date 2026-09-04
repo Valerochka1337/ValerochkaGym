@@ -7,6 +7,7 @@ import com.valerochka1337.valerochkagym.data.ai.ExerciseAiGenerationResult
 import com.valerochka1337.valerochkagym.data.ai.ExerciseAiGenerator
 import com.valerochka1337.valerochkagym.data.ai.MODEL_UNAVAILABLE_MESSAGE
 import com.valerochka1337.valerochkagym.data.ai.AiApiConfigurationProvider
+import com.valerochka1337.valerochkagym.data.db.CanonicalExerciseRegistry
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseMuscleEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
@@ -343,7 +344,7 @@ class ExerciseLibraryViewModelTest {
                 type = ExerciseType.STRENGTH,
                 loads = listOf(
                     MuscleLoad(Muscle.GLUTES, 100),
-                    MuscleLoad(Muscle.LOWER_BACK, 70),
+                    MuscleLoad(Muscle.LOWER_BACK, 50),
                 ),
             )
 
@@ -353,7 +354,7 @@ class ExerciseLibraryViewModelTest {
             // Крупная группа выведена из самой вовлечённой мышцы, вручную её не выбирают.
             assertEquals(MuscleGroup.LEGS, inserted.muscleGroup)
             assertEquals(
-                mapOf(Muscle.GLUTES to 100, Muscle.LOWER_BACK to 70),
+                mapOf(Muscle.GLUTES to 100, Muscle.LOWER_BACK to 50),
                 muscleDao.rows[inserted.id]?.associate { it.muscle to it.contribution },
             )
             assertNull(viewModel.editor.value)
@@ -382,7 +383,7 @@ class ExerciseLibraryViewModelTest {
                 type = ExerciseType.STRENGTH,
                 loads = listOf(
                     MuscleLoad(Muscle.GLUTES, 100),
-                    MuscleLoad(Muscle.LOWER_BACK, 70),
+                    MuscleLoad(Muscle.LOWER_BACK, 50),
                 ),
             )
             mainDispatcherRule.testDispatcher.scheduler.advanceUntilIdle()
@@ -390,7 +391,7 @@ class ExerciseLibraryViewModelTest {
             assertEquals(setOf("gym-first", "gym-second"), repository.lastAssignedGymIds)
             assertEquals("Тяга сумо", repository.lastCreation?.exercise?.name)
             assertEquals(
-                mapOf(Muscle.GLUTES to 100, Muscle.LOWER_BACK to 70),
+                mapOf(Muscle.GLUTES to 100, Muscle.LOWER_BACK to 50),
                 repository.lastCreation?.muscles?.associate { it.muscle to it.contribution },
             )
             assertEquals(listOf(42L), savedExercises.map { it.exercise.id })
@@ -413,31 +414,77 @@ class ExerciseLibraryViewModelTest {
         }
 
     @Test
-    fun `editing a built-in exercise replaces its muscle map but keeps name and group`() =
+    fun `opening a built-in editor does not create a personalization copy`() =
         runTest(mainDispatcherRule.testDispatcher.scheduler) {
             val dao = FakeExerciseDao(catalogue())
             val muscleDao = FakeExerciseMuscleDao()
-            muscleDao.rows[1L] = mutableListOf(ExerciseMuscleEntity(1L, Muscle.CHEST, 100))
+            muscleDao.rows[1L] = mutableListOf(ExerciseMuscleEntity(1L, Muscle.UPPER_CHEST, 100))
             val viewModel = ExerciseLibraryViewModel(dao, muscleDao)
 
             viewModel.openEdit(catalogue().first())
-            val editor = viewModel.editor.value!!
-            assertEquals(mapOf(Muscle.CHEST to 100), editor.loads)
-            assertFalse("встроенное упражнение нельзя переименовать", editor.editableName)
+            mainDispatcherRule.testDispatcher.scheduler.advanceUntilIdle()
 
-            viewModel.saveEditor(
-                name = "Другое имя",
+            assertNull(viewModel.editor.value)
+            assertEquals(catalogue().map { it.name }, dao.items.value.map { it.name })
+            assertEquals(0, dao.insertCount)
+        }
+
+    @Test
+    fun `saving a custom edit updates that exercise without creating another one`() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val custom = ExerciseEntity(
+                id = 20L,
+                name = "Свой жим",
+                muscleGroup = MuscleGroup.CHEST,
                 type = ExerciseType.STRENGTH,
-                loads = listOf(MuscleLoad(Muscle.CHEST, 100), MuscleLoad(Muscle.TRICEPS, 65)),
+                isCustom = true,
             )
+            val dao = FakeExerciseDao(listOf(custom))
+            val muscleDao = FakeExerciseMuscleDao().apply {
+                rows[custom.id] = mutableListOf(ExerciseMuscleEntity(custom.id, Muscle.UPPER_CHEST, 100))
+            }
+            val viewModel = ExerciseLibraryViewModel(dao, muscleDao)
 
-            val stored = dao.items.value.first { it.id == 1L }
-            assertEquals("Жим штанги лёжа", stored.name)
-            assertEquals(MuscleGroup.CHEST, stored.muscleGroup)
-            assertEquals(
-                mapOf(Muscle.CHEST to 100, Muscle.TRICEPS to 65),
-                muscleDao.rows[1L]?.associate { it.muscle to it.contribution },
+            viewModel.openEdit(custom)
+            mainDispatcherRule.testDispatcher.scheduler.advanceUntilIdle()
+            viewModel.saveEditor(
+                name = "Новый свой жим",
+                type = ExerciseType.TIMED,
+                loads = listOf(MuscleLoad(Muscle.TRICEPS, 100)),
             )
+            mainDispatcherRule.testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals(listOf("Новый свой жим"), dao.items.value.map { it.name })
+            assertEquals(0, dao.insertCount)
+            assertEquals(ExerciseType.TIMED, dao.items.value.single().type)
+        }
+
+    @Test
+    fun `saving an editor declines an exercise that becomes built-in`() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val custom = ExerciseEntity(
+                id = 21L,
+                name = "Своё упражнение",
+                muscleGroup = MuscleGroup.CHEST,
+                type = ExerciseType.STRENGTH,
+                isCustom = true,
+            )
+            val dao = FakeExerciseDao(listOf(custom))
+            val viewModel = ExerciseLibraryViewModel(dao, FakeExerciseMuscleDao())
+
+            viewModel.openEdit(custom)
+            mainDispatcherRule.testDispatcher.scheduler.advanceUntilIdle()
+            dao.items.value = listOf(CanonicalExerciseRegistry.entries.first().exercise.copy(id = custom.id))
+            viewModel.saveEditor(
+                name = "Не должно сохраниться",
+                type = ExerciseType.TIMED,
+                loads = listOf(MuscleLoad(Muscle.TRICEPS, 100)),
+            )
+            mainDispatcherRule.testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals(null, viewModel.editor.value)
+            assertEquals(0, dao.insertCount)
+            assertEquals(ExerciseType.STRENGTH, dao.items.value.single().type)
         }
 
     @Test
@@ -451,7 +498,7 @@ class ExerciseLibraryViewModelTest {
                     ExerciseAiGenerationResult.New(
                         name = "Тяга сумо",
                         type = ExerciseType.STRENGTH,
-                        loads = listOf(MuscleLoad(Muscle.GLUTES, 100), MuscleLoad(Muscle.LOWER_BACK, 70)),
+                        loads = listOf(MuscleLoad(Muscle.GLUTES, 100), MuscleLoad(Muscle.LOWER_BACK, 50)),
                     ),
                 ),
                 aiApiConfigurationProvider = FakeAiApiConfigurationProvider(configured = true),
@@ -468,12 +515,12 @@ class ExerciseLibraryViewModelTest {
             val editor = viewModel.editor.value!!
             assertEquals("Тяга сумо", editor.name)
             assertEquals(ExerciseType.STRENGTH, editor.type)
-            assertEquals(mapOf(Muscle.GLUTES to 100, Muscle.LOWER_BACK to 70), editor.loads)
+            assertEquals(mapOf(Muscle.GLUTES to 100, Muscle.LOWER_BACK to 50), editor.loads)
             assertFalse(editor.wasFoundByAi)
         }
 
     @Test
-    fun `ai generation opens the current editor for an existing exercise`() =
+    fun `ai existing built-in result does not open an editor`() =
         runTest(mainDispatcherRule.testDispatcher.scheduler) {
             val dao = FakeExerciseDao(catalogue())
             val muscleDao = FakeExerciseMuscleDao().apply {
@@ -492,12 +539,8 @@ class ExerciseLibraryViewModelTest {
             viewModel.generateAiExercise()
             mainDispatcherRule.testDispatcher.scheduler.advanceUntilIdle()
 
-            val editor = viewModel.editor.value!!
-            assertEquals(1L, editor.exerciseId)
-            assertEquals("Жим штанги лёжа", editor.name)
-            assertEquals(mapOf(Muscle.CHEST to 100), editor.loads)
-            assertFalse(editor.editableName)
-            assertTrue(editor.wasFoundByAi)
+            assertNull(viewModel.editor.value)
+            assertEquals("Стандартное упражнение нельзя редактировать", viewModel.aiCreation.value?.error)
         }
 
     @Test

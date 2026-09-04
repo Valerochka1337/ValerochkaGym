@@ -3,11 +3,12 @@ package com.valerochka1337.valerochkagym.domain
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
 import com.valerochka1337.valerochkagym.data.db.entity.Muscle
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleGroup
+import com.valerochka1337.valerochkagym.data.db.entity.MuscleRole
 
-/** Контракт append-only листа `Exercises` (A:I). */
+/** Append-only Exercises contract. A:I remains legacy-compatible; J marks canonical roles. */
 object ExerciseSheetRowMapper {
     const val SHEET_NAME = "Exercises"
-    const val RANGE = "Exercises!A:I"
+    const val RANGE = "Exercises!A:J"
 
     val HEADER_ROW: List<String> = listOf(
         "exercise_id",
@@ -19,6 +20,7 @@ object ExerciseSheetRowMapper {
         "is_custom",
         "muscle",
         "contribution",
+        "model_version",
     )
 
     fun rows(record: ExerciseSheetRecord): List<List<Any?>> = when (record) {
@@ -29,7 +31,7 @@ object ExerciseSheetRowMapper {
     fun deletion(syncId: String, updatedAt: Long): List<Any?> {
         val canonicalId = requireCanonicalSheetUuid(syncId, "exercise_id")
         requireSheetVersion(updatedAt)
-        return listOf(canonicalId, updatedAt, "true", "", "", "", "", "", "")
+        return listOf(canonicalId, updatedAt, "true", "", "", "", "", "", "", MODEL_VERSION.toString())
     }
 
     private fun snapshotRows(snapshot: ExerciseSheetRecord.Snapshot): List<List<Any?>> {
@@ -37,8 +39,8 @@ object ExerciseSheetRowMapper {
         requireSheetVersion(snapshot.updatedAt)
         require(snapshot.name.isNotBlank()) { "exercise_name не должен быть пустым" }
         snapshot.muscleLoads.forEach { (_, contribution) ->
-            require(contribution in MIN_CONTRIBUTION..MAX_CONTRIBUTION) {
-                "contribution должен быть в диапазоне 0..100"
+            require(contribution in setOf(100, 50, 0)) {
+                "contribution должен быть канонической ролью 100, 50 или 0"
             }
         }
         val base = listOf<Any?>(
@@ -50,16 +52,15 @@ object ExerciseSheetRowMapper {
             snapshot.type.name,
             snapshot.isCustom.toString(),
         )
-        if (snapshot.muscleLoads.isEmpty()) return listOf(base + listOf("", ""))
+        if (snapshot.muscleLoads.isEmpty()) return listOf(base + listOf("", "", MODEL_VERSION))
         return Muscle.entries.mapNotNull { muscle ->
             snapshot.muscleLoads[muscle]?.let { contribution ->
-                base + listOf(muscle.name, contribution)
+                base + listOf(muscle.name, contribution, MODEL_VERSION)
             }
         }
     }
 
-    private const val MIN_CONTRIBUTION = 0
-    private const val MAX_CONTRIBUTION = 100
+    const val MODEL_VERSION = 2
 }
 
 /**
@@ -79,6 +80,9 @@ object ExerciseSheetRowParser {
         var isDeleted: Boolean? = null,
         var metadata: Metadata? = null,
         var hasEmptyMarker: Boolean = false,
+        var sawLegacyRow: Boolean = false,
+        var canonicalRoles: Boolean? = null,
+        var sawLegacyChest: Boolean = false,
         val muscleLoads: MutableMap<Muscle, Int> = linkedMapOf(),
         var invalid: Boolean = false,
     ) {
@@ -88,7 +92,7 @@ object ExerciseSheetRowParser {
             isDeleted = deleted
 
             if (deleted) {
-                if (row.hasContentFrom(EXERCISE_NAME)) return reject()
+                if (row.drop(EXERCISE_NAME).take(CONTRIBUTION - EXERCISE_NAME + 1).any(String::isNotBlank)) return reject()
                 if (metadata != null || hasEmptyMarker || muscleLoads.isNotEmpty()) return reject()
                 return true
             }
@@ -102,6 +106,15 @@ object ExerciseSheetRowParser {
             metadata?.let { previous -> if (previous != incoming) return reject() }
             metadata = incoming
 
+            val version = row.sheetCell(MODEL_VERSION).takeIf(String::isNotBlank)
+            val canonical = when (version) {
+                null -> false
+                ExerciseSheetRowMapper.MODEL_VERSION.toString() -> true
+                else -> return reject()
+            }
+            canonicalRoles?.let { previous -> if (previous != canonical) return reject() }
+            canonicalRoles = canonical
+
             val muscleCell = row.sheetCell(MUSCLE)
             val contributionCell = row.sheetCell(CONTRIBUTION)
             if (muscleCell.isEmpty() && contributionCell.isEmpty()) {
@@ -110,13 +123,23 @@ object ExerciseSheetRowParser {
                 return true
             }
             if (muscleCell.isEmpty() || contributionCell.isEmpty() || hasEmptyMarker) return reject()
-            val muscle = muscleCell.toEnumOrNull<Muscle>() ?: return reject()
             val contribution = contributionCell.toSheetIntOrNull()
-                ?.takeIf { it in MIN_CONTRIBUTION..MAX_CONTRIBUTION }
-                ?: return reject()
-            val previous = muscleLoads[muscle]
-            if (previous != null && previous != contribution) return reject()
-            muscleLoads[muscle] = contribution
+                ?.takeIf { it in MIN_CONTRIBUTION..MAX_CONTRIBUTION } ?: return reject()
+            if (!canonical && contribution == 0) {
+                if (!muscleCell.equals("CHEST", true) && muscleCell.toEnumOrNull<Muscle>() == null) return reject()
+                sawLegacyRow = true
+                return true // old zero meant absent, but still denotes a valid empty snapshot
+            }
+            val loads = (if (canonical) canonicalLoads(muscleCell, contribution)
+            else legacyLoads(muscleCell, contribution)) ?: return reject()
+            if (loads.isEmpty()) {
+                return true
+            }
+            loads.forEach { (muscle, canonicalContribution) ->
+                val previous = muscleLoads[muscle]
+                if (previous != null && previous != canonicalContribution) return reject()
+                muscleLoads[muscle] = canonicalContribution
+            }
             return true
         }
 
@@ -126,7 +149,7 @@ object ExerciseSheetRowParser {
                 true -> ExerciseSheetRecord.Tombstone(syncId, updatedAt)
                 false -> {
                     val value = metadata ?: return null
-                    if (!hasEmptyMarker && muscleLoads.isEmpty()) return null
+                    if (!hasEmptyMarker && !sawLegacyRow && muscleLoads.isEmpty()) return null
                     ExerciseSheetRecord.Snapshot(
                         syncId = syncId,
                         updatedAt = updatedAt,
@@ -135,6 +158,7 @@ object ExerciseSheetRowParser {
                         type = value.type,
                         isCustom = value.isCustom,
                         muscleLoads = muscleLoads.toMap(),
+                        needsMuscleMapReview = sawLegacyChest,
                     )
                 }
                 null -> null
@@ -144,6 +168,28 @@ object ExerciseSheetRowParser {
         private fun reject(): Boolean {
             invalid = true
             return false
+        }
+
+        /** Old CHEST is input-only and is intentionally expanded before persistence. */
+        private fun legacyLoads(name: String, contribution: Int): List<Pair<Muscle, Int>>? {
+            val role = MuscleRole.fromContribution(contribution)
+                ?: MuscleRole.fromLegacyContribution(contribution)
+                ?: return if (contribution == 0 && name.equals("CHEST", ignoreCase = true)) emptyList() else null
+            if (name.equals("CHEST", ignoreCase = true)) {
+                sawLegacyChest = true
+                return listOf(
+                    Muscle.UPPER_CHEST to role.contribution,
+                    Muscle.LOWER_CHEST to role.contribution,
+                )
+            }
+            val muscle = name.toEnumOrNull<Muscle>() ?: return null
+            return listOf(muscle to role.contribution)
+        }
+
+        private fun canonicalLoads(name: String, contribution: Int): List<Pair<Muscle, Int>>? {
+            if (contribution !in setOf(100, 50, 0)) return null
+            val muscle = name.toEnumOrNull<Muscle>() ?: return null
+            return listOf(muscle to contribution)
         }
     }
 
@@ -183,6 +229,7 @@ object ExerciseSheetRowParser {
     private const val IS_CUSTOM = 6
     private const val MUSCLE = 7
     private const val CONTRIBUTION = 8
+    private const val MODEL_VERSION = 9
     private const val MIN_CONTRIBUTION = 0
     private const val MAX_CONTRIBUTION = 100
 }

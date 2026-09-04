@@ -20,7 +20,7 @@ private fun exercise(
 )
 
 /** Built-in exercise catalogue seeded on first launch. */
-val seedExercises: List<ExerciseEntity> = listOf(
+internal val legacySeedExercises: List<ExerciseEntity> = listOf(
     // CHEST
     exercise("Жим штанги лёжа", MuscleGroup.CHEST),
     exercise("Жим гантелей лёжа", MuscleGroup.CHEST),
@@ -105,3 +105,7 @@ val seedExercises: List<ExerciseEntity> = listOf(
     exercise("Турецкий подъём", MuscleGroup.FULL_BODY),
     exercise("Прыжки на тумбу", MuscleGroup.FULL_BODY),
 )
+
+/** Fresh installations always receive the reviewed canonical registry, never the legacy subset. */
+val seedExercises: List<ExerciseEntity>
+    get() = CanonicalExerciseRegistry.entries.map { it.exercise }

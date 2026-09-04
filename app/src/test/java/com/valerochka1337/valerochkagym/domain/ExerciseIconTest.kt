@@ -70,6 +70,12 @@ class ExerciseIconTest {
         assertEquals(R.drawable.ic_ex_elliptical, iconResFor(ex("Эллиптический тренажёр", MuscleGroup.CARDIO, ExerciseType.CARDIO)))
         assertEquals(R.drawable.ic_ex_rower, iconResFor(ex("Гребной тренажёр", MuscleGroup.CARDIO, ExerciseType.CARDIO)))
         assertEquals(R.drawable.ic_ex_stepper, iconResFor(ex("Степпер", MuscleGroup.CARDIO, ExerciseType.CARDIO)))
+        assertEquals(R.drawable.ic_ex_stepper, iconResFor(ex("Лестничный тренажёр", MuscleGroup.CARDIO, ExerciseType.CARDIO)))
+        assertEquals(R.drawable.ic_ex_bike, iconResFor(ex("Air bike", MuscleGroup.CARDIO, ExerciseType.CARDIO)))
+        assertEquals(R.drawable.ic_ex_rower, iconResFor(ex("SkiErg", MuscleGroup.CARDIO, ExerciseType.CARDIO)))
+        assertEquals(R.drawable.ic_ex_elliptical, iconResFor(ex("Орбитрек", MuscleGroup.CARDIO, ExerciseType.CARDIO)))
+        assertEquals(R.drawable.ic_ex_bodyweight, iconResFor(ex("Скакалка", MuscleGroup.CARDIO, ExerciseType.CARDIO)))
+        assertEquals(R.drawable.ic_ex_bodyweight, iconResFor(ex("Плавание кролем", MuscleGroup.CARDIO, ExerciseType.CARDIO)))
         assertEquals(R.drawable.ic_ex_box, iconResFor(ex("Прыжки на тумбу", MuscleGroup.FULL_BODY)))
     }
 
@@ -99,6 +105,7 @@ class ExerciseIconTest {
             R.drawable.ic_ex_elliptical,
             R.drawable.ic_ex_rower,
             R.drawable.ic_ex_stepper,
+            R.drawable.ic_ex_bodyweight,
         )
         for (exercise in seedExercises) {
             val icon = iconResFor(exercise)

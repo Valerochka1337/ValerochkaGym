@@ -3,6 +3,7 @@ package com.valerochka1337.valerochkagym.ui.exercise
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.valerochka1337.valerochkagym.data.db.CanonicalExerciseRegistry
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseDao
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseMuscleDao
 import com.valerochka1337.valerochkagym.data.db.dao.WorkoutDao
@@ -90,12 +91,14 @@ class ExerciseDetailViewModel @Inject constructor(
     fun openEditor() {
         val state = uiState.value
         val exercise = state.exercise ?: return
+        if (CanonicalExerciseRegistry.isBuiltIn(exercise)) return
         _editor.value = ExerciseEditorState(
             exerciseId = exercise.id,
             name = exercise.name,
             type = exercise.type,
             loads = state.loads.associate { it.muscle to it.contribution },
-            editableName = exercise.isCustom,
+            editableName = !CanonicalExerciseRegistry.isBuiltIn(exercise),
+            needsMuscleMapReview = exercise.needsMuscleMapReview,
         )
     }
 
@@ -112,7 +115,11 @@ class ExerciseDetailViewModel @Inject constructor(
         if (current.isSaving) return
         val exerciseId = current.exerciseId ?: return
         val trimmed = name.trim()
-        if (trimmed.isEmpty() || loads.isEmpty()) return
+        if (trimmed.isEmpty() || loads.none { it.contribution == 100 } ||
+            loads.any { it.contribution !in setOf(100, 50, 0) }) {
+            _editor.value = current.copy(saveError = "Выберите хотя бы одну основную мышцу.")
+            return
+        }
         _editor.value = current.copy(
             name = trimmed,
             type = type,
@@ -126,9 +133,14 @@ class ExerciseDetailViewModel @Inject constructor(
                 showSaveFailure()
                 return@launch
             }
+            if (CanonicalExerciseRegistry.isBuiltIn(existing)) {
+                _editor.value = null
+                return@launch
+            }
             val updated = existing.copy(
-                name = if (current.editableName) trimmed else existing.name,
+                name = trimmed,
                 type = type,
+                needsMuscleMapReview = false,
             ).withNextUpdatedAt()
             val muscleRows = loads.map { load ->
                 ExerciseMuscleEntity(exerciseId, load.muscle, load.contribution)

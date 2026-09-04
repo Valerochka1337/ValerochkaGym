@@ -27,13 +27,9 @@ class GymDatabaseCallback @Inject constructor(
         super.onOpen(db)
         scope.launch {
             val database = database.get()
-            val dao = database.exerciseDao()
-            if (dao.count() == 0) {
-                dao.insertAll(seedExercises)
-            }
-            // Карты мышц досеиваются отдельным шагом: их не хватает и после апгрейда с v2
-            // (миграция создаёт таблицу пустой), и у упражнений, созданных импортом.
-            seedMissingExerciseMuscles(dao, database.exerciseMuscleDao())
+            // The canonical catalogue is the local authority. This is idempotent and deliberately
+            // never writes gym links or fallback maps for arbitrary custom/imported exercises.
+            reconcileCanonicalExerciseCatalog(database)
         }
     }
 }

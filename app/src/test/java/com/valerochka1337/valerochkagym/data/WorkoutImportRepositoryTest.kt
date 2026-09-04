@@ -7,10 +7,13 @@ import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.mutablePreferencesOf
 import androidx.datastore.preferences.core.stringPreferencesKey
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseDao
+import com.valerochka1337.valerochkagym.data.db.CanonicalExerciseRegistry
 import com.valerochka1337.valerochkagym.data.db.PlannedSet
 import com.valerochka1337.valerochkagym.data.db.entity.BodyMeasurementEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
+import com.valerochka1337.valerochkagym.data.db.entity.ExerciseMuscleEntity
+import com.valerochka1337.valerochkagym.data.db.entity.Muscle
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleGroup
 import com.valerochka1337.valerochkagym.data.db.entity.RoutineEntity
 import com.valerochka1337.valerochkagym.data.db.entity.UploadStatus
@@ -265,6 +268,51 @@ class WorkoutImportRepositoryTest : RoomDaoTest() {
         )
 
         assertTrue(repo.importAll() is ImportResult.Failure)
+    }
+
+    @Test
+    fun `exercise import keeps registry built ins local while applying valid custom legacy rows`() = runTest {
+        val builtIn = CanonicalExerciseRegistry.entries.first().exercise.copy(updatedAt = 100)
+        val builtInId = db.exerciseDao().insert(builtIn)
+        db.exerciseMuscleDao().upsertAll(
+            listOf(ExerciseMuscleEntity(builtInId, Muscle.UPPER_CHEST, 100)),
+        )
+        val customId = "30000000-0000-0000-0000-000000000001"
+        db.exerciseDao().insert(
+            ExerciseEntity(
+                syncId = customId,
+                updatedAt = 100,
+                name = "Мой жим",
+                muscleGroup = MuscleGroup.CHEST,
+                type = ExerciseType.STRENGTH,
+                isCustom = true,
+            ),
+        )
+        val api = FakeSheetsApi(
+            sheets = mutableListOf("Exercises"),
+            valuesByRange = mapOf(
+                "Exercises!A:J" to listOf(
+                    listOf("exercise_id", "updated_at", "is_deleted", "exercise_name", "muscle_group", "type", "is_custom", "muscle", "contribution"),
+                    listOf(builtIn.syncId, "500", "false", "Удалённый builtin", "CHEST", "STRENGTH", "true", "BICEPS", "100"),
+                    listOf(customId, "200", "false", "Мой жим", "CHEST", "STRENGTH", "false", "CHEST", "65"),
+                    listOf(customId, "200", "false", "Мой жим", "CHEST", "STRENGTH", "false", "ROTATOR_CUFF", "0"),
+                    listOf("40000000-0000-0000-0000-000000000001", "300", "false", "Повреждён", "CHEST", "STRENGTH", "true", "NOT_A_MUSCLE", "100"),
+                ),
+            ),
+        )
+
+        val result = repository(api).importAll() as ImportResult.Success
+
+        assertEquals(1, result.importedExercises)
+        assertEquals(1, result.skippedRows)
+        assertEquals("${builtIn.name}", db.exerciseDao().getById(builtInId)?.name)
+        val custom = db.exerciseDao().getAllOnce().single { it.syncId == customId }
+        assertTrue(custom.isCustom)
+        assertTrue(custom.needsMuscleMapReview)
+        assertEquals(
+            mapOf(Muscle.UPPER_CHEST to 100, Muscle.LOWER_CHEST to 100),
+            db.exerciseMuscleDao().getForExercise(custom.id).associate { it.muscle to it.contribution },
+        )
     }
 
     // region helpers

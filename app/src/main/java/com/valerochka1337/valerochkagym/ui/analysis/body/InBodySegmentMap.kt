@@ -223,11 +223,12 @@ private class SegmentalParsedBody(
             val body = ParsedBody.of(view)
             SegmentalParsedBody(
                 silhouette = body.silhouette,
-                paths = body.muscles.flatMap { muscleShape ->
-                    muscleShape.paths.mapNotNull { path ->
-                        segmentFor(muscleShape.muscle, path, view, body.viewportW)?.let { segment ->
-                            SegmentPath(segment = segment, path = path)
-                        }
+                paths = body.sectors.flatMap { sectorShape ->
+                    sectorShape.paths.mapNotNull { path ->
+                        SegmentPath(
+                            segment = inBodySegmentFor(sectorShape.sector.defaultMuscle, path, view, body.viewportW),
+                            path = path,
+                        )
                     }
                 },
                 viewportW = body.viewportW,
@@ -235,44 +236,47 @@ private class SegmentalParsedBody(
             )
         }
 
-        private fun segmentFor(
-            muscle: Muscle,
-            path: Path,
-            view: BodyView,
-            viewportW: Float,
-        ): InBodySegment? = when (muscle) {
-            Muscle.FRONT_DELTS,
-            Muscle.SIDE_DELTS,
-            Muscle.REAR_DELTS,
-            Muscle.BICEPS,
-            Muscle.TRICEPS,
-            Muscle.FOREARMS,
-            -> armFor(path, view, viewportW)
-
-            Muscle.GLUTES,
-            Muscle.QUADS,
-            Muscle.HAMSTRINGS,
-            Muscle.ADDUCTORS,
-            Muscle.CALVES,
-            -> legFor(path, view, viewportW)
-
-            else -> InBodySegment.TRUNK
-        }
-
-        /** Visual left is anatomical right from the front and anatomical left from the back. */
-        private fun armFor(path: Path, view: BodyView, viewportW: Float): InBodySegment =
-            if (isAnatomicalLeft(path, view, viewportW)) InBodySegment.LEFT_ARM else InBodySegment.RIGHT_ARM
-
-        private fun legFor(path: Path, view: BodyView, viewportW: Float): InBodySegment =
-            if (isAnatomicalLeft(path, view, viewportW)) InBodySegment.LEFT_LEG else InBodySegment.RIGHT_LEG
-
-        private fun isAnatomicalLeft(path: Path, view: BodyView, viewportW: Float): Boolean {
-            val bounds = RectF()
-            path.asAndroidPath().computeBounds(bounds, true)
-            val visualLeft = bounds.centerX() < viewportW / 2f
-            return if (view == BodyView.FRONT) !visualLeft else visualLeft
-        }
     }
+}
+
+/** Stable segment classification for the body-map path that feeds InBody rendering. */
+internal fun inBodySegmentFor(
+    muscle: Muscle,
+    path: Path,
+    view: BodyView,
+    viewportW: Float,
+): InBodySegment = when (muscle) {
+    Muscle.FRONT_DELTS,
+    Muscle.SIDE_DELTS,
+    Muscle.REAR_DELTS,
+    Muscle.BICEPS,
+    Muscle.TRICEPS,
+    Muscle.FOREARMS,
+    -> armFor(path, view, viewportW)
+
+    Muscle.GLUTES,
+    Muscle.QUADS,
+    Muscle.TIBIALIS_ANTERIOR,
+    Muscle.HAMSTRINGS,
+    Muscle.ADDUCTORS,
+    Muscle.CALVES,
+    -> legFor(path, view, viewportW)
+
+    else -> InBodySegment.TRUNK
+}
+
+/** Visual left is anatomical right from the front and anatomical left from the back. */
+private fun armFor(path: Path, view: BodyView, viewportW: Float): InBodySegment =
+    if (isAnatomicalLeft(path, view, viewportW)) InBodySegment.LEFT_ARM else InBodySegment.RIGHT_ARM
+
+private fun legFor(path: Path, view: BodyView, viewportW: Float): InBodySegment =
+    if (isAnatomicalLeft(path, view, viewportW)) InBodySegment.LEFT_LEG else InBodySegment.RIGHT_LEG
+
+private fun isAnatomicalLeft(path: Path, view: BodyView, viewportW: Float): Boolean {
+    val bounds = RectF()
+    path.asAndroidPath().computeBounds(bounds, true)
+    val visualLeft = bounds.centerX() < viewportW / 2f
+    return if (view == BodyView.FRONT) !visualLeft else visualLeft
 }
 
 private val InBodySegmentMapMode.displayName: String
