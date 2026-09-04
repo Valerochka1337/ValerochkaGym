@@ -159,17 +159,20 @@ class HealthSheetsRepositoryImpl @Inject constructor(
         val bearer = "Bearer $token"
         val definition = definition(category)
         val rows = api.getValues(bearer, spreadsheetId, definition.range).values.orEmpty()
-        if (rows.isEmpty()) return // absent health sheet is a compatible legacy state
-        if (!rows.first().hasManagedPrefix(definition.header)) throw IllegalStateException("Структура листа здоровья несовместима")
         if (category == SettingCategory.HEALTH_REPORTS_AND_OBSERVATIONS) {
             val observationRows = api.getValues(bearer, spreadsheetId, "HealthObservations!A:Q").values.orEmpty()
-            if (observationRows.isEmpty()) return
+            if (rows.isEmpty() && observationRows.isEmpty()) return // fully absent aggregate is compatible
+            require(rows.isNotEmpty() && observationRows.isNotEmpty()) { "Неполный агрегат исследования" }
+            if (!rows.first().hasManagedPrefix(definition.header)) throw IllegalStateException("Структура листа здоровья несовместима")
             val header = observationRows.first()
             if (!header.hasManagedPrefix(HealthSheetRows.OBSERVATION_HEADER) &&
                 !header.hasManagedPrefix(HealthSheetRows.REPORT_VERSION_OBSERVATION_HEADER) &&
                 !header.hasManagedPrefix(HealthSheetRows.LEGACY_OBSERVATION_HEADER)
             ) throw IllegalStateException("Структура листа здоровья несовместима")
+            return
         }
+        if (rows.isEmpty()) return // absent health sheet is a compatible legacy state
+        if (!rows.first().hasManagedPrefix(definition.header)) throw IllegalStateException("Структура листа здоровья несовместима")
     }
 
     private suspend fun importInternal(category: SettingCategory, enforceSetting: Boolean): Int {
@@ -186,8 +189,6 @@ class HealthSheetsRepositoryImpl @Inject constructor(
         } catch (error: Exception) {
             if (enforceSetting) return 0 else throw error
         }
-        if (rows.isEmpty()) return 0 // An absent sheet is a compatible legacy state.
-        require(rows.first().hasManagedPrefix(definition.header)) { "Структура листа здоровья несовместима" }
         if (category == SettingCategory.HEALTH_REPORTS_AND_OBSERVATIONS) {
             val observations = Definition("HealthObservations", "HealthObservations!A:Q", "Q", HealthSheetRows.OBSERVATION_HEADER, -1)
             val observationRows = try {
@@ -197,12 +198,15 @@ class HealthSheetsRepositoryImpl @Inject constructor(
             } catch (error: Exception) {
                 if (enforceSetting) return 0 else throw error
             }
-            val observationHeader = observationRows.firstOrNull() ?: return 0
+            if (rows.isEmpty() && observationRows.isEmpty()) return 0 // Fully absent aggregate is compatible.
+            require(rows.isNotEmpty() && observationRows.isNotEmpty()) { "Неполный агрегат исследования" }
+            require(rows.first().hasManagedPrefix(definition.header)) { "Структура листа здоровья несовместима" }
+            val observationHeader = observationRows.first()
             val layout = when {
                 observationHeader.hasManagedPrefix(observations.header) -> ObservationWireLayout(reportVersion = true, sourcePage = true)
                 observationHeader.hasManagedPrefix(HealthSheetRows.REPORT_VERSION_OBSERVATION_HEADER) -> ObservationWireLayout(reportVersion = true, sourcePage = false)
                 observationHeader.hasManagedPrefix(HealthSheetRows.LEGACY_OBSERVATION_HEADER) -> ObservationWireLayout(reportVersion = false, sourcePage = false)
-                else -> return 0
+                else -> throw IllegalStateException("Структура листа здоровья несовместима")
             }
             val parsedReports = rows.drop(1).map { row ->
                 val report = parseReport(row)
@@ -233,6 +237,8 @@ class HealthSheetsRepositoryImpl @Inject constructor(
                 }
             }
         }
+        if (rows.isEmpty()) return 0 // An absent sheet is a compatible legacy state.
+        require(rows.first().hasManagedPrefix(definition.header)) { "Структура листа здоровья несовместима" }
         val restrictionRows = rows.drop(1).map { row ->
             val restriction = parseRestriction(row)
                 ?: throw IllegalStateException("Некорректная строка ограничения")

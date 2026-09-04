@@ -18,8 +18,8 @@ class Migration11To12Test {
     @After fun tearDown() { context.deleteDatabase(name) }
 
     @Test
-    fun `room recovers exact v11 variant schema preserving completed and incomplete sets`() {
-        MigrationRecoveryFixtures.createCurrentDatabase(context, name).use { sql ->
+    fun `room recovers exact v11 variant schema through v14 preserving completed and incomplete sets`() {
+        MigrationRecoveryFixtures.createV13Database(context, name).use { sql ->
             MigrationRecoveryFixtures.prepareVariantSchema(sql, version = 11, includeV11Additions = true)
             MigrationRecoveryFixtures.seedVariantData(sql)
             sql.execSQL("UPDATE exercise_variants SET selectionKey = 'narrow' WHERE id = 1")

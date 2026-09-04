@@ -747,7 +747,7 @@ If signing is unavailable, report its exact blocker. No Gradle command is run fo
 
 ## Risks, unresolved questions, rollback/data preservation
 
-No downgrade after v10; retain source rows through additive/manual migration and never use destructive
+No downgrade after v14; retain source rows through additive/manual migration and never use destructive
 fallback. Conflicts keep both payloads. Disabling sync/remote clear never deletes local history;
 Sheets cannot recover originals. Exact outbox idempotency makes lost-response retries safe.
 Unresolved but non-blocking: publication-region legal review and future secure cloud backup. Manual
@@ -761,3 +761,12 @@ checks remain real PDF/SAF cancellation, consent wording, fontScale 2.0 and loca
   B2 owns AI/files/UI/navigation. Only post-parallel finding integration can cross boundaries.
 - Contracts are frozen at Gate I before B parallelism. All and only relevant Room, worker, privacy,
   accessibility/adaptive, archive and release gates are present.
+
+## Integration addendum — current main (2026-09-04)
+
+The earlier v10/9→10 references above describe the pre-integration checkpoint and are superseded for
+shipping. `origin/main@c952680` already publishes Room v13 and app 1.3.14 (22). The final feature is
+rebased onto that commit, retains every published main migration and schema unchanged, introduces
+health through the handwritten additive `MIGRATION_13_14`, commits `14.json`, and uses app version
+1.3.15 (23). Migration acceptance is therefore 13→14 plus the existing main end-to-end paths; the
+health-only `Migration9To10Test`/`Migration1To10Test` are intentionally removed.

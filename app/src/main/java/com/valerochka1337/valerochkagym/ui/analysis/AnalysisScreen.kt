@@ -15,11 +15,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.MonitorWeight
 import androidx.compose.material3.Icon
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -82,7 +78,6 @@ internal fun AnalysisSectionSelector(
  * означал бы, что графики на экране показывают разные срезы и их нельзя сравнивать.
  */
 @Composable
-@OptIn(ExperimentalMaterial3Api::class)
 fun AnalysisScreen(
     onOpenSettings: () -> Unit,
     onOpenMeasurements: () -> Unit,
@@ -156,23 +151,13 @@ fun AnalysisScreen(
                     )
                 }
                 item {
-                    SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-                        AnalysisSection.entries.forEachIndexed { index, item ->
-                            SegmentedButton(
-                                selected = section == item,
-                                onClick = {
-                                    haptics.tap()
-                                    section = item
-                                },
-                                shape = SegmentedButtonDefaults.itemShape(
-                                    index = index,
-                                    count = AnalysisSection.entries.size,
-                                ),
-                            ) {
-                                Text(item.label)
-                            }
-                        }
-                    }
+                    AnalysisSectionSelector(
+                        selected = section,
+                        onSectionSelected = {
+                            haptics.tap()
+                            section = it
+                        },
+                    )
                 }
                 // Health is a separate primary-data surface. Its availability must not depend on
                 // completed workouts in the selected training period.

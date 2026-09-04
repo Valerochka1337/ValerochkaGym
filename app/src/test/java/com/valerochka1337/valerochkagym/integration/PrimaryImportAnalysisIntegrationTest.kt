@@ -5,6 +5,7 @@ import com.valerochka1337.valerochkagym.data.RoomDaoTest
 import com.valerochka1337.valerochkagym.data.db.entity.BodyMeasurementEntity
 import com.valerochka1337.valerochkagym.data.db.entity.UploadStatus
 import com.valerochka1337.valerochkagym.data.measurements.MeasurementRepository
+import com.valerochka1337.valerochkagym.data.settings.NoOpMuscleLoadUpgradeNotice
 import com.valerochka1337.valerochkagym.domain.analysis.AnalyticsEngine
 import com.valerochka1337.valerochkagym.domain.measurements.BodyMeasurementRowMapper
 import com.valerochka1337.valerochkagym.domain.measurements.BodyMeasurementRowParser
@@ -35,8 +36,14 @@ class PrimaryImportAnalysisIntegrationTest : RoomDaoTest() {
 
             MeasurementRepository(db).applyImported(parsed.snapshots.single())
             val viewModel = AnalysisViewModel(
-                SavedStateHandle(), db.workoutDao(), db.exerciseMuscleDao(), db.bodyMeasurementDao(), db.healthDao(),
-                AnalyticsEngine(), mainDispatcherRule.testDispatcher,
+                workoutDao = db.workoutDao(),
+                exerciseMuscleDao = db.exerciseMuscleDao(),
+                bodyMeasurementDao = db.bodyMeasurementDao(),
+                healthDao = db.healthDao(),
+                engine = AnalyticsEngine(),
+                computeDispatcher = mainDispatcherRule.testDispatcher,
+                upgradeNotice = NoOpMuscleLoadUpgradeNotice,
+                savedStateHandle = SavedStateHandle(),
             )
             val collector = launch { viewModel.uiState.collect {} }
             val state = viewModel.uiState.first { it.health.latestMeasurement?.id == "inbody" }

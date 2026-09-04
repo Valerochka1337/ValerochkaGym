@@ -133,7 +133,7 @@ class AccessibilityFoundationTest {
     }
 
     @Test
-    fun `analysis health selector stays selectable at two hundred percent text`() {
+    fun `all four analysis sections stay selectable at two hundred percent text`() {
         var minimumTargetPx = 0f
         composeRule.setContent {
             var selected by remember { mutableStateOf(AnalysisSection.OVERVIEW) }
@@ -149,6 +149,7 @@ class AccessibilityFoundationTest {
             }
         }
 
+        assertEquals(4, AnalysisSection.entries.size)
         AnalysisSection.entries.forEach { section ->
             composeRule.onNodeWithText(section.label).assertExists()
         }

@@ -488,6 +488,33 @@ class SettingsViewModelTest {
         }
 
     @Test
+    fun `incomplete health aggregate leaves category disabled before scheduling`() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val settings = settingsRepository().also { it.setHealthSyncEnabled(true) }
+            val scheduler = FakeHealthSyncScheduler()
+            val health = object : HealthSheetsRepository {
+                override suspend fun upload(entry: HealthSyncOutboxEntity) = UploadResult.Success
+                override suspend fun import(category: HealthSyncCategory) = 0
+                override suspend fun importForEnable(category: HealthSyncCategory) =
+                    HealthImportResult.Failure("Неполный агрегат исследования")
+                override suspend fun clearAfterConfirmation(category: HealthSyncCategory) =
+                    RemoteClearResult.Success(emptyList())
+            }
+            val viewModel = SettingsViewModel(
+                settings, FakeGoogleAuth(), FakeUploadScheduler(), FakeImportRepository(),
+                FakeDatabaseExporter(), FakeClearData(), healthSyncScheduler = scheduler,
+                healthSheetsRepository = health,
+            )
+
+            viewModel.setHealthSyncCategory(HealthSyncCategory.HEALTH_REPORTS_AND_OBSERVATIONS, true)
+            runCurrent()
+
+            assertFalse(settings.settings.first().healthSync.isEnabled(HealthSyncCategory.HEALTH_REPORTS_AND_OBSERVATIONS))
+            assertTrue(scheduler.categoryChanges.isEmpty())
+            assertEquals("Неполный агрегат исследования", viewModel.messages.first())
+        }
+
+    @Test
     fun `individual category imports before persistence then schedules and failure keeps it off`() =
         runTest(mainDispatcherRule.testDispatcher.scheduler) {
             val settings = settingsRepository().also { it.setHealthSyncEnabled(true) }

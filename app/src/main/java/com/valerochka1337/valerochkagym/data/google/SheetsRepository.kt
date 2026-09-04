@@ -616,6 +616,19 @@ class SheetsRepositoryImpl @Inject constructor(
     private suspend fun measurementsSheetExists(bearer: String, spreadsheetId: String): Boolean =
         api.getSpreadsheet(bearer, spreadsheetId).sheets.any { it.properties.title == MEASUREMENTS_SHEET }
 
+    /** Zero-based column index in A1 notation: 0 = A, 25 = Z, 26 = AA. */
+    private fun columnName(index: Int): String {
+        require(index >= 0)
+        var value = index + 1
+        return buildString {
+            while (value > 0) {
+                value--
+                append(('A'.code + value % 26).toChar())
+                value /= 26
+            }
+        }.reversed()
+    }
+
     private suspend fun routinesSheetExists(bearer: String, spreadsheetId: String): Boolean =
         api.getSpreadsheet(bearer, spreadsheetId).sheets.any { it.properties.title == ROUTINES_SHEET }
 
@@ -795,15 +808,11 @@ class SheetsRepositoryImpl @Inject constructor(
                 sheet = ROUTINES_SHEET,
                 headers = listOf(
                     RoutineRowMapper.HEADER_ROW to "M",
-                    RoutineRowMapper.STABLE_EXERCISE_HEADER_ROW to "L",
                     RoutineRowMapper.LEGACY_HEADER_ROW to "K",
                 ),
             ),
             ClearDefinition("Exercises", listOf(
                 com.valerochka1337.valerochkagym.domain.ExerciseSheetRowMapper.HEADER_ROW to "I",
-            )),
-            ClearDefinition("ExerciseVariants", listOf(
-                com.valerochka1337.valerochkagym.domain.ExerciseVariantSheetRowMapper.HEADER_ROW to "F",
             )),
             ClearDefinition("Gyms", listOf(
                 com.valerochka1337.valerochkagym.domain.GymSheetRowMapper.HEADER_ROW to "E",

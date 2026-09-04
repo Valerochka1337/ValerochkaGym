@@ -86,7 +86,30 @@ class HealthSheetsRepositoryTest {
         val report=HealthReportEntity("r",2,2,false,"FINAL","DOCUMENT",2,"CBC","note",1); val observation=HealthObservationEntity("o","r",3,2,false,2,"Hb","NUMBER","120","g/L","110-160","m","blood","lab","hb",2)
         api.rows["HealthReports!A:P"]=mutableListOf(HealthSheetRows.REPORT_HEADER, com.valerochka1337.valerochkagym.domain.health.HealthSheetRows.reportRow(report,"hash","r:2")); api.rows["HealthObservations!A:Q"]=mutableListOf(HealthSheetRows.OBSERVATION_HEADER, HealthSheetRows.observationRow(observation, report.version))
         val repository=HealthSheetsRepositoryImpl(api,Auth(),settings,db); assertEquals(1,repository.import(SettingCategory.HEALTH_REPORTS_AND_OBSERVATIONS)); assertEquals(report,db.healthDao().report("r")); assertEquals(listOf(observation),db.healthDao().observations("r")); assertEquals(listOf(2L),db.healthDao().reportSnapshots("r").map { it.version }); assertEquals(0,repository.import(SettingCategory.HEALTH_REPORTS_AND_OBSERVATIONS))
-        api.rows.remove("HealthObservations!A:Q"); assertEquals(0,repository.import(SettingCategory.HEALTH_REPORTS_AND_OBSERVATIONS)); assertEquals(report,db.healthDao().report("r"))
+        api.rows.remove("HealthObservations!A:Q"); assertTrue(runCatching { repository.import(SettingCategory.HEALTH_REPORTS_AND_OBSERVATIONS) }.isFailure); assertEquals(report,db.healthDao().report("r"))
+    }
+
+    @Test fun `incomplete report aggregate fails enable preflight and direct import without local writes`() = runTest {
+        val api = FakeApi()
+        val settings = SettingsRepository(Store()).also { it.setSpreadsheetId("sheet") }
+        val repository = HealthSheetsRepositoryImpl(api, Auth(), settings, db)
+        assertEquals(HealthImportResult.NothingToImport, repository.importForEnable(SettingCategory.HEALTH_REPORTS_AND_OBSERVATIONS))
+        val report = HealthReportEntity("incomplete", 1, 1, false, "FINAL", "LAB", 1, "CBC")
+        api.rows["HealthReports!A:P"] = mutableListOf(
+            HealthSheetRows.REPORT_HEADER,
+            HealthSheetRows.reportRow(report, "hash", "incomplete:1"),
+        )
+        assertTrue(repository.importForEnable(SettingCategory.HEALTH_REPORTS_AND_OBSERVATIONS) is HealthImportResult.Failure)
+        assertEquals(null, db.healthDao().report("incomplete"))
+
+        settings.setHealthSyncEnabled(true)
+        settings.setHealthSyncCategory(SettingCategory.HEALTH_REPORTS_AND_OBSERVATIONS, true)
+        assertTrue(runCatching { repository.import(SettingCategory.HEALTH_REPORTS_AND_OBSERVATIONS) }.isFailure)
+        assertEquals(null, db.healthDao().report("incomplete"))
+
+        api.rows["HealthObservations!A:Q"] = mutableListOf(HealthSheetRows.OBSERVATION_HEADER)
+        assertTrue(repository.importForEnable(SettingCategory.HEALTH_REPORTS_AND_OBSERVATIONS) is HealthImportResult.Failure)
+        assertEquals(null, db.healthDao().report("incomplete"))
     }
 
     @Test fun `observation page provenance survives exact Sheets round trip`() = runTest {

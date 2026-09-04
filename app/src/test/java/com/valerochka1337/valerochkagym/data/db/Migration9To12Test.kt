@@ -2,10 +2,10 @@ package com.valerochka1337.valerochkagym.data.db
 
 import android.content.Context
 import androidx.room.Room
+import androidx.room.testing.MigrationTestHelper
 import androidx.sqlite.db.SupportSQLiteDatabase
-import androidx.sqlite.db.SupportSQLiteOpenHelper
-import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
 import androidx.test.core.app.ApplicationProvider
+import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -15,7 +15,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
-/** Proves the shipping v9 → v10 → v12 route using the one production migration registry. */
+/** Proves the shipping v9 → v10 → v12 → v13 → v14 route using the production registry. */
 @RunWith(RobolectricTestRunner::class)
 @Config(application = android.app.Application::class)
 class Migration9To12Test {
@@ -25,8 +25,8 @@ class Migration9To12Test {
     @After fun tearDown() { context.deleteDatabase(name) }
 
     @Test
-    fun `room opens v9 data through v10 and v12 preserving base rows and sets`() {
-        MigrationRecoveryFixtures.createCurrentDatabase(context, name).use { sql ->
+    fun `room opens v9 data through v14 preserving base rows sets and health backfill`() {
+        MigrationRecoveryFixtures.createV13Database(context, name).use { sql ->
             MigrationRecoveryFixtures.prepareVariantSchema(sql, version = 9, includeV11Additions = false)
             MigrationRecoveryFixtures.seedVariantData(sql)
         }
@@ -41,21 +41,17 @@ class Migration9To12Test {
 }
 
 internal object MigrationRecoveryFixtures {
-    fun createCurrentDatabase(context: Context, name: String): SupportSQLiteDatabase {
-        Room.databaseBuilder(context, GymDatabase::class.java, name)
-            .addMigrations(*GymDatabase.ALL_MIGRATIONS)
-            .allowMainThreadQueries()
-            .build()
-            .also { it.openHelper.writableDatabase; it.close() }
-        return FrameworkSQLiteOpenHelperFactory().create(
-            SupportSQLiteOpenHelper.Configuration.builder(context)
-                .name(name)
-                .callback(object : SupportSQLiteOpenHelper.Callback(13) {
-                    override fun onCreate(db: SupportSQLiteDatabase) = Unit
-                    override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
-                })
-                .build(),
-        ).writableDatabase
+    /**
+     * The recovery fixtures start from the last published pre-health schema. They then set an
+     * older user_version only to exercise the historical variant recovery paths; Room still has
+     * to finish through v14 and validate health's v13→v14 migration.
+     */
+    fun createV13Database(context: Context, name: String): SupportSQLiteDatabase {
+        context.deleteDatabase(name)
+        return MigrationTestHelper(
+            InstrumentationRegistry.getInstrumentation(),
+            GymDatabase::class.java,
+        ).createDatabase(name, 13)
     }
 
     fun prepareVariantSchema(
@@ -127,6 +123,10 @@ internal object MigrationRecoveryFixtures {
         db.execSQL("INSERT INTO workout_exercises VALUES (11, 'active', 1, 'active-section', NULL, NULL, 1)")
         db.execSQL("INSERT INTO workout_sets VALUES (20, 10, 0, 70.0, 10, 30, 9.5, 4.0, 1, 1000)")
         db.execSQL("INSERT INTO workout_sets VALUES (21, 11, 1, 72.5, 8, 45, 8.0, 2.0, 0, NULL)")
+        db.execSQL(
+            "INSERT INTO body_measurements(id,measuredAt,weightKg,uploadStatus,uploadError) " +
+                "VALUES('legacy-measurement',999,71.5,'UPLOADED',NULL)",
+        )
     }
 
     fun openThroughProductionList(context: Context, name: String): GymDatabase =
@@ -138,7 +138,7 @@ internal object MigrationRecoveryFixtures {
     fun assertBaseOnlyRecovery(sql: SupportSQLiteDatabase) {
         sql.query("PRAGMA user_version").use { cursor ->
             assertTrue(cursor.moveToFirst())
-            assertEquals(13, cursor.getInt(0))
+            assertEquals(14, cursor.getInt(0))
         }
         sql.query("SELECT id, routineId, exerciseId, position, restSeconds, plannedSetsJson FROM routine_exercises").use { cursor ->
             assertTrue(cursor.moveToFirst())
@@ -161,6 +161,43 @@ internal object MigrationRecoveryFixtures {
         assertIndexes(sql, "workout_exercises", setOf("index_workout_exercises_workoutId", "index_workout_exercises_exerciseId", "index_workout_exercises_sectionId"))
         assertForeignKeyParents(sql, "routine_exercises", setOf("routines", "exercises"))
         assertForeignKeyParents(sql, "workout_exercises", setOf("workouts", "exercises"))
+        sql.query(
+            "SELECT afterMeal,afterWorkout,unusualHydration,conditionNote FROM body_measurements " +
+                "WHERE id = 'legacy-measurement'",
+        ).use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals(0, cursor.getInt(0))
+            assertEquals(0, cursor.getInt(1))
+            assertEquals(0, cursor.getInt(2))
+            assertTrue(cursor.isNull(3))
+        }
+        sql.query(
+            "SELECT syncId,version,updatedAt,isTombstone FROM measurement_snapshots " +
+                "WHERE syncId = 'legacy-measurement'",
+        ).use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals("legacy-measurement", cursor.getString(0))
+            assertEquals(1L, cursor.getLong(1))
+            assertEquals(999L, cursor.getLong(2))
+            assertEquals(0, cursor.getInt(3))
+        }
+        sql.query(
+            "SELECT category,syncId,version,idempotencyKey FROM health_sync_outbox " +
+                "WHERE syncId = 'legacy-measurement'",
+        ).use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals("MEASUREMENTS", cursor.getString(0))
+            assertEquals("legacy-measurement", cursor.getString(1))
+            assertEquals(1L, cursor.getLong(2))
+            assertEquals("legacy-measurement:1", cursor.getString(3))
+        }
+        sql.query(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name IN " +
+                "('health_reports','health_observations','health_restrictions','health_documents')",
+        ).use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals(4, cursor.getInt(0))
+        }
         sql.query("PRAGMA foreign_key_check").use { cursor -> assertFalse(cursor.moveToFirst()) }
     }
 

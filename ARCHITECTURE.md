@@ -60,8 +60,8 @@ di/        Hilt-модули (Data, Domain, Google, Network) и квалифик
 
 ## База данных
 
-Room v12, схемы коммитятся в `app/schemas/`, миграции только рукописные
-(`MIGRATION_1_2` … `MIGRATION_11_12`) — `fallbackToDestructiveMigration` запрещён. Замеры тела лежат отдельно в `body_measurements`: все
+Room v14, схемы коммитятся в `app/schemas/`, миграции только рукописные
+(`MIGRATION_1_2` … `MIGRATION_13_14`) — `fallbackToDestructiveMigration` запрещён. Замеры тела лежат отдельно в `body_measurements`: все
 показатели nullable (пропуск не равен нулю), а масса жира и WHR при отсутствии явного
 InBody-значения вычисляются из сохранённых показателей. В v5 добавлены фактические поля полного
 отчёта и фиксированные nullable-поля пяти сегментов; ID, пол, возраст, рост, цели контроля веса,
@@ -80,10 +80,10 @@ InBody-значения вычисляются из сохранённых по�
 в выбранный через SAF документ; очистка (`ClearDataUseCase`) стирает таблицы, пересеивает
 каталог и отменяет очередь WorkManager, не трогая настройки.
 
-В v10 `body_measurements` остаётся живой проекцией существующих ручных и InBody-замеров.
+В v14 `body_measurements` остаётся живой проекцией существующих ручных и InBody-замеров.
 Неизменяемая история `measurement_snapshots` и `health_sync_outbox` с ключом
 `(category, syncId, version)` создаются одной транзакцией с каждой правкой или tombstone.
-Миграция 9→10 backfill-ит для каждой прежней строки канонический v1 snapshot и pending outbox;
+Миграция 13→14 backfill-ит для каждой прежней строки канонический v1 snapshot и pending outbox;
 поэтому включённая позднее синхронизация не теряет legacy-историю. Равные ID+version с разным
 payload/hash никогда не разрешаются временем: обе версии остаются в `health_sync_conflicts` до
 ручного решения.

@@ -35,7 +35,6 @@ import com.valerochka1337.valerochkagym.data.measurements.MeasurementSnapshotCod
 import com.valerochka1337.valerochkagym.domain.RoutineRowMapper
 import com.valerochka1337.valerochkagym.domain.WorkoutRowMapper
 import com.valerochka1337.valerochkagym.domain.ExerciseSheetRowMapper
-import com.valerochka1337.valerochkagym.domain.ExerciseVariantSheetRowMapper
 import com.valerochka1337.valerochkagym.domain.GymSheetRowMapper
 import com.valerochka1337.valerochkagym.domain.RoutineGymsSheetRowMapper
 import com.valerochka1337.valerochkagym.domain.measurements.BodyMeasurementRowMapper
@@ -213,7 +212,6 @@ class SheetsRepositoryTest : RoomDaoTest() {
                 WORKOUTS_SHEET,
                 ROUTINES_SHEET,
                 "Exercises",
-                "ExerciseVariants",
                 "Gyms",
                 "RoutineGyms",
                 "Personal notes",
@@ -224,7 +222,6 @@ class SheetsRepositoryTest : RoomDaoTest() {
                     WORKOUTS_SHEET to (WorkoutRowMapper.HEADER_ROW + "custom_workout_column"),
                     ROUTINES_SHEET to (RoutineRowMapper.HEADER_ROW + "custom_routine_column"),
                     "Exercises" to (ExerciseSheetRowMapper.HEADER_ROW + "custom_exercise_column"),
-                    "ExerciseVariants" to ExerciseVariantSheetRowMapper.HEADER_ROW,
                     "Gyms" to GymSheetRowMapper.HEADER_ROW,
                     "RoutineGyms" to RoutineGymsSheetRowMapper.HEADER_ROW,
                 ),
@@ -239,7 +236,6 @@ class SheetsRepositoryTest : RoomDaoTest() {
                     "Workouts!A2:S",
                     "Routines!A2:M",
                     "Exercises!A2:I",
-                    "ExerciseVariants!A2:F",
                     "Gyms!A2:E",
                     "RoutineGyms!A2:D",
                 ),
@@ -251,7 +247,6 @@ class SheetsRepositoryTest : RoomDaoTest() {
                 "Workouts!A2:S",
                 "Routines!A2:M",
                 "Exercises!A2:I",
-                "ExerciseVariants!A2:F",
                 "Gyms!A2:E",
                 "RoutineGyms!A2:D",
             ),
@@ -262,9 +257,9 @@ class SheetsRepositoryTest : RoomDaoTest() {
 
     @Test
     fun `incompatible configuration header prevents every destructive clear`() = runTest {
-        val api = FakeSheetsApi(sheets = mutableListOf(WORKOUTS_SHEET, "ExerciseVariants")).apply {
+        val api = FakeSheetsApi(sheets = mutableListOf(WORKOUTS_SHEET, "Exercises")).apply {
             sheetHeaders[WORKOUTS_SHEET] = WorkoutRowMapper.HEADER_ROW
-            sheetHeaders["ExerciseVariants"] = listOf("user_owned", "column")
+            sheetHeaders["Exercises"] = listOf("user_owned", "column")
         }
 
         assertTrue(repository(api).clearWorkoutsAndConfigurationAfterConfirmation() is RemoteClearResult.Failure)
@@ -285,15 +280,6 @@ class SheetsRepositoryTest : RoomDaoTest() {
         )
         assertEquals(listOf("Workouts!A2:N", "Routines!A2:K"), api.clears)
         assertTrue(api.addedSheets.isEmpty())
-
-        val stableRoutine = FakeSheetsApi(sheets = mutableListOf(ROUTINES_SHEET)).apply {
-            sheetHeaders[ROUTINES_SHEET] = RoutineRowMapper.STABLE_EXERCISE_HEADER_ROW + "user_column"
-        }
-        assertEquals(
-            RemoteClearResult.Success(listOf("Routines!A2:L")),
-            repository(stableRoutine).clearWorkoutsAndConfigurationAfterConfirmation(),
-        )
-        assertEquals(listOf("Routines!A2:L"), stableRoutine.clears)
 
         val absent = FakeSheetsApi()
         assertEquals(
@@ -331,11 +317,12 @@ class SheetsRepositoryTest : RoomDaoTest() {
     }
 
     @Test fun `configuration clear revalidates a changed third header before destructive request`() = runTest {
-        val api = FakeSheetsApi(sheets = mutableListOf(WORKOUTS_SHEET, ROUTINES_SHEET, "Exercises", "ExerciseVariants")).apply {
+        val api = FakeSheetsApi(sheets = mutableListOf(WORKOUTS_SHEET, ROUTINES_SHEET, "Exercises", "Gyms", "RoutineGyms")).apply {
             sheetHeaders[WORKOUTS_SHEET] = WorkoutRowMapper.HEADER_ROW
             sheetHeaders[ROUTINES_SHEET] = RoutineRowMapper.HEADER_ROW
             sheetHeaders["Exercises"] = ExerciseSheetRowMapper.HEADER_ROW
-            sheetHeaders["ExerciseVariants"] = ExerciseVariantSheetRowMapper.HEADER_ROW
+            sheetHeaders["Gyms"] = GymSheetRowMapper.HEADER_ROW
+            sheetHeaders["RoutineGyms"] = RoutineGymsSheetRowMapper.HEADER_ROW
             mutateHeaderAfterClear = 1 to ("Exercises" to listOf("user_owned", "column"))
         }
 
@@ -344,7 +331,7 @@ class SheetsRepositoryTest : RoomDaoTest() {
                 "Заголовок листа Exercises изменён вручную — очистка отменена",
                 clearedRanges = listOf("Workouts!A2:S", "Routines!A2:M"),
                 failedRange = "Exercises!A2:I",
-                remainingRanges = listOf("ExerciseVariants!A2:F"),
+                remainingRanges = listOf("Gyms!A2:E", "RoutineGyms!A2:D"),
             ),
             repository(api).clearWorkoutsAndConfigurationAfterConfirmation(),
         )
@@ -428,6 +415,7 @@ class SheetsRepositoryTest : RoomDaoTest() {
         assertEquals(14, inserted.range.startIndex)
         assertEquals(BodyMeasurementRowMapper.HEADER_ROW.size, inserted.range.endIndex)
         assertEquals(listOf(listOf(BodyMeasurementRowMapper.HEADER_ROW.drop(14))), api.headerUpdates)
+        assertEquals(listOf("Measurements!O1:AY1"), api.updateRanges)
         assertEquals(MEASUREMENT_APPEND_RANGE, api.appendRanges.single())
         assertEquals(1, api.appended.single().size)
         assertEquals(MEASUREMENT_ID, api.appended.single().single().first())
@@ -449,6 +437,9 @@ class SheetsRepositoryTest : RoomDaoTest() {
         assertEquals(42, inserted.range.startIndex)
         assertEquals(51, inserted.range.endIndex)
         assertEquals(listOf(listOf(BodyMeasurementRowMapper.HEADER_ROW.drop(42))), api.headerUpdates)
+        assertEquals(listOf("Measurements!AQ1:AY1"), api.updateRanges)
+        assertEquals(BodyMeasurementRowMapper.HEADER_ROW, api.currentMeasurementHeader().take(51))
+        assertEquals("my_user_column", api.currentMeasurementHeader()[51])
     }
 
     @Test
@@ -466,6 +457,9 @@ class SheetsRepositoryTest : RoomDaoTest() {
         assertEquals(47, inserted.range.startIndex)
         assertEquals(51, inserted.range.endIndex)
         assertEquals(listOf(listOf(BodyMeasurementRowMapper.HEADER_ROW.takeLast(4))), api.headerUpdates)
+        assertEquals(listOf("Measurements!AV1:AY1"), api.updateRanges)
+        assertEquals(BodyMeasurementRowMapper.HEADER_ROW, api.currentMeasurementHeader().take(51))
+        assertEquals("my_user_column", api.currentMeasurementHeader()[51])
     }
 
     @Test
@@ -940,12 +934,15 @@ class SheetsRepositoryTest : RoomDaoTest() {
         val addedSheets = mutableListOf<SheetPropertiesDto>()
         val insertedDimensions = mutableListOf<com.valerochka1337.valerochkagym.data.google.InsertDimensionDto>()
         val headerUpdates = mutableListOf<List<List<String>>>()
+        val updateRanges = mutableListOf<String>()
         val clears = mutableListOf<String>()
         val sheetHeaders = mutableMapOf<String, List<String>>()
         var failClearAt: Int? = null
         var mutateHeaderAfterClear: Pair<Int, Pair<String, List<String>>>? = null
         var batchUpdateCount: Int = 0
             private set
+
+        fun currentMeasurementHeader(): List<String> = measurementHeader.toList()
 
         override suspend fun getSpreadsheet(bearer: String, spreadsheetId: String, fields: String): SpreadsheetDto {
             failGetSpreadsheet?.let { throw it }
@@ -1036,6 +1033,7 @@ class SheetsRepositoryTest : RoomDaoTest() {
         ): JsonElement {
             val rows = body.values.map { row -> (row as JsonArray).map { (it as JsonPrimitive).content } }
             headerUpdates += rows
+            updateRanges += range
             if (range.startsWith("Routines!") && rows.singleOrNull() != null && routineRows.isNotEmpty()) {
                 routineRows[0] = RoutineRowMapper.HEADER_ROW
             }
