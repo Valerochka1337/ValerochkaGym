@@ -34,14 +34,14 @@ import org.robolectric.annotation.GraphicsMode
 @Config(application = Application::class, qualifiers = "w420dp-h4000dp-xhdpi")
 class ActiveWorkoutScreenTest {
 
-    @get:Rule
-    val composeRule = createComposeRule()
+  @get:Rule val composeRule = createComposeRule()
 
-    @Test
-    fun `one completion button follows the focused set`() {
-        val workout = mutableStateOf(workoutWithIncompleteExercises())
-        val completedSetIds = mutableListOf<Long>()
-        val actions = SetActions(
+  @Test
+  fun `one completion button follows the focused set`() {
+    val workout = mutableStateOf(workoutWithIncompleteExercises())
+    val completedSetIds = mutableListOf<Long>()
+    val actions =
+        SetActions(
             stepWeight = { _, _ -> },
             stepReps = { _, _ -> },
             stepDuration = { _, _ -> },
@@ -53,108 +53,133 @@ class ActiveWorkoutScreenTest {
             setSpeed = { _, _ -> },
             setIncline = { _, _ -> },
             complete = { setId ->
-                completedSetIds += setId
-                workout.value = workout.value.markSetCompleted(setId)
+              completedSetIds += setId
+              workout.value = workout.value.markSetCompleted(setId)
             },
             uncomplete = { _ -> },
             addSet = { _ -> },
             deleteSet = { _ -> },
         )
 
-        composeRule.setContent {
-            GymTheme {
-                ActiveWorkoutContent(
-                    state = ActiveWorkoutUiState(loading = false, workout = workout.value),
-                    elapsedSeconds = MutableStateFlow(0L),
-                    restTimer = MutableStateFlow<RestTimerState?>(null),
-                    heartRateState = MutableStateFlow<HeartRateConnectionState>(
-                        HeartRateConnectionState.Idle,
-                    ),
-                    heartRateReading = MutableStateFlow<HeartRateReading?>(null),
-                    setActions = actions,
-                    onDeleteExercise = {},
-                    onReorderExercises = {},
-                    onAddExercise = {},
-                    onExerciseClick = {},
-                    onFinish = {},
-                    onDiscard = {},
-                    onAddRestSeconds = {},
-                    onSkipRest = {},
-                    onScanHeartRate = {},
-                    onConnectHeartRate = {},
-                    onCancelHeartRateSelection = {},
+    composeRule.setContent {
+      GymTheme {
+        ActiveWorkoutContent(
+            state = ActiveWorkoutUiState(loading = false, workout = workout.value),
+            elapsedSeconds = MutableStateFlow(0L),
+            restTimer = MutableStateFlow<RestTimerState?>(null),
+            heartRateState =
+                MutableStateFlow<HeartRateConnectionState>(
+                    HeartRateConnectionState.Idle,
+                ),
+            heartRateReading = MutableStateFlow<HeartRateReading?>(null),
+            setActions = actions,
+            onDeleteExercise = {},
+            onReorderExercises = {},
+            onAddExercise = {},
+            onExerciseClick = {},
+            onFinish = {},
+            onDiscard = {},
+            onAddRestSeconds = {},
+            onSkipRest = {},
+            onScanHeartRate = {},
+            onConnectHeartRate = {},
+            onCancelHeartRateSelection = {},
+        )
+      }
+    }
+
+    completeFocusedSet()
+    assertEquals(listOf(FIRST_SET_ID), completedSetIds)
+
+    completeFocusedSet()
+    assertEquals(listOf(FIRST_SET_ID, SECOND_SET_ID), completedSetIds)
+
+    completeFocusedSet()
+    assertEquals(listOf(FIRST_SET_ID, SECOND_SET_ID, THIRD_SET_ID), completedSetIds)
+    composeRule.onAllNodesWithText("Подход выполнен").assertCountEquals(0)
+  }
+
+  private fun completeFocusedSet() {
+    composeRule.onAllNodesWithText("Подход выполнен").assertCountEquals(1)
+    composeRule.onNodeWithText("Подход выполнен").performClick()
+    composeRule.waitForIdle()
+  }
+
+  private fun workoutWithIncompleteExercises(): WorkoutFull =
+      WorkoutFull(
+          workout = WorkoutEntity(id = "active", name = "Тестовая тренировка", startedAt = 0L),
+          exercises =
+              listOf(
+                  exercise(
+                      position = 0,
+                      workoutExerciseId = 11L,
+                      setId = FIRST_SET_ID,
+                      name = "Жим лёжа",
+                  ),
+                  exercise(
+                      position = 1,
+                      workoutExerciseId = 12L,
+                      setId = SECOND_SET_ID,
+                      name = "Тяга блока",
+                  ),
+                  exercise(
+                      position = 2,
+                      workoutExerciseId = 13L,
+                      setId = THIRD_SET_ID,
+                      name = "Присед",
+                  ),
+              ),
+      )
+
+  private fun exercise(
+      position: Int,
+      workoutExerciseId: Long,
+      setId: Long,
+      name: String,
+  ): WorkoutExerciseWithSets =
+      WorkoutExerciseWithSets(
+          workoutExercise =
+              WorkoutExerciseEntity(
+                  id = workoutExerciseId,
+                  workoutId = "active",
+                  exerciseId = workoutExerciseId + 100L,
+                  position = position,
+              ),
+          exercise =
+              ExerciseEntity(
+                  id = workoutExerciseId + 100L,
+                  name = name,
+                  muscleGroup = MuscleGroup.CHEST,
+                  type = ExerciseType.STRENGTH,
+              ),
+          sets =
+              listOf(
+                  WorkoutSetEntity(
+                      id = setId,
+                      workoutExerciseId = workoutExerciseId,
+                      setIndex = 0,
+                      weightKg = 60.0,
+                      reps = 8,
+                  ),
+              ),
+      )
+
+  private fun WorkoutFull.markSetCompleted(setId: Long): WorkoutFull =
+      copy(
+          exercises =
+              exercises.map { exercise ->
+                exercise.copy(
+                    sets =
+                        exercise.sets.map { set ->
+                          if (set.id == setId) set.copy(isCompleted = true) else set
+                        },
                 )
-            }
-        }
+              },
+      )
 
-        completeFocusedSet()
-        assertEquals(listOf(FIRST_SET_ID), completedSetIds)
-
-        completeFocusedSet()
-        assertEquals(listOf(FIRST_SET_ID, SECOND_SET_ID), completedSetIds)
-
-        completeFocusedSet()
-        assertEquals(listOf(FIRST_SET_ID, SECOND_SET_ID, THIRD_SET_ID), completedSetIds)
-        composeRule.onAllNodesWithText("Подход выполнен").assertCountEquals(0)
-    }
-
-    private fun completeFocusedSet() {
-        composeRule.onAllNodesWithText("Подход выполнен").assertCountEquals(1)
-        composeRule.onNodeWithText("Подход выполнен").performClick()
-        composeRule.waitForIdle()
-    }
-
-    private fun workoutWithIncompleteExercises(): WorkoutFull = WorkoutFull(
-        workout = WorkoutEntity(id = "active", name = "Тестовая тренировка", startedAt = 0L),
-        exercises = listOf(
-            exercise(position = 0, workoutExerciseId = 11L, setId = FIRST_SET_ID, name = "Жим лёжа"),
-            exercise(position = 1, workoutExerciseId = 12L, setId = SECOND_SET_ID, name = "Тяга блока"),
-            exercise(position = 2, workoutExerciseId = 13L, setId = THIRD_SET_ID, name = "Присед"),
-        ),
-    )
-
-    private fun exercise(
-        position: Int,
-        workoutExerciseId: Long,
-        setId: Long,
-        name: String,
-    ): WorkoutExerciseWithSets = WorkoutExerciseWithSets(
-        workoutExercise = WorkoutExerciseEntity(
-            id = workoutExerciseId,
-            workoutId = "active",
-            exerciseId = workoutExerciseId + 100L,
-            position = position,
-        ),
-        exercise = ExerciseEntity(
-            id = workoutExerciseId + 100L,
-            name = name,
-            muscleGroup = MuscleGroup.CHEST,
-            type = ExerciseType.STRENGTH,
-        ),
-        sets = listOf(
-            WorkoutSetEntity(
-                id = setId,
-                workoutExerciseId = workoutExerciseId,
-                setIndex = 0,
-                weightKg = 60.0,
-                reps = 8,
-            ),
-        ),
-    )
-
-    private fun WorkoutFull.markSetCompleted(setId: Long): WorkoutFull = copy(
-        exercises = exercises.map { exercise ->
-            exercise.copy(
-                sets = exercise.sets.map { set ->
-                    if (set.id == setId) set.copy(isCompleted = true) else set
-                },
-            )
-        },
-    )
-
-    private companion object {
-        const val FIRST_SET_ID = 101L
-        const val SECOND_SET_ID = 102L
-        const val THIRD_SET_ID = 103L
-    }
+  private companion object {
+    const val FIRST_SET_ID = 101L
+    const val SECOND_SET_ID = 102L
+    const val THIRD_SET_ID = 103L
+  }
 }

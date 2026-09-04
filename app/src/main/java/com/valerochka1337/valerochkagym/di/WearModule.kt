@@ -10,11 +10,12 @@ import javax.inject.Singleton
 
 @Module
 @InstallIn(SingletonComponent::class)
+@Suppress("unused")
 abstract class WearModule {
 
-    @Binds
-    @Singleton
-    abstract fun bindWearableTransport(
-        impl: XiaomiWearTransport,
-    ): WearableTransport
+  @Binds
+  @Singleton
+  abstract fun bindWearableTransport(
+      impl: XiaomiWearTransport,
+  ): WearableTransport
 }

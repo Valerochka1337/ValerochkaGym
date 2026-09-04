@@ -3,18 +3,19 @@ import org.gradle.api.tasks.testing.logging.TestExceptionFormat
 import org.gradle.api.tasks.testing.logging.TestLogEvent
 
 plugins {
-    alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.compose)
-    alias(libs.plugins.kotlin.serialization)
-    alias(libs.plugins.ksp)
-    alias(libs.plugins.hilt)
-    alias(libs.plugins.room)
+  alias(libs.plugins.android.application)
+  alias(libs.plugins.kotlin.compose)
+  alias(libs.plugins.kotlin.serialization)
+  alias(libs.plugins.ksp)
+  alias(libs.plugins.hilt)
+  alias(libs.plugins.room)
 }
 
 val localKeystoreProperties = Properties()
 val localKeystorePropertiesFile = rootProject.file("keystore.properties")
+
 if (localKeystorePropertiesFile.isFile) {
-    localKeystorePropertiesFile.inputStream().use { localKeystoreProperties.load(it) }
+  localKeystorePropertiesFile.inputStream().use { localKeystoreProperties.load(it) }
 }
 
 fun releaseSigningValue(environmentVariable: String, propertyName: String): String? =
@@ -60,8 +61,8 @@ android {
         applicationId = "com.valerochka1337.valerochkagym"
         minSdk = 36
         targetSdk = 37
-        versionCode = testVersionCode ?: 22
-        versionName = testVersionName ?: "1.3.14"
+        versionCode = testVersionCode ?: 21
+        versionName = testVersionName ?: "1.3.13"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

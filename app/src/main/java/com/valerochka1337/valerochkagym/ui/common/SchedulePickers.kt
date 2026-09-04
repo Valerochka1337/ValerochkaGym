@@ -25,19 +25,17 @@ import java.time.ZoneOffset
 
 /**
  * Собирает момент начала из даты (UTC-полночь, как отдаёт M3 DatePicker) и времени из TimePicker.
- * Берём [java.time.LocalDate] из UTC-полуночи, добавляем локальное время и переводим в зону устройства.
+ * Берём [java.time.LocalDate] из UTC-полуночи, добавляем локальное время и переводим в зону
+ * устройства.
  */
 internal fun combineToMillis(utcMidnightMillis: Long, hour: Int, minute: Int): Long {
-    val localDate = Instant.ofEpochMilli(utcMidnightMillis).atZone(ZoneOffset.UTC).toLocalDate()
-    return localDate.atTime(hour, minute)
-        .atZone(ZoneId.systemDefault())
-        .toInstant()
-        .toEpochMilli()
+  val localDate = Instant.ofEpochMilli(utcMidnightMillis).atZone(ZoneOffset.UTC).toLocalDate()
+  return localDate.atTime(hour, minute).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
 }
 
 /**
- * Диалог выбора времени начала (24 часа). По умолчанию — текущее время. Общий пикер для планирования
- * ad-hoc тренировки в календаре и редактора недельного расписания.
+ * Диалог выбора времени начала (24 часа). По умолчанию — текущее время. Общий пикер для
+ * планирования ad-hoc тренировки в календаре и редактора недельного расписания.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -47,41 +45,38 @@ internal fun ScheduleTimePickerDialog(
     onConfirm: (Int, Int) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val now = remember { LocalTime.now() }
-    val state = rememberTimePickerState(
-        initialHour = initialHour ?: now.hour,
-        initialMinute = initialMinute ?: now.minute,
-        is24Hour = true,
-    )
-    Dialog(onDismissRequest = onDismiss) {
-        Surface(
-            shape = MaterialTheme.shapes.extraLarge,
-            tonalElevation = 6.dp,
-            color = MaterialTheme.colorScheme.surface,
+  val now = remember { LocalTime.now() }
+  val state =
+      rememberTimePickerState(
+          initialHour = initialHour ?: now.hour,
+          initialMinute = initialMinute ?: now.minute,
+          is24Hour = true,
+      )
+  Dialog(onDismissRequest = onDismiss) {
+    Surface(
+        shape = MaterialTheme.shapes.extraLarge,
+        tonalElevation = 6.dp,
+        color = MaterialTheme.colorScheme.surface,
+    ) {
+      Column(
+          modifier = Modifier.padding(24.dp),
+          horizontalAlignment = Alignment.CenterHorizontally,
+      ) {
+        Text(
+            text = "Время начала",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.fillMaxWidth().padding(bottom = 20.dp),
+        )
+        TimePicker(state = state)
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+            horizontalArrangement = Arrangement.End,
         ) {
-            Column(
-                modifier = Modifier.padding(24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Text(
-                    text = "Время начала",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.fillMaxWidth().padding(bottom = 20.dp),
-                )
-                TimePicker(state = state)
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                    horizontalArrangement = Arrangement.End,
-                ) {
-                    TextButton(onClick = onDismiss) {
-                        Text("Отмена")
-                    }
-                    TextButton(onClick = { onConfirm(state.hour, state.minute) }) {
-                        Text("Готово")
-                    }
-                }
-            }
+          TextButton(onClick = onDismiss) { Text("Отмена") }
+          TextButton(onClick = { onConfirm(state.hour, state.minute) }) { Text("Готово") }
         }
+      }
     }
+  }
 }

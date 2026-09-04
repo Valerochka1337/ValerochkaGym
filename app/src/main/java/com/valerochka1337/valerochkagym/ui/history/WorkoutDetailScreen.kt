@@ -49,14 +49,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.valerochka1337.valerochkagym.ui.components.UploadStatusBadge
 import com.valerochka1337.valerochkagym.data.db.entity.UploadStatus
 import com.valerochka1337.valerochkagym.domain.muscleGroupFrom
 import com.valerochka1337.valerochkagym.ui.components.ExerciseAvatar
 import com.valerochka1337.valerochkagym.ui.components.GlowBackground
-import com.valerochka1337.valerochkagym.ui.components.LoadingState
 import com.valerochka1337.valerochkagym.ui.components.GymCard
+import com.valerochka1337.valerochkagym.ui.components.LoadingState
 import com.valerochka1337.valerochkagym.ui.components.SaveWorkoutAsProgramDialog
+import com.valerochka1337.valerochkagym.ui.components.UploadStatusBadge
 import com.valerochka1337.valerochkagym.ui.haptics.gymHaptics
 
 /**
@@ -71,128 +71,118 @@ fun WorkoutDetailScreen(
     modifier: Modifier = Modifier,
     viewModel: WorkoutDetailViewModel = hiltViewModel(),
 ) {
-    val state by viewModel.uiState.collectAsStateWithLifecycle()
-    var showDeleteDialog by rememberSaveable { mutableStateOf(false) }
-    val haptics = gymHaptics()
-    val snackbarHostState = remember { SnackbarHostState() }
+  val state by viewModel.uiState.collectAsStateWithLifecycle()
+  var showDeleteDialog by rememberSaveable { mutableStateOf(false) }
+  val haptics = gymHaptics()
+  val snackbarHostState = remember { SnackbarHostState() }
 
-    LaunchedEffect(Unit) {
-        viewModel.deleteEvents.collect { onBack() }
+  LaunchedEffect(Unit) { viewModel.deleteEvents.collect { onBack() } }
+  LaunchedEffect(Unit) {
+    viewModel.saveEvents.collect {
+      haptics.success()
+      snackbarHostState.showSnackbar("Программа сохранена")
     }
-    LaunchedEffect(Unit) {
-        viewModel.saveEvents.collect {
-            haptics.success()
-            snackbarHostState.showSnackbar("Программа сохранена")
+  }
+
+  GlowBackground(modifier = modifier) {
+    Box(modifier = Modifier.fillMaxSize()) {
+      Column(modifier = Modifier.fillMaxSize()) {
+        DetailHeader(
+            name = state.name,
+            dateTime = state.dateTime,
+            onBack = onBack,
+            canSaveAsProgram = state.canSaveAsProgram,
+            onSaveAsProgram = {
+              haptics.tap()
+              viewModel.openSaveAsProgram()
+            },
+            onDelete = { showDeleteDialog = true },
+        )
+
+        if (state.loading) {
+          LoadingState(label = "Загружаем тренировку…")
+          return@GlowBackground
         }
-    }
 
-    GlowBackground(modifier = modifier) {
-        Box(modifier = Modifier.fillMaxSize()) {
-            Column(modifier = Modifier.fillMaxSize()) {
-            DetailHeader(
-                name = state.name,
-                dateTime = state.dateTime,
-                onBack = onBack,
-                canSaveAsProgram = state.canSaveAsProgram,
-                onSaveAsProgram = {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = 4.dp, bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+          item { SummaryCard(duration = state.duration, volume = state.volume) }
+
+          item {
+            UploadCard(
+                status = state.uploadStatus,
+                error = state.uploadError,
+                onRetry = viewModel::retryUpload,
+            )
+          }
+
+          if (state.exercises.isNotEmpty()) {
+            item {
+              Text(
+                  text = "Упражнения",
+                  style = MaterialTheme.typography.titleMedium,
+                  fontWeight = FontWeight.SemiBold,
+                  color = MaterialTheme.colorScheme.onBackground,
+              )
+            }
+            items(state.exercises, key = { it.id }) { exercise ->
+              ExerciseCard(
+                  exercise = exercise,
+                  onClick = {
                     haptics.tap()
-                    viewModel.openSaveAsProgram()
-                },
-                onDelete = { showDeleteDialog = true },
-            )
-
-            if (state.loading) {
-                LoadingState(label = "Загружаем тренировку…")
-                return@GlowBackground
+                    onExerciseClick(exercise.exerciseId)
+                  },
+                  modifier = Modifier.animateItem(),
+              )
             }
+          }
 
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = 4.dp, bottom = 24.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                item {
-                    SummaryCard(duration = state.duration, volume = state.volume)
-                }
-
-                item {
-                    UploadCard(
-                        status = state.uploadStatus,
-                        error = state.uploadError,
-                        onRetry = viewModel::retryUpload,
-                    )
-                }
-
-                if (state.exercises.isNotEmpty()) {
-                    item {
-                        Text(
-                            text = "Упражнения",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onBackground,
-                        )
-                    }
-                    items(state.exercises, key = { it.id }) { exercise ->
-                        ExerciseCard(
-                            exercise = exercise,
-                            onClick = {
-                                haptics.tap()
-                                onExerciseClick(exercise.exerciseId)
-                            },
-                            modifier = Modifier.animateItem(),
-                        )
-                    }
-                }
-
-                if (state.note.isNotBlank()) {
-                    item {
-                        NoteCard(note = state.note)
-                    }
-                }
-            }
-            }
-            SnackbarHost(
-                hostState = snackbarHostState,
-                modifier = Modifier.align(Alignment.BottomCenter),
-            )
+          if (state.note.isNotBlank()) {
+            item { NoteCard(note = state.note) }
+          }
         }
+      }
+      SnackbarHost(
+          hostState = snackbarHostState,
+          modifier = Modifier.align(Alignment.BottomCenter),
+      )
     }
+  }
 
-    if (showDeleteDialog) {
-        AlertDialog(
-            onDismissRequest = { showDeleteDialog = false },
-            title = { Text("Удалить тренировку?") },
-            text = { Text("Тренировка будет удалена без возможности восстановления.") },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        showDeleteDialog = false
-                        viewModel.delete()
-                    },
-                ) {
-                    Text("Удалить")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showDeleteDialog = false }) {
-                    Text("Отмена")
-                }
-            },
-        )
-    }
-    if (state.showSaveAsProgramDialog) {
-        SaveWorkoutAsProgramDialog(
-            name = state.saveAsProgramName,
-            isSaving = state.isSavingAsProgram,
-            error = state.saveAsProgramError,
-            onNameChange = viewModel::changeSaveAsProgramName,
-            onConfirm = {
-                haptics.tap()
-                viewModel.confirmSaveAsProgram()
-            },
-            onDismiss = viewModel::dismissSaveAsProgram,
-        )
-    }
+  if (showDeleteDialog) {
+    AlertDialog(
+        onDismissRequest = { showDeleteDialog = false },
+        title = { Text("Удалить тренировку?") },
+        text = { Text("Тренировка будет удалена без возможности восстановления.") },
+        confirmButton = {
+          TextButton(
+              onClick = {
+                showDeleteDialog = false
+                viewModel.delete()
+              },
+          ) {
+            Text("Удалить")
+          }
+        },
+        dismissButton = { TextButton(onClick = { showDeleteDialog = false }) { Text("Отмена") } },
+    )
+  }
+  if (state.showSaveAsProgramDialog) {
+    SaveWorkoutAsProgramDialog(
+        name = state.saveAsProgramName,
+        isSaving = state.isSavingAsProgram,
+        error = state.saveAsProgramError,
+        onNameChange = viewModel::changeSaveAsProgramName,
+        onConfirm = {
+          haptics.tap()
+          viewModel.confirmSaveAsProgram()
+        },
+        onDismiss = viewModel::dismissSaveAsProgram,
+    )
+  }
 }
 
 @Composable
@@ -204,60 +194,60 @@ private fun DetailHeader(
     onSaveAsProgram: () -> Unit,
     onDelete: () -> Unit,
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(start = 8.dp, end = 8.dp, top = 12.dp, bottom = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        IconButton(onClick = onBack) {
-            Icon(
-                Icons.AutoMirrored.Filled.ArrowBack,
-                contentDescription = "Назад",
-                tint = MaterialTheme.colorScheme.onBackground,
-            )
-        }
-        Spacer(Modifier.width(4.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = name,
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onBackground,
-            )
-            if (dateTime.isNotEmpty()) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        Icons.Rounded.CalendarMonth,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(16.dp),
-                    )
-                    Spacer(Modifier.width(6.dp))
-                    Text(
-                        text = dateTime,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-        }
-        if (canSaveAsProgram) {
-            TextButton(
-                onClick = onSaveAsProgram,
-                modifier = Modifier.semantics { contentDescription = "Сохранить тренировку как программу" },
-            ) {
-                Text("Сохранить")
-            }
-        }
-        IconButton(onClick = onDelete) {
-            Icon(
-                Icons.Default.Delete,
-                contentDescription = "Удалить тренировку",
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
+  Row(
+      modifier =
+          Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, top = 12.dp, bottom = 8.dp),
+      verticalAlignment = Alignment.CenterVertically,
+  ) {
+    IconButton(onClick = onBack) {
+      Icon(
+          Icons.AutoMirrored.Filled.ArrowBack,
+          contentDescription = "Назад",
+          tint = MaterialTheme.colorScheme.onBackground,
+      )
     }
+    Spacer(Modifier.width(4.dp))
+    Column(modifier = Modifier.weight(1f)) {
+      Text(
+          text = name,
+          style = MaterialTheme.typography.headlineSmall,
+          fontWeight = FontWeight.SemiBold,
+          color = MaterialTheme.colorScheme.onBackground,
+      )
+      if (dateTime.isNotEmpty()) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+          Icon(
+              Icons.Rounded.CalendarMonth,
+              contentDescription = null,
+              tint = MaterialTheme.colorScheme.onSurfaceVariant,
+              modifier = Modifier.size(16.dp),
+          )
+          Spacer(Modifier.width(6.dp))
+          Text(
+              text = dateTime,
+              style = MaterialTheme.typography.bodyMedium,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
+          )
+        }
+      }
+    }
+    if (canSaveAsProgram) {
+      TextButton(
+          onClick = onSaveAsProgram,
+          modifier =
+              Modifier.semantics { contentDescription = "Сохранить тренировку как программу" },
+      ) {
+        Text("Сохранить")
+      }
+    }
+    IconButton(onClick = onDelete) {
+      Icon(
+          Icons.Default.Delete,
+          contentDescription = "Удалить тренировку",
+          tint = MaterialTheme.colorScheme.onSurfaceVariant,
+      )
+    }
+  }
 }
 
 @Composable
@@ -265,25 +255,25 @@ private fun SummaryCard(
     duration: String,
     volume: String?,
 ) {
-    GymCard(
-        modifier = Modifier.fillMaxWidth(),
-        contentPadding = PaddingValues(20.dp),
-    ) {
-        Row(modifier = Modifier.fillMaxWidth()) {
-            StatTile(
-                icon = Icons.Rounded.Timer,
-                contentDescription = "Длительность",
-                value = duration,
-                modifier = Modifier.weight(1f),
-            )
-            StatTile(
-                icon = Icons.Rounded.FitnessCenter,
-                contentDescription = "Объём",
-                value = volume ?: "—",
-                modifier = Modifier.weight(1f),
-            )
-        }
+  GymCard(
+      modifier = Modifier.fillMaxWidth(),
+      contentPadding = PaddingValues(20.dp),
+  ) {
+    Row(modifier = Modifier.fillMaxWidth()) {
+      StatTile(
+          icon = Icons.Rounded.Timer,
+          contentDescription = "Длительность",
+          value = duration,
+          modifier = Modifier.weight(1f),
+      )
+      StatTile(
+          icon = Icons.Rounded.FitnessCenter,
+          contentDescription = "Объём",
+          value = volume ?: "—",
+          modifier = Modifier.weight(1f),
+      )
     }
+  }
 }
 
 @Composable
@@ -293,21 +283,21 @@ private fun StatTile(
     value: String,
     modifier: Modifier = Modifier,
 ) {
-    Column(modifier = modifier) {
-        Icon(
-            icon,
-            contentDescription = contentDescription,
-            tint = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.size(22.dp),
-        )
-        Spacer(Modifier.height(6.dp))
-        Text(
-            text = value,
-            style = MaterialTheme.typography.headlineSmall,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
-    }
+  Column(modifier = modifier) {
+    Icon(
+        icon,
+        contentDescription = contentDescription,
+        tint = MaterialTheme.colorScheme.primary,
+        modifier = Modifier.size(22.dp),
+    )
+    Spacer(Modifier.height(6.dp))
+    Text(
+        text = value,
+        style = MaterialTheme.typography.headlineSmall,
+        fontWeight = FontWeight.Bold,
+        color = MaterialTheme.colorScheme.onSurface,
+    )
+  }
 }
 
 @Composable
@@ -316,53 +306,55 @@ private fun UploadCard(
     error: String?,
     onRetry: () -> Unit,
 ) {
-    GymCard(
-        modifier = Modifier.fillMaxWidth(),
-        contentPadding = PaddingValues(horizontal = 18.dp, vertical = 14.dp),
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            val (cloudIcon, cloudTint) = when (status) {
-                UploadStatus.UPLOADED -> Icons.Rounded.CloudDone to MaterialTheme.colorScheme.primary
-                UploadStatus.PENDING -> Icons.Rounded.CloudQueue to MaterialTheme.colorScheme.onSurfaceVariant
-                UploadStatus.FAILED -> Icons.Rounded.CloudOff to MaterialTheme.colorScheme.error
-            }
-            Icon(
-                cloudIcon,
-                contentDescription = null,
-                tint = cloudTint,
-                modifier = Modifier.size(22.dp),
-            )
-            Spacer(Modifier.width(10.dp))
-            Text(
-                text = "Выгрузка",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.weight(1f),
-            )
-            UploadStatusBadge(status = status)
-        }
-        if (status == UploadStatus.FAILED) {
-            if (!error.isNullOrBlank()) {
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    text = error,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.error,
-                )
-            }
-            Spacer(Modifier.height(4.dp))
-            TextButton(onClick = onRetry) {
-                Icon(
-                    Icons.Rounded.Refresh,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp),
-                )
-                Spacer(Modifier.width(6.dp))
-                Text("Повторить выгрузку")
-            }
-        }
+  GymCard(
+      modifier = Modifier.fillMaxWidth(),
+      contentPadding = PaddingValues(horizontal = 18.dp, vertical = 14.dp),
+  ) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+      val (cloudIcon, cloudTint) =
+          when (status) {
+            UploadStatus.UPLOADED -> Icons.Rounded.CloudDone to MaterialTheme.colorScheme.primary
+            UploadStatus.PENDING ->
+                Icons.Rounded.CloudQueue to MaterialTheme.colorScheme.onSurfaceVariant
+            UploadStatus.FAILED -> Icons.Rounded.CloudOff to MaterialTheme.colorScheme.error
+          }
+      Icon(
+          cloudIcon,
+          contentDescription = null,
+          tint = cloudTint,
+          modifier = Modifier.size(22.dp),
+      )
+      Spacer(Modifier.width(10.dp))
+      Text(
+          text = "Выгрузка",
+          style = MaterialTheme.typography.titleMedium,
+          fontWeight = FontWeight.SemiBold,
+          color = MaterialTheme.colorScheme.onSurface,
+          modifier = Modifier.weight(1f),
+      )
+      UploadStatusBadge(status = status)
     }
+    if (status == UploadStatus.FAILED) {
+      if (!error.isNullOrBlank()) {
+        Spacer(Modifier.height(6.dp))
+        Text(
+            text = error,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.error,
+        )
+      }
+      Spacer(Modifier.height(4.dp))
+      TextButton(onClick = onRetry) {
+        Icon(
+            Icons.Rounded.Refresh,
+            contentDescription = null,
+            modifier = Modifier.size(18.dp),
+        )
+        Spacer(Modifier.width(6.dp))
+        Text("Повторить выгрузку")
+      }
+    }
+  }
 }
 
 @Composable
@@ -371,83 +363,82 @@ private fun ExerciseCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    GymCard(
-        modifier = modifier.fillMaxWidth(),
-        onClick = onClick,
-        contentPadding = PaddingValues(horizontal = 18.dp, vertical = 14.dp),
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            ExerciseAvatar(
-                name = exercise.name,
-                group = muscleGroupFrom(exercise.muscleGroup),
-            )
-            Spacer(Modifier.width(12.dp))
-            Column {
-                Text(
-                    text = exercise.name,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-                Text(
-                    text = exercise.muscleGroup,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-        if (exercise.sets.isNotEmpty()) {
-            Spacer(Modifier.height(8.dp))
-            exercise.sets.forEach { set ->
-                SetRow(set = set)
-            }
-        }
+  GymCard(
+      modifier = modifier.fillMaxWidth(),
+      onClick = onClick,
+      contentPadding = PaddingValues(horizontal = 18.dp, vertical = 14.dp),
+  ) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+      ExerciseAvatar(
+          name = exercise.name,
+          group = muscleGroupFrom(exercise.muscleGroup),
+      )
+      Spacer(Modifier.width(12.dp))
+      Column {
+        Text(
+            text = exercise.name,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        Text(
+            text = exercise.muscleGroup,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+      }
     }
+    if (exercise.sets.isNotEmpty()) {
+      Spacer(Modifier.height(8.dp))
+      exercise.sets.forEach { set -> SetRow(set = set) }
+    }
+  }
 }
 
 @Composable
 private fun SetRow(set: DetailSetUi) {
-    // Невыполненные подходы показываем приглушённо и без галочки.
-    val color = if (set.completed) {
+  // Невыполненные подходы показываем приглушённо и без галочки.
+  val color =
+      if (set.completed) {
         MaterialTheme.colorScheme.onSurface
-    } else {
+      } else {
         MaterialTheme.colorScheme.onSurfaceVariant
+      }
+  val text = buildString {
+    append(set.number)
+    if (set.summary.isNotEmpty()) {
+      append(" · ")
+      append(set.summary)
     }
-    val text = buildString {
-        append(set.number)
-        if (set.summary.isNotEmpty()) {
-            append(" · ")
-            append(set.summary)
-        }
-        if (set.completed) append(" ✓")
-    }
-    Text(
-        text = text,
-        style = MaterialTheme.typography.bodyMedium,
-        color = color,
-        modifier = Modifier.padding(vertical = 2.dp),
-    )
+    if (set.completed) append(" ✓")
+  }
+  Text(
+      text = text,
+      style = MaterialTheme.typography.bodyMedium,
+      color = color,
+      modifier = Modifier.padding(vertical = 2.dp),
+  )
 }
 
 @Composable
 private fun NoteCard(note: String) {
-    GymCard(
-        modifier = Modifier.fillMaxWidth(),
-        contentPadding = PaddingValues(horizontal = 18.dp, vertical = 14.dp),
-    ) {
-        Row(verticalAlignment = Alignment.Top) {
-            Icon(
-                Icons.AutoMirrored.Rounded.Notes,
-                contentDescription = "Заметка",
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(18.dp),
-            )
-            Spacer(Modifier.width(10.dp))
-            Text(
-                text = note,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-        }
+  GymCard(
+      modifier = Modifier.fillMaxWidth(),
+      contentPadding = PaddingValues(horizontal = 18.dp, vertical = 14.dp),
+  ) {
+    Row(verticalAlignment = Alignment.Top) {
+      Icon(
+          Icons.AutoMirrored.Rounded.Notes,
+          contentDescription = "Заметка",
+          tint = MaterialTheme.colorScheme.primary,
+          modifier = Modifier.size(18.dp),
+      )
+      Spacer(Modifier.width(10.dp))
+      Text(
+          text = note,
+          style = MaterialTheme.typography.bodyMedium,
+          color = MaterialTheme.colorScheme.onSurface,
+      )
     }
+  }
 }

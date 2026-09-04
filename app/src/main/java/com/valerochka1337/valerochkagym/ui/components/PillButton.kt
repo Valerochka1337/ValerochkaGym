@@ -18,10 +18,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 
 /**
- * Fully-rounded pill button — the app's primary action. Flat solid [primary] fill with a
- * dark [onPrimary] label. Add [Modifier.fillMaxWidth] via [modifier] to span the full width.
- * [compact] is reserved for dense top-bar actions such as «Замеры»; normal primary actions stay
- * at the 56dp touch target used throughout forms and screens.
+ * Fully-rounded pill button — the app's primary action. Flat solid primary fill with a dark
+ * onPrimary label. Add fillMaxWidth via [modifier] to span the full width. [compact]
+ * is reserved for dense top-bar actions such as «Замеры»; normal primary actions stay at the 56dp
+ * touch target used throughout forms and screens.
  */
 @Composable
 fun PillButton(
@@ -32,34 +32,36 @@ fun PillButton(
     leadingIcon: ImageVector? = null,
     compact: Boolean = false,
 ) {
-    Button(
-        onClick = onClick,
-        enabled = enabled,
-        modifier = modifier
-            .heightIn(min = if (compact) 48.dp else 56.dp),
-        shape = CircleShape,
-        colors = ButtonDefaults.buttonColors(
-            containerColor = MaterialTheme.colorScheme.primary,
-            contentColor = MaterialTheme.colorScheme.onPrimary,
-        ),
-        contentPadding = ButtonDefaults.ContentPadding,
+  Button(
+      onClick = onClick,
+      enabled = enabled,
+      modifier = modifier.heightIn(min = if (compact) 48.dp else 56.dp),
+      shape = CircleShape,
+      colors =
+          ButtonDefaults.buttonColors(
+              containerColor = MaterialTheme.colorScheme.primary,
+              contentColor = MaterialTheme.colorScheme.onPrimary,
+          ),
+      contentPadding = ButtonDefaults.ContentPadding,
+  ) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            if (leadingIcon != null) {
-                Icon(
-                    imageVector = leadingIcon,
-                    contentDescription = null,
-                    modifier = Modifier.size(20.dp),
-                )
-            }
-            Text(
-                text = text,
-                style = if (compact) MaterialTheme.typography.labelLarge else MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-            )
-        }
+      if (leadingIcon != null) {
+        Icon(
+            imageVector = leadingIcon,
+            contentDescription = null,
+            modifier = Modifier.size(20.dp),
+        )
+      }
+      Text(
+          text = text,
+          style =
+              if (compact) MaterialTheme.typography.labelLarge
+              else MaterialTheme.typography.titleMedium,
+          fontWeight = FontWeight.Bold,
+      )
     }
+  }
 }

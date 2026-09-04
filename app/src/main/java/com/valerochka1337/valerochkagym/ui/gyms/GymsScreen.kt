@@ -48,67 +48,72 @@ fun GymsScreen(
     modifier: Modifier = Modifier,
     viewModel: GymsViewModel = hiltViewModel(),
 ) {
-    val state by viewModel.uiState.collectAsStateWithLifecycle()
-    val haptics = gymHaptics()
+  val state by viewModel.uiState.collectAsStateWithLifecycle()
+  val haptics = gymHaptics()
 
-    GlowBackground(modifier = modifier) {
-        Column(modifier = Modifier.fillMaxSize()) {
-            GymsHeader(
-                onBack = onBack,
-                onAdd = {
+  GlowBackground(modifier = modifier) {
+    Column(modifier = Modifier.fillMaxSize()) {
+      GymsHeader(
+          onBack = onBack,
+          onAdd = {
+            haptics.tap()
+            onCreateGym()
+          },
+      )
+
+      val gyms = state.gyms
+      when {
+        gyms == null -> Unit
+        state.loadError ->
+            FadeInContent(modifier = Modifier.weight(1f)) {
+              GymsMessage(
+                  title = "Не удалось загрузить залы",
+                  description = "Вернитесь назад и попробуйте открыть раздел снова.",
+                  action = "Вернуться",
+                  onAction = onBack,
+              )
+            }
+        gyms.isEmpty() ->
+            FadeInContent(modifier = Modifier.weight(1f)) {
+              GymsMessage(
+                  title = "Добавьте первый зал",
+                  description =
+                      "Отметьте упражнения, которые доступны в этом зале. Потом зал можно будет выбрать для программы.",
+                  action = "Создать зал",
+                  onAction = {
                     haptics.tap()
                     onCreateGym()
-                },
-            )
-
-            val gyms = state.gyms
-            when {
-                gyms == null -> Unit
-                state.loadError -> FadeInContent(modifier = Modifier.weight(1f)) {
-                    GymsMessage(
-                        title = "Не удалось загрузить залы",
-                        description = "Вернитесь назад и попробуйте открыть раздел снова.",
-                        action = "Вернуться",
-                        onAction = onBack,
-                    )
-                }
-                gyms.isEmpty() -> FadeInContent(modifier = Modifier.weight(1f)) {
-                    GymsMessage(
-                        title = "Добавьте первый зал",
-                        description = "Отметьте упражнения, которые доступны в этом зале. Потом зал можно будет выбрать для программы.",
-                        action = "Создать зал",
-                        onAction = {
-                            haptics.tap()
-                            onCreateGym()
-                        },
-                    )
-                }
-                else -> FadeInContent(modifier = Modifier.weight(1f)) {
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(
-                            start = 24.dp,
-                            end = 24.dp,
-                            top = 4.dp,
-                            bottom = 32.dp,
-                        ),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        items(gyms, key = { it.id }) { gym ->
-                            GymConfigurationCard(
-                                gym = gym,
-                                onClick = {
-                                    haptics.tap()
-                                    onEditGym(gym.id)
-                                },
-                                modifier = Modifier.animateItem(),
-                            )
-                        }
-                    }
-                }
+                  },
+              )
             }
-        }
+        else ->
+            FadeInContent(modifier = Modifier.weight(1f)) {
+              LazyColumn(
+                  modifier = Modifier.fillMaxSize(),
+                  contentPadding =
+                      PaddingValues(
+                          start = 24.dp,
+                          end = 24.dp,
+                          top = 4.dp,
+                          bottom = 32.dp,
+                      ),
+                  verticalArrangement = Arrangement.spacedBy(10.dp),
+              ) {
+                items(gyms, key = { it.id }) { gym ->
+                  GymConfigurationCard(
+                      gym = gym,
+                      onClick = {
+                        haptics.tap()
+                        onEditGym(gym.id)
+                      },
+                      modifier = Modifier.animateItem(),
+                  )
+                }
+              }
+            }
+      }
     }
+  }
 }
 
 @Composable
@@ -116,33 +121,32 @@ private fun GymsHeader(
     onBack: () -> Unit,
     onAdd: () -> Unit,
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(start = 8.dp, end = 16.dp, top = 12.dp, bottom = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        IconButton(onClick = onBack) {
-            Icon(
-                imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
-                contentDescription = "Назад",
-                tint = MaterialTheme.colorScheme.onBackground,
-            )
-        }
-        Spacer(Modifier.width(4.dp))
-        Text(
-            text = "Залы",
-            style = MaterialTheme.typography.headlineLarge,
-            color = MaterialTheme.colorScheme.onBackground,
-            modifier = Modifier.weight(1f),
-        )
-        CircleIconButton(
-            icon = Icons.Rounded.Add,
-            contentDescription = "Создать зал",
-            onClick = onAdd,
-            tint = MaterialTheme.colorScheme.primary,
-        )
+  Row(
+      modifier =
+          Modifier.fillMaxWidth().padding(start = 8.dp, end = 16.dp, top = 12.dp, bottom = 8.dp),
+      verticalAlignment = Alignment.CenterVertically,
+  ) {
+    IconButton(onClick = onBack) {
+      Icon(
+          imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
+          contentDescription = "Назад",
+          tint = MaterialTheme.colorScheme.onBackground,
+      )
     }
+    Spacer(Modifier.width(4.dp))
+    Text(
+        text = "Залы",
+        style = MaterialTheme.typography.headlineLarge,
+        color = MaterialTheme.colorScheme.onBackground,
+        modifier = Modifier.weight(1f),
+    )
+    CircleIconButton(
+        icon = Icons.Rounded.Add,
+        contentDescription = "Создать зал",
+        onClick = onAdd,
+        tint = MaterialTheme.colorScheme.primary,
+    )
+  }
 }
 
 @Composable
@@ -151,39 +155,39 @@ private fun GymConfigurationCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    GymCard(
-        modifier = modifier.fillMaxWidth(),
-        onClick = onClick,
-        contentPadding = PaddingValues(horizontal = 18.dp, vertical = 16.dp),
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                imageVector = Icons.Rounded.FitnessCenter,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(28.dp),
-            )
-            Spacer(Modifier.width(14.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = gym.name,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-                Text(
-                    text = "${gym.exercises.size} ${exerciseCountWord(gym.exercises.size)}",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            Icon(
-                imageVector = Icons.Rounded.ChevronRight,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
+  GymCard(
+      modifier = modifier.fillMaxWidth(),
+      onClick = onClick,
+      contentPadding = PaddingValues(horizontal = 18.dp, vertical = 16.dp),
+  ) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+      Icon(
+          imageVector = Icons.Rounded.FitnessCenter,
+          contentDescription = null,
+          tint = MaterialTheme.colorScheme.primary,
+          modifier = Modifier.size(28.dp),
+      )
+      Spacer(Modifier.width(14.dp))
+      Column(modifier = Modifier.weight(1f)) {
+        Text(
+            text = gym.name,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        Text(
+            text = "${gym.exercises.size} ${exerciseCountWord(gym.exercises.size)}",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+      }
+      Icon(
+          imageVector = Icons.Rounded.ChevronRight,
+          contentDescription = null,
+          tint = MaterialTheme.colorScheme.onSurfaceVariant,
+      )
     }
+  }
 }
 
 @Composable
@@ -193,46 +197,44 @@ private fun GymsMessage(
     action: String,
     onAction: () -> Unit,
 ) {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(32.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Icon(
-                imageVector = Icons.Rounded.FitnessCenter,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(44.dp),
-            )
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onBackground,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.padding(top = 16.dp),
-            )
-            Text(
-                text = description,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.padding(top = 8.dp, bottom = 20.dp),
-            )
-            PillButton(text = action, onClick = onAction)
-        }
+  Box(
+      modifier = Modifier.fillMaxSize().padding(32.dp),
+      contentAlignment = Alignment.Center,
+  ) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+      Icon(
+          imageVector = Icons.Rounded.FitnessCenter,
+          contentDescription = null,
+          tint = MaterialTheme.colorScheme.primary,
+          modifier = Modifier.size(44.dp),
+      )
+      Text(
+          text = title,
+          style = MaterialTheme.typography.titleLarge,
+          fontWeight = FontWeight.Bold,
+          color = MaterialTheme.colorScheme.onBackground,
+          textAlign = TextAlign.Center,
+          modifier = Modifier.padding(top = 16.dp),
+      )
+      Text(
+          text = description,
+          style = MaterialTheme.typography.bodyMedium,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
+          textAlign = TextAlign.Center,
+          modifier = Modifier.padding(top = 8.dp, bottom = 20.dp),
+      )
+      PillButton(text = action, onClick = onAction)
     }
+  }
 }
 
 private fun exerciseCountWord(count: Int): String {
-    val lastTwo = count % 100
-    val last = count % 10
-    return when {
-        lastTwo in 11..14 -> "упражнений"
-        last == 1 -> "упражнение"
-        last in 2..4 -> "упражнения"
-        else -> "упражнений"
-    }
+  val lastTwo = count % 100
+  val last = count % 10
+  return when {
+    lastTwo in 11..14 -> "упражнений"
+    last == 1 -> "упражнение"
+    last in 2..4 -> "упражнения"
+    else -> "упражнений"
+  }
 }

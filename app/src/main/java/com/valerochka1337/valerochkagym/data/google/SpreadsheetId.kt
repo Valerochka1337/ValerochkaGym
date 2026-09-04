@@ -12,15 +12,17 @@ private const val MIN_BARE_ID_LENGTH = 20
 /**
  * Извлекает ID таблицы Google Sheets из пользовательского ввода.
  *
- * Принимает как полную ссылку `https://docs.google.com/spreadsheets/d/<ID>/...`
- * (возвращает `<ID>`), так и голый ID (строку из букв/цифр/`-`/`_` длиной
- * более [MIN_BARE_ID_LENGTH] символов — возвращается как есть). Во всех остальных
- * случаях возвращает `null` — ввод не похож на ссылку или ID.
+ * Принимает как полную ссылку `https://docs.google.com/spreadsheets/d/<ID>/...` (возвращает
+ * `<ID>`), так и голый ID (строку из букв/цифр/`-`/`_` длиной более [MIN_BARE_ID_LENGTH] символов —
+ * возвращается как есть). Во всех остальных случаях возвращает `null` — ввод не похож на ссылку или
+ * ID.
  */
 fun spreadsheetIdFrom(input: String): String? {
-    val trimmed = input.trim()
-    if (trimmed.isEmpty()) return null
-    URL_ID_REGEX.find(trimmed)?.let { return it.groupValues[1] }
-    if (trimmed.length > MIN_BARE_ID_LENGTH && BARE_ID_REGEX.matches(trimmed)) return trimmed
-    return null
+  val trimmed = input.trim()
+  if (trimmed.isEmpty()) return null
+  URL_ID_REGEX.find(trimmed)?.let {
+    return it.groupValues[1]
+  }
+  if (trimmed.length > MIN_BARE_ID_LENGTH && BARE_ID_REGEX.matches(trimmed)) return trimmed
+  return null
 }

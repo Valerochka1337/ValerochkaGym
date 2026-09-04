@@ -19,11 +19,12 @@ data class RoutineWithExercises(
     @Relation(
         parentColumn = "id",
         entityColumn = "id",
-        associateBy = Junction(
-            value = RoutineGymEntity::class,
-            parentColumn = "routineId",
-            entityColumn = "gymId",
-        ),
+        associateBy =
+            Junction(
+                value = RoutineGymEntity::class,
+                parentColumn = "routineId",
+                entityColumn = "gymId",
+            ),
     )
     val gyms: List<GymEntity> = emptyList(),
 )

@@ -5,7 +5,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.hapticfeedback.HapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.junit4.v2.createComposeRule
 import com.valerochka1337.valerochkagym.ui.haptics.GymHaptics
 import com.valerochka1337.valerochkagym.ui.haptics.gymHaptics
 import com.valerochka1337.valerochkagym.ui.haptics.rememberGymHaptics
@@ -27,88 +27,90 @@ import org.robolectric.annotation.GraphicsMode
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class GymHapticsTest {
 
-    @get:Rule
-    val compose = createComposeRule()
+  @get:Rule val compose = createComposeRule()
 
-    private class RecordingHaptics : HapticFeedback {
-        val performed = mutableListOf<HapticFeedbackType>()
-        override fun performHapticFeedback(hapticFeedbackType: HapticFeedbackType) {
-            performed += hapticFeedbackType
-        }
+  private class RecordingHaptics : HapticFeedback {
+    val performed = mutableListOf<HapticFeedbackType>()
+
+    override fun performHapticFeedback(hapticFeedbackType: HapticFeedbackType) {
+      performed += hapticFeedbackType
     }
+  }
 
-    private fun withHaptics(enabled: Boolean, block: (GymHaptics) -> Unit): RecordingHaptics {
-        val recorder = RecordingHaptics()
-        compose.setContent {
-            CompositionLocalProvider(LocalHapticFeedback provides recorder) {
-                val haptics = rememberGymHaptics(enabled = enabled)
-                block(haptics)
-                Text("ok")
-            }
-        }
-        compose.waitForIdle()
-        return recorder
+  private fun withHaptics(enabled: Boolean, block: (GymHaptics) -> Unit): RecordingHaptics {
+    val recorder = RecordingHaptics()
+    compose.setContent {
+      CompositionLocalProvider(LocalHapticFeedback provides recorder) {
+        val haptics = rememberGymHaptics(enabled = enabled)
+        block(haptics)
+        Text("ok")
+      }
     }
+    compose.waitForIdle()
+    return recorder
+  }
 
-    @Test
-    fun `semantic events map to the expected feedback types`() {
-        val recorder = withHaptics(enabled = true) { haptics ->
-            haptics.tap()
-            haptics.confirm()
-            haptics.success()
-            haptics.reject()
-            haptics.toggle(on = true)
-            haptics.toggle(on = false)
-            haptics.step()
-            haptics.stepFrequent()
-            haptics.dragStart()
-            haptics.dragEnd()
-            haptics.longPress()
-        }
-
-        assertEquals(
-            listOf(
-                HapticFeedbackType.ContextClick,
-                HapticFeedbackType.Confirm,
-                HapticFeedbackType.Confirm,
-                HapticFeedbackType.Reject,
-                HapticFeedbackType.ToggleOn,
-                HapticFeedbackType.ToggleOff,
-                HapticFeedbackType.SegmentTick,
-                HapticFeedbackType.SegmentFrequentTick,
-                HapticFeedbackType.GestureThresholdActivate,
-                HapticFeedbackType.GestureEnd,
-                HapticFeedbackType.LongPress,
-            ),
-            recorder.performed,
-        )
-    }
-
-    @Test
-    fun `disabled haptics perform nothing`() {
-        val recorder = withHaptics(enabled = false) { haptics ->
-            haptics.tap()
-            haptics.confirm()
-            haptics.step()
-            haptics.dragStart()
-            haptics.dragEnd()
+  @Test
+  fun `semantic events map to the expected feedback types`() {
+    val recorder =
+        withHaptics(enabled = true) { haptics ->
+          haptics.tap()
+          haptics.confirm()
+          haptics.success()
+          haptics.reject()
+          haptics.toggle(on = true)
+          haptics.toggle(on = false)
+          haptics.step()
+          haptics.stepFrequent()
+          haptics.dragStart()
+          haptics.dragEnd()
+          haptics.longPress()
         }
 
-        assertTrue(recorder.performed.isEmpty())
-    }
+    assertEquals(
+        listOf(
+            HapticFeedbackType.ContextClick,
+            HapticFeedbackType.Confirm,
+            HapticFeedbackType.Confirm,
+            HapticFeedbackType.Reject,
+            HapticFeedbackType.ToggleOn,
+            HapticFeedbackType.ToggleOff,
+            HapticFeedbackType.SegmentTick,
+            HapticFeedbackType.SegmentFrequentTick,
+            HapticFeedbackType.GestureThresholdActivate,
+            HapticFeedbackType.GestureEnd,
+            HapticFeedbackType.LongPress,
+        ),
+        recorder.performed,
+    )
+  }
 
-    @Test
-    fun `screens get a no-op stub when the root provided nothing`() {
-        // gymHaptics() без LocalGymHaptics не падает и ничего не отбивает.
-        val recorder = RecordingHaptics()
-        compose.setContent {
-            CompositionLocalProvider(LocalHapticFeedback provides recorder) {
-                gymHaptics().tap()
-                Text("ok")
-            }
+  @Test
+  fun `disabled haptics perform nothing`() {
+    val recorder =
+        withHaptics(enabled = false) { haptics ->
+          haptics.tap()
+          haptics.confirm()
+          haptics.step()
+          haptics.dragStart()
+          haptics.dragEnd()
         }
-        compose.waitForIdle()
 
-        assertTrue(recorder.performed.isEmpty())
+    assertTrue(recorder.performed.isEmpty())
+  }
+
+  @Test
+  fun `screens get a no-op stub when the root provided nothing`() {
+    // gymHaptics() без LocalGymHaptics не падает и ничего не отбивает.
+    val recorder = RecordingHaptics()
+    compose.setContent {
+      CompositionLocalProvider(LocalHapticFeedback provides recorder) {
+        gymHaptics().tap()
+        Text("ok")
+      }
     }
+    compose.waitForIdle()
+
+    assertTrue(recorder.performed.isEmpty())
+  }
 }

@@ -20,70 +20,76 @@ import org.robolectric.annotation.Config
 @Config(application = android.app.Application::class)
 class Migration3To4Test {
 
-    private val context: Context = ApplicationProvider.getApplicationContext()
-    private val dbName = "migration-3-4.db"
+  private val context: Context = ApplicationProvider.getApplicationContext()
+  private val dbName = "migration-3-4.db"
 
-    @After
-    fun deleteDatabase() {
-        context.deleteDatabase(dbName)
-    }
+  @After
+  fun deleteDatabase() {
+    context.deleteDatabase(dbName)
+  }
 
-    @Test
-    fun `migration 3 to 4 creates nullable measurement columns and indices`() {
-        createV3Database().use { database ->
-            GymDatabase.MIGRATION_3_4.migrate(database)
+  @Test
+  fun `migration 3 to 4 creates nullable measurement columns and indices`() {
+    createV3Database().use { database ->
+      GymDatabase.MIGRATION_3_4.migrate(database)
 
-            database.execSQL(
-                "INSERT INTO body_measurements (id, measuredAt, weightKg, uploadStatus) " +
-                    "VALUES ('m1', 1000, 70.0, 'PENDING')",
-            )
-            database.query("SELECT weightKg, waistCm, uploadStatus FROM body_measurements WHERE id = 'm1'").use { cursor ->
-                assertTrue(cursor.moveToFirst())
-                assertEquals(70.0, cursor.getDouble(0), 1e-6)
-                assertTrue(cursor.isNull(1))
-                assertEquals("PENDING", cursor.getString(2))
-            }
-            database.query("PRAGMA index_list('body_measurements')").use { cursor ->
-                val names = buildList {
-                    while (cursor.moveToNext()) add(cursor.getString(cursor.getColumnIndexOrThrow("name")))
-                }
-                assertTrue(names.contains("index_body_measurements_measuredAt"))
-                assertTrue(names.contains("index_body_measurements_uploadStatus"))
-            }
+      database.execSQL(
+          "INSERT INTO body_measurements (id, measuredAt, weightKg, uploadStatus) " +
+              "VALUES ('m1', 1000, 70.0, 'PENDING')",
+      )
+      database
+          .query("SELECT weightKg, waistCm, uploadStatus FROM body_measurements WHERE id = 'm1'")
+          .use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals(70.0, cursor.getDouble(0), 1e-6)
+            assertTrue(cursor.isNull(1))
+            assertEquals("PENDING", cursor.getString(2))
+          }
+      database.query("PRAGMA index_list('body_measurements')").use { cursor ->
+        val names = buildList {
+          while (cursor.moveToNext()) add(cursor.getString(cursor.getColumnIndexOrThrow("name")))
         }
+        assertTrue(names.contains("index_body_measurements_measuredAt"))
+        assertTrue(names.contains("index_body_measurements_uploadStatus"))
+      }
     }
+  }
 
-    @Test
-    fun `room opens a migrated v3 database`() = runTest {
-        createV3Database().close()
+  @Test
+  fun `room opens a migrated v3 database`() = runTest {
+    createV3Database().close()
 
-        val database = Room.databaseBuilder(context, GymDatabase::class.java, dbName)
+    val database =
+        Room.databaseBuilder(context, GymDatabase::class.java, dbName)
             .addMigrations(*GymDatabase.ALL_MIGRATIONS)
             .allowMainThreadQueries()
             .build()
 
-        assertTrue(database.bodyMeasurementDao().getNotUploaded().isEmpty())
-        database.close()
-    }
+    assertTrue(database.bodyMeasurementDao().getNotUploaded().isEmpty())
+    database.close()
+  }
 
-    /** Полная схема v3 из `schemas/.../3.json`, чтобы Room мог проверить результат миграции. */
-    private fun createV3Database(): SupportSQLiteDatabase {
-        val callback = object : SupportSQLiteOpenHelper.Callback(3) {
-            override fun onCreate(db: SupportSQLiteDatabase) {
-                v3Schema.forEach(db::execSQL)
-            }
+  /** Полная схема v3 из `schemas/.../3.json`, чтобы Room мог проверить результат миграции. */
+  private fun createV3Database(): SupportSQLiteDatabase {
+    val callback =
+        object : SupportSQLiteOpenHelper.Callback(3) {
+          override fun onCreate(db: SupportSQLiteDatabase) {
+            v3Schema.forEach(db::execSQL)
+          }
 
-            override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+          override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
         }
-        val config = SupportSQLiteOpenHelper.Configuration.builder(context)
+    val config =
+        SupportSQLiteOpenHelper.Configuration.builder(context)
             .name(dbName)
             .callback(callback)
             .build()
-        return FrameworkSQLiteOpenHelperFactory().create(config).writableDatabase
-    }
+    return FrameworkSQLiteOpenHelperFactory().create(config).writableDatabase
+  }
 
-    private companion object {
-        val v3Schema = listOf(
+  private companion object {
+    val v3Schema =
+        listOf(
             "CREATE TABLE IF NOT EXISTS `exercises` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
                 "`name` TEXT NOT NULL, `muscleGroup` TEXT NOT NULL, `type` TEXT NOT NULL, `isCustom` INTEGER NOT NULL)",
             "CREATE TABLE IF NOT EXISTS `exercise_muscles` (`exerciseId` INTEGER NOT NULL, `muscle` TEXT NOT NULL, " +
@@ -122,5 +128,5 @@ class Migration3To4Test {
                 "ON UPDATE NO ACTION ON DELETE CASCADE )",
             "CREATE INDEX IF NOT EXISTS `index_workout_sets_workoutExerciseId` ON `workout_sets` (`workoutExerciseId`)",
         )
-    }
+  }
 }

@@ -1,7 +1,7 @@
 package com.valerochka1337.valerochkagym.ui.analysis
 
-import com.valerochka1337.valerochkagym.domain.analysis.AnalysisPeriod
 import com.valerochka1337.valerochkagym.domain.analysis.AnalysisDateRange
+import com.valerochka1337.valerochkagym.domain.analysis.AnalysisPeriod
 import com.valerochka1337.valerochkagym.domain.analysis.BalanceId
 import com.valerochka1337.valerochkagym.domain.analysis.TrendVerdict
 import com.valerochka1337.valerochkagym.domain.analysis.VolumeZone
@@ -17,8 +17,8 @@ import kotlin.math.roundToInt
 /**
  * Подписи и форматирование чисел вкладки «Анализы».
  *
- * Числа форматируются локаль-независимо через [BigDecimal] (как в итогах тренировки): результат
- * не зависит от языка устройства, а хвостовые нули не превращают «12» в «12.0».
+ * Числа форматируются локаль-независимо через [BigDecimal] (как в итогах тренировки): результат не
+ * зависит от языка устройства, а хвостовые нули не превращают «12» в «12.0».
  */
 private val DATE_FORMATTER: DateTimeFormatter = DateTimeFormatter.ofPattern("dd.MM")
 private val DATE_YEAR_FORMATTER: DateTimeFormatter = DateTimeFormatter.ofPattern("dd.MM.yy")
@@ -43,12 +43,12 @@ fun formatMinutes(minutes: Int): String =
 
 /** Дата последней тренировки относительно конца выбранного периода. */
 fun formatLastSessionCaption(daysSinceLast: Int): String {
-    val days = daysSinceLast.coerceAtLeast(0)
-    return when (days) {
-        0 -> "последняя — в последний день периода"
-        1 -> "последняя — за день до конца периода"
-        else -> "последняя — за $days дн. до конца периода"
-    }
+  val days = daysSinceLast.coerceAtLeast(0)
+  return when (days) {
+    0 -> "последняя — в последний день периода"
+    1 -> "последняя — за день до конца периода"
+    else -> "последняя — за $days дн. до конца периода"
+  }
 }
 
 fun formatDate(millis: Long, zone: ZoneId): String =
@@ -59,9 +59,9 @@ fun formatDateWithYear(millis: Long, zone: ZoneId): String =
 
 fun formatDateRange(start: LocalDate, endInclusive: LocalDate): String =
     if (start == endInclusive) {
-        DATE_YEAR_FORMATTER.format(start)
+      DATE_YEAR_FORMATTER.format(start)
     } else {
-        "${DATE_YEAR_FORMATTER.format(start)} – ${DATE_YEAR_FORMATTER.format(endInclusive)}"
+      "${DATE_YEAR_FORMATTER.format(start)} – ${DATE_YEAR_FORMATTER.format(endInclusive)}"
     }
 
 fun AnalysisDateRange.displayName(): String = formatDateRange(start, endInclusive)
@@ -71,44 +71,49 @@ fun formatRatio(ratio: Double): String = "${formatDecimal(ratio)} : 1"
 
 /** Знаковое изменение, например «+2.5 кг/мес». */
 fun formatSigned(value: Double, unit: String): String {
-    val sign = if (value >= 0) "+" else "−"
-    return "$sign${formatDecimal(abs(value))} $unit"
+  val sign = if (value >= 0) "+" else "−"
+  return "$sign${formatDecimal(abs(value))} $unit"
 }
 
-fun AnalysisPeriod.displayName(): String = when (this) {
-    AnalysisPeriod.LAST_7_DAYS -> "Последние 7 дней"
-    AnalysisPeriod.WEEKS_4 -> "4 недели"
-    AnalysisPeriod.WEEKS_12 -> "12 недель"
-    AnalysisPeriod.WEEKS_52 -> "52 недели"
-    AnalysisPeriod.ALL_TIME -> "Всё время"
-    is AnalysisPeriod.Custom -> formatDateRange(start, endInclusive)
-}
+fun AnalysisPeriod.displayName(): String =
+    when (this) {
+      AnalysisPeriod.LAST_7_DAYS -> "Последние 7 дней"
+      AnalysisPeriod.WEEKS_4 -> "4 недели"
+      AnalysisPeriod.WEEKS_12 -> "12 недель"
+      AnalysisPeriod.WEEKS_52 -> "52 недели"
+      AnalysisPeriod.ALL_TIME -> "Всё время"
+      is AnalysisPeriod.Custom -> formatDateRange(start, endInclusive)
+    }
 
-fun VolumeZone.displayName(): String = when (this) {
-    VolumeZone.LOW -> "малый объём"
-    VolumeZone.BASE -> "базовый объём"
-    VolumeZone.WORKING -> "рабочий объём"
-    VolumeZone.GROWTH_GUIDE -> "ориентир для роста"
-}
+fun VolumeZone.displayName(): String =
+    when (this) {
+      VolumeZone.LOW -> "малый объём"
+      VolumeZone.BASE -> "базовый объём"
+      VolumeZone.WORKING -> "рабочий объём"
+      VolumeZone.GROWTH_GUIDE -> "ориентир для роста"
+    }
 
-fun TrendVerdict.displayName(): String = when (this) {
-    TrendVerdict.NOT_ENOUGH_DATA -> "мало данных"
-    TrendVerdict.GROWING -> "растёт"
-    TrendVerdict.STALLED -> "плато"
-    TrendVerdict.REGRESSING -> "снижается"
-}
+fun TrendVerdict.displayName(): String =
+    when (this) {
+      TrendVerdict.NOT_ENOUGH_DATA -> "мало данных"
+      TrendVerdict.GROWING -> "растёт"
+      TrendVerdict.STALLED -> "плато"
+      TrendVerdict.REGRESSING -> "снижается"
+    }
 
-fun BalanceId.title(): String = when (this) {
-    BalanceId.PUSH_PULL -> "Жим / тяга"
-    BalanceId.ANTERIOR_POSTERIOR -> "Перёд / зад"
-    BalanceId.UPPER_LOWER -> "Верх / низ"
-    BalanceId.QUAD_HAMSTRING -> "Бицепс бедра / квадрицепс"
-}
+fun BalanceId.title(): String =
+    when (this) {
+      BalanceId.PUSH_PULL -> "Жим / тяга"
+      BalanceId.ANTERIOR_POSTERIOR -> "Перёд / зад"
+      BalanceId.UPPER_LOWER -> "Верх / низ"
+      BalanceId.QUAD_HAMSTRING -> "Бицепс бедра / квадрицепс"
+    }
 
 /** Что означает перекос влево и вправо — без этого diverging-график не прочитать. */
-fun BalanceId.sideLabels(): Pair<String, String> = when (this) {
-    BalanceId.PUSH_PULL -> "больше жима" to "больше тяги"
-    BalanceId.ANTERIOR_POSTERIOR -> "больше переда" to "больше зада"
-    BalanceId.UPPER_LOWER -> "больше верха" to "больше низа"
-    BalanceId.QUAD_HAMSTRING -> "больше бицепса бедра" to "больше квадрицепса"
-}
+fun BalanceId.sideLabels(): Pair<String, String> =
+    when (this) {
+      BalanceId.PUSH_PULL -> "больше жима" to "больше тяги"
+      BalanceId.ANTERIOR_POSTERIOR -> "больше переда" to "больше зада"
+      BalanceId.UPPER_LOWER -> "больше верха" to "больше низа"
+      BalanceId.QUAD_HAMSTRING -> "больше бицепса бедра" to "больше квадрицепса"
+    }

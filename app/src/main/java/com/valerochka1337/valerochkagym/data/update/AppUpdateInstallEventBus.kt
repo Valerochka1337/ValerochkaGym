@@ -9,11 +9,11 @@ import kotlinx.coroutines.flow.receiveAsFlow
 /** Передаёт callbacks системной install-сессии в живой update-сценарий приложения. */
 @Singleton
 class AppUpdateInstallEventBus @Inject constructor() {
-    private val channel = Channel<AppUpdateInstallEvent>(Channel.BUFFERED)
+  private val channel = Channel<AppUpdateInstallEvent>(Channel.BUFFERED)
 
-    val events: Flow<AppUpdateInstallEvent> = channel.receiveAsFlow()
+  val events: Flow<AppUpdateInstallEvent> = channel.receiveAsFlow()
 
-    internal fun publish(event: AppUpdateInstallEvent) {
-        channel.trySend(event)
-    }
+  internal fun publish(event: AppUpdateInstallEvent) {
+    channel.trySend(event)
+  }
 }

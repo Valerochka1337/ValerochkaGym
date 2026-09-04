@@ -1,5 +1,6 @@
 package com.valerochka1337.valerochkagym.ui.analysis
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -7,14 +8,13 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.clickable
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.EmojiEvents
 import androidx.compose.material.icons.automirrored.rounded.ShowChart
+import androidx.compose.material.icons.rounded.EmojiEvents
 import androidx.compose.material.icons.rounded.FitnessCenter
 import androidx.compose.material.icons.rounded.Info
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -39,68 +39,69 @@ internal fun SummaryCard(
     state: AnalysisUiState,
     modifier: Modifier = Modifier,
 ) {
-    val report = state.report
-    val trend = report.weeklyPoints.map { it.hardSets.toFloat() }
+  val report = state.report
+  val trend = report.weeklyPoints.map { it.hardSets.toFloat() }
 
-    AnalysisCard(
-        title = "Итоги периода",
-        subtitle = "За ${state.report.range.displayName()}",
-        icon = Icons.Rounded.FitnessCenter,
-        modifier = modifier,
-    ) {
-        Row(modifier = Modifier.fillMaxWidth()) {
-            StatTile(
-                label = "Тренировок",
-                value = report.sessions.toString(),
-                caption = "${formatDecimal(report.sessionsPerWeek)} в неделю",
-                modifier = Modifier.weight(1f),
-            )
-            StatTile(
-                label = "Рабочих подходов",
-                value = formatDecimal(report.totalHardSets, 0),
-                caption = "${formatDecimal(report.totalHardSets / report.periodWeeks, 0)} в неделю",
-                trend = trend,
-                modifier = Modifier.weight(1f),
-            )
-        }
-        Spacer(Modifier.height(16.dp))
-        Row(modifier = Modifier.fillMaxWidth()) {
-            StatTile(
-                label = "Тоннаж",
-                value = formatTonnage(report.totalTonnageKg),
-                caption = "вес × повторы",
-                modifier = Modifier.weight(1f),
-            )
-            StatTile(
-                label = "Средняя тренировка",
-                value = formatMinutes(report.avgSessionMinutes),
-                caption = report.daysSinceLast?.let(::formatLastSessionCaption),
-                modifier = Modifier.weight(1f),
-            )
-        }
-        Spacer(Modifier.height(14.dp))
-        ValueRow(
-            label = "Недель подряд до конца периода",
-            value = report.streakWeeks.toString(),
-            accent = true,
-        )
-        if (report.cardioMinutes > 0) {
-            ValueRow(label = "Кардио", value = formatMinutes(report.cardioMinutes))
-            ValueRow(
-                label = "МЕТ-минут в неделю (норма ВОЗ " +
-                    "${formatDecimal(CardioMet.WHO_RANGE.start, 0)}–${formatDecimal(CardioMet.WHO_RANGE.endInclusive, 0)})",
-                value = formatDecimal(report.aerobicMetMinutesPerWeek, 0),
-            )
-        }
+  AnalysisCard(
+      title = "Итоги периода",
+      subtitle = "За ${state.report.range.displayName()}",
+      icon = Icons.Rounded.FitnessCenter,
+      modifier = modifier,
+  ) {
+    Row(modifier = Modifier.fillMaxWidth()) {
+      StatTile(
+          label = "Тренировок",
+          value = report.sessions.toString(),
+          caption = "${formatDecimal(report.sessionsPerWeek)} в неделю",
+          modifier = Modifier.weight(1f),
+      )
+      StatTile(
+          label = "Рабочих подходов",
+          value = formatDecimal(report.totalHardSets, 0),
+          caption = "${formatDecimal(report.totalHardSets / report.periodWeeks, 0)} в неделю",
+          trend = trend,
+          modifier = Modifier.weight(1f),
+      )
     }
+    Spacer(Modifier.height(16.dp))
+    Row(modifier = Modifier.fillMaxWidth()) {
+      StatTile(
+          label = "Тоннаж",
+          value = formatTonnage(report.totalTonnageKg),
+          caption = "вес × повторы",
+          modifier = Modifier.weight(1f),
+      )
+      StatTile(
+          label = "Средняя тренировка",
+          value = formatMinutes(report.avgSessionMinutes),
+          caption = report.daysSinceLast?.let(::formatLastSessionCaption),
+          modifier = Modifier.weight(1f),
+      )
+    }
+    Spacer(Modifier.height(14.dp))
+    ValueRow(
+        label = "Недель подряд до конца периода",
+        value = report.streakWeeks.toString(),
+        accent = true,
+    )
+    if (report.cardioMinutes > 0) {
+      ValueRow(label = "Кардио", value = formatMinutes(report.cardioMinutes))
+      ValueRow(
+          label =
+              "МЕТ-минут в неделю (норма ВОЗ " +
+                  "${formatDecimal(CardioMet.WHO_RANGE.start, 0)}–${formatDecimal(CardioMet.WHO_RANGE.endInclusive, 0)})",
+          value = formatDecimal(report.aerobicMetMinutesPerWeek, 0),
+      )
+    }
+  }
 }
 
 /**
  * Прогресс выбранного упражнения: тренд расчётного максимума и силовая кривая.
  *
  * Сравнивать подходы напрямую нельзя — 100 кг × 5 и 110 кг × 3 это разная работа, поэтому по
- * вертикали отложена оценка одноповторного максимума (формула Эпли по лучшему подходу
- * тренировки). Подходы дальше 12 повторений в оценку не идут: там формула систематически врёт.
+ * вертикали отложена оценка одноповторного максимума (формула Эпли по лучшему подходу тренировки).
+ * Подходы дальше 12 повторений в оценку не идут: там формула систематически врёт.
  */
 @Composable
 internal fun ExerciseProgressCard(
@@ -110,121 +111,127 @@ internal fun ExerciseProgressCard(
     onExerciseClick: (Long) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val exercises = state.report.exercises
-    val shown = state.shownExercise ?: return
+  val exercises = state.report.exercises
+  val shown = state.shownExercise ?: return
 
-    AnalysisCard(
-        title = "Прогресс по упражнению",
-        subtitle = "Оценка одноповторного максимума по лучшему подходу тренировки (формула Эпли, до 12 повторений)",
-        icon = Icons.AutoMirrored.Rounded.ShowChart,
-        modifier = modifier,
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            ScrollableChipRow(
-                options = exercises.take(MAX_PICKABLE_EXERCISES).map { it.exerciseId },
-                selected = shown.exerciseId,
-                label = { id -> exercises.first { it.exerciseId == id }.name },
-                onSelect = onExerciseSelected,
-                modifier = Modifier.weight(1f),
-            )
-            IconButton(onClick = { onExerciseClick(shown.exerciseId) }) {
-                Icon(Icons.Rounded.Info, contentDescription = "Открыть карточку упражнения")
-            }
-        }
-        Spacer(Modifier.height(14.dp))
-
-        TrendHeadline(shown)
-        Spacer(Modifier.height(8.dp))
-
-        TrendLineChart(
-            points = shown.points.map { point ->
-                LinePoint(
-                    xMillis = point.dateMillis,
-                    y = point.bestE1rm.toFloat(),
-                    xLabel = formatDate(point.dateMillis, state.zone),
-                )
-            },
-            selectedIndex = state.selectedSessionIndex,
-            onSelect = onSessionSelected,
-            valueFormatter = { "${it.toInt()} кг" },
-        )
-
-        Spacer(Modifier.height(8.dp))
-        SessionDetails(shown, state.selectedSessionIndex, state.zone)
-
-        if (shown.repMaxes.size >= 2) {
-            Spacer(Modifier.height(18.dp))
-            Text(
-                text = "Максимальный вес × повторения",
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-            Text(
-                text = "Лучший вес, поднятый хотя бы на столько повторений",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.height(10.dp))
-            ColumnChart(
-                data = shown.repMaxes.map { point ->
-                    ColumnDatum(label = "${point.reps}", value = point.weightKg.toFloat())
-                },
-                height = 150.dp,
-                labelEveryColumn = true,
-                valueFormatter = { "${it.toInt()}" },
-            )
-            Spacer(Modifier.height(6.dp))
-            shown.repMaxes.filter { it.reps in KEY_REPS }.forEach { point ->
-                ValueRow(
-                    label = "${point.reps} повт.",
-                    value = "${formatKg(point.weightKg)} · ${formatDate(point.dateMillis, state.zone)}",
-                )
-            }
-        }
+  AnalysisCard(
+      title = "Прогресс по упражнению",
+      subtitle =
+          "Оценка одноповторного максимума по лучшему подходу тренировки (формула Эпли, до 12 повторений)",
+      icon = Icons.AutoMirrored.Rounded.ShowChart,
+      modifier = modifier,
+  ) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+      ScrollableChipRow(
+          options = exercises.take(MAX_PICKABLE_EXERCISES).map { it.exerciseId },
+          selected = shown.exerciseId,
+          label = { id -> exercises.first { it.exerciseId == id }.name },
+          onSelect = onExerciseSelected,
+          modifier = Modifier.weight(1f),
+      )
+      IconButton(onClick = { onExerciseClick(shown.exerciseId) }) {
+        Icon(Icons.Rounded.Info, contentDescription = "Открыть карточку упражнения")
+      }
     }
+    Spacer(Modifier.height(14.dp))
+
+    TrendHeadline(shown)
+    Spacer(Modifier.height(8.dp))
+
+    TrendLineChart(
+        points =
+            shown.points.map { point ->
+              LinePoint(
+                  xMillis = point.dateMillis,
+                  y = point.bestE1rm.toFloat(),
+                  xLabel = formatDate(point.dateMillis, state.zone),
+              )
+            },
+        selectedIndex = state.selectedSessionIndex,
+        onSelect = onSessionSelected,
+        valueFormatter = { "${it.toInt()} кг" },
+    )
+
+    Spacer(Modifier.height(8.dp))
+    SessionDetails(shown, state.selectedSessionIndex, state.zone)
+
+    if (shown.repMaxes.size >= 2) {
+      Spacer(Modifier.height(18.dp))
+      Text(
+          text = "Максимальный вес × повторения",
+          style = MaterialTheme.typography.titleSmall,
+          fontWeight = FontWeight.SemiBold,
+          color = MaterialTheme.colorScheme.onSurface,
+      )
+      Text(
+          text = "Лучший вес, поднятый хотя бы на столько повторений",
+          style = MaterialTheme.typography.bodySmall,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
+      )
+      Spacer(Modifier.height(10.dp))
+      ColumnChart(
+          data =
+              shown.repMaxes.map { point ->
+                ColumnDatum(label = "${point.reps}", value = point.weightKg.toFloat())
+              },
+          height = 150.dp,
+          labelEveryColumn = true,
+          valueFormatter = { "${it.toInt()}" },
+      )
+      Spacer(Modifier.height(6.dp))
+      shown.repMaxes
+          .filter { it.reps in KEY_REPS }
+          .forEach { point ->
+            ValueRow(
+                label = "${point.reps} повт.",
+                value = "${formatKg(point.weightKg)} · ${formatDate(point.dateMillis, state.zone)}",
+            )
+          }
+    }
+  }
 }
 
 /** Крупное текущее значение, вердикт и скорость изменения — то, ради чего смотрят на график. */
 @Composable
 private fun TrendHeadline(progress: ExerciseProgress) {
-    val last = progress.points.lastOrNull() ?: return
-    val color = when (progress.verdict) {
+  val last = progress.points.lastOrNull() ?: return
+  val color =
+      when (progress.verdict) {
         TrendVerdict.GROWING -> ChartPalette.Optimal
         TrendVerdict.STALLED -> ChartPalette.Maintenance
         TrendVerdict.REGRESSING -> ChartPalette.TooLittle
         TrendVerdict.NOT_ENOUGH_DATA -> MaterialTheme.colorScheme.onSurfaceVariant
+      }
+  Row(verticalAlignment = Alignment.CenterVertically) {
+    Column(modifier = Modifier.weight(1f)) {
+      Text(
+          text = "≈ ${formatKg(last.bestE1rm)}",
+          style = MaterialTheme.typography.headlineMedium,
+          fontWeight = FontWeight.Bold,
+          color = MaterialTheme.colorScheme.onSurface,
+          maxLines = 1,
+          softWrap = false,
+      )
+      Text(
+          text = "по подходу ${formatKg(last.bestWeightKg)} × ${last.bestWeightReps}",
+          style = MaterialTheme.typography.bodySmall,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
+      )
     }
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = "≈ ${formatKg(last.bestE1rm)}",
-                style = MaterialTheme.typography.headlineMedium,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                softWrap = false,
-            )
-            Text(
-                text = "по подходу ${formatKg(last.bestWeightKg)} × ${last.bestWeightReps}",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        Column(horizontalAlignment = Alignment.End) {
-            StatusPill(text = progress.verdict.displayName(), color = color)
-            progress.trendKgPerMonth?.let { kgPerMonth ->
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    text = formatSigned(kgPerMonth, "кг/мес"),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    softWrap = false,
-                )
-            }
-        }
+    Column(horizontalAlignment = Alignment.End) {
+      StatusPill(text = progress.verdict.displayName(), color = color)
+      progress.trendKgPerMonth?.let { kgPerMonth ->
+        Spacer(Modifier.height(4.dp))
+        Text(
+            text = formatSigned(kgPerMonth, "кг/мес"),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            softWrap = false,
+        )
+      }
     }
+  }
 }
 
 @Composable
@@ -233,25 +240,28 @@ private fun SessionDetails(
     selectedIndex: Int?,
     zone: ZoneId,
 ) {
-    val index = selectedIndex?.coerceIn(progress.points.indices) ?: progress.points.lastIndex
-    val point = progress.points[index]
-    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        ValueRow(
-            label = "Тренировка ${formatDateWithYear(point.dateMillis, zone)}",
-            value = "≈ ${formatKg(point.bestE1rm)}",
-            accent = true,
-        )
-        ValueRow(label = "Лучший подход", value = "${formatKg(point.bestWeightKg)} × ${point.bestWeightReps}")
-        ValueRow(label = "Подходов", value = point.sets.toString())
-        ValueRow(label = "Тоннаж", value = formatTonnage(point.tonnageKg))
-    }
+  val index = selectedIndex?.coerceIn(progress.points.indices) ?: progress.points.lastIndex
+  val point = progress.points[index]
+  Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+    ValueRow(
+        label = "Тренировка ${formatDateWithYear(point.dateMillis, zone)}",
+        value = "≈ ${formatKg(point.bestE1rm)}",
+        accent = true,
+    )
+    ValueRow(
+        label = "Лучший подход",
+        value = "${formatKg(point.bestWeightKg)} × ${point.bestWeightReps}",
+    )
+    ValueRow(label = "Подходов", value = point.sets.toString())
+    ValueRow(label = "Тоннаж", value = formatTonnage(point.tonnageKg))
+  }
 }
 
 /**
  * Рекорды: лучший расчётный максимум по каждому упражнению за всю историю.
  *
- * Окно периода на карточку не влияет — рекорд не перестаёт быть рекордом из-за того, что
- * поставлен давно. Список ограничен, потому что дальше он перестаёт быть про достижения.
+ * Окно периода на карточку не влияет — рекорд не перестаёт быть рекордом из-за того, что поставлен
+ * давно. Список ограничен, потому что дальше он перестаёт быть про достижения.
  */
 @Composable
 internal fun RecordsCard(
@@ -259,49 +269,50 @@ internal fun RecordsCard(
     onExerciseClick: (Long) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val records = state.report.records.take(MAX_RECORDS)
-    if (records.isEmpty()) return
+  val records = state.report.records.take(MAX_RECORDS)
+  if (records.isEmpty()) return
 
-    AnalysisCard(
-        title = "Рекорды за всю историю",
-        subtitle = "Лучшая оценка максимума — независимо от выбранного периода",
-        icon = Icons.Rounded.EmojiEvents,
-        modifier = modifier,
-    ) {
-        records.forEach { record ->
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 48.dp)
-                    .clickable { onExerciseClick(record.exerciseId) },
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = record.name,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1,
-                    )
-                    Text(
-                        text = "${formatKg(record.weightKg)} × ${record.reps} · " +
-                            formatDateWithYear(record.dateMillis, state.zone),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                    )
-                }
-                Text(
-                    text = "≈ ${formatKg(record.bestE1rm)}",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary,
-                    maxLines = 1,
-                    softWrap = false,
-                )
-            }
+  AnalysisCard(
+      title = "Рекорды за всю историю",
+      subtitle = "Лучшая оценка максимума — независимо от выбранного периода",
+      icon = Icons.Rounded.EmojiEvents,
+      modifier = modifier,
+  ) {
+    records.forEach { record ->
+      Row(
+          modifier =
+              Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable {
+                onExerciseClick(record.exerciseId)
+              },
+          verticalAlignment = Alignment.CenterVertically,
+      ) {
+        Column(modifier = Modifier.weight(1f)) {
+          Text(
+              text = record.name,
+              style = MaterialTheme.typography.bodyMedium,
+              color = MaterialTheme.colorScheme.onSurface,
+              maxLines = 1,
+          )
+          Text(
+              text =
+                  "${formatKg(record.weightKg)} × ${record.reps} · " +
+                      formatDateWithYear(record.dateMillis, state.zone),
+              style = MaterialTheme.typography.labelSmall,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
+              maxLines = 1,
+          )
         }
+        Text(
+            text = "≈ ${formatKg(record.bestE1rm)}",
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.primary,
+            maxLines = 1,
+            softWrap = false,
+        )
+      }
     }
+  }
 }
 
 /** Повторения, которые выводятся таблицей под силовой кривой: остальные читаются с графика. */
@@ -310,7 +321,7 @@ private val KEY_REPS = setOf(1, 3, 5, 8, 10, 12)
 private const val MAX_RECORDS = 12
 
 /**
- * Сколько упражнений попадает в переключатель прогресса. Список отсортирован по числу
- * тренировок, поэтому первыми идут те, по которым действительно есть тренд.
+ * Сколько упражнений попадает в переключатель прогресса. Список отсортирован по числу тренировок,
+ * поэтому первыми идут те, по которым действительно есть тренд.
  */
 private const val MAX_PICKABLE_EXERCISES = 10

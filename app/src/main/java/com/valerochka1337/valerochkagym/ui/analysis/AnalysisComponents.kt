@@ -64,8 +64,8 @@ import java.time.temporal.ChronoUnit
  * Карточка блока аналитики: заголовок, пояснение и содержимое.
  *
  * Пояснение под заголовком обязательное по смыслу, а не декоративное: почти каждый график здесь
- * показывает величину с оговоркой («в среднем за неделю», «оценка по формуле»), и без подписи
- * его легко прочитать неверно.
+ * показывает величину с оговоркой («в среднем за неделю», «оценка по формуле»), и без подписи его
+ * легко прочитать неверно.
  */
 @Composable
 internal fun AnalysisCard(
@@ -75,38 +75,38 @@ internal fun AnalysisCard(
     icon: ImageVector? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    GymCard(
-        modifier = modifier.fillMaxWidth(),
-        contentPadding = PaddingValues(horizontal = 18.dp, vertical = 16.dp),
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            if (icon != null) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(20.dp),
-                )
-                Spacer(Modifier.width(10.dp))
-            }
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-        }
-        if (subtitle != null) {
-            Spacer(Modifier.height(2.dp))
-            Text(
-                text = subtitle,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        Spacer(Modifier.height(14.dp))
-        content()
+  GymCard(
+      modifier = modifier.fillMaxWidth(),
+      contentPadding = PaddingValues(horizontal = 18.dp, vertical = 16.dp),
+  ) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+      if (icon != null) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(20.dp),
+        )
+        Spacer(Modifier.width(10.dp))
+      }
+      Text(
+          text = title,
+          style = MaterialTheme.typography.titleMedium,
+          fontWeight = FontWeight.SemiBold,
+          color = MaterialTheme.colorScheme.onSurface,
+      )
     }
+    if (subtitle != null) {
+      Spacer(Modifier.height(2.dp))
+      Text(
+          text = subtitle,
+          style = MaterialTheme.typography.bodySmall,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
+      )
+    }
+    Spacer(Modifier.height(14.dp))
+    content()
+  }
 }
 
 /** Ряд взаимоисключающих чипов — переключатель вида/метрики/периода. */
@@ -118,24 +118,24 @@ internal fun <T> ChipRow(
     onSelect: (T) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    FlowRow(
-        modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        options.forEach { option ->
-            GymFilterChip(
-                selected = option == selected,
-                onClick = { onSelect(option) },
-                label = label(option),
-            )
-        }
+  FlowRow(
+      modifier = modifier.fillMaxWidth(),
+      horizontalArrangement = Arrangement.spacedBy(8.dp),
+      verticalArrangement = Arrangement.spacedBy(8.dp),
+  ) {
+    options.forEach { option ->
+      GymFilterChip(
+          selected = option == selected,
+          onClick = { onSelect(option) },
+          label = label(option),
+      )
     }
+  }
 }
 
 /**
- * Единственный выбор периода над всеми карточками. Пресеты и ручной календарный диапазон
- * сходятся в один [AnalysisPeriod], поэтому соседние графики всегда показывают один срез.
+ * Единственный выбор периода над всеми карточками. Пресеты и ручной календарный диапазон сходятся в
+ * один [AnalysisPeriod], поэтому соседние графики всегда показывают один срез.
  */
 @Composable
 internal fun AnalysisPeriodSelector(
@@ -145,60 +145,60 @@ internal fun AnalysisPeriodSelector(
     onCustomRangeSelected: (LocalDate, LocalDate) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var expanded by remember { mutableStateOf(false) }
-    var showDatePicker by remember { mutableStateOf(false) }
+  var expanded by remember { mutableStateOf(false) }
+  var showDatePicker by remember { mutableStateOf(false) }
 
-    Box(modifier = modifier) {
-        OutlinedButton(
-            onClick = { expanded = true },
-            modifier = Modifier.semantics { contentDescription = "Выбрать период анализа" },
-        ) {
-            Icon(
-                imageVector = Icons.Rounded.CalendarMonth,
-                contentDescription = null,
-            )
-            Spacer(Modifier.width(8.dp))
-            Text(period.displayName())
-            Spacer(Modifier.width(4.dp))
-            Icon(
-                imageVector = Icons.Rounded.ArrowDropDown,
-                contentDescription = null,
-            )
-        }
-        DropdownMenu(
-            expanded = expanded,
-            onDismissRequest = { expanded = false },
-        ) {
-            AnalysisPeriod.presets.forEach { option ->
-                DropdownMenuItem(
-                    text = { Text(option.displayName()) },
-                    onClick = {
-                        expanded = false
-                        onPeriodSelected(option)
-                    },
-                )
-            }
-            DropdownMenuItem(
-                text = { Text("Выбрать даты…") },
-                onClick = {
-                    expanded = false
-                    showDatePicker = true
-                },
-            )
-        }
+  Box(modifier = modifier) {
+    OutlinedButton(
+        onClick = { expanded = true },
+        modifier = Modifier.semantics { contentDescription = "Выбрать период анализа" },
+    ) {
+      Icon(
+          imageVector = Icons.Rounded.CalendarMonth,
+          contentDescription = null,
+      )
+      Spacer(Modifier.width(8.dp))
+      Text(period.displayName())
+      Spacer(Modifier.width(4.dp))
+      Icon(
+          imageVector = Icons.Rounded.ArrowDropDown,
+          contentDescription = null,
+      )
     }
-
-    if (showDatePicker) {
-        AnalysisDateRangePickerDialog(
-            initialRange = range,
-            today = LocalDate.now(),
-            onConfirm = { start, endInclusive ->
-                showDatePicker = false
-                onCustomRangeSelected(start, endInclusive)
+    DropdownMenu(
+        expanded = expanded,
+        onDismissRequest = { expanded = false },
+    ) {
+      AnalysisPeriod.presets.forEach { option ->
+        DropdownMenuItem(
+            text = { Text(option.displayName()) },
+            onClick = {
+              expanded = false
+              onPeriodSelected(option)
             },
-            onDismiss = { showDatePicker = false },
         )
+      }
+      DropdownMenuItem(
+          text = { Text("Выбрать даты…") },
+          onClick = {
+            expanded = false
+            showDatePicker = true
+          },
+      )
     }
+  }
+
+  if (showDatePicker) {
+    AnalysisDateRangePickerDialog(
+        initialRange = range,
+        today = LocalDate.now(),
+        onConfirm = { start, endInclusive ->
+          showDatePicker = false
+          onCustomRangeSelected(start, endInclusive)
+        },
+        onDismiss = { showDatePicker = false },
+    )
+  }
 }
 
 /** Будущие даты не выбираются в M3-календаре. */
@@ -206,10 +206,10 @@ internal fun AnalysisPeriodSelector(
 internal class AnalysisSelectableDates(
     private val latestDate: LocalDate,
 ) : SelectableDates {
-    override fun isSelectableDate(utcTimeMillis: Long): Boolean =
-        !utcTimeMillis.toUtcLocalDate().isAfter(latestDate)
+  override fun isSelectableDate(utcTimeMillis: Long): Boolean =
+      !utcTimeMillis.toUtcLocalDate().isAfter(latestDate)
 
-    override fun isSelectableYear(year: Int): Boolean = year <= latestDate.year
+  override fun isSelectableYear(year: Int): Boolean = year <= latestDate.year
 }
 
 /** Проверяем минимум на подтверждении: DateRangePicker не умеет задавать длину диапазона сам. */
@@ -217,9 +217,11 @@ internal fun isValidAnalysisDateRange(
     start: LocalDate?,
     endInclusive: LocalDate?,
     latestDate: LocalDate,
-): Boolean = start != null && endInclusive != null &&
-    !endInclusive.isAfter(latestDate) &&
-    ChronoUnit.DAYS.between(start, endInclusive) + 1 >= MIN_ANALYSIS_RANGE_DAYS
+): Boolean =
+    start != null &&
+        endInclusive != null &&
+        !endInclusive.isAfter(latestDate) &&
+        ChronoUnit.DAYS.between(start, endInclusive) + 1 >= MIN_ANALYSIS_RANGE_DAYS
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -229,40 +231,42 @@ internal fun AnalysisDateRangePickerDialog(
     onConfirm: (LocalDate, LocalDate) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val selectableDates = remember(today) { AnalysisSelectableDates(today) }
-    val pickerState = rememberDateRangePickerState(
-        initialSelectedStartDateMillis = initialRange.start.toUtcDatePickerMillis(),
-        initialSelectedEndDateMillis = initialRange.endInclusive.toUtcDatePickerMillis(),
-        selectableDates = selectableDates,
-    )
-    val selectedStart = pickerState.selectedStartDateMillis?.toUtcLocalDate()
-    val selectedEnd = pickerState.selectedEndDateMillis?.toUtcLocalDate()
-    val isValid = isValidAnalysisDateRange(selectedStart, selectedEnd, today)
+  val selectableDates = remember(today) { AnalysisSelectableDates(today) }
+  val pickerState =
+      rememberDateRangePickerState(
+          initialSelectedStartDateMillis = initialRange.start.toUtcDatePickerMillis(),
+          initialSelectedEndDateMillis = initialRange.endInclusive.toUtcDatePickerMillis(),
+          selectableDates = selectableDates,
+      )
+  val selectedStart = pickerState.selectedStartDateMillis?.toUtcLocalDate()
+  val selectedEnd = pickerState.selectedEndDateMillis?.toUtcLocalDate()
+  val isValid = isValidAnalysisDateRange(selectedStart, selectedEnd, today)
 
-    DatePickerDialog(
-        onDismissRequest = onDismiss,
-        confirmButton = {
-            TextButton(
-                enabled = isValid,
-                onClick = {
-                    if (selectedStart != null && selectedEnd != null) onConfirm(selectedStart, selectedEnd)
-                },
-            ) {
-                Text("Готово")
-            }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } },
-    ) {
-        DateRangePicker(state = pickerState)
-        if (!isValid) {
-            Text(
-                text = "Выберите не меньше 7 дней включительно",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
-            )
+  DatePickerDialog(
+      onDismissRequest = onDismiss,
+      confirmButton = {
+        TextButton(
+            enabled = isValid,
+            onClick = {
+              if (selectedStart != null && selectedEnd != null)
+                  onConfirm(selectedStart, selectedEnd)
+            },
+        ) {
+          Text("Готово")
         }
+      },
+      dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } },
+  ) {
+    DateRangePicker(state = pickerState)
+    if (!isValid) {
+      Text(
+          text = "Выберите не меньше 7 дней включительно",
+          style = MaterialTheme.typography.bodySmall,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
+          modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
+      )
     }
+  }
 }
 
 private fun LocalDate.toUtcDatePickerMillis(): Long =
@@ -272,8 +276,8 @@ private fun Long.toUtcLocalDate(): LocalDate =
     Instant.ofEpochMilli(this).atZone(ZoneOffset.UTC).toLocalDate()
 
 /**
- * Ряд чипов с горизонтальной прокруткой — для длинных подписей вроде названий упражнений.
- * Перенос по строкам там даёт по одному чипу на строку и съедает пол-экрана.
+ * Ряд чипов с горизонтальной прокруткой — для длинных подписей вроде названий упражнений. Перенос
+ * по строкам там даёт по одному чипу на строку и съедает пол-экрана.
  */
 @Composable
 internal fun <T> ScrollableChipRow(
@@ -283,18 +287,18 @@ internal fun <T> ScrollableChipRow(
     onSelect: (T) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    LazyRow(
-        modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        items(options) { option ->
-            GymFilterChip(
-                selected = option == selected,
-                onClick = { onSelect(option) },
-                label = label(option),
-            )
-        }
+  LazyRow(
+      modifier = modifier.fillMaxWidth(),
+      horizontalArrangement = Arrangement.spacedBy(8.dp),
+  ) {
+    items(options) { option ->
+      GymFilterChip(
+          selected = option == selected,
+          onClick = { onSelect(option) },
+          label = label(option),
+      )
     }
+  }
 }
 
 /**
@@ -308,35 +312,37 @@ internal fun LegendSwatch(
     modifier: Modifier = Modifier,
     outlined: Boolean = false,
 ) {
-    Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
-        Box(
-            modifier = Modifier
-                .size(12.dp)
+  Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
+    Box(
+        modifier =
+            Modifier.size(12.dp)
                 .clip(RoundedCornerShape(3.dp))
-                .background(if (outlined) MaterialTheme.colorScheme.surfaceContainerHighest else color)
+                .background(
+                    if (outlined) MaterialTheme.colorScheme.surfaceContainerHighest else color
+                )
                 .then(
-                    if (outlined) Modifier.border(2.dp, color, RoundedCornerShape(3.dp)) else Modifier,
+                    if (outlined) Modifier.border(2.dp, color, RoundedCornerShape(3.dp))
+                    else Modifier,
                 ),
-        )
-        Spacer(Modifier.width(6.dp))
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1,
-            softWrap = false,
-        )
-    }
+    )
+    Spacer(Modifier.width(6.dp))
+    Text(
+        text = label,
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        maxLines = 1,
+        softWrap = false,
+    )
+  }
 }
 
 /**
  * Строка «подпись — значение» для таблиц-двойников под графиками.
  *
- * Оба текста получают долю ширины через `weight`. Это не украшательство, а единственный
- * рабочий вариант: в `Row` дети без веса меряются первыми и по всей ширине, поэтому
- * значение без веса забирает строку целиком, а подписи достаётся ноль — и она рассыпается
- * в столбик по букве. Значение всё равно должно быть коротким; длинному тексту место
- * в [ValueBlock].
+ * Оба текста получают долю ширины через `weight`. Это не украшательство, а единственный рабочий
+ * вариант: в `Row` дети без веса меряются первыми и по всей ширине, поэтому значение без веса
+ * забирает строку целиком, а подписи достаётся ноль — и она рассыпается в столбик по букве.
+ * Значение всё равно должно быть коротким; длинному тексту место в [ValueBlock].
  */
 @Composable
 internal fun ValueRow(
@@ -345,28 +351,29 @@ internal fun ValueRow(
     modifier: Modifier = Modifier,
     accent: Boolean = false,
 ) {
-    Row(
-        modifier = modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.weight(1f).padding(end = 12.dp),
-        )
-        Text(
-            text = value,
-            style = MaterialTheme.typography.bodyMedium,
-            fontWeight = if (accent) FontWeight.SemiBold else FontWeight.Normal,
-            color = if (accent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-            textAlign = TextAlign.End,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            softWrap = false,
-            modifier = Modifier.weight(VALUE_WEIGHT),
-        )
-    }
+  Row(
+      modifier = modifier.fillMaxWidth(),
+      verticalAlignment = Alignment.CenterVertically,
+  ) {
+    Text(
+        text = label,
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.weight(1f).padding(end = 12.dp),
+    )
+    Text(
+        text = value,
+        style = MaterialTheme.typography.bodyMedium,
+        fontWeight = if (accent) FontWeight.SemiBold else FontWeight.Normal,
+        color =
+            if (accent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+        textAlign = TextAlign.End,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        softWrap = false,
+        modifier = Modifier.weight(VALUE_WEIGHT),
+    )
+  }
 }
 
 /**
@@ -386,20 +393,20 @@ internal fun ValueBlock(
     value: String,
     modifier: Modifier = Modifier,
 ) {
-    Column(modifier = modifier.fillMaxWidth()) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Text(
-            text = value,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurface,
-            maxLines = 3,
-            overflow = TextOverflow.Ellipsis,
-        )
-    }
+  Column(modifier = modifier.fillMaxWidth()) {
+    Text(
+        text = label,
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    Text(
+        text = value,
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurface,
+        maxLines = 3,
+        overflow = TextOverflow.Ellipsis,
+    )
+  }
 }
 
 /** Компактный бейдж-пилюля: короткий статус рядом с заголовком. */
@@ -409,16 +416,17 @@ internal fun StatusPill(
     color: Color,
     modifier: Modifier = Modifier,
 ) {
-    Text(
-        text = text,
-        style = MaterialTheme.typography.labelSmall,
-        fontWeight = FontWeight.SemiBold,
-        color = color,
-        maxLines = 1,
-        softWrap = false,
-        modifier = modifier
-            .clip(CircleShape)
-            .background(color.copy(alpha = 0.16f))
-            .padding(horizontal = 10.dp, vertical = 4.dp),
-    )
+  Text(
+      text = text,
+      style = MaterialTheme.typography.labelSmall,
+      fontWeight = FontWeight.SemiBold,
+      color = color,
+      maxLines = 1,
+      softWrap = false,
+      modifier =
+          modifier
+              .clip(CircleShape)
+              .background(color.copy(alpha = 0.16f))
+              .padding(horizontal = 10.dp, vertical = 4.dp),
+  )
 }

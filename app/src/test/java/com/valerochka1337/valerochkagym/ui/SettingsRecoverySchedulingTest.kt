@@ -40,22 +40,23 @@ import org.robolectric.annotation.Config
 @OptIn(ExperimentalCoroutinesApi::class)
 class SettingsRecoverySchedulingTest {
 
-    @get:Rule
-    val mainDispatcherRule = MainDispatcherRule()
+  @get:Rule val mainDispatcherRule = MainDispatcherRule()
 
-    @Test
-    fun `successful consent schedules paused weekly recovery without an app restart`() =
-        runTest(mainDispatcherRule.testDispatcher.scheduler) {
-            val context = ApplicationProvider.getApplicationContext<Context>()
-            val consent = PendingIntent.getActivity(
+  @Test
+  fun `successful consent schedules paused weekly recovery without an app restart`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val consent =
+            PendingIntent.getActivity(
                 context,
                 1,
                 Intent(context, Activity::class.java),
                 PendingIntent.FLAG_IMMUTABLE,
             )
-            val auth = ConsentThenGrantedGoogleAuth(consent)
-            val recovery = FakeWeeklyScheduleRecoveryScheduler()
-            val viewModel = SettingsViewModel(
+        val auth = ConsentThenGrantedGoogleAuth(consent)
+        val recovery = FakeWeeklyScheduleRecoveryScheduler()
+        val viewModel =
+            SettingsViewModel(
                 settingsRepository = SettingsRepository(FakeDataStore()),
                 googleAuth = auth,
                 uploadScheduler = NoOpUploadScheduler,
@@ -64,82 +65,85 @@ class SettingsRecoverySchedulingTest {
                 clearDataUseCase = NoOpClearDataUseCase,
                 weeklyScheduleRecoveryScheduler = recovery,
             )
-            val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
+        val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
 
-            viewModel.signIn(activity)
-            runCurrent()
-            assertEquals(0, recovery.enqueues)
-            assertEquals(0, recovery.wakes)
+        viewModel.signIn(activity)
+        runCurrent()
+        assertEquals(0, recovery.enqueues)
+        assertEquals(0, recovery.wakes)
 
-            viewModel.consentResolved(activity)
-            runCurrent()
+        viewModel.consentResolved(activity)
+        runCurrent()
 
-            assertEquals(2, auth.authorizeCalls)
-            assertEquals(0, recovery.enqueues)
-            assertEquals(1, recovery.wakes)
+        assertEquals(2, auth.authorizeCalls)
+        assertEquals(0, recovery.enqueues)
+        assertEquals(1, recovery.wakes)
+      }
+
+  private class ConsentThenGrantedGoogleAuth(
+      private val consent: PendingIntent,
+  ) : GoogleAuth {
+    var authorizeCalls = 0
+      private set
+
+    override suspend fun signIn(activity: Activity): Result<String> =
+        Result.success("user@example.com")
+
+    override suspend fun authorize(activity: Activity): AuthorizeOutcome =
+        if (authorizeCalls++ == 0) {
+          AuthorizeOutcome.NeedsConsent(consent)
+        } else {
+          AuthorizeOutcome.Granted
         }
 
-    private class ConsentThenGrantedGoogleAuth(
-        private val consent: PendingIntent,
-    ) : GoogleAuth {
-        var authorizeCalls = 0
-            private set
+    override suspend fun getAccessToken(): TokenResult = TokenResult.NeedsConsent
 
-        override suspend fun signIn(activity: Activity): Result<String> =
-            Result.success("user@example.com")
+    override suspend fun signOut() = Unit
+  }
 
-        override suspend fun authorize(activity: Activity): AuthorizeOutcome =
-            if (authorizeCalls++ == 0) {
-                AuthorizeOutcome.NeedsConsent(consent)
-            } else {
-                AuthorizeOutcome.Granted
-            }
+  private class FakeWeeklyScheduleRecoveryScheduler : WeeklyScheduleRecoveryScheduler {
+    var enqueues = 0
+      private set
 
-        override suspend fun getAccessToken(): TokenResult = TokenResult.NeedsConsent
+    var wakes = 0
+      private set
 
-        override suspend fun signOut() = Unit
+    override fun enqueue() {
+      enqueues++
     }
 
-    private class FakeWeeklyScheduleRecoveryScheduler : WeeklyScheduleRecoveryScheduler {
-        var enqueues = 0
-            private set
-        var wakes = 0
-            private set
-
-        override fun enqueue() {
-            enqueues++
-        }
-
-        override fun wake() {
-            wakes++
-        }
+    override fun wake() {
+      wakes++
     }
+  }
 
-    private class FakeDataStore : DataStore<Preferences> {
-        private val state = MutableStateFlow<Preferences>(mutablePreferencesOf())
+  private class FakeDataStore : DataStore<Preferences> {
+    private val state = MutableStateFlow<Preferences>(mutablePreferencesOf())
 
-        override val data: Flow<Preferences> = state
+    override val data: Flow<Preferences> = state
 
-        override suspend fun updateData(
-            transform: suspend (t: Preferences) -> Preferences,
-        ): Preferences = transform(state.value).also { state.value = it }
-    }
+    override suspend fun updateData(
+        transform: suspend (t: Preferences) -> Preferences,
+    ): Preferences = transform(state.value).also { state.value = it }
+  }
 
-    private data object NoOpUploadScheduler : UploadScheduler {
-        override fun schedule(workoutId: String) = Unit
-        override suspend fun retry(workoutId: String) = Unit
-        override suspend fun scheduleAllPending(): Int = 0
-    }
+  private data object NoOpUploadScheduler : UploadScheduler {
+    override fun schedule(workoutId: String) = Unit
 
-    private data object NoOpImportRepository : WorkoutImportRepository {
-        override suspend fun importAll(): ImportResult = ImportResult.NothingToImport
-    }
+    override suspend fun retry(workoutId: String) = Unit
 
-    private data object NoOpDatabaseExporter : DatabaseExporter {
-        override suspend fun export(target: Uri): ExportResult = ExportResult.Success
-    }
+    override suspend fun scheduleAllPending(): Int = 0
+  }
 
-    private data object NoOpClearDataUseCase : ClearDataUseCase {
-        override suspend fun invoke() = Unit
-    }
+  private data object NoOpImportRepository : WorkoutImportRepository {
+    override suspend fun importAll(): ImportResult = ImportResult.NothingToImport
+  }
+
+  private data object NoOpDatabaseExporter : DatabaseExporter {
+    override suspend fun export(target: Uri): ExportResult = ExportResult.Success
+  }
+
+  private data object NoOpClearDataUseCase : ClearDataUseCase {
+    override suspend fun invoke() = Unit
+  }
 }

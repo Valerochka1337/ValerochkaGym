@@ -10,16 +10,19 @@ import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 
 @HiltWorker
-class WeeklyScheduleRecoveryWorker @AssistedInject constructor(
+class WeeklyScheduleRecoveryWorker
+@AssistedInject
+constructor(
     @Assisted appContext: Context,
     @Assisted params: WorkerParameters,
     private val repository: WeeklyScheduleRepository,
 ) : CoroutineWorker(appContext, params) {
-    override suspend fun doWork(): Result = when (repository.resumePendingOperation()) {
+  override suspend fun doWork(): Result =
+      when (repository.resumePendingOperation()) {
         WeeklyScheduleRecoveryResult.Completed,
         WeeklyScheduleRecoveryResult.NothingPending,
         is WeeklyScheduleRecoveryResult.Paused,
         -> Result.success()
         is WeeklyScheduleRecoveryResult.Retry -> Result.retry()
-    }
+      }
 }

@@ -6,13 +6,223 @@ import java.util.UUID
 
 /** Explicit reviewable rows; parsing never expands families or infers movement patterns. */
 object CanonicalExerciseRegistry {
-    enum class MovementPattern { CHEST_PRESS,CHEST_FLY,VERTICAL_PULL,HORIZONTAL_PULL,FACE_PULL,CURL,EXTENSION,FOREARM,SHOULDER_PRESS,LATERAL_RAISE,FRONT_RAISE,REAR_DELT_FLY,ROTATOR_CUFF,UPRIGHT_ROW,SHRUG,SQUAT,LEG_PRESS,LUNGE,HIP_HINGE,HIP_THRUST,LEG_EXTENSION,LEG_CURL,CALF_RAISE,TIBIALIS_RAISE,HIP_ABDUCTION,HIP_ADDUCTION,BACK_EXTENSION,CORE,CORE_FLEXION,CORE_ANTI_ROTATION,CORE_ROTATION,CARDIO,FULL_BODY }
-    data class Entry(val key:String,val exercise:ExerciseEntity,val movementPattern:MovementPattern,val loads:List<MuscleLoad>,val coverage:Set<String>,val legacySyncIds:Set<String> = emptySet(),val legacyNames:Set<String> = emptySet())
-    private fun id(key:String)=UUID.nameUUIDFromBytes("ValerochkaGym.canonical-exercise:$key".toByteArray(StandardCharsets.UTF_8)).toString()
-    fun canonicalLoads(p:MovementPattern)=when(p) {
-        MovementPattern.CHEST_PRESS->listOf(MuscleLoad(Muscle.UPPER_CHEST,100),MuscleLoad(Muscle.LOWER_CHEST,100),MuscleLoad(Muscle.TRICEPS,50),MuscleLoad(Muscle.FRONT_DELTS,50),MuscleLoad(Muscle.SERRATUS_ANTERIOR,0)); MovementPattern.CHEST_FLY->listOf(MuscleLoad(Muscle.UPPER_CHEST,100),MuscleLoad(Muscle.LOWER_CHEST,100),MuscleLoad(Muscle.FRONT_DELTS,50)); MovementPattern.VERTICAL_PULL,MovementPattern.HORIZONTAL_PULL->listOf(MuscleLoad(Muscle.LATS,100),MuscleLoad(Muscle.UPPER_BACK,100),MuscleLoad(Muscle.BICEPS,50),MuscleLoad(Muscle.REAR_DELTS,50)); MovementPattern.FACE_PULL->listOf(MuscleLoad(Muscle.REAR_DELTS,100),MuscleLoad(Muscle.UPPER_BACK,100),MuscleLoad(Muscle.ROTATOR_CUFF,50),MuscleLoad(Muscle.TRAPS,50)); MovementPattern.CURL->listOf(MuscleLoad(Muscle.BICEPS,100),MuscleLoad(Muscle.FOREARMS,50)); MovementPattern.EXTENSION->listOf(MuscleLoad(Muscle.TRICEPS,100),MuscleLoad(Muscle.FRONT_DELTS,50)); MovementPattern.SHOULDER_PRESS->listOf(MuscleLoad(Muscle.FRONT_DELTS,100),MuscleLoad(Muscle.SIDE_DELTS,100),MuscleLoad(Muscle.TRICEPS,50),MuscleLoad(Muscle.ROTATOR_CUFF,0)); MovementPattern.LATERAL_RAISE->listOf(MuscleLoad(Muscle.SIDE_DELTS,100),MuscleLoad(Muscle.ROTATOR_CUFF,50)); MovementPattern.ROTATOR_CUFF->listOf(MuscleLoad(Muscle.ROTATOR_CUFF,100),MuscleLoad(Muscle.REAR_DELTS,50)); MovementPattern.SHRUG->listOf(MuscleLoad(Muscle.TRAPS,100),MuscleLoad(Muscle.FOREARMS,50)); MovementPattern.SQUAT->listOf(MuscleLoad(Muscle.QUADS,100),MuscleLoad(Muscle.GLUTES,100),MuscleLoad(Muscle.HAMSTRINGS,50)); MovementPattern.HIP_HINGE->listOf(MuscleLoad(Muscle.GLUTES,100),MuscleLoad(Muscle.HAMSTRINGS,100),MuscleLoad(Muscle.LOWER_BACK,50)); MovementPattern.CORE->listOf(MuscleLoad(Muscle.ABS,100),MuscleLoad(Muscle.OBLIQUES,50)); MovementPattern.CARDIO->listOf(MuscleLoad(Muscle.QUADS,50),MuscleLoad(Muscle.HAMSTRINGS,50),MuscleLoad(Muscle.GLUTES,50),MuscleLoad(Muscle.CALVES,50)); MovementPattern.FOREARM->listOf(MuscleLoad(Muscle.FOREARMS,100),MuscleLoad(Muscle.BICEPS,50)); MovementPattern.FRONT_RAISE->listOf(MuscleLoad(Muscle.FRONT_DELTS,100),MuscleLoad(Muscle.SERRATUS_ANTERIOR,50)); MovementPattern.REAR_DELT_FLY->listOf(MuscleLoad(Muscle.REAR_DELTS,100),MuscleLoad(Muscle.UPPER_BACK,50),MuscleLoad(Muscle.ROTATOR_CUFF,50)); MovementPattern.UPRIGHT_ROW->listOf(MuscleLoad(Muscle.SIDE_DELTS,100),MuscleLoad(Muscle.TRAPS,50)); MovementPattern.LEG_PRESS->listOf(MuscleLoad(Muscle.QUADS,100),MuscleLoad(Muscle.GLUTES,100),MuscleLoad(Muscle.HAMSTRINGS,50)); MovementPattern.LUNGE->listOf(MuscleLoad(Muscle.QUADS,100),MuscleLoad(Muscle.GLUTES,100),MuscleLoad(Muscle.HAMSTRINGS,50)); MovementPattern.HIP_THRUST->listOf(MuscleLoad(Muscle.GLUTES,100),MuscleLoad(Muscle.HAMSTRINGS,50)); MovementPattern.LEG_EXTENSION->listOf(MuscleLoad(Muscle.QUADS,100)); MovementPattern.LEG_CURL->listOf(MuscleLoad(Muscle.HAMSTRINGS,100),MuscleLoad(Muscle.CALVES,50)); MovementPattern.CALF_RAISE->listOf(MuscleLoad(Muscle.CALVES,100),MuscleLoad(Muscle.TIBIALIS_ANTERIOR,50)); MovementPattern.TIBIALIS_RAISE->listOf(MuscleLoad(Muscle.TIBIALIS_ANTERIOR,100),MuscleLoad(Muscle.CALVES,50)); MovementPattern.HIP_ABDUCTION->listOf(MuscleLoad(Muscle.HIP_ABDUCTORS,100),MuscleLoad(Muscle.GLUTES,50)); MovementPattern.HIP_ADDUCTION->listOf(MuscleLoad(Muscle.ADDUCTORS,100),MuscleLoad(Muscle.QUADS,50)); MovementPattern.BACK_EXTENSION->listOf(MuscleLoad(Muscle.LOWER_BACK,100),MuscleLoad(Muscle.GLUTES,50),MuscleLoad(Muscle.HAMSTRINGS,50)); MovementPattern.CORE_FLEXION->listOf(MuscleLoad(Muscle.ABS,100),MuscleLoad(Muscle.HIP_FLEXORS,50),MuscleLoad(Muscle.OBLIQUES,50)); MovementPattern.CORE_ANTI_ROTATION->listOf(MuscleLoad(Muscle.ABS,100),MuscleLoad(Muscle.OBLIQUES,100),MuscleLoad(Muscle.HIP_FLEXORS,50)); MovementPattern.CORE_ROTATION->listOf(MuscleLoad(Muscle.OBLIQUES,100),MuscleLoad(Muscle.ABS,50),MuscleLoad(Muscle.HIP_FLEXORS,50)); MovementPattern.FULL_BODY->listOf(MuscleLoad(Muscle.QUADS,100),MuscleLoad(Muscle.GLUTES,100),MuscleLoad(Muscle.UPPER_CHEST,50),MuscleLoad(Muscle.LATS,50),MuscleLoad(Muscle.ABS,50)) }
-    private fun parse(r:String):Entry { val f=r.split('|'); require(f.size==8); val legacy=f[7].takeUnless{it=="-"}; val p=MovementPattern.valueOf(f[6]); val syncId=legacy?.let(::builtInExerciseSyncId)?:id(f[0]); return Entry(f[0],ExerciseEntity(name=f[1],muscleGroup=MuscleGroup.valueOf(f[2]),type=ExerciseType.valueOf(f[3]),isCustom=false,syncId=syncId,updatedAt=13),p,canonicalLoads(p),setOf(f[4],f[5]),legacy?.let{setOf(builtInExerciseSyncId(it))}.orEmpty(),legacy?.let(::setOf).orEmpty()) }
-    private val registryRows="""
+  enum class MovementPattern {
+    CHEST_PRESS,
+    CHEST_FLY,
+    VERTICAL_PULL,
+    HORIZONTAL_PULL,
+    FACE_PULL,
+    CURL,
+    EXTENSION,
+    FOREARM,
+    SHOULDER_PRESS,
+    LATERAL_RAISE,
+    FRONT_RAISE,
+    REAR_DELT_FLY,
+    ROTATOR_CUFF,
+    UPRIGHT_ROW,
+    SHRUG,
+    SQUAT,
+    LEG_PRESS,
+    LUNGE,
+    HIP_HINGE,
+    HIP_THRUST,
+    LEG_EXTENSION,
+    LEG_CURL,
+    CALF_RAISE,
+    TIBIALIS_RAISE,
+    HIP_ABDUCTION,
+    HIP_ADDUCTION,
+    BACK_EXTENSION,
+    CORE,
+    CORE_FLEXION,
+    CORE_ANTI_ROTATION,
+    CORE_ROTATION,
+    CARDIO,
+    FULL_BODY,
+  }
+
+  data class Entry(
+      val key: String,
+      val exercise: ExerciseEntity,
+      val movementPattern: MovementPattern,
+      val loads: List<MuscleLoad>,
+      val coverage: Set<String>,
+      val legacySyncIds: Set<String> = emptySet(),
+      val legacyNames: Set<String> = emptySet(),
+  )
+
+  private fun id(key: String) =
+      UUID.nameUUIDFromBytes(
+              "ValerochkaGym.canonical-exercise:$key".toByteArray(StandardCharsets.UTF_8)
+          )
+          .toString()
+
+  fun canonicalLoads(p: MovementPattern) =
+      when (p) {
+        MovementPattern.CHEST_PRESS ->
+            listOf(
+                MuscleLoad(Muscle.UPPER_CHEST, 100),
+                MuscleLoad(Muscle.LOWER_CHEST, 100),
+                MuscleLoad(Muscle.TRICEPS, 50),
+                MuscleLoad(Muscle.FRONT_DELTS, 50),
+                MuscleLoad(Muscle.SERRATUS_ANTERIOR, 0),
+            )
+        MovementPattern.CHEST_FLY ->
+            listOf(
+                MuscleLoad(Muscle.UPPER_CHEST, 100),
+                MuscleLoad(Muscle.LOWER_CHEST, 100),
+                MuscleLoad(Muscle.FRONT_DELTS, 50),
+            )
+        MovementPattern.VERTICAL_PULL,
+        MovementPattern.HORIZONTAL_PULL ->
+            listOf(
+                MuscleLoad(Muscle.LATS, 100),
+                MuscleLoad(Muscle.UPPER_BACK, 100),
+                MuscleLoad(Muscle.BICEPS, 50),
+                MuscleLoad(Muscle.REAR_DELTS, 50),
+            )
+        MovementPattern.FACE_PULL ->
+            listOf(
+                MuscleLoad(Muscle.REAR_DELTS, 100),
+                MuscleLoad(Muscle.UPPER_BACK, 100),
+                MuscleLoad(Muscle.ROTATOR_CUFF, 50),
+                MuscleLoad(Muscle.TRAPS, 50),
+            )
+        MovementPattern.CURL ->
+            listOf(MuscleLoad(Muscle.BICEPS, 100), MuscleLoad(Muscle.FOREARMS, 50))
+        MovementPattern.EXTENSION ->
+            listOf(MuscleLoad(Muscle.TRICEPS, 100), MuscleLoad(Muscle.FRONT_DELTS, 50))
+        MovementPattern.SHOULDER_PRESS ->
+            listOf(
+                MuscleLoad(Muscle.FRONT_DELTS, 100),
+                MuscleLoad(Muscle.SIDE_DELTS, 100),
+                MuscleLoad(Muscle.TRICEPS, 50),
+                MuscleLoad(Muscle.ROTATOR_CUFF, 0),
+            )
+        MovementPattern.LATERAL_RAISE ->
+            listOf(MuscleLoad(Muscle.SIDE_DELTS, 100), MuscleLoad(Muscle.ROTATOR_CUFF, 50))
+        MovementPattern.ROTATOR_CUFF ->
+            listOf(MuscleLoad(Muscle.ROTATOR_CUFF, 100), MuscleLoad(Muscle.REAR_DELTS, 50))
+        MovementPattern.SHRUG ->
+            listOf(MuscleLoad(Muscle.TRAPS, 100), MuscleLoad(Muscle.FOREARMS, 50))
+        MovementPattern.SQUAT ->
+            listOf(
+                MuscleLoad(Muscle.QUADS, 100),
+                MuscleLoad(Muscle.GLUTES, 100),
+                MuscleLoad(Muscle.HAMSTRINGS, 50),
+            )
+        MovementPattern.HIP_HINGE ->
+            listOf(
+                MuscleLoad(Muscle.GLUTES, 100),
+                MuscleLoad(Muscle.HAMSTRINGS, 100),
+                MuscleLoad(Muscle.LOWER_BACK, 50),
+            )
+        MovementPattern.CORE -> listOf(MuscleLoad(Muscle.ABS, 100), MuscleLoad(Muscle.OBLIQUES, 50))
+        MovementPattern.CARDIO ->
+            listOf(
+                MuscleLoad(Muscle.QUADS, 50),
+                MuscleLoad(Muscle.HAMSTRINGS, 50),
+                MuscleLoad(Muscle.GLUTES, 50),
+                MuscleLoad(Muscle.CALVES, 50),
+            )
+        MovementPattern.FOREARM ->
+            listOf(MuscleLoad(Muscle.FOREARMS, 100), MuscleLoad(Muscle.BICEPS, 50))
+        MovementPattern.FRONT_RAISE ->
+            listOf(MuscleLoad(Muscle.FRONT_DELTS, 100), MuscleLoad(Muscle.SERRATUS_ANTERIOR, 50))
+        MovementPattern.REAR_DELT_FLY ->
+            listOf(
+                MuscleLoad(Muscle.REAR_DELTS, 100),
+                MuscleLoad(Muscle.UPPER_BACK, 50),
+                MuscleLoad(Muscle.ROTATOR_CUFF, 50),
+            )
+        MovementPattern.UPRIGHT_ROW ->
+            listOf(MuscleLoad(Muscle.SIDE_DELTS, 100), MuscleLoad(Muscle.TRAPS, 50))
+        MovementPattern.LEG_PRESS ->
+            listOf(
+                MuscleLoad(Muscle.QUADS, 100),
+                MuscleLoad(Muscle.GLUTES, 100),
+                MuscleLoad(Muscle.HAMSTRINGS, 50),
+            )
+        MovementPattern.LUNGE ->
+            listOf(
+                MuscleLoad(Muscle.QUADS, 100),
+                MuscleLoad(Muscle.GLUTES, 100),
+                MuscleLoad(Muscle.HAMSTRINGS, 50),
+            )
+        MovementPattern.HIP_THRUST ->
+            listOf(MuscleLoad(Muscle.GLUTES, 100), MuscleLoad(Muscle.HAMSTRINGS, 50))
+        MovementPattern.LEG_EXTENSION -> listOf(MuscleLoad(Muscle.QUADS, 100))
+        MovementPattern.LEG_CURL ->
+            listOf(MuscleLoad(Muscle.HAMSTRINGS, 100), MuscleLoad(Muscle.CALVES, 50))
+        MovementPattern.CALF_RAISE ->
+            listOf(MuscleLoad(Muscle.CALVES, 100), MuscleLoad(Muscle.TIBIALIS_ANTERIOR, 50))
+        MovementPattern.TIBIALIS_RAISE ->
+            listOf(MuscleLoad(Muscle.TIBIALIS_ANTERIOR, 100), MuscleLoad(Muscle.CALVES, 50))
+        MovementPattern.HIP_ABDUCTION ->
+            listOf(MuscleLoad(Muscle.HIP_ABDUCTORS, 100), MuscleLoad(Muscle.GLUTES, 50))
+        MovementPattern.HIP_ADDUCTION ->
+            listOf(MuscleLoad(Muscle.ADDUCTORS, 100), MuscleLoad(Muscle.QUADS, 50))
+        MovementPattern.BACK_EXTENSION ->
+            listOf(
+                MuscleLoad(Muscle.LOWER_BACK, 100),
+                MuscleLoad(Muscle.GLUTES, 50),
+                MuscleLoad(Muscle.HAMSTRINGS, 50),
+            )
+        MovementPattern.CORE_FLEXION ->
+            listOf(
+                MuscleLoad(Muscle.ABS, 100),
+                MuscleLoad(Muscle.HIP_FLEXORS, 50),
+                MuscleLoad(Muscle.OBLIQUES, 50),
+            )
+        MovementPattern.CORE_ANTI_ROTATION ->
+            listOf(
+                MuscleLoad(Muscle.ABS, 100),
+                MuscleLoad(Muscle.OBLIQUES, 100),
+                MuscleLoad(Muscle.HIP_FLEXORS, 50),
+            )
+        MovementPattern.CORE_ROTATION ->
+            listOf(
+                MuscleLoad(Muscle.OBLIQUES, 100),
+                MuscleLoad(Muscle.ABS, 50),
+                MuscleLoad(Muscle.HIP_FLEXORS, 50),
+            )
+        MovementPattern.FULL_BODY ->
+            listOf(
+                MuscleLoad(Muscle.QUADS, 100),
+                MuscleLoad(Muscle.GLUTES, 100),
+                MuscleLoad(Muscle.UPPER_CHEST, 50),
+                MuscleLoad(Muscle.LATS, 50),
+                MuscleLoad(Muscle.ABS, 50),
+            )
+      }
+
+  private fun parse(r: String): Entry {
+    val f = r.split('|')
+    require(f.size == 8)
+    val legacy = f[7].takeUnless { it == "-" }
+    val p = MovementPattern.valueOf(f[6])
+    val syncId = legacy?.let(::builtInExerciseSyncId) ?: id(f[0])
+    return Entry(
+        f[0],
+        ExerciseEntity(
+            name = f[1],
+            muscleGroup = MuscleGroup.valueOf(f[2]),
+            type = ExerciseType.valueOf(f[3]),
+            isCustom = false,
+            syncId = syncId,
+            updatedAt = 13,
+        ),
+        p,
+        canonicalLoads(p),
+        setOf(f[4], f[5]),
+        legacy?.let { setOf(builtInExerciseSyncId(it)) }.orEmpty(),
+        legacy?.let(::setOf).orEmpty(),
+    )
+  }
+
+  private val registryRows =
+      """
 legacy-1|Жим штанги лёжа|CHEST|STRENGTH|barbell|legacy|CHEST_PRESS|Жим штанги лёжа
 legacy-2|Жим гантелей лёжа|CHEST|STRENGTH|dumbbell|legacy|CHEST_PRESS|Жим гантелей лёжа
 legacy-3|Жим штанги на наклонной скамье|CHEST|STRENGTH|barbell|legacy|CHEST_PRESS|Жим штанги на наклонной скамье
@@ -277,9 +487,22 @@ cardio-11-2|Темповый бег|CARDIO|CARDIO|bodyweight|cardio|CARDIO|-
 cardio-12-1|Плавный степпер|CARDIO|CARDIO|cardio_machine|cardio|CARDIO|-
 cardio-12-2|Плавание кролем|CARDIO|CARDIO|bodyweight|cardio|CARDIO|-
     """
-    val entries=registryRows.trimIndent().lineSequence().filter(String::isNotBlank).map(::parse).toList()
-    init { require(entries.size in 250..350); require(entries.map(Entry::key).distinct().size==entries.size); require(entries.map{it.exercise.syncId}.distinct().size==entries.size) }
-    fun match(e:ExerciseEntity):Entry?=entries.firstOrNull{it.exercise.syncId==e.syncId}?:if(!e.isCustom)entries.firstOrNull{e.syncId in it.legacySyncIds||e.name in it.legacyNames}else null
-    fun isBuiltIn(e:ExerciseEntity)=match(e)!=null
-    fun loadsFor(e:ExerciseEntity)=match(e)?.loads
+  val entries =
+      registryRows.trimIndent().lineSequence().filter(String::isNotBlank).map(::parse).toList()
+
+  init {
+    require(entries.size in 250..350)
+    require(entries.map(Entry::key).distinct().size == entries.size)
+    require(entries.map { it.exercise.syncId }.distinct().size == entries.size)
+  }
+
+  fun match(e: ExerciseEntity): Entry? =
+      entries.firstOrNull { it.exercise.syncId == e.syncId }
+          ?: if (!e.isCustom)
+              entries.firstOrNull { e.syncId in it.legacySyncIds || e.name in it.legacyNames }
+          else null
+
+  fun isBuiltIn(e: ExerciseEntity) = match(e) != null
+
+  fun loadsFor(e: ExerciseEntity) = match(e)?.loads
 }

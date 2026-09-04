@@ -33,49 +33,50 @@ import org.junit.Test
 @OptIn(ExperimentalCoroutinesApi::class)
 class CompleteSetUseCaseTest : RoomDaoTest() {
 
-    private lateinit var repository: ActiveWorkoutRepositoryImpl
-    private lateinit var settingsRepository: SettingsRepository
+  private lateinit var repository: ActiveWorkoutRepositoryImpl
+  private lateinit var settingsRepository: SettingsRepository
 
-    @Before
-    fun setUp() {
-        repository = ActiveWorkoutRepositoryImpl(db, db.workoutDao(), db.routineDao())
-    }
+  @Before
+  fun setUp() {
+    repository = ActiveWorkoutRepositoryImpl(db, db.workoutDao(), db.routineDao())
+  }
 
-    @Test
-    fun `completing a set marks it done and starts rest from settings`() = runTest {
-        val setId = seedActiveWorkout()
-        settingsRepository = settingsWithRest(90)
-        val engine = RestTimerEngine(backgroundScope) { 0L }
-        val useCase = CompleteSetUseCase(repository, restDurationResolver(), engine, settingsRepository)
+  @Test
+  fun `completing a set marks it done and starts rest from settings`() = runTest {
+    val setId = seedActiveWorkout()
+    settingsRepository = settingsWithRest(90)
+    val engine = RestTimerEngine(backgroundScope) { 0L }
+    val useCase = CompleteSetUseCase(repository, restDurationResolver(), engine, settingsRepository)
 
-        useCase(setId)
+    useCase(setId)
 
-        assertTrue(repository.getSet(setId)!!.isCompleted)
-        assertEquals(90, (engine.state.value as? RestTimerState.Timed)?.totalSec)
-        assertEquals(90, (engine.state.value as? RestTimerState.Timed)?.remainingSec)
-        // Дедлайн по стенным часам — его же уведомление отдаёт системе под обратный хронометр.
-        assertEquals(90_000L, (engine.state.value as? RestTimerState.Timed)?.endsAtMillis)
-    }
+    assertTrue(repository.getSet(setId)!!.isCompleted)
+    assertEquals(90, (engine.state.value as? RestTimerState.Timed)?.totalSec)
+    assertEquals(90, (engine.state.value as? RestTimerState.Timed)?.remainingSec)
+    // Дедлайн по стенным часам — его же уведомление отдаёт системе под обратный хронометр.
+    assertEquals(90_000L, (engine.state.value as? RestTimerState.Timed)?.endsAtMillis)
+  }
 
-    @Test
-    fun `completing a set that is not in the active workout leaves the timer alone`() = runTest {
-        seedActiveWorkout()
-        // Подход из уже завершённой тренировки: отметку поставить можно, отдых начинать нечему.
-        val staleSetId = seedFinishedWorkoutSet()
-        settingsRepository = settingsWithRest(90)
-        val engine = RestTimerEngine(backgroundScope) { 0L }
-        val useCase = CompleteSetUseCase(repository, restDurationResolver(), engine, settingsRepository)
+  @Test
+  fun `completing a set that is not in the active workout leaves the timer alone`() = runTest {
+    seedActiveWorkout()
+    // Подход из уже завершённой тренировки: отметку поставить можно, отдых начинать нечему.
+    val staleSetId = seedFinishedWorkoutSet()
+    settingsRepository = settingsWithRest(90)
+    val engine = RestTimerEngine(backgroundScope) { 0L }
+    val useCase = CompleteSetUseCase(repository, restDurationResolver(), engine, settingsRepository)
 
-        useCase(staleSetId)
+    useCase(staleSetId)
 
-        assertTrue(repository.getSet(staleSetId)!!.isCompleted)
-        assertNull(engine.state.value)
-    }
+    assertTrue(repository.getSet(staleSetId)!!.isCompleted)
+    assertNull(engine.state.value)
+  }
 
-    @Test
-    fun `with autostart disabled the set is marked but rest does not start`() = runTest {
-        val setId = seedActiveWorkout()
-        settingsRepository = SettingsRepository(
+  @Test
+  fun `with autostart disabled the set is marked but rest does not start`() = runTest {
+    val setId = seedActiveWorkout()
+    settingsRepository =
+        SettingsRepository(
             FakeDataStore(
                 mutablePreferencesOf(
                     intPreferencesKey("default_rest_seconds") to 90,
@@ -83,19 +84,20 @@ class CompleteSetUseCaseTest : RoomDaoTest() {
                 ),
             ),
         )
-        val engine = RestTimerEngine(backgroundScope) { 0L }
-        val useCase = CompleteSetUseCase(repository, restDurationResolver(), engine, settingsRepository)
+    val engine = RestTimerEngine(backgroundScope) { 0L }
+    val useCase = CompleteSetUseCase(repository, restDurationResolver(), engine, settingsRepository)
 
-        useCase(setId)
+    useCase(setId)
 
-        assertTrue(repository.getSet(setId)!!.isCompleted)
-        assertNull(engine.state.value)
-    }
+    assertTrue(repository.getSet(setId)!!.isCompleted)
+    assertNull(engine.state.value)
+  }
 
-    @Test
-    fun `heart rate rest ignores the configured interval and snapshots its threshold`() = runTest {
-        val setId = seedActiveWorkout()
-        settingsRepository = SettingsRepository(
+  @Test
+  fun `heart rate rest ignores the configured interval and snapshots its threshold`() = runTest {
+    val setId = seedActiveWorkout()
+    settingsRepository =
+        SettingsRepository(
             FakeDataStore(
                 mutablePreferencesOf(
                     intPreferencesKey("default_rest_seconds") to 90,
@@ -104,66 +106,73 @@ class CompleteSetUseCaseTest : RoomDaoTest() {
                 ),
             ),
         )
-        val engine = RestTimerEngine(backgroundScope) { 0L }
-        val useCase = CompleteSetUseCase(repository, restDurationResolver(), engine, settingsRepository)
+    val engine = RestTimerEngine(backgroundScope) { 0L }
+    val useCase = CompleteSetUseCase(repository, restDurationResolver(), engine, settingsRepository)
 
-        useCase(setId)
+    useCase(setId)
 
-        assertEquals(
-            RestTimerState.HeartRate(thresholdBpm = 110, holdSeconds = 10, startedAtMillis = 0),
-            engine.state.value,
-        )
-
-        settingsRepository.setHeartRateRestEnabled(false)
-        settingsRepository.setHeartRateRestThresholdBpm(150)
-        assertEquals(
-            RestTimerState.HeartRate(thresholdBpm = 110, holdSeconds = 10, startedAtMillis = 0),
-            engine.state.value,
-        )
-    }
-
-    private fun restDurationResolver() = RestDurationResolver(db.routineDao(), settingsRepository)
-
-    /** Активная тренировка с одним силовым упражнением и одним подходом; возвращает id подхода. */
-    private suspend fun seedActiveWorkout(): Long {
-        val exerciseId = db.exerciseDao().insert(
-            ExerciseEntity(
-                name = "Жим лёжа",
-                muscleGroup = MuscleGroup.CHEST,
-                type = ExerciseType.STRENGTH,
-            ),
-        )
-        insertWorkout("active", startedAt = 1_000, finishedAt = null)
-        val workoutExerciseId = insertWorkoutExercise("active", exerciseId)
-        return insertSet(workoutExerciseId, setIndex = 0, weightKg = 60.0, reps = 10)
-    }
-
-    private suspend fun seedFinishedWorkoutSet(): Long {
-        val exerciseId = db.exerciseDao().insert(
-            ExerciseEntity(
-                name = "Тяга",
-                muscleGroup = MuscleGroup.BACK,
-                type = ExerciseType.STRENGTH,
-            ),
-        )
-        insertWorkout("done", startedAt = 1, finishedAt = 2)
-        val workoutExerciseId = insertWorkoutExercise("done", exerciseId)
-        return insertSet(workoutExerciseId, setIndex = 0, weightKg = 40.0, reps = 12)
-    }
-
-    private fun settingsWithRest(seconds: Int) = SettingsRepository(
-        FakeDataStore(mutablePreferencesOf(intPreferencesKey("default_rest_seconds") to seconds)),
+    assertEquals(
+        RestTimerState.HeartRate(thresholdBpm = 110, holdSeconds = 10, startedAtMillis = 0),
+        engine.state.value,
     )
 
-    private class FakeDataStore(prefs: Preferences = emptyPreferences()) : DataStore<Preferences> {
+    settingsRepository.setHeartRateRestEnabled(false)
+    settingsRepository.setHeartRateRestThresholdBpm(150)
+    assertEquals(
+        RestTimerState.HeartRate(thresholdBpm = 110, holdSeconds = 10, startedAtMillis = 0),
+        engine.state.value,
+    )
+  }
 
-        private val state = MutableStateFlow(prefs)
+  private fun restDurationResolver() = RestDurationResolver(db.routineDao(), settingsRepository)
 
-        override val data: Flow<Preferences> = state
+  /** Активная тренировка с одним силовым упражнением и одним подходом; возвращает id подхода. */
+  private suspend fun seedActiveWorkout(): Long {
+    val exerciseId =
+        db.exerciseDao()
+            .insert(
+                ExerciseEntity(
+                    name = "Жим лёжа",
+                    muscleGroup = MuscleGroup.CHEST,
+                    type = ExerciseType.STRENGTH,
+                ),
+            )
+    insertWorkout("active", startedAt = 1_000, finishedAt = null)
+    val workoutExerciseId = insertWorkoutExercise("active", exerciseId)
+    return insertSet(workoutExerciseId, setIndex = 0, weightKg = 60.0, reps = 10)
+  }
 
-        override suspend fun updateData(transform: suspend (t: Preferences) -> Preferences): Preferences {
-            state.value = transform(state.value)
-            return state.value
-        }
+  private suspend fun seedFinishedWorkoutSet(): Long {
+    val exerciseId =
+        db.exerciseDao()
+            .insert(
+                ExerciseEntity(
+                    name = "Тяга",
+                    muscleGroup = MuscleGroup.BACK,
+                    type = ExerciseType.STRENGTH,
+                ),
+            )
+    insertWorkout("done", startedAt = 1, finishedAt = 2)
+    val workoutExerciseId = insertWorkoutExercise("done", exerciseId)
+    return insertSet(workoutExerciseId, setIndex = 0, weightKg = 40.0, reps = 12)
+  }
+
+  private fun settingsWithRest(seconds: Int) =
+      SettingsRepository(
+          FakeDataStore(mutablePreferencesOf(intPreferencesKey("default_rest_seconds") to seconds)),
+      )
+
+  private class FakeDataStore(prefs: Preferences = emptyPreferences()) : DataStore<Preferences> {
+
+    private val state = MutableStateFlow(prefs)
+
+    override val data: Flow<Preferences> = state
+
+    override suspend fun updateData(
+        transform: suspend (t: Preferences) -> Preferences
+    ): Preferences {
+      state.value = transform(state.value)
+      return state.value
     }
+  }
 }

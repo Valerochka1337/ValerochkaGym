@@ -8,100 +8,113 @@ import org.junit.Test
 
 class GitHubReleaseParsingTest {
 
-    @Test
-    fun `semantic versions compare numeric parts instead of text`() {
-        val versionTen = parseSemanticVersion("v1.10.0")!!
-        val versionNine = parseSemanticVersion("1.9.9")!!
+  @Test
+  fun `semantic versions compare numeric parts instead of text`() {
+    val versionTen = parseSemanticVersion("v1.10.0")!!
+    val versionNine = parseSemanticVersion("1.9.9")!!
 
-        assertTrue(versionTen > versionNine)
-        assertEquals(0, parseSemanticVersion("1.2")!!.compareTo(parseSemanticVersion("1.2.0")!!))
-    }
+    assertTrue(versionTen > versionNine)
+    assertEquals(0, parseSemanticVersion("1.2")!!.compareTo(parseSemanticVersion("1.2.0")!!))
+  }
 
-    @Test
-    fun `semantic parser rejects prerelease and arbitrary tags`() {
-        assertNull(parseSemanticVersion("v1.2.0-beta"))
-        assertNull(parseSemanticVersion("latest"))
-        assertNull(parseSemanticVersion("1"))
-    }
+  @Test
+  fun `semantic parser rejects prerelease and arbitrary tags`() {
+    assertNull(parseSemanticVersion("v1.2.0-beta"))
+    assertNull(parseSemanticVersion("latest"))
+    assertNull(parseSemanticVersion("1"))
+  }
 
-    @Test
-    fun `newer release maps the expected apk and github digest`() {
-        val release = release(tag = "v1.3.0").toAppRelease(installedVersionName = "1.2.0")!!
+  @Test
+  fun `newer release maps the expected apk and github digest`() {
+    val release = release(tag = "v1.3.0").toAppRelease(installedVersionName = "1.2.0")!!
 
-        assertEquals("1.3.0", release.versionName)
-        assertEquals("ValerochkaGym-v1.3.0.apk", release.apk.name)
-        assertEquals(SHA256, release.apk.sha256)
-        assertEquals(5_000_000L, release.apk.sizeBytes)
-    }
+    assertEquals("1.3.0", release.versionName)
+    assertEquals("ValerochkaGym-v1.3.0.apk", release.apk.name)
+    assertEquals(SHA256, release.apk.sha256)
+    assertEquals(5_000_000L, release.apk.sizeBytes)
+  }
 
-    @Test
-    fun `same or older release is not an update`() {
-        assertNull(release(tag = "v1.2.0").toAppRelease(installedVersionName = "1.2.0"))
-        assertNull(release(tag = "v1.1.9").toAppRelease(installedVersionName = "1.2.0"))
-    }
+  @Test
+  fun `same or older release is not an update`() {
+    assertNull(release(tag = "v1.2.0").toAppRelease(installedVersionName = "1.2.0"))
+    assertNull(release(tag = "v1.1.9").toAppRelease(installedVersionName = "1.2.0"))
+  }
 
-    @Test
-    fun `newer release requires the deterministic apk name`() {
-        val dto = release(tag = "v1.3.0").copy(
-            assets = listOf(
-                asset(name = "app-release.apk", tag = "v1.3.0"),
-            ),
-        )
+  @Test
+  fun `newer release requires the deterministic apk name`() {
+    val dto =
+        release(tag = "v1.3.0")
+            .copy(
+                assets =
+                    listOf(
+                        asset(name = "app-release.apk", tag = "v1.3.0"),
+                    ),
+            )
 
-        val error = assertThrows(AppUpdateException::class.java) {
-            dto.toAppRelease(installedVersionName = "1.2.0")
-        }
-
-        assertEquals("Файл обновления пока недоступен. Попробуйте позже.", error.userMessage)
-    }
-
-    @Test
-    fun `newer release rejects missing sha256 digest`() {
-        val dto = release(tag = "v1.3.0").copy(
-            assets = listOf(asset(tag = "v1.3.0").copy(digest = null)),
-        )
-
-        val error = assertThrows(AppUpdateException::class.java) {
-            dto.toAppRelease(installedVersionName = "1.2.0")
-        }
-
-        assertEquals("Не удалось проверить целостность файла обновления", error.userMessage)
-    }
-
-    @Test
-    fun `newer release rejects an apk outside the repository`() {
-        val dto = release(tag = "v1.3.0").copy(
-            assets = listOf(
-                asset(tag = "v1.3.0").copy(
-                    browserDownloadUrl = "https://example.com/ValerochkaGym-v1.3.0.apk",
-                ),
-            ),
-        )
-
+    val error =
         assertThrows(AppUpdateException::class.java) {
-            dto.toAppRelease(installedVersionName = "1.2.0")
+          dto.toAppRelease(installedVersionName = "1.2.0")
         }
+
+    assertEquals("Файл обновления пока недоступен. Попробуйте позже.", error.userMessage)
+  }
+
+  @Test
+  fun `newer release rejects missing sha256 digest`() {
+    val dto =
+        release(tag = "v1.3.0")
+            .copy(
+                assets = listOf(asset(tag = "v1.3.0").copy(digest = null)),
+            )
+
+    val error =
+        assertThrows(AppUpdateException::class.java) {
+          dto.toAppRelease(installedVersionName = "1.2.0")
+        }
+
+    assertEquals("Не удалось проверить целостность файла обновления", error.userMessage)
+  }
+
+  @Test
+  fun `newer release rejects an apk outside the repository`() {
+    val dto =
+        release(tag = "v1.3.0")
+            .copy(
+                assets =
+                    listOf(
+                        asset(tag = "v1.3.0")
+                            .copy(
+                                browserDownloadUrl = "https://example.com/ValerochkaGym-v1.3.0.apk",
+                            ),
+                    ),
+            )
+
+    assertThrows(AppUpdateException::class.java) {
+      dto.toAppRelease(installedVersionName = "1.2.0")
     }
+  }
 
-    private fun release(tag: String): GitHubReleaseDto = GitHubReleaseDto(
-        tagName = tag,
-        htmlUrl = "https://github.com/Valerochka1337/ValerochkaGym/releases/tag/$tag",
-        name = "ValerochkaGym ${tag.removePrefix("v")}",
-        assets = listOf(asset(tag = tag)),
-    )
+  private fun release(tag: String): GitHubReleaseDto =
+      GitHubReleaseDto(
+          tagName = tag,
+          htmlUrl = "https://github.com/Valerochka1337/ValerochkaGym/releases/tag/$tag",
+          name = "ValerochkaGym ${tag.removePrefix("v")}",
+          assets = listOf(asset(tag = tag)),
+      )
 
-    private fun asset(
-        tag: String,
-        name: String = "ValerochkaGym-${tag}.apk",
-    ): GitHubReleaseAssetDto = GitHubReleaseAssetDto(
-        name = name,
-        browserDownloadUrl =
-            "https://github.com/Valerochka1337/ValerochkaGym/releases/download/$tag/$name",
-        size = 5_000_000L,
-        digest = "sha256:$SHA256",
-    )
+  private fun asset(
+      tag: String,
+      name: String = "ValerochkaGym-${tag}.apk",
+  ): GitHubReleaseAssetDto =
+      GitHubReleaseAssetDto(
+          name = name,
+          browserDownloadUrl =
+              "https://github.com/Valerochka1337/ValerochkaGym/releases/download/$tag/$name",
+          size = 5_000_000L,
+          digest = "sha256:$SHA256",
+      )
 
-    private companion object {
-        const val SHA256 = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-    }
+  private companion object {
+    const val SHA256 = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+  }
 }

@@ -20,18 +20,18 @@ import retrofit2.http.Url
 /** Минимальный OpenAI-совместимый контракт пользовательского сервера. */
 interface AiApi {
 
-    @POST
-    suspend fun createCompletion(
-        @Url endpoint: String,
-        @Header("Authorization") authorization: String,
-        @Body request: AiApiChatRequest,
-    ): AiApiChatResponse
+  @POST
+  suspend fun createCompletion(
+      @Url endpoint: String,
+      @Header("Authorization") authorization: String,
+      @Body request: AiApiChatRequest,
+  ): AiApiChatResponse
 
-    @GET
-    suspend fun getModels(
-        @Url endpoint: String,
-        @Header("Authorization") authorization: String,
-    ): AiModelsResponse
+  @GET
+  suspend fun getModels(
+      @Url endpoint: String,
+      @Header("Authorization") authorization: String,
+  ): AiModelsResponse
 }
 
 @Serializable
@@ -60,34 +60,35 @@ data class AiApiMessage(
     /** Chat Completions принимает строку либо multimodal-массив частей. */
     val content: JsonElement,
 ) {
-    companion object {
-        fun text(role: String, text: String): AiApiMessage =
-            AiApiMessage(role = role, content = JsonPrimitive(text))
+  companion object {
+    fun text(role: String, text: String): AiApiMessage =
+        AiApiMessage(role = role, content = JsonPrimitive(text))
 
-        fun textAndImage(
-            role: String,
-            text: String,
-            imageDataUrl: String,
-        ): AiApiMessage = AiApiMessage(
+    fun textAndImage(
+        role: String,
+        text: String,
+        imageDataUrl: String,
+    ): AiApiMessage =
+        AiApiMessage(
             role = role,
             content = multimodalContent(text, imageDataUrl),
         )
 
-        private fun multimodalContent(text: String, imageDataUrl: String): JsonArray = buildJsonArray {
-            add(
-                buildJsonObject {
-                    put("type", "text")
-                    put("text", text)
-                },
-            )
-            add(
-                buildJsonObject {
-                    put("type", "image_url")
-                    putJsonObject("image_url") { put("url", imageDataUrl) }
-                },
-            )
-        }
+    private fun multimodalContent(text: String, imageDataUrl: String): JsonArray = buildJsonArray {
+      add(
+          buildJsonObject {
+            put("type", "text")
+            put("text", text)
+          },
+      )
+      add(
+          buildJsonObject {
+            put("type", "image_url")
+            putJsonObject("image_url") { put("url", imageDataUrl) }
+          },
+      )
     }
+  }
 }
 
 /** `json_object` поддерживается шире strict structured outputs у разных upstream-моделей. */
@@ -131,7 +132,7 @@ data class AiApiErrorMetadata(
 )
 
 internal val AiApiError.httpCode: Int?
-    get() = (code as? JsonPrimitive)?.takeUnless { it is JsonNull }?.intOrNull
+  get() = (code as? JsonPrimitive)?.takeUnless { it is JsonNull }?.intOrNull
 
 internal val AiApiError.normalizedType: String?
-    get() = type ?: metadata?.errorType
+  get() = type ?: metadata?.errorType

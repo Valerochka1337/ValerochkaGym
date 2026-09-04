@@ -26,119 +26,135 @@ import org.junit.Test
 @OptIn(ExperimentalCoroutinesApi::class)
 class WorkoutSetMutatorTest {
 
-    @Test
-    fun `rapid steps stack on each other instead of overwriting the original value`() = runTest {
-        val repository = RecordingRepository(strengthSet(weightKg = 60.0, reps = 10))
-        val mutator = WorkoutSetMutator(repository, backgroundScope)
+  @Test
+  fun `rapid steps stack on each other instead of overwriting the original value`() = runTest {
+    val repository = RecordingRepository(strengthSet(weightKg = 60.0, reps = 10))
+    val mutator = WorkoutSetMutator(repository, backgroundScope)
 
-        repeat(4) { mutator.stepWeight(SET_ID, 2.5) }
-        runCurrent()
+    repeat(4) { mutator.stepWeight(SET_ID, 2.5) }
+    runCurrent()
 
-        assertEquals(listOf(62.5, 65.0, 67.5, 70.0), repository.writes.map { it.weightKg })
-        assertEquals(70.0, repository.current.weightKg!!, EPS)
+    assertEquals(listOf(62.5, 65.0, 67.5, 70.0), repository.writes.map { it.weightKg })
+    assertEquals(70.0, repository.current.weightKg!!, EPS)
+  }
+
+  @Test
+  fun `steps and keyboard input queue in call order`() = runTest {
+    val repository = RecordingRepository(strengthSet(weightKg = 60.0, reps = 10))
+    val mutator = WorkoutSetMutator(repository, backgroundScope)
+
+    mutator.stepReps(SET_ID, 1)
+    mutator.setWeight(SET_ID, "80")
+    mutator.stepWeight(SET_ID, 2.5)
+    runCurrent()
+
+    assertEquals(11, repository.current.reps)
+    assertEquals(82.5, repository.current.weightKg!!, EPS)
+  }
+
+  @Test
+  fun `half kilo steps do not accumulate floating point drift`() = runTest {
+    val repository = RecordingRepository(strengthSet(weightKg = 0.0, reps = 0))
+    val mutator = WorkoutSetMutator(repository, backgroundScope)
+
+    repeat(3) { mutator.stepWeight(SET_ID, 0.5) }
+    runCurrent()
+
+    assertEquals(1.5, repository.current.weightKg!!, 0.0)
+  }
+
+  @Test
+  fun `steps never push a value below zero`() = runTest {
+    val repository = RecordingRepository(strengthSet(weightKg = 2.0, reps = 1))
+    val mutator = WorkoutSetMutator(repository, backgroundScope)
+
+    mutator.stepWeight(SET_ID, -2.5)
+    mutator.stepReps(SET_ID, -5)
+    runCurrent()
+
+    assertEquals(0.0, repository.current.weightKg!!, EPS)
+    assertEquals(0, repository.current.reps)
+  }
+
+  @Test
+  fun `edit runs an arbitrary transform in the same queue`() = runTest {
+    val repository = RecordingRepository(strengthSet(weightKg = 60.0, reps = 10))
+    val mutator = WorkoutSetMutator(repository, backgroundScope)
+
+    mutator.stepWeight(SET_ID, 2.5)
+    mutator.edit(SET_ID) { it.copy(reps = 8) }
+    runCurrent()
+
+    assertEquals(62.5, repository.current.weightKg!!, EPS)
+    assertEquals(8, repository.current.reps)
+  }
+
+  @Test
+  fun `an edit for a missing set is dropped without blocking the queue`() = runTest {
+    val repository = RecordingRepository(strengthSet(weightKg = 60.0, reps = 10))
+    val mutator = WorkoutSetMutator(repository, backgroundScope)
+
+    mutator.stepWeight(MISSING_SET_ID, 2.5)
+    mutator.stepWeight(SET_ID, 2.5)
+    runCurrent()
+
+    assertEquals(1, repository.writes.size)
+    assertEquals(62.5, repository.current.weightKg!!, EPS)
+  }
+
+  private fun strengthSet(weightKg: Double, reps: Int) =
+      WorkoutSetEntity(
+          id = SET_ID,
+          workoutExerciseId = 1,
+          setIndex = 0,
+          weightKg = weightKg,
+          reps = reps,
+      )
+
+  /**
+   * Holds a single set in memory and records every write in order. Unused members are unreachable.
+   */
+  private class RecordingRepository(var current: WorkoutSetEntity) : ActiveWorkoutRepository {
+
+    val writes = mutableListOf<WorkoutSetEntity>()
+
+    override suspend fun getSet(setId: Long): WorkoutSetEntity? {
+      yield()
+      return current.takeIf { it.id == setId }
     }
 
-    @Test
-    fun `steps and keyboard input queue in call order`() = runTest {
-        val repository = RecordingRepository(strengthSet(weightKg = 60.0, reps = 10))
-        val mutator = WorkoutSetMutator(repository, backgroundScope)
-
-        mutator.stepReps(SET_ID, 1)
-        mutator.setWeight(SET_ID, "80")
-        mutator.stepWeight(SET_ID, 2.5)
-        runCurrent()
-
-        assertEquals(11, repository.current.reps)
-        assertEquals(82.5, repository.current.weightKg!!, EPS)
+    override suspend fun updateSet(set: WorkoutSetEntity) {
+      current = set
+      writes += set
     }
 
-    @Test
-    fun `half kilo steps do not accumulate floating point drift`() = runTest {
-        val repository = RecordingRepository(strengthSet(weightKg = 0.0, reps = 0))
-        val mutator = WorkoutSetMutator(repository, backgroundScope)
+    override suspend fun startFromRoutine(routineId: Long): String = unused()
 
-        repeat(3) { mutator.stepWeight(SET_ID, 0.5) }
-        runCurrent()
+    override suspend fun startEmpty(): String = unused()
 
-        assertEquals(1.5, repository.current.weightKg!!, 0.0)
-    }
+    override fun observeActive(): Flow<WorkoutFull?> = unused()
 
-    @Test
-    fun `steps never push a value below zero`() = runTest {
-        val repository = RecordingRepository(strengthSet(weightKg = 2.0, reps = 1))
-        val mutator = WorkoutSetMutator(repository, backgroundScope)
+    override suspend fun toggleSetCompleted(setId: Long, completed: Boolean) = unused()
 
-        mutator.stepWeight(SET_ID, -2.5)
-        mutator.stepReps(SET_ID, -5)
-        runCurrent()
+    override suspend fun addSet(workoutExerciseId: Long) = unused()
 
-        assertEquals(0.0, repository.current.weightKg!!, EPS)
-        assertEquals(0, repository.current.reps)
-    }
+    override suspend fun deleteSet(setId: Long) = unused()
 
-    @Test
-    fun `edit runs an arbitrary transform in the same queue`() = runTest {
-        val repository = RecordingRepository(strengthSet(weightKg = 60.0, reps = 10))
-        val mutator = WorkoutSetMutator(repository, backgroundScope)
+    override suspend fun addExercise(workoutId: String, exerciseId: Long): Long = unused()
 
-        mutator.stepWeight(SET_ID, 2.5)
-        mutator.edit(SET_ID) { it.copy(reps = 8) }
-        runCurrent()
+    override suspend fun deleteExercise(workoutExerciseId: Long) = unused()
 
-        assertEquals(62.5, repository.current.weightKg!!, EPS)
-        assertEquals(8, repository.current.reps)
-    }
+    override suspend fun reorderExercises(
+        workoutId: String,
+        orderedWorkoutExerciseIds: List<Long>,
+    ) = unused()
 
-    @Test
-    fun `an edit for a missing set is dropped without blocking the queue`() = runTest {
-        val repository = RecordingRepository(strengthSet(weightKg = 60.0, reps = 10))
-        val mutator = WorkoutSetMutator(repository, backgroundScope)
+    override suspend fun finish(workoutId: String) = unused()
 
-        mutator.stepWeight(MISSING_SET_ID, 2.5)
-        mutator.stepWeight(SET_ID, 2.5)
-        runCurrent()
+    override suspend fun discard(workoutId: String) = unused()
 
-        assertEquals(1, repository.writes.size)
-        assertEquals(62.5, repository.current.weightKg!!, EPS)
-    }
-
-    private fun strengthSet(weightKg: Double, reps: Int) = WorkoutSetEntity(
-        id = SET_ID,
-        workoutExerciseId = 1,
-        setIndex = 0,
-        weightKg = weightKg,
-        reps = reps,
-    )
-
-    /** Holds a single set in memory and records every write in order. Unused members are unreachable. */
-    private class RecordingRepository(var current: WorkoutSetEntity) : ActiveWorkoutRepository {
-
-        val writes = mutableListOf<WorkoutSetEntity>()
-
-        override suspend fun getSet(setId: Long): WorkoutSetEntity? {
-            yield()
-            return current.takeIf { it.id == setId }
-        }
-
-        override suspend fun updateSet(set: WorkoutSetEntity) {
-            current = set
-            writes += set
-        }
-
-        override suspend fun startFromRoutine(routineId: Long): String = unused()
-        override suspend fun startEmpty(): String = unused()
-        override fun observeActive(): Flow<WorkoutFull?> = unused()
-        override suspend fun toggleSetCompleted(setId: Long, completed: Boolean) = unused()
-        override suspend fun addSet(workoutExerciseId: Long) = unused()
-        override suspend fun deleteSet(setId: Long) = unused()
-        override suspend fun addExercise(workoutId: String, exerciseId: Long): Long = unused()
-        override suspend fun deleteExercise(workoutExerciseId: Long) = unused()
-        override suspend fun reorderExercises(workoutId: String, orderedWorkoutExerciseIds: List<Long>) = unused()
-        override suspend fun finish(workoutId: String) = unused()
-        override suspend fun discard(workoutId: String) = unused()
-
-        private fun unused(): Nothing = error("not used by WorkoutSetMutator")
-    }
+    private fun unused(): Nothing = error("not used by WorkoutSetMutator")
+  }
 }
 
 private const val SET_ID = 1L

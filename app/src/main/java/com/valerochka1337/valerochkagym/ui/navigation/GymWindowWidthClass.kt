@@ -5,15 +5,16 @@ import androidx.compose.ui.unit.dp
 
 /** Small project-owned policy; it intentionally avoids another adaptive dependency. */
 enum class GymWindowWidthClass {
-    Compact,
-    Medium,
-    Expanded;
+  Compact,
+  Medium,
+  Expanded;
 
-    companion object {
-        fun from(availableWidth: Dp): GymWindowWidthClass = when {
-            availableWidth < 600.dp -> Compact
-            availableWidth < 840.dp -> Medium
-            else -> Expanded
+  companion object {
+    fun from(availableWidth: Dp): GymWindowWidthClass =
+        when {
+          availableWidth < 600.dp -> Compact
+          availableWidth < 840.dp -> Medium
+          else -> Expanded
         }
-    }
+  }
 }

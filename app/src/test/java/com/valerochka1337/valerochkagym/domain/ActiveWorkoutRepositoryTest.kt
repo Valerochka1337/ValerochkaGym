@@ -27,164 +27,175 @@ import org.junit.Test
 
 class ActiveWorkoutRepositoryTest : RoomDaoTest() {
 
-    private lateinit var workoutDao: WorkoutDao
-    private lateinit var routineDao: RoutineDao
-    private lateinit var exerciseDao: ExerciseDao
-    private lateinit var repository: ActiveWorkoutRepositoryImpl
+  private lateinit var workoutDao: WorkoutDao
+  private lateinit var routineDao: RoutineDao
+  private lateinit var exerciseDao: ExerciseDao
+  private lateinit var repository: ActiveWorkoutRepositoryImpl
 
-    @Before
-    fun grabDaos() {
-        workoutDao = db.workoutDao()
-        routineDao = db.routineDao()
-        exerciseDao = db.exerciseDao()
-        repository = ActiveWorkoutRepositoryImpl(db, workoutDao, routineDao)
+  @Before
+  fun grabDaos() {
+    workoutDao = db.workoutDao()
+    routineDao = db.routineDao()
+    exerciseDao = db.exerciseDao()
+    repository = ActiveWorkoutRepositoryImpl(db, workoutDao, routineDao)
+  }
+
+  // region startFromRoutine
+
+  @Test
+  fun `startFromRoutine builds the tree from the routine`() = runTest {
+    val squat = addExercise("Присед")
+    val bench = addExercise("Жим")
+    val routineId = addRoutine("День A")
+    addRoutineExercise(
+        routineId,
+        squat,
+        position = 0,
+        plannedSets = listOf(planned(100.0, 5), planned(100.0, 5)),
+    )
+    addRoutineExercise(routineId, bench, position = 1, plannedSets = listOf(planned(60.0, 8)))
+
+    val workoutId = repository.startFromRoutine(routineId)
+
+    val full = sortedWorkoutFull(workoutFull(workoutId))
+    assertEquals("День A", full.workout.name)
+    assertEquals(routineId, full.workout.routineId)
+    assertNull(full.workout.finishedAt)
+    assertEquals(listOf("Присед", "Жим"), full.exercises.map { it.exercise.name })
+    assertEquals(listOf(0, 1), full.exercises.map { it.workoutExercise.position })
+    assertEquals(listOf(2, 1), full.exercises.map { it.sets.size })
+  }
+
+  @Test
+  fun `startFromRoutine prefills sets from the last completed workout`() = runTest {
+    val squat = addExercise("Присед")
+    val routineId = addRoutine("День A")
+    addRoutineExercise(
+        routineId,
+        squat,
+        position = 0,
+        plannedSets = listOf(planned(100.0, 5), planned(100.0, 5)),
+    )
+    seedHistory(
+        squat,
+        listOf(
+            completedSet(weightKg = 110.0, reps = 6),
+            completedSet(weightKg = 112.5, reps = 4),
+        ),
+    )
+
+    val workoutId = repository.startFromRoutine(routineId)
+
+    val sets = sortedWorkoutFull(workoutFull(workoutId)).exercises.single().sets
+    assertEquals(listOf(110.0, 112.5), sets.map { it.weightKg })
+    assertEquals(listOf(6, 4), sets.map { it.reps })
+    assertTrue(sets.none { it.isCompleted })
+  }
+
+  @Test
+  fun `startFromRoutine prefills from plannedSets when there is no history`() = runTest {
+    val squat = addExercise("Присед")
+    val routineId = addRoutine("День A")
+    addRoutineExercise(routineId, squat, position = 0, plannedSets = listOf(planned(80.0, 12)))
+
+    val workoutId = repository.startFromRoutine(routineId)
+
+    val set = sortedWorkoutFull(workoutFull(workoutId)).exercises.single().sets.single()
+    assertEquals(80.0, set.weightKg!!, 0.0)
+    assertEquals(12, set.reps)
+    assertFalse(set.isCompleted)
+  }
+
+  @Test
+  fun `startFromRoutine takes the tail from plannedSets when history is shorter`() = runTest {
+    val squat = addExercise("Присед")
+    val routineId = addRoutine("День A")
+    addRoutineExercise(
+        routineId,
+        squat,
+        position = 0,
+        plannedSets = listOf(planned(100.0, 5), planned(100.0, 5), planned(100.0, 5)),
+    )
+    seedHistory(squat, listOf(completedSet(weightKg = 110.0, reps = 6)))
+
+    val workoutId = repository.startFromRoutine(routineId)
+
+    val sets = sortedWorkoutFull(workoutFull(workoutId)).exercises.single().sets
+    assertEquals(listOf(110.0, 100.0, 100.0), sets.map { it.weightKg })
+    assertEquals(listOf(6, 5, 5), sets.map { it.reps })
+  }
+
+  @Test
+  fun `startFromRoutine with a missing routine creates an empty workout`() = runTest {
+    val workoutId = repository.startFromRoutine(routineId = 999)
+
+    val full = workoutFull(workoutId)
+    assertEquals("Тренировка", full.workout.name)
+    assertNull(full.workout.routineId)
+    assertTrue(full.exercises.isEmpty())
+  }
+
+  @Test
+  fun `startFromRoutine copies configured gyms into the active workout snapshot`() = runTest {
+    val squat = addExercise("Присед")
+    val routineId = addRoutine("Ноги")
+    addRoutineExercise(routineId, squat, position = 0, plannedSets = listOf(planned(80.0, 8)))
+    val gymId = db.gymDao().insertGym(GymEntity(name = "Альфа"))
+    db.gymDao().replaceGymExercises(gymId, listOf(squat))
+    db.gymDao().replaceRoutineGyms(routineId, listOf(gymId))
+
+    val workoutId = repository.startFromRoutine(routineId)
+
+    assertEquals(listOf("Альфа"), workoutFull(workoutId).gyms.map { it.name })
+  }
+
+  @Test
+  fun `startFromRoutine rejects a program incompatible with its gyms`() = runTest {
+    val squat = addExercise("Присед")
+    val routineId = addRoutine("Ноги")
+    addRoutineExercise(routineId, squat, position = 0, plannedSets = listOf(planned(80.0, 8)))
+    val gymId = db.gymDao().insertGym(GymEntity(name = "Альфа"))
+    db.gymDao().replaceRoutineGyms(routineId, listOf(gymId))
+
+    try {
+      repository.startFromRoutine(routineId)
+      fail("Incompatible routine must not start")
+    } catch (conflict: RoutineGymConflictException) {
+      assertEquals(listOf("Присед"), conflict.exerciseNames)
     }
 
-    // region startFromRoutine
+    assertEquals(0, tableCount("workouts"))
+  }
 
-    @Test
-    fun `startFromRoutine builds the tree from the routine`() = runTest {
-        val squat = addExercise("Присед")
-        val bench = addExercise("Жим")
-        val routineId = addRoutine("День A")
-        addRoutineExercise(routineId, squat, position = 0, plannedSets = listOf(planned(100.0, 5), planned(100.0, 5)))
-        addRoutineExercise(routineId, bench, position = 1, plannedSets = listOf(planned(60.0, 8)))
+  // endregion
 
-        val workoutId = repository.startFromRoutine(routineId)
+  // region single active workout guard
 
-        val full = sortedWorkoutFull(workoutFull(workoutId))
-        assertEquals("День A", full.workout.name)
-        assertEquals(routineId, full.workout.routineId)
-        assertNull(full.workout.finishedAt)
-        assertEquals(listOf("Присед", "Жим"), full.exercises.map { it.exercise.name })
-        assertEquals(listOf(0, 1), full.exercises.map { it.workoutExercise.position })
-        assertEquals(listOf(2, 1), full.exercises.map { it.sets.size })
-    }
+  @Test
+  fun `startFromRoutine returns the existing id when a workout is active`() = runTest {
+    val squat = addExercise("Присед")
+    val routineId = addRoutine("День A")
+    addRoutineExercise(routineId, squat, position = 0, plannedSets = listOf(planned(100.0, 5)))
 
-    @Test
-    fun `startFromRoutine prefills sets from the last completed workout`() = runTest {
-        val squat = addExercise("Присед")
-        val routineId = addRoutine("День A")
-        addRoutineExercise(routineId, squat, position = 0, plannedSets = listOf(planned(100.0, 5), planned(100.0, 5)))
-        seedHistory(
-            squat,
-            listOf(
-                completedSet(weightKg = 110.0, reps = 6),
-                completedSet(weightKg = 112.5, reps = 4),
-            ),
-        )
+    val first = repository.startFromRoutine(routineId)
+    val second = repository.startFromRoutine(routineId)
 
-        val workoutId = repository.startFromRoutine(routineId)
+    assertEquals(first, second)
+    assertEquals(1, tableCount("workouts"))
+  }
 
-        val sets = sortedWorkoutFull(workoutFull(workoutId)).exercises.single().sets
-        assertEquals(listOf(110.0, 112.5), sets.map { it.weightKg })
-        assertEquals(listOf(6, 4), sets.map { it.reps })
-        assertTrue(sets.none { it.isCompleted })
-    }
+  @Test
+  fun `startEmpty returns the existing id when a workout is active`() = runTest {
+    val first = repository.startEmpty()
+    val second = repository.startEmpty()
 
-    @Test
-    fun `startFromRoutine prefills from plannedSets when there is no history`() = runTest {
-        val squat = addExercise("Присед")
-        val routineId = addRoutine("День A")
-        addRoutineExercise(routineId, squat, position = 0, plannedSets = listOf(planned(80.0, 12)))
+    assertEquals(first, second)
+    assertEquals(1, tableCount("workouts"))
+  }
 
-        val workoutId = repository.startFromRoutine(routineId)
-
-        val set = sortedWorkoutFull(workoutFull(workoutId)).exercises.single().sets.single()
-        assertEquals(80.0, set.weightKg!!, 0.0)
-        assertEquals(12, set.reps)
-        assertFalse(set.isCompleted)
-    }
-
-    @Test
-    fun `startFromRoutine takes the tail from plannedSets when history is shorter`() = runTest {
-        val squat = addExercise("Присед")
-        val routineId = addRoutine("День A")
-        addRoutineExercise(
-            routineId,
-            squat,
-            position = 0,
-            plannedSets = listOf(planned(100.0, 5), planned(100.0, 5), planned(100.0, 5)),
-        )
-        seedHistory(squat, listOf(completedSet(weightKg = 110.0, reps = 6)))
-
-        val workoutId = repository.startFromRoutine(routineId)
-
-        val sets = sortedWorkoutFull(workoutFull(workoutId)).exercises.single().sets
-        assertEquals(listOf(110.0, 100.0, 100.0), sets.map { it.weightKg })
-        assertEquals(listOf(6, 5, 5), sets.map { it.reps })
-    }
-
-    @Test
-    fun `startFromRoutine with a missing routine creates an empty workout`() = runTest {
-        val workoutId = repository.startFromRoutine(routineId = 999)
-
-        val full = workoutFull(workoutId)
-        assertEquals("Тренировка", full.workout.name)
-        assertNull(full.workout.routineId)
-        assertTrue(full.exercises.isEmpty())
-    }
-
-    @Test
-    fun `startFromRoutine copies configured gyms into the active workout snapshot`() = runTest {
-        val squat = addExercise("Присед")
-        val routineId = addRoutine("Ноги")
-        addRoutineExercise(routineId, squat, position = 0, plannedSets = listOf(planned(80.0, 8)))
-        val gymId = db.gymDao().insertGym(GymEntity(name = "Альфа"))
-        db.gymDao().replaceGymExercises(gymId, listOf(squat))
-        db.gymDao().replaceRoutineGyms(routineId, listOf(gymId))
-
-        val workoutId = repository.startFromRoutine(routineId)
-
-        assertEquals(listOf("Альфа"), workoutFull(workoutId).gyms.map { it.name })
-    }
-
-    @Test
-    fun `startFromRoutine rejects a program incompatible with its gyms`() = runTest {
-        val squat = addExercise("Присед")
-        val routineId = addRoutine("Ноги")
-        addRoutineExercise(routineId, squat, position = 0, plannedSets = listOf(planned(80.0, 8)))
-        val gymId = db.gymDao().insertGym(GymEntity(name = "Альфа"))
-        db.gymDao().replaceRoutineGyms(routineId, listOf(gymId))
-
-        try {
-            repository.startFromRoutine(routineId)
-            fail("Incompatible routine must not start")
-        } catch (conflict: RoutineGymConflictException) {
-            assertEquals(listOf("Присед"), conflict.exerciseNames)
-        }
-
-        assertEquals(0, tableCount("workouts"))
-    }
-
-    // endregion
-
-    // region single active workout guard
-
-    @Test
-    fun `startFromRoutine returns the existing id when a workout is active`() = runTest {
-        val squat = addExercise("Присед")
-        val routineId = addRoutine("День A")
-        addRoutineExercise(routineId, squat, position = 0, plannedSets = listOf(planned(100.0, 5)))
-
-        val first = repository.startFromRoutine(routineId)
-        val second = repository.startFromRoutine(routineId)
-
-        assertEquals(first, second)
-        assertEquals(1, tableCount("workouts"))
-    }
-
-    @Test
-    fun `startEmpty returns the existing id when a workout is active`() = runTest {
-        val first = repository.startEmpty()
-        val second = repository.startEmpty()
-
-        assertEquals(first, second)
-        assertEquals(1, tableCount("workouts"))
-    }
-
-    @Test
-    fun `startFromRoutine returns the active empty workout without building a routine tree`() = runTest {
+  @Test
+  fun `startFromRoutine returns the active empty workout without building a routine tree`() =
+      runTest {
         val squat = addExercise("Присед")
         val routineId = addRoutine("День A")
         addRoutineExercise(routineId, squat, position = 0, plannedSets = listOf(planned(100.0, 5)))
@@ -197,101 +208,134 @@ class ActiveWorkoutRepositoryTest : RoomDaoTest() {
         val full = workoutFull(fromRoutine)
         assertEquals("Тренировка", full.workout.name)
         assertTrue(full.exercises.isEmpty())
+      }
+
+  // endregion
+
+  // region set and exercise editing
+
+  @Test
+  fun `addSet copies the last set with the next index`() = runTest {
+    val squat = addExercise("Присед")
+    val workoutId = repository.startEmpty()
+    val workoutExerciseId = repository.addExercise(workoutId, squat)
+    val first = workoutDao.getSetsForWorkoutExercise(workoutExerciseId).single()
+    repository.updateSet(first.copy(weightKg = 80.0, reps = 10, isCompleted = true))
+
+    repository.addSet(workoutExerciseId)
+
+    val sets = workoutDao.getSetsForWorkoutExercise(workoutExerciseId)
+    assertEquals(listOf(0, 1), sets.map { it.setIndex })
+    val added = sets.last()
+    assertEquals(80.0, added.weightKg!!, 0.0)
+    assertEquals(10, added.reps)
+    assertFalse(added.isCompleted)
+  }
+
+  @Test
+  fun `addExercise appends at position max plus one`() = runTest {
+    val squat = addExercise("Присед")
+    val bench = addExercise("Жим")
+    val workoutId = repository.startEmpty()
+
+    repository.addExercise(workoutId, squat)
+    repository.addExercise(workoutId, bench)
+
+    val exercises = workoutDao.getWorkoutExercises(workoutId)
+    assertEquals(listOf(0, 1), exercises.map { it.position })
+  }
+
+  @Test
+  fun `addExercise prefills the first set from the last completed workout`() = runTest {
+    val squat = addExercise("Присед")
+    seedHistory(squat, listOf(completedSet(weightKg = 90.0, reps = 5)))
+    val workoutId = repository.startEmpty()
+
+    val workoutExerciseId = repository.addExercise(workoutId, squat)
+
+    val set = workoutDao.getSetsForWorkoutExercise(workoutExerciseId).single()
+    assertEquals(0, set.setIndex)
+    assertEquals(90.0, set.weightKg!!, 0.0)
+    assertEquals(5, set.reps)
+    assertFalse(set.isCompleted)
+  }
+
+  @Test
+  fun `addExercise rejects an already finished workout`() = runTest {
+    val squat = addExercise("Присед")
+    insertWorkout("done", finishedAt = 777)
+
+    try {
+      repository.addExercise("done", squat)
+      fail("A finished workout must remain immutable")
+    } catch (_: ActiveWorkoutUnavailableException) {
+      // Expected: a stale picker result cannot mutate workout history.
     }
 
-    // endregion
+    assertTrue(workoutDao.getWorkoutExercises("done").isEmpty())
+  }
 
-    // region set and exercise editing
+  @Test
+  fun `deleteSet removes only that set`() = runTest {
+    val squat = addExercise("Присед")
+    val workoutId = repository.startEmpty()
+    val workoutExerciseId = repository.addExercise(workoutId, squat)
+    repository.addSet(workoutExerciseId)
+    val sets = workoutDao.getSetsForWorkoutExercise(workoutExerciseId)
 
-    @Test
-    fun `addSet copies the last set with the next index`() = runTest {
-        val squat = addExercise("Присед")
-        val workoutId = repository.startEmpty()
-        val workoutExerciseId = repository.addExercise(workoutId, squat)
-        val first = workoutDao.getSetsForWorkoutExercise(workoutExerciseId).single()
-        repository.updateSet(first.copy(weightKg = 80.0, reps = 10, isCompleted = true))
+    repository.deleteSet(sets.first().id)
 
-        repository.addSet(workoutExerciseId)
+    val remaining = workoutDao.getSetsForWorkoutExercise(workoutExerciseId)
+    assertEquals(listOf(sets.last().id), remaining.map { it.id })
+  }
 
-        val sets = workoutDao.getSetsForWorkoutExercise(workoutExerciseId)
-        assertEquals(listOf(0, 1), sets.map { it.setIndex })
-        val added = sets.last()
-        assertEquals(80.0, added.weightKg!!, 0.0)
-        assertEquals(10, added.reps)
-        assertFalse(added.isCompleted)
-    }
+  @Test
+  fun `deleteExercise removes the exercise and cascades to its sets`() = runTest {
+    val squat = addExercise("Присед")
+    val workoutId = repository.startEmpty()
+    val workoutExerciseId = repository.addExercise(workoutId, squat)
 
-    @Test
-    fun `addExercise appends at position max plus one`() = runTest {
-        val squat = addExercise("Присед")
-        val bench = addExercise("Жим")
-        val workoutId = repository.startEmpty()
+    repository.deleteExercise(workoutExerciseId)
 
-        repository.addExercise(workoutId, squat)
-        repository.addExercise(workoutId, bench)
+    assertTrue(workoutDao.getWorkoutExercises(workoutId).isEmpty())
+    assertEquals(0, tableCount("workout_sets"))
+  }
 
-        val exercises = workoutDao.getWorkoutExercises(workoutId)
-        assertEquals(listOf(0, 1), exercises.map { it.position })
-    }
+  @Test
+  fun `reorderExercises atomically renumbers the complete exercise order`() = runTest {
+    val squat = addExercise("Присед")
+    val bench = addExercise("Жим")
+    val row = addExercise("Тяга")
+    val workoutId = repository.startEmpty()
+    val squatId = repository.addExercise(workoutId, squat)
+    val benchId = repository.addExercise(workoutId, bench)
+    val rowId = repository.addExercise(workoutId, row)
 
-    @Test
-    fun `addExercise prefills the first set from the last completed workout`() = runTest {
-        val squat = addExercise("Присед")
-        seedHistory(squat, listOf(completedSet(weightKg = 90.0, reps = 5)))
-        val workoutId = repository.startEmpty()
+    repository.reorderExercises(workoutId, listOf(rowId, squatId, benchId))
 
-        val workoutExerciseId = repository.addExercise(workoutId, squat)
+    val reordered = workoutDao.getWorkoutExercises(workoutId)
+    assertEquals(listOf(rowId, squatId, benchId), reordered.map { it.id })
+    assertEquals(listOf(0, 1, 2), reordered.map { it.position })
+  }
 
-        val set = workoutDao.getSetsForWorkoutExercise(workoutExerciseId).single()
-        assertEquals(0, set.setIndex)
-        assertEquals(90.0, set.weightKg!!, 0.0)
-        assertEquals(5, set.reps)
-        assertFalse(set.isCompleted)
-    }
+  @Test
+  fun `reorderExercises is reflected by the reactively sorted active workout`() = runTest {
+    val squat = addExercise("Присед")
+    val bench = addExercise("Жим")
+    val workoutId = repository.startEmpty()
+    val squatId = repository.addExercise(workoutId, squat)
+    val benchId = repository.addExercise(workoutId, bench)
 
-    @Test
-    fun `addExercise rejects an already finished workout`() = runTest {
-        val squat = addExercise("Присед")
-        insertWorkout("done", finishedAt = 777)
+    repository.reorderExercises(workoutId, listOf(benchId, squatId))
 
-        try {
-            repository.addExercise("done", squat)
-            fail("A finished workout must remain immutable")
-        } catch (_: ActiveWorkoutUnavailableException) {
-            // Expected: a stale picker result cannot mutate workout history.
-        }
+    val active = repository.observeActive().first()!!
+    assertEquals(listOf(benchId, squatId), active.exercises.map { it.workoutExercise.id })
+    assertEquals(listOf(0, 1), active.exercises.map { it.workoutExercise.position })
+  }
 
-        assertTrue(workoutDao.getWorkoutExercises("done").isEmpty())
-    }
-
-    @Test
-    fun `deleteSet removes only that set`() = runTest {
-        val squat = addExercise("Присед")
-        val workoutId = repository.startEmpty()
-        val workoutExerciseId = repository.addExercise(workoutId, squat)
-        repository.addSet(workoutExerciseId)
-        val sets = workoutDao.getSetsForWorkoutExercise(workoutExerciseId)
-
-        repository.deleteSet(sets.first().id)
-
-        val remaining = workoutDao.getSetsForWorkoutExercise(workoutExerciseId)
-        assertEquals(listOf(sets.last().id), remaining.map { it.id })
-    }
-
-    @Test
-    fun `deleteExercise removes the exercise and cascades to its sets`() = runTest {
-        val squat = addExercise("Присед")
-        val workoutId = repository.startEmpty()
-        val workoutExerciseId = repository.addExercise(workoutId, squat)
-
-        repository.deleteExercise(workoutExerciseId)
-
-        assertTrue(workoutDao.getWorkoutExercises(workoutId).isEmpty())
-        assertEquals(0, tableCount("workout_sets"))
-    }
-
-    @Test
-    fun `reorderExercises atomically renumbers the complete exercise order`() = runTest {
+  @Test
+  fun `reorderExercises rejects a non-unique or incomplete id set without changing positions`() =
+      runTest {
         val squat = addExercise("Присед")
         val bench = addExercise("Жим")
         val row = addExercise("Тяга")
@@ -300,85 +344,64 @@ class ActiveWorkoutRepositoryTest : RoomDaoTest() {
         val benchId = repository.addExercise(workoutId, bench)
         val rowId = repository.addExercise(workoutId, row)
 
-        repository.reorderExercises(workoutId, listOf(rowId, squatId, benchId))
-
-        val reordered = workoutDao.getWorkoutExercises(workoutId)
-        assertEquals(listOf(rowId, squatId, benchId), reordered.map { it.id })
-        assertEquals(listOf(0, 1, 2), reordered.map { it.position })
-    }
-
-    @Test
-    fun `reorderExercises is reflected by the reactively sorted active workout`() = runTest {
-        val squat = addExercise("Присед")
-        val bench = addExercise("Жим")
-        val workoutId = repository.startEmpty()
-        val squatId = repository.addExercise(workoutId, squat)
-        val benchId = repository.addExercise(workoutId, bench)
-
-        repository.reorderExercises(workoutId, listOf(benchId, squatId))
-
-        val active = repository.observeActive().first()!!
-        assertEquals(listOf(benchId, squatId), active.exercises.map { it.workoutExercise.id })
-        assertEquals(listOf(0, 1), active.exercises.map { it.workoutExercise.position })
-    }
-
-    @Test
-    fun `reorderExercises rejects a non-unique or incomplete id set without changing positions`() = runTest {
-        val squat = addExercise("Присед")
-        val bench = addExercise("Жим")
-        val row = addExercise("Тяга")
-        val workoutId = repository.startEmpty()
-        val squatId = repository.addExercise(workoutId, squat)
-        val benchId = repository.addExercise(workoutId, bench)
-        val rowId = repository.addExercise(workoutId, row)
-
         try {
-            repository.reorderExercises(workoutId, listOf(squatId, benchId))
-            fail("Incomplete ids must be rejected")
+          repository.reorderExercises(workoutId, listOf(squatId, benchId))
+          fail("Incomplete ids must be rejected")
         } catch (_: IllegalArgumentException) {
-            // Expected: the supplied ids do not cover all workout exercises.
+          // Expected: the supplied ids do not cover all workout exercises.
         }
         try {
-            repository.reorderExercises(workoutId, listOf(squatId, squatId, rowId))
-            fail("Duplicate ids must be rejected")
+          repository.reorderExercises(workoutId, listOf(squatId, squatId, rowId))
+          fail("Duplicate ids must be rejected")
         } catch (_: IllegalArgumentException) {
-            // Expected: every workout exercise id must occur exactly once.
+          // Expected: every workout exercise id must occur exactly once.
         }
 
         val unchanged = workoutDao.getWorkoutExercises(workoutId)
         assertEquals(listOf(squatId, benchId, rowId), unchanged.map { it.id })
         assertEquals(listOf(0, 1, 2), unchanged.map { it.position })
-    }
+      }
 
-    @Test
-    fun `toggleSetCompleted flips the completed flag`() = runTest {
-        val squat = addExercise("Присед")
-        val workoutId = repository.startEmpty()
-        val workoutExerciseId = repository.addExercise(workoutId, squat)
-        val setId = workoutDao.getSetsForWorkoutExercise(workoutExerciseId).single().id
+  @Test
+  fun `toggleSetCompleted flips the completed flag`() = runTest {
+    val squat = addExercise("Присед")
+    val workoutId = repository.startEmpty()
+    val workoutExerciseId = repository.addExercise(workoutId, squat)
+    val setId = workoutDao.getSetsForWorkoutExercise(workoutExerciseId).single().id
 
-        repository.toggleSetCompleted(setId, completed = true)
-        assertTrue(setById(workoutExerciseId, setId).isCompleted)
+    repository.toggleSetCompleted(setId, completed = true)
+    assertTrue(setById(workoutExerciseId, setId).isCompleted)
 
-        repository.toggleSetCompleted(setId, completed = false)
-        assertFalse(setById(workoutExerciseId, setId).isCompleted)
-    }
+    repository.toggleSetCompleted(setId, completed = false)
+    assertFalse(setById(workoutExerciseId, setId).isCompleted)
+  }
 
-    // endregion
+  // endregion
 
-    // region finish and discard
+  // region finish and discard
 
-    @Test
-    fun `finish prunes empty uncompleted sets and empty exercises then stamps finishedAt`() = runTest {
+  @Test
+  fun `finish prunes empty uncompleted sets and empty exercises then stamps finishedAt`() =
+      runTest {
         val a = addExercise("A")
         val b = addExercise("B")
         val c = addExercise("C")
         insertWorkout("active", finishedAt = null)
         val weA = insertWorkoutExercise("active", a, position = 0)
-        insertSet(weA, setIndex = 0, weightKg = 50.0, reps = 10, isCompleted = true) // real completed -> kept
+        insertSet(
+            weA,
+            setIndex = 0,
+            weightKg = 50.0,
+            reps = 10,
+            isCompleted = true,
+        ) // real completed -> kept
         insertSet(weA, setIndex = 1, isCompleted = false) // empty uncompleted -> pruned
         val weB = insertWorkoutExercise("active", b, position = 1)
-        insertSet(weB, setIndex = 0, isCompleted = false) // empty uncompleted -> pruned, exercise emptied -> dropped
+        insertSet(
+            weB,
+            setIndex = 0,
+            isCompleted = false,
+        ) // empty uncompleted -> pruned, exercise emptied -> dropped
         val weC = insertWorkoutExercise("active", c, position = 2)
         insertSet(weC, setIndex = 0, isCompleted = true) // completed but empty -> kept
 
@@ -391,75 +414,76 @@ class ActiveWorkoutRepositoryTest : RoomDaoTest() {
         assertEquals(1, full.exercises.first { it.workoutExercise.id == weC }.sets.size)
         assertEquals(2, tableCount("workout_exercises"))
         assertEquals(2, tableCount("workout_sets"))
-    }
+      }
 
-    @Test
-    fun `finish keeps an already stamped finishedAt`() = runTest {
-        val a = addExercise("A")
-        insertWorkout("done", finishedAt = 777)
-        val we = insertWorkoutExercise("done", a, position = 0)
-        insertSet(we, setIndex = 0, weightKg = 50.0, reps = 10, isCompleted = true)
+  @Test
+  fun `finish keeps an already stamped finishedAt`() = runTest {
+    val a = addExercise("A")
+    insertWorkout("done", finishedAt = 777)
+    val we = insertWorkoutExercise("done", a, position = 0)
+    insertSet(we, setIndex = 0, weightKg = 50.0, reps = 10, isCompleted = true)
 
-        repository.finish("done")
+    repository.finish("done")
 
-        assertEquals(777L, workoutFull("done").workout.finishedAt)
-    }
+    assertEquals(777L, workoutFull("done").workout.finishedAt)
+  }
 
-    @Test
-    fun `discard deletes the workout and cascades to exercises and sets`() = runTest {
-        val a = addExercise("A")
-        insertWorkout("active", finishedAt = null)
-        val we = insertWorkoutExercise("active", a, position = 0)
-        insertSet(we, setIndex = 0, weightKg = 50.0, reps = 10, isCompleted = true)
+  @Test
+  fun `discard deletes the workout and cascades to exercises and sets`() = runTest {
+    val a = addExercise("A")
+    insertWorkout("active", finishedAt = null)
+    val we = insertWorkoutExercise("active", a, position = 0)
+    insertSet(we, setIndex = 0, weightKg = 50.0, reps = 10, isCompleted = true)
 
-        repository.discard("active")
+    repository.discard("active")
 
-        assertNull(workoutDao.getWorkoutFull("active"))
-        assertEquals(0, tableCount("workout_exercises"))
-        assertEquals(0, tableCount("workout_sets"))
-    }
+    assertNull(workoutDao.getWorkoutFull("active"))
+    assertEquals(0, tableCount("workout_exercises"))
+    assertEquals(0, tableCount("workout_sets"))
+  }
 
-    // endregion
+  // endregion
 
-    // region observeActive
+  // region observeActive
 
-    @Test
-    fun `observeActive sorts exercises by position and sets by index`() = runTest {
-        val a = addExercise("A")
-        val b = addExercise("B")
-        insertWorkout("active", finishedAt = null)
-        // Inserted out of order to prove the flow applies the domain sort.
-        val weB = insertWorkoutExercise("active", b, position = 1)
-        val weA = insertWorkoutExercise("active", a, position = 0)
-        insertSet(weA, setIndex = 2, weightKg = 60.0, reps = 5, isCompleted = false)
-        insertSet(weA, setIndex = 0, weightKg = 40.0, reps = 5, isCompleted = false)
-        insertSet(weA, setIndex = 1, weightKg = 50.0, reps = 5, isCompleted = false)
+  @Test
+  fun `observeActive sorts exercises by position and sets by index`() = runTest {
+    val a = addExercise("A")
+    val b = addExercise("B")
+    insertWorkout("active", finishedAt = null)
+    // Inserted out of order to prove the flow applies the domain sort.
+    val weB = insertWorkoutExercise("active", b, position = 1)
+    val weA = insertWorkoutExercise("active", a, position = 0)
+    insertSet(weA, setIndex = 2, weightKg = 60.0, reps = 5, isCompleted = false)
+    insertSet(weA, setIndex = 0, weightKg = 40.0, reps = 5, isCompleted = false)
+    insertSet(weA, setIndex = 1, weightKg = 50.0, reps = 5, isCompleted = false)
 
-        val full = repository.observeActive().first()!!
+    val full = repository.observeActive().first()!!
 
-        assertEquals(listOf(weA, weB), full.exercises.map { it.workoutExercise.id })
-        assertEquals(listOf(0, 1), full.exercises.map { it.workoutExercise.position })
-        assertEquals(listOf(0, 1, 2), full.exercises.first().sets.map { it.setIndex })
-    }
+    assertEquals(listOf(weA, weB), full.exercises.map { it.workoutExercise.id })
+    assertEquals(listOf(0, 1), full.exercises.map { it.workoutExercise.position })
+    assertEquals(listOf(0, 1, 2), full.exercises.first().sets.map { it.setIndex })
+  }
 
-    // endregion
+  // endregion
 
-    // region helpers
+  // region helpers
 
-    private suspend fun addExercise(name: String, type: ExerciseType = ExerciseType.STRENGTH): Long =
-        exerciseDao.insert(ExerciseEntity(name = name, muscleGroup = MuscleGroup.LEGS, type = type))
+  private suspend fun addExercise(name: String, type: ExerciseType = ExerciseType.STRENGTH): Long =
+      exerciseDao.insert(ExerciseEntity(name = name, muscleGroup = MuscleGroup.LEGS, type = type))
 
-    private suspend fun addRoutine(name: String): Long =
-        routineDao.upsertRoutine(RoutineEntity(name = name))
+  private suspend fun addRoutine(name: String): Long =
+      routineDao.upsertRoutine(RoutineEntity(name = name))
 
-    private suspend fun addRoutineExercise(
-        routineId: Long,
-        exerciseId: Long,
-        position: Int,
-        plannedSets: List<PlannedSet>,
-        restSeconds: Int? = null,
-    ) {
-        routineDao.insertRoutineExercises(listOf(
+  private suspend fun addRoutineExercise(
+      routineId: Long,
+      exerciseId: Long,
+      position: Int,
+      plannedSets: List<PlannedSet>,
+      restSeconds: Int? = null,
+  ) {
+    routineDao.insertRoutineExercises(
+        listOf(
             RoutineExerciseEntity(
                 routineId = routineId,
                 exerciseId = exerciseId,
@@ -467,25 +491,35 @@ class ActiveWorkoutRepositoryTest : RoomDaoTest() {
                 restSeconds = restSeconds,
                 plannedSets = plannedSets,
             ),
-        ))
-    }
-
-    /** Seeds a finished workout whose completed sets become the "last time" prefill source. */
-    private suspend fun seedHistory(exerciseId: Long, sets: List<WorkoutSetEntity>) {
-        insertWorkout("history", startedAt = 100, finishedAt = 500)
-        val workoutExerciseId = insertWorkoutExercise("history", exerciseId)
-        workoutDao.insertSets(
-            sets.mapIndexed { index, set -> set.copy(workoutExerciseId = workoutExerciseId, setIndex = index) },
         )
-    }
+    )
+  }
 
-    private fun planned(weightKg: Double, reps: Int): PlannedSet = PlannedSet(weightKg = weightKg, reps = reps)
+  /** Seeds a finished workout whose completed sets become the "last time" prefill source. */
+  private suspend fun seedHistory(exerciseId: Long, sets: List<WorkoutSetEntity>) {
+    insertWorkout("history", startedAt = 100, finishedAt = 500)
+    val workoutExerciseId = insertWorkoutExercise("history", exerciseId)
+    workoutDao.insertSets(
+        sets.mapIndexed { index, set ->
+          set.copy(workoutExerciseId = workoutExerciseId, setIndex = index)
+        },
+    )
+  }
 
-    private fun completedSet(weightKg: Double, reps: Int): WorkoutSetEntity =
-        WorkoutSetEntity(workoutExerciseId = 0, setIndex = 0, weightKg = weightKg, reps = reps, isCompleted = true)
+  private fun planned(weightKg: Double, reps: Int): PlannedSet =
+      PlannedSet(weightKg = weightKg, reps = reps)
 
-    private suspend fun setById(workoutExerciseId: Long, setId: Long): WorkoutSetEntity =
-        workoutDao.getSetsForWorkoutExercise(workoutExerciseId).first { it.id == setId }
+  private fun completedSet(weightKg: Double, reps: Int): WorkoutSetEntity =
+      WorkoutSetEntity(
+          workoutExerciseId = 0,
+          setIndex = 0,
+          weightKg = weightKg,
+          reps = reps,
+          isCompleted = true,
+      )
 
-    // endregion
+  private suspend fun setById(workoutExerciseId: Long, setId: Long): WorkoutSetEntity =
+      workoutDao.getSetsForWorkoutExercise(workoutExerciseId).first { it.id == setId }
+
+  // endregion
 }

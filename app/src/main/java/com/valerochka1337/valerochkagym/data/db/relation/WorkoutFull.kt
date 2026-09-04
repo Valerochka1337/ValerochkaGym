@@ -19,11 +19,12 @@ data class WorkoutFull(
     @Relation(
         parentColumn = "id",
         entityColumn = "id",
-        associateBy = Junction(
-            value = WorkoutGymEntity::class,
-            parentColumn = "workoutId",
-            entityColumn = "gymId",
-        ),
+        associateBy =
+            Junction(
+                value = WorkoutGymEntity::class,
+                parentColumn = "workoutId",
+                entityColumn = "gymId",
+            ),
     )
     val gyms: List<GymEntity> = emptyList(),
 )

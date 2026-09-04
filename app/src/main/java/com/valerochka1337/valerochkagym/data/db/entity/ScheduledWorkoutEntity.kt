@@ -7,14 +7,15 @@ import androidx.room.PrimaryKey
 
 @Entity(
     tableName = "scheduled_workouts",
-    foreignKeys = [
-        ForeignKey(
-            entity = RoutineEntity::class,
-            parentColumns = ["id"],
-            childColumns = ["routineId"],
-            onDelete = ForeignKey.CASCADE,
-        ),
-    ],
+    foreignKeys =
+        [
+            ForeignKey(
+                entity = RoutineEntity::class,
+                parentColumns = ["id"],
+                childColumns = ["routineId"],
+                onDelete = ForeignKey.CASCADE,
+            ),
+        ],
     indices = [Index("routineId")],
 )
 data class ScheduledWorkoutEntity(

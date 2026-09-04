@@ -17,10 +17,10 @@ import androidx.compose.material.icons.automirrored.rounded.ShowChart
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.EmojiEvents
 import androidx.compose.material.icons.rounded.History
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -41,13 +41,13 @@ import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleLoad
 import com.valerochka1337.valerochkagym.domain.ExerciseStatistics
 import com.valerochka1337.valerochkagym.domain.displayName
-import com.valerochka1337.valerochkagym.ui.analysis.formatDate
-import com.valerochka1337.valerochkagym.ui.analysis.formatDateWithYear
-import com.valerochka1337.valerochkagym.ui.analysis.charts.LinePoint
-import com.valerochka1337.valerochkagym.ui.analysis.charts.TrendLineChart
 import com.valerochka1337.valerochkagym.ui.analysis.body.BodyMapFlip
 import com.valerochka1337.valerochkagym.ui.analysis.body.MuscleSector
 import com.valerochka1337.valerochkagym.ui.analysis.body.strongestMember
+import com.valerochka1337.valerochkagym.ui.analysis.charts.LinePoint
+import com.valerochka1337.valerochkagym.ui.analysis.charts.TrendLineChart
+import com.valerochka1337.valerochkagym.ui.analysis.formatDate
+import com.valerochka1337.valerochkagym.ui.analysis.formatDateWithYear
 import com.valerochka1337.valerochkagym.ui.components.CircleIconButton
 import com.valerochka1337.valerochkagym.ui.components.ExerciseAvatar
 import com.valerochka1337.valerochkagym.ui.components.GlowBackground
@@ -63,45 +63,47 @@ fun ExerciseDetailScreen(
     modifier: Modifier = Modifier,
     viewModel: ExerciseDetailViewModel = hiltViewModel(),
 ) {
-    val state by viewModel.uiState.collectAsStateWithLifecycle()
-    val editor by viewModel.editor.collectAsStateWithLifecycle()
-    val haptics = gymHaptics()
+  val state by viewModel.uiState.collectAsStateWithLifecycle()
+  val editor by viewModel.editor.collectAsStateWithLifecycle()
+  val haptics = gymHaptics()
 
-    GlowBackground(modifier = modifier) {
-        Column(modifier = Modifier.fillMaxSize()) {
-            ExerciseHeader(
-                exercise = state.exercise,
-                onBack = onBack,
-                onEdit = {
-                    haptics.tap()
-                    viewModel.openEditor()
-                },
-            )
-            when {
-                state.loading -> Column(
-                    modifier = Modifier.fillMaxSize(),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center,
-                ) {
-                    CircularProgressIndicator()
-                }
-                state.exercise == null -> MissingExercise()
-                else -> ExerciseDetailContent(
-                    exercise = state.exercise!!,
-                    loads = state.loads,
-                    statistics = state.statistics,
-                )
+  GlowBackground(modifier = modifier) {
+    Column(modifier = Modifier.fillMaxSize()) {
+      ExerciseHeader(
+          exercise = state.exercise,
+          onBack = onBack,
+          onEdit = {
+            haptics.tap()
+            viewModel.openEditor()
+          },
+      )
+      when {
+        state.loading ->
+            Column(
+                modifier = Modifier.fillMaxSize(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+            ) {
+              CircularProgressIndicator()
             }
-        }
+        state.exercise == null -> MissingExercise()
+        else ->
+            ExerciseDetailContent(
+                exercise = state.exercise!!,
+                loads = state.loads,
+                statistics = state.statistics,
+            )
+      }
     }
+  }
 
-    editor?.let { initial ->
-        ExerciseEditorSheet(
-            initial = initial,
-            onDismiss = viewModel::closeEditor,
-            onSave = viewModel::saveEditor,
-        )
-    }
+  editor?.let { initial ->
+    ExerciseEditorSheet(
+        initial = initial,
+        onDismiss = viewModel::closeEditor,
+        onSave = viewModel::saveEditor,
+    )
+  }
 }
 
 @Composable
@@ -111,45 +113,46 @@ private fun ExerciseHeader(
     onBack: () -> Unit,
     onEdit: () -> Unit,
 ) {
-    TopAppBar(
-        navigationIcon = {
-            IconButton(onClick = onBack) {
-                Icon(
-                    Icons.AutoMirrored.Rounded.ArrowBack,
-                    contentDescription = "Назад",
-                )
-            }
-        },
-        title = {
-            Column {
-                Text(
-                    text = exercise?.name ?: "Упражнение",
-                    style = MaterialTheme.typography.titleLarge,
-                    maxLines = 1,
-                )
-                exercise?.let {
-                    Text(
-                        text = "${it.muscleGroup.displayName()} · ${it.type.displayName()}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                    )
-                }
-            }
-        },
-        actions = {
-            if (exercise != null && !CanonicalExerciseRegistry.isBuiltIn(exercise)) {
-                CircleIconButton(
-                    icon = Icons.Rounded.Edit,
-                    contentDescription = "Редактировать упражнение",
-                    onClick = onEdit,
-                )
-            }
-        },
-        colors = TopAppBarDefaults.topAppBarColors(
-            containerColor = MaterialTheme.colorScheme.background,
-        ),
-    )
+  TopAppBar(
+      navigationIcon = {
+        IconButton(onClick = onBack) {
+          Icon(
+              Icons.AutoMirrored.Rounded.ArrowBack,
+              contentDescription = "Назад",
+          )
+        }
+      },
+      title = {
+        Column {
+          Text(
+              text = exercise?.name ?: "Упражнение",
+              style = MaterialTheme.typography.titleLarge,
+              maxLines = 1,
+          )
+          exercise?.let {
+            Text(
+                text = "${it.muscleGroup.displayName()} · ${it.type.displayName()}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+            )
+          }
+        }
+      },
+      actions = {
+        if (exercise != null && !CanonicalExerciseRegistry.isBuiltIn(exercise)) {
+          CircleIconButton(
+              icon = Icons.Rounded.Edit,
+              contentDescription = "Редактировать упражнение",
+              onClick = onEdit,
+          )
+        }
+      },
+      colors =
+          TopAppBarDefaults.topAppBarColors(
+              containerColor = MaterialTheme.colorScheme.background,
+          ),
+  )
 }
 
 @Composable
@@ -158,96 +161,97 @@ internal fun ExerciseDetailContent(
     loads: List<MuscleLoad>,
     statistics: ExerciseStatistics?,
 ) {
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = 4.dp, bottom = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        item { MusclesCard(loads) }
-        if (statistics != null) {
-            if (statistics.hasData) {
-                item { LastTimeCard(statistics) }
-                if (statistics.points.isNotEmpty()) item { ProgressCard(statistics) }
-                if (statistics.records.isNotEmpty()) item { RecordsCard(statistics) }
-            } else {
-                item { EmptyStatisticsCard() }
-            }
-        }
+  LazyColumn(
+      modifier = Modifier.fillMaxSize(),
+      contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = 4.dp, bottom = 24.dp),
+      verticalArrangement = Arrangement.spacedBy(12.dp),
+  ) {
+    item { MusclesCard(loads) }
+    if (statistics != null) {
+      if (statistics.hasData) {
+        item { LastTimeCard(statistics) }
+        if (statistics.points.isNotEmpty()) item { ProgressCard(statistics) }
+        if (statistics.records.isNotEmpty()) item { RecordsCard(statistics) }
+      } else {
+        item { EmptyStatisticsCard() }
+      }
     }
+  }
 }
 
 @Composable
 private fun ProfileCard(exercise: ExerciseEntity) {
-    GymCard(modifier = Modifier.fillMaxWidth()) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            ExerciseAvatar(exercise = exercise)
-            Spacer(Modifier.width(14.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = exercise.name,
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    text = "${exercise.muscleGroup.displayName()} · ${exercise.type.displayName()}",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
+  GymCard(modifier = Modifier.fillMaxWidth()) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+      ExerciseAvatar(exercise = exercise)
+      Spacer(Modifier.width(14.dp))
+      Column(modifier = Modifier.weight(1f)) {
+        Text(
+            text = exercise.name,
+            style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            text = "${exercise.muscleGroup.displayName()} · ${exercise.type.displayName()}",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+      }
     }
+  }
 }
 
 @Composable
 private fun MusclesCard(loads: List<MuscleLoad>) {
-    val fills = ExerciseDetailRoleFills(
-        inactive = MaterialTheme.colorScheme.surfaceContainer,
-        primary = MaterialTheme.colorScheme.primary,
-        secondary = MaterialTheme.colorScheme.primary.copy(alpha = 0.62f),
-        stabilizer = MaterialTheme.colorScheme.primary.copy(alpha = 0.32f),
+  val fills =
+      ExerciseDetailRoleFills(
+          inactive = MaterialTheme.colorScheme.surfaceContainer,
+          primary = MaterialTheme.colorScheme.primary,
+          secondary = MaterialTheme.colorScheme.primary.copy(alpha = 0.62f),
+          stabilizer = MaterialTheme.colorScheme.primary.copy(alpha = 0.32f),
+      )
+  GymCard(modifier = Modifier.fillMaxWidth()) {
+    Text(
+        text = "Вовлечение мышц",
+        style = MaterialTheme.typography.titleMedium,
+        fontWeight = FontWeight.SemiBold,
+        color = MaterialTheme.colorScheme.onSurface,
     )
-    GymCard(modifier = Modifier.fillMaxWidth()) {
-        Text(
-            text = "Вовлечение мышц",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
-        if (loads.isEmpty()) {
-            Spacer(Modifier.height(8.dp))
-            Text(
-                text = "Карта мышц пока не заполнена",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            return@GymCard
-        }
-        Spacer(Modifier.height(8.dp))
-        BodyMapFlip(
-            fillFor = roleSectorFillFor(loads, fills),
-            onMuscleClick = null,
-        )
-        Spacer(Modifier.height(8.dp))
-        loads.forEach { load ->
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = load.muscle.displayName(),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.weight(1f),
-                )
-                Text(
-                    text = load.role?.label ?: "Не задана",
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-            }
-            Spacer(Modifier.height(10.dp))
-        }
+    if (loads.isEmpty()) {
+      Spacer(Modifier.height(8.dp))
+      Text(
+          text = "Карта мышц пока не заполнена",
+          style = MaterialTheme.typography.bodyMedium,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
+      )
+      return@GymCard
     }
+    Spacer(Modifier.height(8.dp))
+    BodyMapFlip(
+        fillFor = roleSectorFillFor(loads, fills),
+        onMuscleClick = null,
+    )
+    Spacer(Modifier.height(8.dp))
+    loads.forEach { load ->
+      Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            text = load.muscle.displayName(),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            text = load.role?.label ?: "Не задана",
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.primary,
+        )
+      }
+      Spacer(Modifier.height(10.dp))
+    }
+  }
 }
 
 /** Display-only colour strengths keep the labelled role rows as the text alternative. */
@@ -263,115 +267,119 @@ internal fun roleSectorFillFor(
     loads: List<MuscleLoad>,
     fills: ExerciseDetailRoleFills,
 ): (MuscleSector) -> androidx.compose.ui.graphics.Color {
-    val roles = loads.associateBy(MuscleLoad::muscle)
-    return { sector ->
-        when (sector.strongestMember(roles) { it.contribution }?.role) {
-            com.valerochka1337.valerochkagym.data.db.entity.MuscleRole.PRIMARY -> fills.primary
-            com.valerochka1337.valerochkagym.data.db.entity.MuscleRole.SECONDARY -> fills.secondary
-            com.valerochka1337.valerochkagym.data.db.entity.MuscleRole.STABILIZER -> fills.stabilizer
-            null -> fills.inactive
-        }
+  val roles = loads.associateBy(MuscleLoad::muscle)
+  return { sector ->
+    when (sector.strongestMember(roles) { it.contribution }?.role) {
+      com.valerochka1337.valerochkagym.data.db.entity.MuscleRole.PRIMARY -> fills.primary
+      com.valerochka1337.valerochkagym.data.db.entity.MuscleRole.SECONDARY -> fills.secondary
+      com.valerochka1337.valerochkagym.data.db.entity.MuscleRole.STABILIZER -> fills.stabilizer
+      null -> fills.inactive
     }
+  }
 }
 
 @Composable
 private fun LastTimeCard(statistics: ExerciseStatistics) {
-    val date = statistics.lastPerformedAt ?: return
-    StatisticCardHeader(Icons.Rounded.History, "Прошлый раз") {
-        Text(
-            text = formatDateWithYear(date, ZoneId.systemDefault()),
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Spacer(Modifier.height(6.dp))
-        Text(
-            text = statistics.lastSummary.ifBlank { "Выполненные подходы без числовых значений" },
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
-    }
+  val date = statistics.lastPerformedAt ?: return
+  StatisticCardHeader(Icons.Rounded.History, "Прошлый раз") {
+    Text(
+        text = formatDateWithYear(date, ZoneId.systemDefault()),
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    Spacer(Modifier.height(6.dp))
+    Text(
+        text = statistics.lastSummary.ifBlank { "Выполненные подходы без числовых значений" },
+        style = MaterialTheme.typography.titleMedium,
+        fontWeight = FontWeight.SemiBold,
+        color = MaterialTheme.colorScheme.onSurface,
+    )
+  }
 }
 
 @Composable
 private fun ProgressCard(statistics: ExerciseStatistics) {
-    var selectedIndex by rememberSaveable(statistics.points) { mutableIntStateOf(statistics.points.lastIndex) }
-    val selected = statistics.points[selectedIndex.coerceIn(statistics.points.indices)]
-    StatisticCardHeader(Icons.AutoMirrored.Rounded.ShowChart, statistics.chartTitle) {
-        Text(
-            text = statistics.chartSubtitle,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Spacer(Modifier.height(10.dp))
-        TrendLineChart(
-            points = statistics.points.map { point ->
-                LinePoint(
-                    xMillis = point.dateMillis,
-                    y = point.value.toFloat(),
-                    xLabel = formatDate(point.dateMillis, ZoneId.systemDefault()),
-                )
+  var selectedIndex by
+      rememberSaveable(statistics.points) { mutableIntStateOf(statistics.points.lastIndex) }
+  val selected = statistics.points[selectedIndex.coerceIn(statistics.points.indices)]
+  StatisticCardHeader(Icons.AutoMirrored.Rounded.ShowChart, statistics.chartTitle) {
+    Text(
+        text = statistics.chartSubtitle,
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    Spacer(Modifier.height(10.dp))
+    TrendLineChart(
+        points =
+            statistics.points.map { point ->
+              LinePoint(
+                  xMillis = point.dateMillis,
+                  y = point.value.toFloat(),
+                  xLabel = formatDate(point.dateMillis, ZoneId.systemDefault()),
+              )
             },
-            selectedIndex = selectedIndex,
-            onSelect = { index -> if (index != null) selectedIndex = index },
-            valueFormatter = { value -> "${number(value.toDouble())} ${statistics.chartUnit}" },
-        )
-        Spacer(Modifier.height(8.dp))
-        Text(
-            text = "${formatDateWithYear(selected.dateMillis, ZoneId.systemDefault())} · ${selected.summary}",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
-    }
+        selectedIndex = selectedIndex,
+        onSelect = { index -> if (index != null) selectedIndex = index },
+        valueFormatter = { value -> "${number(value.toDouble())} ${statistics.chartUnit}" },
+    )
+    Spacer(Modifier.height(8.dp))
+    Text(
+        text =
+            "${formatDateWithYear(selected.dateMillis, ZoneId.systemDefault())} · ${selected.summary}",
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurface,
+    )
+  }
 }
 
 @Composable
 private fun RecordsCard(statistics: ExerciseStatistics) {
-    StatisticCardHeader(Icons.Rounded.EmojiEvents, "Рекорды") {
-        statistics.records.forEachIndexed { index, record ->
-            if (index > 0) Spacer(Modifier.height(12.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = record.title,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    record.details?.let { details ->
-                        Text(
-                            text = details,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-                Text(
-                    text = record.value,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-            }
+  StatisticCardHeader(Icons.Rounded.EmojiEvents, "Рекорды") {
+    statistics.records.forEachIndexed { index, record ->
+      if (index > 0) Spacer(Modifier.height(12.dp))
+      Row(verticalAlignment = Alignment.CenterVertically) {
+        Column(modifier = Modifier.weight(1f)) {
+          Text(
+              text = record.title,
+              style = MaterialTheme.typography.bodyMedium,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
+          )
+          record.details?.let { details ->
+            Text(
+                text = details,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+          }
         }
+        Text(
+            text = record.value,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.primary,
+        )
+      }
     }
+  }
 }
 
 @Composable
 private fun EmptyStatisticsCard() {
-    GymCard(modifier = Modifier.fillMaxWidth()) {
-        Text(
-            text = "Статистика",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
-        Spacer(Modifier.height(6.dp))
-        Text(
-            text = "Завершите тренировку с этим упражнением — здесь появятся прошлый результат, график и рекорды.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-    }
+  GymCard(modifier = Modifier.fillMaxWidth()) {
+    Text(
+        text = "Статистика",
+        style = MaterialTheme.typography.titleMedium,
+        fontWeight = FontWeight.SemiBold,
+        color = MaterialTheme.colorScheme.onSurface,
+    )
+    Spacer(Modifier.height(6.dp))
+    Text(
+        text =
+            "Завершите тренировку с этим упражнением — здесь появятся прошлый результат, график и рекорды.",
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+  }
 }
 
 @Composable
@@ -380,37 +388,39 @@ private fun StatisticCardHeader(
     title: String,
     content: @Composable () -> Unit,
 ) {
-    GymCard(modifier = Modifier.fillMaxWidth()) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-            Spacer(Modifier.width(10.dp))
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-        }
-        Spacer(Modifier.height(10.dp))
-        content()
+  GymCard(modifier = Modifier.fillMaxWidth()) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+      Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+      Spacer(Modifier.width(10.dp))
+      Text(
+          text = title,
+          style = MaterialTheme.typography.titleMedium,
+          fontWeight = FontWeight.SemiBold,
+          color = MaterialTheme.colorScheme.onSurface,
+      )
     }
+    Spacer(Modifier.height(10.dp))
+    content()
+  }
 }
 
 @Composable
 private fun MissingExercise() {
-    Column(
-        modifier = Modifier.fillMaxSize().padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
-        Text(
-            text = "Упражнение не найдено",
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-    }
+  Column(
+      modifier = Modifier.fillMaxSize().padding(24.dp),
+      horizontalAlignment = Alignment.CenterHorizontally,
+      verticalArrangement = Arrangement.Center,
+  ) {
+    Text(
+        text = "Упражнение не найдено",
+        style = MaterialTheme.typography.titleMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+  }
 }
 
 private fun number(value: Double): String =
-    BigDecimal.valueOf(value).setScale(1, java.math.RoundingMode.HALF_UP)
-        .stripTrailingZeros().toPlainString()
+    BigDecimal.valueOf(value)
+        .setScale(1, java.math.RoundingMode.HALF_UP)
+        .stripTrailingZeros()
+        .toPlainString()

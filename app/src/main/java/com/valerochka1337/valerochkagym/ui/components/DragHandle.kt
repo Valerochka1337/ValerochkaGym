@@ -13,8 +13,8 @@ import androidx.compose.ui.unit.dp
 import sh.calvin.reorderable.ReorderableCollectionItemScope
 
 /**
- * Единственная сенсорная зона начала reorder: 48dp grip с немедленным началом drag.
- * Действия «Переместить выше/ниже» живут на карточке, поэтому сам grip не получает фокус TalkBack.
+ * Единственная сенсорная зона начала reorder: 48dp grip с немедленным началом drag. Действия
+ * «Переместить выше/ниже» живут на карточке, поэтому сам grip не получает фокус TalkBack.
  */
 @Composable
 fun DragHandle(
@@ -23,9 +23,10 @@ fun DragHandle(
     onDragStopped: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    IconButton(
-        onClick = {},
-        modifier = with(reorderableItemScope) {
+  IconButton(
+      onClick = {},
+      modifier =
+          with(reorderableItemScope) {
             modifier
                 .size(48.dp)
                 .draggableHandle(
@@ -33,12 +34,12 @@ fun DragHandle(
                     onDragStopped = onDragStopped,
                 )
                 .clearAndSetSemantics {}
-        },
-    ) {
-        Icon(
-            imageVector = Icons.Rounded.DragHandle,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-    }
+          },
+  ) {
+    Icon(
+        imageVector = Icons.Rounded.DragHandle,
+        contentDescription = null,
+        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+  }
 }

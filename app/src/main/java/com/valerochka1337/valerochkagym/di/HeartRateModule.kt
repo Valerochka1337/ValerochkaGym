@@ -10,9 +10,8 @@ import javax.inject.Singleton
 
 @Module
 @InstallIn(SingletonComponent::class)
+@Suppress("unused")
 abstract class HeartRateModule {
 
-    @Binds
-    @Singleton
-    abstract fun bindHeartRateMonitor(impl: BleHeartRateMonitor): HeartRateMonitor
+  @Binds @Singleton abstract fun bindHeartRateMonitor(impl: BleHeartRateMonitor): HeartRateMonitor
 }

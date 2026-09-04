@@ -7,22 +7,23 @@ import androidx.room.Index
 /**
  * Одна строка карты вовлечения мышц упражнения: «жим лёжа → трицепс 65%».
  *
- * Составной ключ `(exerciseId, muscle)` не даёт продублировать мышцу у одного упражнения,
- * каскад по `exerciseId` убирает карту вместе с упражнением. Хранится отдельной таблицей,
- * а не JSON-колонкой: строки читаются целиком одним запросом (`ExerciseMuscleDao.observeAll`),
- * а агрегирует по мышцам уже аналитика в памяти.
+ * Составной ключ `(exerciseId, muscle)` не даёт продублировать мышцу у одного упражнения, каскад по
+ * `exerciseId` убирает карту вместе с упражнением. Хранится отдельной таблицей, а не JSON-колонкой:
+ * строки читаются целиком одним запросом (`ExerciseMuscleDao.observeAll`), а агрегирует по мышцам
+ * уже аналитика в памяти.
  */
 @Entity(
     tableName = "exercise_muscles",
     primaryKeys = ["exerciseId", "muscle"],
-    foreignKeys = [
-        ForeignKey(
-            entity = ExerciseEntity::class,
-            parentColumns = ["id"],
-            childColumns = ["exerciseId"],
-            onDelete = ForeignKey.CASCADE,
-        ),
-    ],
+    foreignKeys =
+        [
+            ForeignKey(
+                entity = ExerciseEntity::class,
+                parentColumns = ["id"],
+                childColumns = ["exerciseId"],
+                onDelete = ForeignKey.CASCADE,
+            ),
+        ],
     indices = [Index("exerciseId")],
 )
 data class ExerciseMuscleEntity(

@@ -1,13 +1,14 @@
 package com.valerochka1337.valerochkagym.data.google
 
-import android.app.Activity
 import android.accounts.Account
+import android.app.Activity
 import android.content.Context
 import androidx.credentials.ClearCredentialStateRequest
 import androidx.credentials.CredentialManager
 import androidx.credentials.GetCredentialRequest
 import androidx.credentials.exceptions.ClearCredentialException
 import androidx.credentials.exceptions.GetCredentialCancellationException
+import androidx.credentials.exceptions.NoCredentialException
 import com.google.android.gms.auth.api.identity.AuthorizationRequest
 import com.google.android.gms.auth.api.identity.AuthorizationResult
 import com.google.android.gms.auth.api.identity.Identity
@@ -18,138 +19,147 @@ import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.valerochka1337.valerochkagym.R
 import com.valerochka1337.valerochkagym.data.settings.SettingsRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.suspendCancellableCoroutine
 import java.util.Locale
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.suspendCancellableCoroutine
 
 /** OAuth scopes, необходимые приложению: запись в Google Sheets и создание событий календаря. */
-private val REQUIRED_SCOPES = listOf(
-    Scope("https://www.googleapis.com/auth/spreadsheets"),
-    Scope("https://www.googleapis.com/auth/calendar.events"),
-)
+private val REQUIRED_SCOPES =
+    listOf(
+        Scope("https://www.googleapis.com/auth/spreadsheets"),
+        Scope("https://www.googleapis.com/auth/calendar.events"),
+    )
 
 /**
  * Реализация [GoogleAuth] на Credential Manager (вход) и AuthorizationClient (OAuth-доступ).
  *
- * Вход и запрос согласия требуют Activity-контекст, поэтому приходят в методы параметром;
- * получение токена без UI ([getAccessToken]) работает от application-контекста. Класс не
- * дёргает Sheets/Calendar API — это seam для Стадий 19/21.
+ * Вход и запрос согласия требуют Activity-контекст, поэтому приходят в методы параметром; получение
+ * токена без UI ([getAccessToken]) работает от application-контекста. Класс не дёргает
+ * Sheets/Calendar API — это seam для Стадий 19/21.
  */
 @Singleton
-class GoogleAuthManager @Inject constructor(
+class GoogleAuthManager
+@Inject
+constructor(
     @param:ApplicationContext private val context: Context,
     private val settingsRepository: SettingsRepository,
 ) : GoogleAuth, AccountBoundGoogleAuth {
 
-    private val credentialManager: CredentialManager by lazy { CredentialManager.create(context) }
+  private val credentialManager: CredentialManager by lazy { CredentialManager.create(context) }
 
-    override suspend fun signIn(activity: Activity): Result<String> {
-        val googleIdOption = GetGoogleIdOption.Builder()
+  override suspend fun signIn(activity: Activity): Result<String> {
+    val googleIdOption =
+        GetGoogleIdOption.Builder()
             .setServerClientId(context.getString(R.string.google_web_client_id))
             .setFilterByAuthorizedAccounts(false)
             .build()
-        val request = GetCredentialRequest.Builder()
-            .addCredentialOption(googleIdOption)
-            .build()
-        return try {
-            val response = credentialManager.getCredential(activity, request)
-            val credential = GoogleIdTokenCredential.createFrom(response.credential.data)
-            val email = credential.id
-            settingsRepository.setGoogleEmail(email)
-            Result.success(email)
-        } catch (cancellation: GetCredentialCancellationException) {
-            // Пользователь закрыл диалог выбора аккаунта — тихо, без побочных эффектов.
-            Result.failure(cancellation)
-        } catch (c: CancellationException) {
-            throw c
-        } catch (e: Exception) {
-            Result.failure(e)
-        }
+    val request = GetCredentialRequest.Builder().addCredentialOption(googleIdOption).build()
+    return try {
+      val response = credentialManager.getCredential(activity, request)
+      val credential = GoogleIdTokenCredential.createFrom(response.credential.data)
+      val email = credential.id
+      settingsRepository.setGoogleEmail(email)
+      Result.success(email)
+    } catch (cancellation: GetCredentialCancellationException) {
+      // Пользователь закрыл диалог выбора аккаунта — тихо, без побочных эффектов.
+      Result.failure(cancellation)
+    } catch (noCredential: NoCredentialException) {
+      Result.failure(noCredential)
+    } catch (c: CancellationException) {
+      throw c
+    } catch (e: Exception) {
+      Result.failure(e)
     }
+  }
 
-    override suspend fun authorize(activity: Activity): AuthorizeOutcome =
-        try {
-            val expectedEmail = settingsRepository.settings.first().googleEmail
-                ?.trim()?.lowercase(Locale.ROOT)?.takeIf(String::isNotEmpty)
-            val result = requestAuthorization(activity, expectedEmail)
-            val pendingIntent = result.pendingIntent
-            if (result.hasResolution() && pendingIntent != null) {
-                AuthorizeOutcome.NeedsConsent(pendingIntent)
-            } else {
-                AuthorizeOutcome.Granted
+  override suspend fun authorize(activity: Activity): AuthorizeOutcome =
+      try {
+        val expectedEmail =
+            settingsRepository.settings
+                .first()
+                .googleEmail
+                ?.trim()
+                ?.lowercase(Locale.ROOT)
+                ?.takeIf(String::isNotEmpty)
+        val result = requestAuthorization(activity, expectedEmail)
+        val pendingIntent = result.pendingIntent
+        if (result.hasResolution() && pendingIntent != null) {
+          AuthorizeOutcome.NeedsConsent(pendingIntent)
+        } else {
+          AuthorizeOutcome.Granted
+        }
+      } catch (c: CancellationException) {
+        throw c
+      } catch (e: Exception) {
+        AuthorizeOutcome.Failed(e)
+      }
+
+  override suspend fun getAccessToken(): TokenResult =
+      getAccessTokenForExpectedAccount(expectedEmail = null)
+
+  override suspend fun getAccessTokenForAccount(expectedEmail: String): TokenResult =
+      getAccessTokenForExpectedAccount(expectedEmail.trim().lowercase(Locale.ROOT))
+
+  private suspend fun getAccessTokenForExpectedAccount(expectedEmail: String?): TokenResult =
+      try {
+        val result = requestAuthorization(context, expectedEmail)
+        val token = result.accessToken
+        when {
+          // Есть resolution → требуется согласие пользователя, токена пока нет.
+          result.hasResolution() -> TokenResult.NeedsConsent
+          token != null -> TokenResult.Success(token)
+          else -> TokenResult.NeedsConsent
+        }
+      } catch (c: CancellationException) {
+        throw c
+      } catch (e: Exception) {
+        TokenResult.Failed(e)
+      }
+
+  override suspend fun signOut() {
+    try {
+      credentialManager.clearCredentialState(ClearCredentialStateRequest())
+    } catch (c: CancellationException) {
+      throw c
+    } catch (_: ClearCredentialException) {
+      // Не критично: даже если очистка состояния Credential Manager не удалась,
+      // всё равно стираем сохранённый email — для пользователя это и есть «выход».
+    }
+    settingsRepository.setGoogleEmail(null)
+  }
+
+  internal fun buildAuthorizationRequest(expectedEmail: String?): AuthorizationRequest =
+      AuthorizationRequest.Builder()
+          .setRequestedScopes(REQUIRED_SCOPES)
+          .apply {
+            expectedEmail?.trim()?.lowercase(Locale.ROOT)?.takeIf(String::isNotEmpty)?.let {
+              setAccount(Account(it, GOOGLE_ACCOUNT_TYPE))
             }
-        } catch (c: CancellationException) {
-            throw c
-        } catch (e: Exception) {
-            AuthorizeOutcome.Failed(e)
-        }
+          }
+          .build()
 
-    override suspend fun getAccessToken(): TokenResult =
-        getAccessTokenForExpectedAccount(expectedEmail = null)
+  private suspend fun requestAuthorization(
+      authContext: Context,
+      expectedEmail: String?,
+  ): AuthorizationResult {
+    return Identity.getAuthorizationClient(authContext)
+        .authorize(buildAuthorizationRequest(expectedEmail))
+        .await()
+  }
 
-    override suspend fun getAccessTokenForAccount(expectedEmail: String): TokenResult =
-        getAccessTokenForExpectedAccount(expectedEmail.trim().lowercase(Locale.ROOT))
-
-    private suspend fun getAccessTokenForExpectedAccount(expectedEmail: String?): TokenResult =
-        try {
-            val result = requestAuthorization(context, expectedEmail)
-            val token = result.accessToken
-            when {
-                // Есть resolution → требуется согласие пользователя, токена пока нет.
-                result.hasResolution() -> TokenResult.NeedsConsent
-                token != null -> TokenResult.Success(token)
-                else -> TokenResult.NeedsConsent
-            }
-        } catch (c: CancellationException) {
-            throw c
-        } catch (e: Exception) {
-            TokenResult.Failed(e)
-        }
-
-    override suspend fun signOut() {
-        try {
-            credentialManager.clearCredentialState(ClearCredentialStateRequest())
-        } catch (c: CancellationException) {
-            throw c
-        } catch (_: ClearCredentialException) {
-            // Не критично: даже если очистка состояния Credential Manager не удалась,
-            // всё равно стираем сохранённый email — для пользователя это и есть «выход».
-        }
-        settingsRepository.setGoogleEmail(null)
-    }
-
-    internal fun buildAuthorizationRequest(expectedEmail: String?): AuthorizationRequest =
-        AuthorizationRequest.Builder()
-            .setRequestedScopes(REQUIRED_SCOPES)
-            .apply {
-                expectedEmail?.trim()?.lowercase(Locale.ROOT)?.takeIf(String::isNotEmpty)?.let {
-                    setAccount(Account(it, GOOGLE_ACCOUNT_TYPE))
-                }
-            }
-            .build()
-
-    private suspend fun requestAuthorization(
-        authContext: Context,
-        expectedEmail: String?,
-    ): AuthorizationResult {
-        return Identity.getAuthorizationClient(authContext)
-            .authorize(buildAuthorizationRequest(expectedEmail))
-            .await()
-    }
-
-    private companion object {
-        const val GOOGLE_ACCOUNT_TYPE = "com.google"
-    }
+  private companion object {
+    const val GOOGLE_ACCOUNT_TYPE = "com.google"
+  }
 }
 
 /** Ожидание результата GMS [Task] в корутине без зависимости от play-services-coroutines. */
 private suspend fun <T> Task<T>.await(): T = suspendCancellableCoroutine { cont ->
-    addOnSuccessListener { cont.resume(it) }
-    addOnFailureListener { cont.resumeWithException(it) }
-    addOnCanceledListener { cont.cancel() }
+  addOnSuccessListener { cont.resume(it) }
+  addOnFailureListener { cont.resumeWithException(it) }
+  addOnCanceledListener { cont.cancel() }
 }

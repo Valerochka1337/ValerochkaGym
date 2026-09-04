@@ -8,16 +8,15 @@ package com.valerochka1337.valerochkagym.service.wear
  */
 interface WearableTransport {
 
-    /** Начинает поиск сопряжённого устройства и вызывает [onConnected], когда канал готов. */
-    fun start(
-        onConnected: () -> Unit,
-        onMessage: (ByteArray) -> Unit,
-    )
+  /** Начинает поиск сопряжённого устройства и вызывает [onConnected], когда канал готов. */
+  fun start(
+      onConnected: () -> Unit,
+      onMessage: (ByteArray) -> Unit,
+  )
 
-    /** Останавливает поиск и снимает listener сообщений. */
-    fun stop()
+  /** Останавливает поиск и снимает listener сообщений. */
+  fun stop()
 
-    /** Отправляет один пакет приложению на браслете, если канал готов. */
-    fun send(message: ByteArray)
-
+  /** Отправляет один пакет приложению на браслете, если канал готов. */
+  fun send(message: ByteArray)
 }

@@ -1,5 +1,7 @@
 package com.valerochka1337.valerochkagym.ui
 
+import androidx.lifecycle.SavedStateHandle
+import androidx.lifecycle.viewModelScope
 import com.valerochka1337.valerochkagym.data.RoomDaoTest
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseMuscleEntity
@@ -14,110 +16,117 @@ import com.valerochka1337.valerochkagym.domain.analysis.VolumeZone
 import com.valerochka1337.valerochkagym.ui.analysis.AnalysisViewModel
 import com.valerochka1337.valerochkagym.ui.analysis.WeeklyMetric
 import com.valerochka1337.valerochkagym.util.MainDispatcherRule
-import androidx.lifecycle.SavedStateHandle
-import androidx.lifecycle.viewModelScope
+import java.time.Instant
+import java.time.ZoneId
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
-import kotlinx.coroutines.cancelAndJoin
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
-import org.junit.After
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
-import java.time.Instant
-import java.time.ZoneId
 
 /**
  * Тесты [AnalysisViewModel] поверх настоящей Room-базы: заодно проверяют SQL-проекцию
- * `observeCompletedSets` — именно она отбирает выполненные подходы завершённых тренировок
- * и подставляет время старта вместо отсутствующего `completedAt`.
+ * `observeCompletedSets` — именно она отбирает выполненные подходы завершённых тренировок и
+ * подставляет время старта вместо отсутствующего `completedAt`.
  *
- * Математику проверяет `AnalyticsEngineTest`; здесь важна склейка потоков и состояние выбора.
- * Поток `uiState` собран через `stateIn(WhileSubscribed)`, поэтому каждый тест сначала цепляет
- * живого подписчика через [collect].
+ * Математику проверяет `AnalyticsEngineTest`; здесь важна склейка потоков и состояние выбора. Поток
+ * `uiState` собран через `stateIn(WhileSubscribed)`, поэтому каждый тест сначала цепляет живого
+ * подписчика через [collect].
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class AnalysisViewModelTest : RoomDaoTest() {
 
-    @get:Rule
-    val mainDispatcherRule = MainDispatcherRule()
+  @get:Rule val mainDispatcherRule = MainDispatcherRule()
 
-    private val now = System.currentTimeMillis()
-    private val day = 86_400_000L
+  private val now = System.currentTimeMillis()
+  private val day = 86_400_000L
 
-    private var benchId: Long = 0
-    private val createdViewModels = mutableListOf<AnalysisViewModel>()
+  private var benchId: Long = 0
+  private val createdViewModels = mutableListOf<AnalysisViewModel>()
 
-    @Before
-    fun seedCatalogue() = runTest {
-        benchId = db.exerciseDao().insert(
-            ExerciseEntity(name = "Жим лёжа", muscleGroup = MuscleGroup.CHEST, type = ExerciseType.STRENGTH),
-        )
-        db.exerciseMuscleDao().upsertAll(
+  @Before
+  fun seedCatalogue() = runTest {
+    benchId =
+        db.exerciseDao()
+            .insert(
+                ExerciseEntity(
+                    name = "Жим лёжа",
+                    muscleGroup = MuscleGroup.CHEST,
+                    type = ExerciseType.STRENGTH,
+                ),
+            )
+    db.exerciseMuscleDao()
+        .upsertAll(
             listOf(
-                ExerciseMuscleEntity(benchId, Muscle.CHEST, 100),
+                ExerciseMuscleEntity(benchId, Muscle.UPPER_CHEST, 100),
                 ExerciseMuscleEntity(benchId, Muscle.TRICEPS, 65),
             ),
         )
-    }
+  }
 
-    @After
-    fun cancelViewModels() = runTest(mainDispatcherRule.testDispatcher.scheduler) {
+  @After
+  fun cancelViewModels() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
         createdViewModels.forEach { viewModel ->
-            viewModel.viewModelScope.coroutineContext[Job]?.cancelAndJoin()
+          viewModel.viewModelScope.coroutineContext[Job]?.cancelAndJoin()
         }
         createdViewModels.clear()
-    }
+      }
 
-    @Test
-    fun `an empty database reports no data`() = runTest(mainDispatcherRule.testDispatcher.scheduler) {
+  @Test
+  fun `an empty database reports no data`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
         val viewModel = viewModel()
         collect(viewModel)
 
         assertFalse(viewModel.uiState.value.report.hasData)
         assertFalse(viewModel.uiState.value.loading)
-    }
+      }
 
-    @Test
-    fun `completed sets of a finished workout reach the report`() =
-        runTest(mainDispatcherRule.testDispatcher.scheduler) {
-            insertSession(daysAgo = 1, sets = 3)
-            val viewModel = viewModel()
-            collect(viewModel)
+  @Test
+  fun `completed sets of a finished workout reach the report`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        insertSession(daysAgo = 1, sets = 3)
+        val viewModel = viewModel()
+        collect(viewModel)
 
-            val report = viewModel.uiState.value.report
-            assertTrue(report.hasData)
-            assertEquals(3.0, report.totalHardSets, 1e-6)
-            assertEquals(1, report.sessions)
-            assertEquals(3 * 100.0 * 5, report.totalTonnageKg, 1e-6)
-            assertEquals("Жим лёжа", report.exercises.single().name)
-        }
+        val report = viewModel.uiState.value.report
+        assertTrue(report.hasData)
+        assertEquals(3.0, report.totalHardSets, 1e-6)
+        assertEquals(1, report.sessions)
+        assertEquals(3 * 100.0 * 5, report.totalTonnageKg, 1e-6)
+        assertEquals("Жим лёжа", report.exercises.single().name)
+      }
 
-    @Test
-    fun `an unfinished workout is invisible to analytics`() =
-        runTest(mainDispatcherRule.testDispatcher.scheduler) {
-            val workoutId = "active"
-            insertWorkout(workoutId, startedAt = now - day, finishedAt = null)
-            val workoutExerciseId = insertWorkoutExercise(workoutId, benchId)
-            insertSet(workoutExerciseId, setIndex = 0, weightKg = 100.0, reps = 5, isCompleted = true)
+  @Test
+  fun `an unfinished workout is invisible to analytics`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val workoutId = "active"
+        insertWorkout(workoutId, startedAt = now - day, finishedAt = null)
+        val workoutExerciseId = insertWorkoutExercise(workoutId, benchId)
+        insertSet(workoutExerciseId, setIndex = 0, weightKg = 100.0, reps = 5, isCompleted = true)
 
-            val viewModel = viewModel()
-            collect(viewModel)
+        val viewModel = viewModel()
+        collect(viewModel)
 
-            // Объём незавершённой тренировки ещё меняется — в аналитику он не идёт.
-            assertFalse(viewModel.uiState.value.report.hasData)
-        }
+        // Объём незавершённой тренировки ещё меняется — в аналитику он не идёт.
+        assertFalse(viewModel.uiState.value.report.hasData)
+      }
 
-    @Test
-    fun `unchecked sets never reach the report`() = runTest(mainDispatcherRule.testDispatcher.scheduler) {
+  @Test
+  fun `unchecked sets never reach the report`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
         val workoutId = "w"
         insertWorkout(workoutId, startedAt = now - day, finishedAt = now - day + 3_600_000)
         val workoutExerciseId = insertWorkoutExercise(workoutId, benchId)
@@ -128,96 +137,99 @@ class AnalysisViewModelTest : RoomDaoTest() {
         collect(viewModel)
 
         assertEquals(1.0, viewModel.uiState.value.report.totalHardSets, 1e-6)
-    }
+      }
 
-    @Test
-    fun `the muscle map turns into per-muscle load`() = runTest(mainDispatcherRule.testDispatcher.scheduler) {
+  @Test
+  fun `the muscle map turns into per-muscle load`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
         insertSession(daysAgo = 1, sets = 4)
         val viewModel = viewModel()
         collect(viewModel)
 
         val loads = viewModel.uiState.value.report.muscleLoads.associateBy { it.muscle }
-        assertEquals(4.0, loads.getValue(Muscle.CHEST).totalSets, 1e-6)
+        assertEquals(4.0, loads.getValue(Muscle.UPPER_CHEST).totalSets, 1e-6)
         assertEquals(4.0, loads.getValue(Muscle.TRICEPS).totalSets, 1e-6)
         assertEquals(VolumeZone.LOW, loads.getValue(Muscle.CALVES).zone)
-    }
+      }
 
-    @Test
-    fun `switching the period recomputes the report and clears point selection`() =
-        runTest(mainDispatcherRule.testDispatcher.scheduler) {
-            insertSession(daysAgo = 1, sets = 2)
-            insertSession(daysAgo = 100, sets = 5)
-            val viewModel = viewModel()
-            collect(viewModel)
-            viewModel.onWeekSelected(0)
+  @Test
+  fun `switching the period recomputes the report and clears point selection`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        insertSession(daysAgo = 1, sets = 2)
+        insertSession(daysAgo = 100, sets = 5)
+        val viewModel = viewModel()
+        collect(viewModel)
+        viewModel.onWeekSelected(0)
 
-            val withSelectedWeek = viewModel.uiState.first { it.selectedWeekIndex == 0 }
-            assertEquals(2.0, withSelectedWeek.report.totalHardSets, 1e-6)
+        val withSelectedWeek = viewModel.uiState.first { it.selectedWeekIndex == 0 }
+        assertEquals(2.0, withSelectedWeek.report.totalHardSets, 1e-6)
 
-            viewModel.onPeriodSelected(AnalysisPeriod.ALL_TIME)
+        viewModel.onPeriodSelected(AnalysisPeriod.ALL_TIME)
 
-            val state = viewModel.uiState.first {
-                it.period == AnalysisPeriod.ALL_TIME && it.selectedWeekIndex == null
+        val state =
+            viewModel.uiState.first {
+              it.period == AnalysisPeriod.ALL_TIME && it.selectedWeekIndex == null
             }
-            assertEquals(AnalysisPeriod.ALL_TIME, state.period)
-            assertEquals(7.0, state.report.totalHardSets, 1e-6)
-            assertNull("выбор точки привязан к длине серии", state.selectedWeekIndex)
-        }
+        assertEquals(AnalysisPeriod.ALL_TIME, state.period)
+        assertEquals(7.0, state.report.totalHardSets, 1e-6)
+        assertNull("выбор точки привязан к длине серии", state.selectedWeekIndex)
+      }
 
-    @Test
-    fun `switching to a custom range recomputes the report and clears point selection`() =
-        runTest(mainDispatcherRule.testDispatcher.scheduler) {
-            insertSession(daysAgo = 1, sets = 2)
-            insertSession(daysAgo = 20, sets = 5)
-            val viewModel = viewModel()
-            collect(viewModel)
-            viewModel.onWeekSelected(0)
-            viewModel.uiState.first { it.selectedWeekIndex == 0 }
+  @Test
+  fun `switching to a custom range recomputes the report and clears point selection`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        insertSession(daysAgo = 1, sets = 2)
+        insertSession(daysAgo = 20, sets = 5)
+        val viewModel = viewModel()
+        collect(viewModel)
+        viewModel.onWeekSelected(0)
+        viewModel.uiState.first { it.selectedWeekIndex == 0 }
 
-            val end = Instant.ofEpochMilli(now).atZone(ZoneId.systemDefault()).toLocalDate().minusDays(14)
-            val start = end.minusDays(6)
-            viewModel.onCustomRangeSelected(start, end)
+        val end =
+            Instant.ofEpochMilli(now).atZone(ZoneId.systemDefault()).toLocalDate().minusDays(14)
+        val start = end.minusDays(6)
+        viewModel.onCustomRangeSelected(start, end)
 
-            val customPeriod = AnalysisPeriod.Custom(start, end)
-            val state = viewModel.uiState.first {
-                it.period == customPeriod && it.selectedWeekIndex == null
-            }
-            assertEquals(customPeriod, state.period)
-            assertEquals(5.0, state.report.totalHardSets, 1e-6)
-            assertNull("выбор точки привязан к длине новой серии", state.selectedWeekIndex)
-        }
+        val customPeriod = AnalysisPeriod.Custom(start, end)
+        val state =
+            viewModel.uiState.first { it.period == customPeriod && it.selectedWeekIndex == null }
+        assertEquals(customPeriod, state.period)
+        assertEquals(5.0, state.report.totalHardSets, 1e-6)
+        assertNull("выбор точки привязан к длине новой серии", state.selectedWeekIndex)
+      }
 
-    @Test
-    fun `tapping the same muscle twice clears the selection`() =
-        runTest(mainDispatcherRule.testDispatcher.scheduler) {
-            insertSession(daysAgo = 1, sets = 1)
-            val viewModel = viewModel()
-            collect(viewModel)
+  @Test
+  fun `tapping the same muscle twice clears the selection`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        insertSession(daysAgo = 1, sets = 1)
+        val viewModel = viewModel()
+        collect(viewModel)
 
-            viewModel.onMuscleClicked(Muscle.CHEST)
-            val selected = viewModel.uiState.first { it.selectedMuscle == Muscle.CHEST }
-            assertEquals(Muscle.CHEST, selected.selectedMuscle)
-            assertEquals(Muscle.CHEST, selected.selectedMuscleLoad?.muscle)
+        viewModel.onMuscleClicked(Muscle.UPPER_CHEST)
+        val selected = viewModel.uiState.first { it.selectedMuscle == Muscle.UPPER_CHEST }
+        assertEquals(Muscle.UPPER_CHEST, selected.selectedMuscle)
+        assertEquals(Muscle.UPPER_CHEST, selected.selectedMuscleLoad?.muscle)
 
-            viewModel.onMuscleClicked(Muscle.CHEST)
-            val cleared = viewModel.uiState.first { it.selectedMuscle == null }
-            assertNull(cleared.selectedMuscle)
-        }
+        viewModel.onMuscleClicked(Muscle.UPPER_CHEST)
+        val cleared = viewModel.uiState.first { it.selectedMuscle == null }
+        assertNull(cleared.selectedMuscle)
+      }
 
-    @Test
-    fun `the progress card falls back to the most frequent exercise`() =
-        runTest(mainDispatcherRule.testDispatcher.scheduler) {
-            insertSession(daysAgo = 1, sets = 2)
-            val viewModel = viewModel()
-            collect(viewModel)
+  @Test
+  fun `the progress card falls back to the most frequent exercise`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        insertSession(daysAgo = 1, sets = 2)
+        val viewModel = viewModel()
+        collect(viewModel)
 
-            val state = viewModel.uiState.value
-            assertNull(state.selectedExerciseId)
-            assertEquals("Жим лёжа", state.shownExercise?.name) // карточка не пустует до первого тапа
-        }
+        val state = viewModel.uiState.value
+        assertNull(state.selectedExerciseId)
+        assertEquals("Жим лёжа", state.shownExercise?.name) // карточка не пустует до первого тапа
+      }
 
-    @Test
-    fun `metric toggle is kept in state`() = runTest(mainDispatcherRule.testDispatcher.scheduler) {
+  @Test
+  fun `metric toggle is kept in state`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
         insertSession(daysAgo = 1, sets = 1)
         val viewModel = viewModel()
         collect(viewModel)
@@ -226,10 +238,11 @@ class AnalysisViewModelTest : RoomDaoTest() {
 
         val state = viewModel.uiState.first { it.weeklyMetric == WeeklyMetric.TONNAGE }
         assertEquals(WeeklyMetric.TONNAGE, state.weeklyMetric)
-    }
+      }
 
-    @Test
-    fun `selector reselect keeps centered muscle selected`() = runTest(mainDispatcherRule.testDispatcher.scheduler) {
+  @Test
+  fun `selector reselect keeps centered muscle selected`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
         val viewModel = viewModel()
         collect(viewModel)
 
@@ -237,10 +250,11 @@ class AnalysisViewModelTest : RoomDaoTest() {
         viewModel.onSelectorMuscleSelected(Muscle.UPPER_CHEST)
 
         assertEquals(Muscle.UPPER_CHEST, viewModel.uiState.value.selectedMuscle)
-    }
+      }
 
-    @Test
-    fun `selected logical muscle survives view model recreation`() = runTest(mainDispatcherRule.testDispatcher.scheduler) {
+  @Test
+  fun `selected logical muscle survives view model recreation`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
         val state = SavedStateHandle()
         val first = viewModel(savedStateHandle = state)
         collect(first)
@@ -250,88 +264,97 @@ class AnalysisViewModelTest : RoomDaoTest() {
         collect(recreated)
 
         assertEquals(Muscle.LOWER_CHEST, recreated.uiState.value.selectedMuscle)
+      }
+
+  @Test
+  fun `upgrade notice is emitted once across view model recreation`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val notice = FakeUpgradeNotice()
+        val first = viewModel(notice)
+        mainDispatcherRule.testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(
+            "История пересчитана по новой модели мышечной нагрузки",
+            first.messages.first(),
+        )
+        notice.acknowledge()
+
+        val recreated = viewModel(notice)
+        mainDispatcherRule.testDispatcher.scheduler.advanceUntilIdle()
+        recreated.uiState.value
+        assertEquals(1, notice.deliveries)
+      }
+
+  // region helpers
+
+  private fun viewModel(
+      notice: MuscleLoadUpgradeNotice = FakeUpgradeNotice(acknowledged = true),
+      savedStateHandle: SavedStateHandle = SavedStateHandle(),
+  ): AnalysisViewModel =
+      AnalysisViewModel(
+              workoutDao = db.workoutDao(),
+              exerciseMuscleDao = db.exerciseMuscleDao(),
+              engine = AnalyticsEngine(),
+              // Тестовый диспетчер вместо Dispatchers.Default — пересчёт остаётся на виртуальном
+              // времени.
+              computeDispatcher = mainDispatcherRule.testDispatcher,
+              upgradeNotice = notice,
+              savedStateHandle = savedStateHandle,
+          )
+          .also(createdViewModels::add)
+
+  private class FakeUpgradeNotice(private var acknowledged: Boolean = false) :
+      MuscleLoadUpgradeNotice {
+    var calls = 0
+    var deliveries = 0
+
+    override suspend fun pendingIfNeeded(hasHistoricalWorkouts: Boolean): Boolean {
+      calls++
+      return (!acknowledged).also { deliver ->
+        if (deliver) {
+          deliveries++
+        }
+      }
     }
 
-    @Test
-    fun `upgrade notice is emitted once across view model recreation`() =
-        runTest(mainDispatcherRule.testDispatcher.scheduler) {
-            val notice = FakeUpgradeNotice()
-            val first = viewModel(notice)
-            mainDispatcherRule.testDispatcher.scheduler.advanceUntilIdle()
-            assertEquals("История пересчитана по новой модели мышечной нагрузки", first.messages.first())
-            notice.acknowledge()
-
-            val recreated = viewModel(notice)
-            mainDispatcherRule.testDispatcher.scheduler.advanceUntilIdle()
-            recreated.uiState.value
-            assertEquals(1, notice.deliveries)
-        }
-
-    // region helpers
-
-    private fun viewModel(
-        notice: MuscleLoadUpgradeNotice = FakeUpgradeNotice(acknowledged = true),
-        savedStateHandle: SavedStateHandle = SavedStateHandle(),
-    ): AnalysisViewModel = AnalysisViewModel(
-        workoutDao = db.workoutDao(),
-        exerciseMuscleDao = db.exerciseMuscleDao(),
-        engine = AnalyticsEngine(),
-        // Тестовый диспетчер вместо Dispatchers.Default — пересчёт остаётся на виртуальном времени.
-        computeDispatcher = mainDispatcherRule.testDispatcher,
-        upgradeNotice = notice,
-        savedStateHandle = savedStateHandle,
-    ).also(createdViewModels::add)
-
-    private class FakeUpgradeNotice(private var acknowledged: Boolean = false) : MuscleLoadUpgradeNotice {
-        var calls = 0
-        var deliveries = 0
-        override suspend fun pendingIfNeeded(hasHistoricalWorkouts: Boolean): Boolean {
-            calls++
-            return (!acknowledged).also { deliver ->
-                if (deliver) {
-                    deliveries++
-                }
-            }
-        }
-
-        override suspend fun acknowledge() { acknowledged = true }
+    override suspend fun acknowledge() {
+      acknowledged = true
     }
+  }
 
-    /**
-     * Цепляет живого подписчика и ждёт первый посчитанный отчёт.
-     *
-     * Room отдаёт Flow-запросы со своего исполнителя, то есть первая эмиссия приходит из другого
-     * потока и не попадает в виртуальное время `runTest`. Поэтому её нужно именно дождаться
-     * (`loading = false` бывает только после реальной эмиссии). Каскад `combine` + `stateIn` не обещает,
-     * что публичный `uiState.value` обновится в той же строке, поэтому после событий тесты ждут
-     * нужную эмиссию через `first`.
-     */
-    private suspend fun TestScope.collect(viewModel: AnalysisViewModel) {
-        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
-            viewModel.uiState.collect { }
-        }
-        viewModel.uiState.first { !it.loading }
+  /**
+   * Цепляет живого подписчика и ждёт первый посчитанный отчёт.
+   *
+   * Room отдаёт Flow-запросы со своего исполнителя, то есть первая эмиссия приходит из другого
+   * потока и не попадает в виртуальное время `runTest`. Поэтому её нужно именно дождаться (`loading
+   * = false` бывает только после реальной эмиссии). Каскад `combine` + `stateIn` не обещает, что
+   * публичный `uiState.value` обновится в той же строке, поэтому после событий тесты ждут нужную
+   * эмиссию через `first`.
+   */
+  private suspend fun TestScope.collect(viewModel: AnalysisViewModel) {
+    backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { viewModel.uiState.collect {} }
+    viewModel.uiState.first { !it.loading }
+  }
+
+  /** Завершённая тренировка из [sets] отмеченных подходов 100 кг × 5. */
+  private suspend fun insertSession(daysAgo: Long, sets: Int) {
+    val startedAt = now - daysAgo * day
+    val workoutId = "w-$daysAgo"
+    insertWorkout(workoutId, startedAt = startedAt, finishedAt = startedAt + 3_600_000)
+    val workoutExerciseId = insertWorkoutExercise(workoutId, benchId)
+    repeat(sets) { index ->
+      db.workoutDao()
+          .insertSet(
+              WorkoutSetEntity(
+                  workoutExerciseId = workoutExerciseId,
+                  setIndex = index,
+                  weightKg = 100.0,
+                  reps = 5,
+                  isCompleted = true,
+                  completedAt = startedAt + index * 60_000L,
+              ),
+          )
     }
+  }
 
-    /** Завершённая тренировка из [sets] отмеченных подходов 100 кг × 5. */
-    private suspend fun insertSession(daysAgo: Long, sets: Int) {
-        val startedAt = now - daysAgo * day
-        val workoutId = "w-$daysAgo"
-        insertWorkout(workoutId, startedAt = startedAt, finishedAt = startedAt + 3_600_000)
-        val workoutExerciseId = insertWorkoutExercise(workoutId, benchId)
-        repeat(sets) { index ->
-            db.workoutDao().insertSet(
-                WorkoutSetEntity(
-                    workoutExerciseId = workoutExerciseId,
-                    setIndex = index,
-                    weightKg = 100.0,
-                    reps = 5,
-                    isCompleted = true,
-                    completedAt = startedAt + index * 60_000L,
-                ),
-            )
-        }
-    }
-
-    // endregion
+  // endregion
 }

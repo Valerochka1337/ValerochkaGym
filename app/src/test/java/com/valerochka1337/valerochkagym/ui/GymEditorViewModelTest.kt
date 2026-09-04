@@ -31,138 +31,144 @@ import org.junit.Test
 @OptIn(ExperimentalCoroutinesApi::class)
 class GymEditorViewModelTest {
 
-    @get:Rule
-    val mainDispatcherRule = MainDispatcherRule()
+  @get:Rule val mainDispatcherRule = MainDispatcherRule()
 
-    @Test
-    fun `gyms are sorted by name after the repository emits`() =
-        runTest(mainDispatcherRule.testDispatcher.scheduler) {
-            val repository = FakeGymRepository(
-                gyms = listOf(
-                    GymConfiguration("second", "Яблоко", emptyList()),
-                    GymConfiguration("first", "Альфа", emptyList()),
-                ),
+  @Test
+  fun `gyms are sorted by name after the repository emits`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val repository =
+            FakeGymRepository(
+                gyms =
+                    listOf(
+                        GymConfiguration("second", "Яблоко", emptyList()),
+                        GymConfiguration("first", "Альфа", emptyList()),
+                    ),
             )
-            val viewModel = GymsViewModel(repository)
-            collectUiState(viewModel)
-            advanceUntilIdle()
+        val viewModel = GymsViewModel(repository)
+        collectUiState(viewModel)
+        advanceUntilIdle()
 
-            assertEquals(listOf("Альфа", "Яблоко"), viewModel.uiState.value.gyms?.map { it.name })
-        }
+        assertEquals(listOf("Альфа", "Яблоко"), viewModel.uiState.value.gyms?.map { it.name })
+      }
 
-    @Test
-    fun `loading an existing gym restores its name and selected exercises`() =
-        runTest(mainDispatcherRule.testDispatcher.scheduler) {
-            val squat = exercise(1, "Приседания")
-            val press = exercise(2, "Жим")
-            val repository = FakeGymRepository(
+  @Test
+  fun `loading an existing gym restores its name and selected exercises`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val squat = exercise(1, "Приседания")
+        val press = exercise(2, "Жим")
+        val repository =
+            FakeGymRepository(
                 catalog = listOf(squat, press),
                 gym = GymConfiguration("gym-id", "Основной", listOf(press)),
             )
 
-            val viewModel = GymEditorViewModel(savedStateHandle("gym-id"), repository)
-            advanceUntilIdle()
+        val viewModel = GymEditorViewModel(savedStateHandle("gym-id"), repository)
+        advanceUntilIdle()
 
-            val state = viewModel.uiState.value
-            assertFalse(state.isNew)
-            assertFalse(state.isLoading)
-            assertEquals("Основной", state.name)
-            assertEquals(setOf(2L), state.selectedExerciseIds)
-        }
+        val state = viewModel.uiState.value
+        assertFalse(state.isNew)
+        assertFalse(state.isLoading)
+        assertEquals("Основной", state.name)
+        assertEquals(setOf(2L), state.selectedExerciseIds)
+      }
 
-    @Test
-    fun `saving trims the name and forwards the selected catalog ids`() =
-        runTest(mainDispatcherRule.testDispatcher.scheduler) {
-            val repository = FakeGymRepository(catalog = listOf(exercise(1, "Приседания")))
-            val viewModel = GymEditorViewModel(SavedStateHandle(), repository)
-            advanceUntilIdle()
+  @Test
+  fun `saving trims the name and forwards the selected catalog ids`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val repository = FakeGymRepository(catalog = listOf(exercise(1, "Приседания")))
+        val viewModel = GymEditorViewModel(SavedStateHandle(), repository)
+        advanceUntilIdle()
 
-            viewModel.setName("  Зал у дома  ")
-            viewModel.toggleExercise(1)
-            viewModel.save()
-            advanceUntilIdle()
+        viewModel.setName("  Зал у дома  ")
+        viewModel.toggleExercise(1)
+        viewModel.save()
+        advanceUntilIdle()
 
-            assertEquals(SaveRequest(null, "Зал у дома", setOf(1L)), repository.lastSaveRequest)
-            assertFalse(viewModel.uiState.value.isSaving)
-        }
+        assertEquals(SaveRequest(null, "Зал у дома", setOf(1L)), repository.lastSaveRequest)
+        assertFalse(viewModel.uiState.value.isSaving)
+      }
 
-    @Test
-    fun `a save conflict stays visible and does not finish the editor`() =
-        runTest(mainDispatcherRule.testDispatcher.scheduler) {
-            val unavailable = exercise(2, "Жим ногами")
-            val conflict = GymConfigurationConflict(
+  @Test
+  fun `a save conflict stays visible and does not finish the editor`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val unavailable = exercise(2, "Жим ногами")
+        val conflict =
+            GymConfigurationConflict(
                 routines = listOf(GymRoutineReference(4, "Ноги")),
                 exercises = listOf(unavailable),
             )
-            val repository = FakeGymRepository(
+        val repository =
+            FakeGymRepository(
                 catalog = listOf(unavailable),
                 saveResult = SaveGymResult.Conflict(conflict),
             )
-            val viewModel = GymEditorViewModel(SavedStateHandle(), repository)
-            advanceUntilIdle()
+        val viewModel = GymEditorViewModel(SavedStateHandle(), repository)
+        advanceUntilIdle()
 
-            viewModel.setName("Основной")
-            viewModel.save()
-            advanceUntilIdle()
+        viewModel.setName("Основной")
+        viewModel.save()
+        advanceUntilIdle()
 
-            assertEquals(conflict, viewModel.uiState.value.saveConflict)
-            assertFalse(viewModel.uiState.value.isSaving)
-        }
+        assertEquals(conflict, viewModel.uiState.value.saveConflict)
+        assertFalse(viewModel.uiState.value.isSaving)
+      }
 
-    @Test
-    fun `deleting an in-use gym exposes the blocking routines`() =
-        runTest(mainDispatcherRule.testDispatcher.scheduler) {
-            val routines = listOf(GymRoutineReference(8, "Верх тела"))
-            val repository = FakeGymRepository(
+  @Test
+  fun `deleting an in-use gym exposes the blocking routines`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val routines = listOf(GymRoutineReference(8, "Верх тела"))
+        val repository =
+            FakeGymRepository(
                 gym = GymConfiguration("gym-id", "Основной", emptyList()),
                 deleteResult = DeleteGymResult.InUse(routines),
             )
-            val viewModel = GymEditorViewModel(savedStateHandle("gym-id"), repository)
-            advanceUntilIdle()
+        val viewModel = GymEditorViewModel(savedStateHandle("gym-id"), repository)
+        advanceUntilIdle()
 
-            viewModel.delete()
-            advanceUntilIdle()
+        viewModel.delete()
+        advanceUntilIdle()
 
-            assertEquals(routines, viewModel.uiState.value.deleteConflict)
-            assertFalse(viewModel.uiState.value.isDeleting)
-        }
+        assertEquals(routines, viewModel.uiState.value.deleteConflict)
+        assertFalse(viewModel.uiState.value.isDeleting)
+      }
 
-    @Test
-    fun `search matches an exercise group and type as well as its name`() =
-        runTest(mainDispatcherRule.testDispatcher.scheduler) {
-            val cardio = ExerciseEntity(
+  @Test
+  fun `search matches an exercise group and type as well as its name`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val cardio =
+            ExerciseEntity(
                 id = 1,
                 name = "Гребля",
                 muscleGroup = MuscleGroup.CARDIO,
                 type = ExerciseType.TIMED,
             )
-            val viewModel = GymEditorViewModel(
+        val viewModel =
+            GymEditorViewModel(
                 SavedStateHandle(),
                 FakeGymRepository(catalog = listOf(cardio, exercise(2, "Жим"))),
             )
-            advanceUntilIdle()
+        advanceUntilIdle()
 
-            viewModel.setQuery("на время")
+        viewModel.setQuery("на время")
 
-            assertEquals(listOf("Гребля"), viewModel.uiState.value.filteredExercises.map { it.name })
-            assertTrue(viewModel.uiState.value.canSave.not())
-        }
+        assertEquals(listOf("Гребля"), viewModel.uiState.value.filteredExercises.map { it.name })
+        assertTrue(viewModel.uiState.value.canSave.not())
+      }
 
-    private fun TestScope.collectUiState(viewModel: GymsViewModel) {
-        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
-            viewModel.uiState.collect { }
-        }
-    }
+  private fun TestScope.collectUiState(viewModel: GymsViewModel) {
+    backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { viewModel.uiState.collect {} }
+  }
 
-    private fun savedStateHandle(gymId: String): SavedStateHandle =
-        SavedStateHandle(mapOf(GymRoutes.GYM_ID_ARG to gymId))
+  private fun savedStateHandle(gymId: String): SavedStateHandle =
+      SavedStateHandle(mapOf(GymRoutes.GYM_ID_ARG to gymId))
 
-    private fun exercise(id: Long, name: String): ExerciseEntity = ExerciseEntity(
-        id = id,
-        name = name,
-        muscleGroup = MuscleGroup.LEGS,
-        type = ExerciseType.STRENGTH,
-    )
+  private fun exercise(id: Long, name: String): ExerciseEntity =
+      ExerciseEntity(
+          id = id,
+          name = name,
+          muscleGroup = MuscleGroup.LEGS,
+          type = ExerciseType.STRENGTH,
+      )
 }
 
 private data class SaveRequest(
@@ -178,26 +184,26 @@ private class FakeGymRepository(
     var saveResult: SaveGymResult = SaveGymResult.Saved("saved-id"),
     var deleteResult: DeleteGymResult = DeleteGymResult.Deleted,
 ) : GymRepository {
-    private val gymsFlow = MutableStateFlow(gyms)
-    private val catalogFlow = MutableStateFlow(catalog)
+  private val gymsFlow = MutableStateFlow(gyms)
+  private val catalogFlow = MutableStateFlow(catalog)
 
-    var lastSaveRequest: SaveRequest? = null
-        private set
+  var lastSaveRequest: SaveRequest? = null
+    private set
 
-    override fun observeGyms(): Flow<List<GymConfiguration>> = gymsFlow
+  override fun observeGyms(): Flow<List<GymConfiguration>> = gymsFlow
 
-    override fun observeExerciseCatalog(): Flow<List<ExerciseEntity>> = catalogFlow
+  override fun observeExerciseCatalog(): Flow<List<ExerciseEntity>> = catalogFlow
 
-    override suspend fun getGym(id: String): GymConfiguration? = gym?.takeIf { it.id == id }
+  override suspend fun getGym(id: String): GymConfiguration? = gym?.takeIf { it.id == id }
 
-    override suspend fun saveGym(
-        id: String?,
-        name: String,
-        exerciseIds: Set<Long>,
-    ): SaveGymResult {
-        lastSaveRequest = SaveRequest(id, name, exerciseIds)
-        return saveResult
-    }
+  override suspend fun saveGym(
+      id: String?,
+      name: String,
+      exerciseIds: Set<Long>,
+  ): SaveGymResult {
+    lastSaveRequest = SaveRequest(id, name, exerciseIds)
+    return saveResult
+  }
 
-    override suspend fun deleteGym(id: String): DeleteGymResult = deleteResult
+  override suspend fun deleteGym(id: String): DeleteGymResult = deleteResult
 }

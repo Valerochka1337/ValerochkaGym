@@ -12,95 +12,99 @@ import org.junit.Assert.assertEquals
 import org.junit.Before
 import org.junit.Test
 
+@Suppress("SameParameterValue")
 class PreviousSetsUseCaseTest : RoomDaoTest() {
 
-    private lateinit var workoutDao: WorkoutDao
-    private lateinit var exerciseDao: ExerciseDao
-    private lateinit var useCase: PreviousSetsUseCase
+  private lateinit var workoutDao: WorkoutDao
+  private lateinit var exerciseDao: ExerciseDao
+  private lateinit var useCase: PreviousSetsUseCase
 
-    @Before
-    fun setUp() {
-        workoutDao = db.workoutDao()
-        exerciseDao = db.exerciseDao()
-        useCase = PreviousSetsUseCase(workoutDao)
-    }
+  @Before
+  fun setUp() {
+    workoutDao = db.workoutDao()
+    exerciseDao = db.exerciseDao()
+    useCase = PreviousSetsUseCase(workoutDao)
+  }
 
-    // region invoke
+  // region invoke
 
-    @Test
-    fun `invoke returns the completed sets of the last finished workout`() = runTest {
-        val squat = addExercise("Присед")
+  @Test
+  fun `invoke returns the completed sets of the last finished workout`() = runTest {
+    val squat = addExercise("Присед")
 
-        insertWorkout("old", startedAt = 1_000, finishedAt = 2_000)
-        val oldWe = insertWorkoutExercise("old", squat)
-        insertSet(oldWe, setIndex = 0, weightKg = 90.0, reps = 5, isCompleted = true)
+    insertWorkout("old", startedAt = 1_000, finishedAt = 2_000)
+    val oldWe = insertWorkoutExercise("old", squat)
+    insertSet(oldWe, setIndex = 0, weightKg = 90.0, reps = 5, isCompleted = true)
 
-        insertWorkout("new", startedAt = 3_000, finishedAt = 4_000)
-        val newWe = insertWorkoutExercise("new", squat)
-        insertSet(newWe, setIndex = 0, weightKg = 100.0, reps = 5, isCompleted = true)
-        insertSet(newWe, setIndex = 1, weightKg = 100.0, reps = 4, isCompleted = true)
+    insertWorkout("new", startedAt = 3_000, finishedAt = 4_000)
+    val newWe = insertWorkoutExercise("new", squat)
+    insertSet(newWe, setIndex = 0, weightKg = 100.0, reps = 5, isCompleted = true)
+    insertSet(newWe, setIndex = 1, weightKg = 100.0, reps = 4, isCompleted = true)
 
-        val result = useCase(squat)
+    val result = useCase(squat)
 
-        assertEquals(listOf(0, 1), result.map { it.setIndex })
-        assertEquals(listOf(100.0, 100.0), result.map { it.weightKg })
-        assertEquals(listOf(5, 4), result.map { it.reps })
-    }
+    assertEquals(listOf(0, 1), result.map { it.setIndex })
+    assertEquals(listOf(100.0, 100.0), result.map { it.weightKg })
+    assertEquals(listOf(5, 4), result.map { it.reps })
+  }
 
-    // endregion
+  // endregion
 
-    // region formatSummary
+  // region formatSummary
 
-    @Test
-    fun `formatSummary formats strength sets without trailing zeros`() {
-        val sets = listOf(
+  @Test
+  fun `formatSummary formats strength sets without trailing zeros`() {
+    val sets =
+        listOf(
             strengthSet(weightKg = 30.0, reps = 10),
             strengthSet(weightKg = 32.5, reps = 8),
         )
 
-        assertEquals("30×10, 32.5×8", useCase.formatSummary(sets, ExerciseType.STRENGTH))
-    }
+    assertEquals("30×10, 32.5×8", useCase.formatSummary(sets, ExerciseType.STRENGTH))
+  }
 
-    @Test
-    fun `formatSummary formats timed sets`() {
-        val sets = listOf(timedSet(durationSec = 60))
+  @Test
+  fun `formatSummary formats timed sets`() {
+    val sets = listOf(timedSet(durationSec = 60))
 
-        assertEquals("60 сек", useCase.formatSummary(sets, ExerciseType.TIMED))
-    }
+    assertEquals("60 сек", useCase.formatSummary(sets, ExerciseType.TIMED))
+  }
 
-    @Test
-    fun `formatSummary formats cardio sets`() {
-        val sets = listOf(cardioSet(speedKmh = 10.0, inclinePct = 5.0, durationSec = 720))
+  @Test
+  fun `formatSummary formats cardio sets`() {
+    val sets = listOf(cardioSet(speedKmh = 10.0, inclinePct = 5.0, durationSec = 720))
 
-        assertEquals("10 км/ч · 5% · 12 мин", useCase.formatSummary(sets, ExerciseType.CARDIO))
-    }
+    assertEquals("10 км/ч · 5% · 12 мин", useCase.formatSummary(sets, ExerciseType.CARDIO))
+  }
 
-    @Test
-    fun `formatSummary returns an empty string for an empty list`() {
-        assertEquals("", useCase.formatSummary(emptyList(), ExerciseType.STRENGTH))
-    }
+  @Test
+  fun `formatSummary returns an empty string for an empty list`() {
+    assertEquals("", useCase.formatSummary(emptyList(), ExerciseType.STRENGTH))
+  }
 
-    // endregion
+  // endregion
 
-    // region helpers
+  // region helpers
 
-    private suspend fun addExercise(name: String): Long =
-        exerciseDao.insert(ExerciseEntity(name = name, muscleGroup = MuscleGroup.LEGS, type = ExerciseType.STRENGTH))
+  private suspend fun addExercise(name: String): Long =
+      exerciseDao.insert(
+          ExerciseEntity(name = name, muscleGroup = MuscleGroup.LEGS, type = ExerciseType.STRENGTH)
+      )
 
-    private fun strengthSet(weightKg: Double, reps: Int): WorkoutSetEntity =
-        WorkoutSetEntity(workoutExerciseId = 0, setIndex = 0, weightKg = weightKg, reps = reps)
+  private fun strengthSet(weightKg: Double, reps: Int): WorkoutSetEntity =
+      WorkoutSetEntity(workoutExerciseId = 0, setIndex = 0, weightKg = weightKg, reps = reps)
 
-    private fun timedSet(durationSec: Int): WorkoutSetEntity =
-        WorkoutSetEntity(workoutExerciseId = 0, setIndex = 0, durationSec = durationSec)
+  private fun timedSet(durationSec: Int): WorkoutSetEntity =
+      WorkoutSetEntity(workoutExerciseId = 0, setIndex = 0, durationSec = durationSec)
 
-    private fun cardioSet(speedKmh: Double, inclinePct: Double, durationSec: Int): WorkoutSetEntity =
-        WorkoutSetEntity(
-            workoutExerciseId = 0,
-            setIndex = 0,
-            speedKmh = speedKmh,
-            inclinePct = inclinePct,
-            durationSec = durationSec,
-        )
+  private fun cardioSet(speedKmh: Double, inclinePct: Double, durationSec: Int): WorkoutSetEntity =
+      WorkoutSetEntity(
+          workoutExerciseId = 0,
+          setIndex = 0,
+          speedKmh = speedKmh,
+          inclinePct = inclinePct,
+          durationSec = durationSec,
+      )
 
-    // endregion
+  // endregion
 }
