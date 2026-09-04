@@ -29,6 +29,18 @@ fun iconResFor(
 ): Int {
     val n = name.lowercase()
 
+    if (type == ExerciseType.CARDIO || group == MuscleGroup.CARDIO) {
+        return when {
+            n.contains("лестнич") || n.contains("степпер") -> R.drawable.ic_ex_stepper
+            n.contains("велотренаж") || n.contains("air bike") -> R.drawable.ic_ex_bike
+            n.contains("эллипт") || n.contains("орбитрек") -> R.drawable.ic_ex_elliptical
+            n.contains("греб") || n.contains("skierg") -> R.drawable.ic_ex_rower
+            n.contains("скакал") || n.contains("плаван") -> R.drawable.ic_ex_bodyweight
+            n.contains("дорожк") || n.contains("бег") || n.contains("ходьб") -> R.drawable.ic_ex_treadmill
+            else -> R.drawable.ic_ex_treadmill
+        }
+    }
+
     // Кардио-тренажёры (до общего «тренажёр»). Осторожно: «Велосипед» — это пресс,
     // а не кардио-байк, поэтому ловим только «велотренаж…».
     when {

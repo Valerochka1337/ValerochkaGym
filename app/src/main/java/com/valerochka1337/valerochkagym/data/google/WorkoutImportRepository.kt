@@ -2,6 +2,7 @@ package com.valerochka1337.valerochkagym.data.google
 
 import androidx.room.withTransaction
 import com.valerochka1337.valerochkagym.data.db.GymDatabase
+import com.valerochka1337.valerochkagym.data.db.CanonicalExerciseRegistry
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseDao
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseMuscleDao
 import com.valerochka1337.valerochkagym.data.db.dao.GymDao
@@ -253,6 +254,9 @@ class WorkoutImportRepositoryImpl @Inject constructor(
         return when (record) {
             is ExerciseSheetRecord.Tombstone -> false
             is ExerciseSheetRecord.Snapshot -> {
+                // Built-ins are local registry authority even if an older cloud row calls itself custom.
+                if (existing?.let(CanonicalExerciseRegistry::isBuiltIn) == true ||
+                    CanonicalExerciseRegistry.entries.any { it.exercise.syncId == record.syncId }) return false
                 if (existing != null && record.updatedAt <= existing.updatedAt) return false
                 val entity = ExerciseEntity(
                     id = existing?.id ?: 0,
@@ -261,7 +265,8 @@ class WorkoutImportRepositoryImpl @Inject constructor(
                     name = record.name,
                     muscleGroup = record.muscleGroup,
                     type = record.type,
-                    isCustom = record.isCustom,
+                    isCustom = true,
+                    needsMuscleMapReview = record.needsMuscleMapReview,
                 )
                 val exerciseId = if (existing == null) exerciseDao.insert(entity) else existing.id.also {
                     exerciseDao.update(entity)

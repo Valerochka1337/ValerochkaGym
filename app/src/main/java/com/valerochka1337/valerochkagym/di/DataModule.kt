@@ -17,6 +17,9 @@ import com.valerochka1337.valerochkagym.data.db.dao.GymDao
 import com.valerochka1337.valerochkagym.data.db.dao.RoutineDao
 import com.valerochka1337.valerochkagym.data.db.dao.ScheduledWorkoutDao
 import com.valerochka1337.valerochkagym.data.db.dao.WorkoutDao
+import com.valerochka1337.valerochkagym.data.settings.DataStoreMuscleLoadUpgradeNotice
+import com.valerochka1337.valerochkagym.data.settings.RoomMuscleLoadUpgradeNotice
+import com.valerochka1337.valerochkagym.data.settings.MuscleLoadUpgradeNotice
 import com.valerochka1337.valerochkagym.service.WallClock
 import dagger.Module
 import dagger.Provides
@@ -95,6 +98,9 @@ object DataModule {
     fun provideWorkoutDao(database: GymDatabase): WorkoutDao = database.workoutDao()
 
     @Provides
+    fun provideMuscleLoadUpgradeNoticeDao(database: GymDatabase) = database.muscleLoadUpgradeNoticeDao()
+
+    @Provides
     fun provideScheduledWorkoutDao(database: GymDatabase): ScheduledWorkoutDao =
         database.scheduledWorkoutDao()
 
@@ -102,6 +108,12 @@ object DataModule {
     @Singleton
     fun provideDataStore(@ApplicationContext context: Context): DataStore<Preferences> =
         context.settingsDataStore
+
+    @Provides
+    @Singleton
+    fun provideMuscleLoadUpgradeNotice(
+        implementation: RoomMuscleLoadUpgradeNotice,
+    ): MuscleLoadUpgradeNotice = implementation
 
     @Provides
     @Singleton

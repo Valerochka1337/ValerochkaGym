@@ -96,6 +96,7 @@ class ExerciseDetailViewModel @Inject constructor(
             type = exercise.type,
             loads = state.loads.associate { it.muscle to it.contribution },
             editableName = exercise.isCustom,
+            needsMuscleMapReview = exercise.needsMuscleMapReview,
         )
     }
 
@@ -112,7 +113,11 @@ class ExerciseDetailViewModel @Inject constructor(
         if (current.isSaving) return
         val exerciseId = current.exerciseId ?: return
         val trimmed = name.trim()
-        if (trimmed.isEmpty() || loads.isEmpty()) return
+        if (trimmed.isEmpty() || loads.none { it.contribution == 100 } ||
+            loads.any { it.contribution !in setOf(100, 50, 0) }) {
+            _editor.value = current.copy(saveError = "Выберите хотя бы одну основную мышцу.")
+            return
+        }
         _editor.value = current.copy(
             name = trimmed,
             type = type,
@@ -129,12 +134,27 @@ class ExerciseDetailViewModel @Inject constructor(
             val updated = existing.copy(
                 name = if (current.editableName) trimmed else existing.name,
                 type = type,
+                needsMuscleMapReview = if (current.editableName) false else existing.needsMuscleMapReview,
             ).withNextUpdatedAt()
             val muscleRows = loads.map { load ->
                 ExerciseMuscleEntity(exerciseId, load.muscle, load.contribution)
             }
             val saved = try {
-                if (gymRepository === NoOpGymRepository) {
+                if (!current.editableName) {
+                    val clone = ExerciseEntity(
+                        name = "${existing.name} (своё)",
+                        muscleGroup = existing.muscleGroup,
+                        type = type,
+                        isCustom = true,
+                    )
+                    if (gymRepository === NoOpGymRepository) {
+                        val cloneId = exerciseDao.insert(clone)
+                        exerciseMuscleDao.replaceForExercise(cloneId, muscleRows.map { it.copy(exerciseId = cloneId) })
+                        clone.copy(id = cloneId)
+                    } else {
+                        gymRepository.createExerciseAndAssign(NewExerciseConfiguration(clone, muscleRows), emptySet())
+                    }
+                } else if (gymRepository === NoOpGymRepository) {
                     // Fallback для прямых unit-тестов; production идёт через одну repo-транзакцию.
                     exerciseDao.update(updated)
                     exerciseMuscleDao.replaceForExercise(exerciseId, muscleRows)

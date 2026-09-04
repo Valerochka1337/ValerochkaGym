@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.mutablePreferencesOf
 import androidx.datastore.preferences.core.stringPreferencesKey
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseMuscleEntity
+import com.valerochka1337.valerochkagym.data.db.CanonicalExerciseRegistry
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
 import com.valerochka1337.valerochkagym.data.db.entity.GymEntity
 import com.valerochka1337.valerochkagym.data.db.entity.Muscle
@@ -42,6 +43,30 @@ import org.junit.Test
 class ConfigurationSheetsRepositoryTest : RoomDaoTest() {
 
     @Test
+    fun `known legacy exercise header is extended before canonical role append`() = runTest {
+        val exercise = ExerciseEntity(syncId = EXERCISE_ID, updatedAt = 200, name = "Своё", muscleGroup = MuscleGroup.CHEST, type = ExerciseType.STRENGTH, isCustom = true)
+        val id = db.exerciseDao().insert(exercise)
+        db.exerciseMuscleDao().upsertAll(listOf(ExerciseMuscleEntity(id, Muscle.UPPER_CHEST, 100)))
+        val api = FakeSheetsApi().apply { seed(ExerciseSheetRowMapper.RANGE, listOf(ExerciseSheetRowMapper.HEADER_ROW.dropLast(1))) }
+
+        assertEquals(UploadResult.Success, repository(api).uploadExercise(EXERCISE_ID))
+        assertEquals(1, api.updated.size)
+        assertEquals(listOf(ExerciseSheetRowMapper.HEADER_ROW), api.updated.single())
+        assertEquals("2", api.appended.single().single().last())
+    }
+
+    @Test
+    fun `built in registry exercises are never exported to the custom cloud catalog`() = runTest {
+        val builtIn = CanonicalExerciseRegistry.entries.first().exercise.copy(updatedAt = 200)
+        db.exerciseDao().insert(builtIn)
+        val api = FakeSheetsApi()
+
+        assertEquals(UploadResult.Success, repository(api).uploadExercise(builtIn.syncId))
+        assertEquals(emptyList<List<List<String>>>(), api.appended)
+        assertEquals(emptyList<String>(), api.appendRanges)
+    }
+
+    @Test
     fun `uploads a complete exercise snapshot with header and deduplicates its version`() = runTest {
         val exercise = ExerciseEntity(
             syncId = EXERCISE_ID,
@@ -54,8 +79,8 @@ class ConfigurationSheetsRepositoryTest : RoomDaoTest() {
         val localId = db.exerciseDao().insert(exercise)
         db.exerciseMuscleDao().upsertAll(
             listOf(
-                ExerciseMuscleEntity(localId, Muscle.CHEST, 100),
-                ExerciseMuscleEntity(localId, Muscle.TRICEPS, 65),
+                ExerciseMuscleEntity(localId, Muscle.UPPER_CHEST, 100),
+                ExerciseMuscleEntity(localId, Muscle.TRICEPS, 50),
             ),
         )
         val api = FakeSheetsApi()
@@ -70,11 +95,11 @@ class ConfigurationSheetsRepositoryTest : RoomDaoTest() {
                 ExerciseSheetRowMapper.HEADER_ROW,
                 listOf(
                     EXERCISE_ID, "200", "false", "Жим в тренажёре", "CHEST",
-                    "STRENGTH", "true", "CHEST", "100",
+                    "STRENGTH", "true", "UPPER_CHEST", "100", "2",
                 ),
                 listOf(
                     EXERCISE_ID, "200", "false", "Жим в тренажёре", "CHEST",
-                    "STRENGTH", "true", "TRICEPS", "65",
+                    "STRENGTH", "true", "TRICEPS", "50", "2",
                 ),
             ),
             api.appended.single(),
@@ -172,6 +197,8 @@ class ConfigurationSheetsRepositoryTest : RoomDaoTest() {
 
         val appended = mutableListOf<List<List<String>>>()
         val appendRanges = mutableListOf<String>()
+        val updated = mutableListOf<List<List<String>>>()
+        fun seed(range: String, rows: List<List<String>>) { valuesByRange.getOrPut(range, ::mutableListOf).addAll(rows) }
 
         override suspend fun getSpreadsheet(
             bearer: String,
@@ -223,7 +250,10 @@ class ConfigurationSheetsRepositoryTest : RoomDaoTest() {
             range: String,
             body: UpdateValuesDto,
             valueInputOption: String,
-        ): JsonElement = JsonNull
+        ): JsonElement {
+            updated += body.values.map { row -> (row as JsonArray).map { (it as JsonPrimitive).content } }
+            return JsonNull
+        }
     }
 
     private data object FakeGoogleAuth : GoogleAuth {

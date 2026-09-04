@@ -343,7 +343,7 @@ class ExerciseLibraryViewModelTest {
                 type = ExerciseType.STRENGTH,
                 loads = listOf(
                     MuscleLoad(Muscle.GLUTES, 100),
-                    MuscleLoad(Muscle.LOWER_BACK, 70),
+                    MuscleLoad(Muscle.LOWER_BACK, 50),
                 ),
             )
 
@@ -353,7 +353,7 @@ class ExerciseLibraryViewModelTest {
             // Крупная группа выведена из самой вовлечённой мышцы, вручную её не выбирают.
             assertEquals(MuscleGroup.LEGS, inserted.muscleGroup)
             assertEquals(
-                mapOf(Muscle.GLUTES to 100, Muscle.LOWER_BACK to 70),
+                mapOf(Muscle.GLUTES to 100, Muscle.LOWER_BACK to 50),
                 muscleDao.rows[inserted.id]?.associate { it.muscle to it.contribution },
             )
             assertNull(viewModel.editor.value)
@@ -382,7 +382,7 @@ class ExerciseLibraryViewModelTest {
                 type = ExerciseType.STRENGTH,
                 loads = listOf(
                     MuscleLoad(Muscle.GLUTES, 100),
-                    MuscleLoad(Muscle.LOWER_BACK, 70),
+                    MuscleLoad(Muscle.LOWER_BACK, 50),
                 ),
             )
             mainDispatcherRule.testDispatcher.scheduler.advanceUntilIdle()
@@ -390,7 +390,7 @@ class ExerciseLibraryViewModelTest {
             assertEquals(setOf("gym-first", "gym-second"), repository.lastAssignedGymIds)
             assertEquals("Тяга сумо", repository.lastCreation?.exercise?.name)
             assertEquals(
-                mapOf(Muscle.GLUTES to 100, Muscle.LOWER_BACK to 70),
+                mapOf(Muscle.GLUTES to 100, Muscle.LOWER_BACK to 50),
                 repository.lastCreation?.muscles?.associate { it.muscle to it.contribution },
             )
             assertEquals(listOf(42L), savedExercises.map { it.exercise.id })
@@ -413,30 +413,38 @@ class ExerciseLibraryViewModelTest {
         }
 
     @Test
-    fun `editing a built-in exercise replaces its muscle map but keeps name and group`() =
+    fun `personalizing a built-in creates a custom copy and leaves source untouched`() =
         runTest(mainDispatcherRule.testDispatcher.scheduler) {
             val dao = FakeExerciseDao(catalogue())
             val muscleDao = FakeExerciseMuscleDao()
-            muscleDao.rows[1L] = mutableListOf(ExerciseMuscleEntity(1L, Muscle.CHEST, 100))
+            muscleDao.rows[1L] = mutableListOf(ExerciseMuscleEntity(1L, Muscle.UPPER_CHEST, 100))
             val viewModel = ExerciseLibraryViewModel(dao, muscleDao)
 
             viewModel.openEdit(catalogue().first())
             val editor = viewModel.editor.value!!
-            assertEquals(mapOf(Muscle.CHEST to 100), editor.loads)
+            assertEquals(mapOf(Muscle.UPPER_CHEST to 100), editor.loads)
             assertFalse("встроенное упражнение нельзя переименовать", editor.editableName)
 
             viewModel.saveEditor(
                 name = "Другое имя",
                 type = ExerciseType.STRENGTH,
-                loads = listOf(MuscleLoad(Muscle.CHEST, 100), MuscleLoad(Muscle.TRICEPS, 65)),
+                loads = listOf(MuscleLoad(Muscle.UPPER_CHEST, 100), MuscleLoad(Muscle.TRICEPS, 50)),
             )
 
             val stored = dao.items.value.first { it.id == 1L }
+            val personalized = dao.items.value.single { it.name == "Жим штанги лёжа (своё)" }
             assertEquals("Жим штанги лёжа", stored.name)
-            assertEquals(MuscleGroup.CHEST, stored.muscleGroup)
+            assertFalse(stored.isCustom)
+            assertEquals("Жим штанги лёжа (своё)", personalized.name)
+            assertTrue(personalized.isCustom)
+            assertEquals(MuscleGroup.CHEST, personalized.muscleGroup)
             assertEquals(
-                mapOf(Muscle.CHEST to 100, Muscle.TRICEPS to 65),
+                mapOf(Muscle.UPPER_CHEST to 100),
                 muscleDao.rows[1L]?.associate { it.muscle to it.contribution },
+            )
+            assertEquals(
+                mapOf(Muscle.UPPER_CHEST to 100, Muscle.TRICEPS to 50),
+                muscleDao.rows[personalized.id]?.associate { it.muscle to it.contribution },
             )
         }
 
@@ -451,7 +459,7 @@ class ExerciseLibraryViewModelTest {
                     ExerciseAiGenerationResult.New(
                         name = "Тяга сумо",
                         type = ExerciseType.STRENGTH,
-                        loads = listOf(MuscleLoad(Muscle.GLUTES, 100), MuscleLoad(Muscle.LOWER_BACK, 70)),
+                        loads = listOf(MuscleLoad(Muscle.GLUTES, 100), MuscleLoad(Muscle.LOWER_BACK, 50)),
                     ),
                 ),
                 aiApiConfigurationProvider = FakeAiApiConfigurationProvider(configured = true),
@@ -468,7 +476,7 @@ class ExerciseLibraryViewModelTest {
             val editor = viewModel.editor.value!!
             assertEquals("Тяга сумо", editor.name)
             assertEquals(ExerciseType.STRENGTH, editor.type)
-            assertEquals(mapOf(Muscle.GLUTES to 100, Muscle.LOWER_BACK to 70), editor.loads)
+            assertEquals(mapOf(Muscle.GLUTES to 100, Muscle.LOWER_BACK to 50), editor.loads)
             assertFalse(editor.wasFoundByAi)
         }
 

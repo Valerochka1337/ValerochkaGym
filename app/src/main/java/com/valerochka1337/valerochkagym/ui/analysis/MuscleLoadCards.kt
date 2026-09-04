@@ -36,6 +36,7 @@ import com.valerochka1337.valerochkagym.domain.analysis.MuscleLoadSummary
 import com.valerochka1337.valerochkagym.domain.analysis.VolumeZone
 import com.valerochka1337.valerochkagym.domain.displayName
 import com.valerochka1337.valerochkagym.ui.analysis.body.BodyMapFlip
+import com.valerochka1337.valerochkagym.ui.analysis.body.MuscleSelector
 import com.valerochka1337.valerochkagym.ui.analysis.charts.ChartSpec
 import com.valerochka1337.valerochkagym.ui.analysis.charts.rememberChartColors
 import com.valerochka1337.valerochkagym.ui.haptics.gymHaptics
@@ -53,6 +54,7 @@ import com.valerochka1337.valerochkagym.ui.theme.GymMotion
 internal fun MuscleHeatmapCard(
     state: AnalysisUiState,
     onMuscleClicked: (Muscle?) -> Unit,
+    onSelectorSelected: (Muscle) -> Unit = { onMuscleClicked(it) },
     modifier: Modifier = Modifier,
 ) {
     // Производные от отчёта, а не от выбора: пересобирать их на каждый тап по карте незачем.
@@ -68,6 +70,12 @@ internal fun MuscleHeatmapCard(
             fillFor = { muscle -> ChartPalette.zoneColor(loads[muscle]?.zone ?: VolumeZone.LOW) },
             selectedMuscle = state.selectedMuscle,
             onMuscleClick = onMuscleClicked,
+        )
+
+        MuscleSelector(
+            selected = state.selectedMuscle,
+            roleText = { muscle -> "${"%.1f".format(loads[muscle]?.weeklySets ?: 0.0)} эффективных подходов" },
+            onSelected = onSelectorSelected,
         )
 
         Spacer(Modifier.height(12.dp))
@@ -99,7 +107,7 @@ private fun EffectiveSetsExplanation() {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Text(
-            text = "На одну мышцу: ≥60% — 1 подход; 25–59% — 0,5; ниже 25% — 0.",
+            text = "На одну мышцу: основная — 1 подход, вторичная — 0,5, стабилизатор — 0.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

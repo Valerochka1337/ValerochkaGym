@@ -16,22 +16,23 @@ class MuscleDefaultsTest {
     }
 
     @Test
-    fun `cardio fallback stays below direct strength work`() {
-        val cardioMax = MuscleGroup.CARDIO.defaultMuscleLoads().maxOf { it.contribution }
-        val legsMax = MuscleGroup.LEGS.defaultMuscleLoads().maxOf { it.contribution }
-
-        assertTrue(cardioMax <= 25)
-        assertTrue(cardioMax < legsMax)
+    fun `cardio fallback remains descriptive role data`() {
+        assertEquals(
+            setOf(50),
+            MuscleGroup.CARDIO.defaultMuscleLoads().map { it.contribution }.toSet(),
+        )
     }
 
     @Test
-    fun `contributions stay within the one to hundred scale`() {
+    fun `contributions use canonical role values and strength fallbacks have a primary`() {
         MuscleGroup.entries.forEach { group ->
-            group.defaultMuscleLoads().forEach { load ->
-                assertTrue(
-                    "$group → ${load.muscle}: доля ${load.contribution} вне 1..100",
-                    load.contribution in 1..100,
-                )
+            val loads = group.defaultMuscleLoads()
+            assertTrue(
+                "$group has a non-role contribution",
+                loads.all { it.contribution in setOf(100, 50, 0) },
+            )
+            if (group != MuscleGroup.CARDIO) {
+                assertTrue("$group has no primary role", loads.any { it.contribution == 100 })
             }
         }
     }

@@ -10,39 +10,51 @@ class SeedExerciseMusclesTest {
 
     @Test
     fun `every catalogue exercise has an explicit muscle map`() {
-        val exerciseNames = seedExercises.map { it.name.lowercase() }.toSet()
+        val expected = CanonicalExerciseRegistry.entries.associate { entry ->
+            entry.exercise.name.lowercase() to entry.loads
+        }
 
-        assertEquals(exerciseNames, seedExerciseMuscles.keys)
+        assertEquals(expected, seedExerciseMuscles)
+        assertTrue(
+            legacySeedExercises.map { it.name.lowercase() }.all(seedExerciseMuscles::containsKey),
+        )
     }
 
     @Test
-    fun `every muscle map has unique values in five point steps`() {
+    fun `every muscle map has unique canonical roles and required primaries`() {
         seedExerciseMuscles.forEach { (name, loads) ->
             assertTrue("пустая карта: $name", loads.isNotEmpty())
             assertEquals("дубликаты мышц: $name", loads.size, loads.map { it.muscle }.toSet().size)
             loads.forEach { load ->
-                assertTrue("$name → ${load.muscle}: ${load.contribution}", load.contribution in 5..100)
-                assertEquals("$name → ${load.muscle}", 0, load.contribution % 5)
+                assertTrue(
+                    "$name → ${load.muscle}: ${load.contribution}",
+                    load.contribution in setOf(100, 50, 0),
+                )
             }
+            val exercise = seedExercises.single { it.name.lowercase() == name }
+            if (exercise.type.name != "CARDIO") assertTrue("нет primary: $name", loads.any { it.contribution == 100 })
         }
     }
 
     @Test
-    fun `treadmill quadriceps load is lower than barbell squat load`() {
+    fun `treadmill keeps descriptive secondary roles`() {
         val treadmill = contribution("беговая дорожка", Muscle.QUADS)
         val squat = contribution("приседания со штангой", Muscle.QUADS)
 
-        assertEquals(20, treadmill)
+        assertEquals(50, treadmill)
         assertEquals(100, squat)
         assertTrue(treadmill < squat)
     }
 
     @Test
-    fun `all cardio targets stay below loaded strength targets`() {
+    fun `cardio maps remain descriptive rather than percentage-scaled`() {
         val cardioNames = seedExercises.filter { it.type.name == "CARDIO" }.map { it.name.lowercase() }
 
         cardioNames.forEach { name ->
-            assertTrue("$name завышено", seedExerciseMuscles.getValue(name).maxOf { it.contribution } <= 35)
+            assertTrue(
+                "$name must use secondary role descriptions",
+                seedExerciseMuscles.getValue(name).all { it.contribution == 50 },
+            )
         }
     }
 

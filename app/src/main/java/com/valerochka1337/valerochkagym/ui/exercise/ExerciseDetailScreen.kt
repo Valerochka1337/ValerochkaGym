@@ -21,7 +21,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -33,7 +32,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -53,7 +51,6 @@ import com.valerochka1337.valerochkagym.ui.components.GlowBackground
 import com.valerochka1337.valerochkagym.ui.components.GymCard
 import com.valerochka1337.valerochkagym.ui.haptics.gymHaptics
 import com.valerochka1337.valerochkagym.ui.library.ExerciseEditorSheet
-import com.valerochka1337.valerochkagym.ui.theme.ChartPalette
 import java.math.BigDecimal
 import java.time.ZoneId
 
@@ -141,7 +138,7 @@ private fun ExerciseHeader(
             if (exercise != null) {
             CircleIconButton(
                 icon = Icons.Rounded.Edit,
-                contentDescription = "Редактировать упражнение",
+                contentDescription = if (exercise.isCustom) "Редактировать упражнение" else "Персонализировать упражнение",
                 onClick = onEdit,
             )
             }
@@ -202,8 +199,7 @@ private fun ProfileCard(exercise: ExerciseEntity) {
 
 @Composable
 private fun MusclesCard(loads: List<MuscleLoad>) {
-    val base = MaterialTheme.colorScheme.surfaceContainerHighest
-    val accent = MaterialTheme.colorScheme.primary
+    val roleColor = MaterialTheme.colorScheme.primary
     GymCard(modifier = Modifier.fillMaxWidth()) {
         Text(
             text = "Вовлечение мышц",
@@ -221,12 +217,8 @@ private fun MusclesCard(loads: List<MuscleLoad>) {
             return@GymCard
         }
         Spacer(Modifier.height(8.dp))
-        val byMuscle = loads.associate { it.muscle to it.contribution }
         BodyMapFlip(
-            fillFor = { muscle ->
-                val load = byMuscle[muscle] ?: return@BodyMapFlip ChartPalette.Empty
-                lerp(base, accent, load / 100f)
-            },
+            fillFor = { roleColor },
         )
         Spacer(Modifier.height(8.dp))
         loads.forEach { load ->
@@ -238,19 +230,12 @@ private fun MusclesCard(loads: List<MuscleLoad>) {
                     modifier = Modifier.weight(1f),
                 )
                 Text(
-                    text = "${load.contribution}%",
+                    text = load.role?.label ?: "Не задана",
                     style = MaterialTheme.typography.labelLarge,
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.primary,
                 )
             }
-            Spacer(Modifier.height(4.dp))
-            LinearProgressIndicator(
-                progress = { load.contribution / 100f },
-                modifier = Modifier.fillMaxWidth(),
-                color = MaterialTheme.colorScheme.primary,
-                trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-            )
             Spacer(Modifier.height(10.dp))
         }
     }

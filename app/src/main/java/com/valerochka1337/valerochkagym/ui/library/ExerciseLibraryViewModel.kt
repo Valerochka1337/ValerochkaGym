@@ -81,6 +81,7 @@ data class ExerciseEditorState(
     val type: ExerciseType,
     val loads: Map<Muscle, Int>,
     val editableName: Boolean,
+    val needsMuscleMapReview: Boolean = false,
     /** ИИ сопоставил описание с записью библиотеки; редактор предупредит об изменении, а не создании. */
     val wasFoundByAi: Boolean = false,
     /** Подтверждённое сохранением действие включит найденную запись во все выбранные залы. */
@@ -419,6 +420,7 @@ class ExerciseLibraryViewModel @Inject constructor(
                 type = exercise.type,
                 loads = loads,
                 editableName = exercise.isCustom,
+                needsMuscleMapReview = exercise.needsMuscleMapReview,
             )
         }
     }
@@ -439,7 +441,14 @@ class ExerciseLibraryViewModel @Inject constructor(
         val current = _editor.value ?: return
         if (current.isSaving) return
         val trimmed = name.trim()
-        if (trimmed.isEmpty() || loads.isEmpty()) return
+        if (trimmed.isEmpty() || loads.none { it.contribution == 100 }) {
+            _editor.value = current.copy(saveError = "Выберите хотя бы одну основную мышцу.")
+            return
+        }
+        if (loads.any { it.contribution !in setOf(100, 50, 0) }) {
+            _editor.value = current.copy(saveError = "Используйте только роли мышц.")
+            return
+        }
         val submittedLoads = loads.associate { it.muscle to it.contribution }
         _editor.value = current.copy(
             name = trimmed,
@@ -479,12 +488,32 @@ class ExerciseLibraryViewModel @Inject constructor(
                             selectedGymIds,
                         )
                     }
+                } else if (!current.editableName) {
+                    // Built-ins are immutable catalogue authority. Personalization creates a separate
+                    // custom identity and deliberately assigns it to no gyms.
+                    val source = exerciseDao.getById(current.exerciseId)
+                        ?: return@launch showSaveFailure()
+                    val clone = ExerciseEntity(
+                        name = "${source.name} (своё)",
+                        muscleGroup = source.muscleGroup,
+                        type = type,
+                        isCustom = true,
+                    )
+                    val cloneRows = loads.map { ExerciseMuscleEntity(0, it.muscle, it.contribution) }
+                    if (gymRepository === NoOpGymRepository) {
+                        val cloneId = exerciseDao.insert(clone)
+                        exerciseMuscleDao.replaceForExercise(cloneId, cloneRows.map { it.copy(exerciseId = cloneId) })
+                        clone.copy(id = cloneId)
+                    } else {
+                        gymRepository.createExerciseAndAssign(NewExerciseConfiguration(clone, cloneRows), emptySet())
+                    }
                 } else {
                     val existing = exerciseDao.getById(current.exerciseId)
                         ?: return@launch showSaveFailure()
                     val updated = existing.copy(
                         name = if (current.editableName) trimmed else existing.name,
                         type = type,
+                        needsMuscleMapReview = if (current.editableName) false else existing.needsMuscleMapReview,
                     ).withNextUpdatedAt()
                     val muscleRows = loads.map {
                         ExerciseMuscleEntity(existing.id, it.muscle, it.contribution)

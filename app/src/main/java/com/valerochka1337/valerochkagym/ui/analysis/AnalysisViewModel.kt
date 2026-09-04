@@ -1,11 +1,14 @@
 package com.valerochka1337.valerochkagym.ui.analysis
 
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseMuscleDao
 import com.valerochka1337.valerochkagym.data.db.dao.WorkoutDao
 import com.valerochka1337.valerochkagym.data.db.entity.Muscle
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleLoad
+import com.valerochka1337.valerochkagym.data.settings.MuscleLoadUpgradeNotice
+import com.valerochka1337.valerochkagym.data.settings.NoOpMuscleLoadUpgradeNotice
 import com.valerochka1337.valerochkagym.domain.analysis.AnalysisPeriod
 import com.valerochka1337.valerochkagym.domain.analysis.AnalyticsEngine
 import com.valerochka1337.valerochkagym.domain.analysis.AnalyticsInput
@@ -21,6 +24,9 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.receiveAsFlow
+import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.ZoneId
 import javax.inject.Inject
@@ -69,17 +75,23 @@ class AnalysisViewModel @Inject constructor(
     private val exerciseMuscleDao: ExerciseMuscleDao,
     private val engine: AnalyticsEngine,
     @param:ComputeDispatcher private val computeDispatcher: CoroutineDispatcher,
+    private val upgradeNotice: MuscleLoadUpgradeNotice = NoOpMuscleLoadUpgradeNotice,
+    private val savedStateHandle: SavedStateHandle = SavedStateHandle(),
 ) : ViewModel() {
 
     private val zone: ZoneId = ZoneId.systemDefault()
 
     // Намеренно не SavedStateHandle и не DataStore: новый экран всегда начинает с последних 7 дней.
     private val period = MutableStateFlow<AnalysisPeriod>(AnalysisPeriod.LAST_7_DAYS)
-    private val selectedMuscle = MutableStateFlow<Muscle?>(null)
+    private val selectedMuscle = MutableStateFlow(
+        savedStateHandle.get<String>(SELECTED_MUSCLE)?.let { name -> Muscle.entries.firstOrNull { it.name == name } },
+    )
     private val selectedExerciseId = MutableStateFlow<Long?>(null)
     private val weeklyMetric = MutableStateFlow(WeeklyMetric.SETS)
     private val selectedWeekIndex = MutableStateFlow<Int?>(null)
     private val selectedSessionIndex = MutableStateFlow<Int?>(null)
+    private val _messages = Channel<String>(Channel.BUFFERED)
+    val messages = _messages.receiveAsFlow()
 
     private val selection = combine(
         selectedMuscle,
@@ -134,6 +146,18 @@ class AnalysisViewModel @Inject constructor(
             initialValue = AnalysisUiState(),
         )
 
+    init {
+        viewModelScope.launch {
+            if (upgradeNotice.pendingIfNeeded(workoutDao.hasCompletedHistory())) {
+                _messages.send("История пересчитана по новой модели мышечной нагрузки")
+            }
+        }
+    }
+
+    fun acknowledgeUpgradeNotice() {
+        viewModelScope.launch { upgradeNotice.acknowledge() }
+    }
+
     fun onPeriodSelected(value: AnalysisPeriod) {
         period.value = value
         // Индексы точек привязаны к длине серии — при смене окна они теряют смысл.
@@ -148,6 +172,13 @@ class AnalysisViewModel @Inject constructor(
     /** Повторный тап по той же мышце снимает выбор — как в фильтрах библиотеки. */
     fun onMuscleClicked(muscle: Muscle?) {
         selectedMuscle.value = if (muscle == null || selectedMuscle.value == muscle) null else muscle
+        savedStateHandle[SELECTED_MUSCLE] = selectedMuscle.value?.name
+    }
+
+    /** Selector is navigational: reselecting its centered item must not clear the selection. */
+    fun onSelectorMuscleSelected(muscle: Muscle) {
+        selectedMuscle.value = muscle
+        savedStateHandle[SELECTED_MUSCLE] = muscle.name
     }
 
     fun onExerciseSelected(exerciseId: Long) {
@@ -175,4 +206,6 @@ class AnalysisViewModel @Inject constructor(
         val weekIndex: Int?,
         val sessionIndex: Int?,
     )
+
+    private companion object { const val SELECTED_MUSCLE = "analysis_selected_muscle" }
 }

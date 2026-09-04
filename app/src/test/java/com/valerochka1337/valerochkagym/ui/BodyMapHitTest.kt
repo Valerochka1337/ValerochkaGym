@@ -8,6 +8,7 @@ import com.valerochka1337.valerochkagym.ui.analysis.body.BodyView
 import com.valerochka1337.valerochkagym.ui.analysis.body.ParsedBody
 import com.valerochka1337.valerochkagym.ui.analysis.body.musclePaths
 import com.valerochka1337.valerochkagym.ui.analysis.body.offFigureMuscles
+import com.valerochka1337.valerochkagym.ui.analysis.body.MuscleSelectorState
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -33,13 +34,38 @@ import org.robolectric.annotation.GraphicsMode
 class BodyMapHitTest {
 
     @Test
+    fun `cyclic selector wraps and resolves the viewport centered virtual item`() {
+        assertEquals(Muscle.NECK, MuscleSelectorState.next(Muscle.UPPER_CHEST, -1))
+        assertEquals(Muscle.UPPER_CHEST, MuscleSelectorState.next(Muscle.NECK, 1))
+        assertEquals(
+            101,
+            MuscleSelectorState.centeredIndex(
+                listOf(
+                    MuscleSelectorState.VisibleItem(100, 0, 40),
+                    MuscleSelectorState.VisibleItem(101, 45, 40),
+                ),
+                viewportStart = 30,
+                viewportEnd = 90,
+            ),
+        )
+        assertTrue(MuscleSelectorState.shouldRecenter(1))
+        assertTrue(!MuscleSelectorState.shouldRecenter(MuscleSelectorState.centerFor(Muscle.BICEPS)))
+    }
+
+    @Test
     fun `every muscle except the off-figure ones is on some view`() {
         val onFigure = BodyView.entries
             .flatMap { musclePaths(it).keys }
             .toSet()
 
         assertEquals(Muscle.entries.toSet() - offFigureMuscles.toSet(), onFigure)
-        assertEquals(listOf(Muscle.SIDE_DELTS, Muscle.UPPER_BACK), offFigureMuscles)
+        assertEquals(
+            listOf(
+                Muscle.LOWER_CHEST, Muscle.SIDE_DELTS, Muscle.ROTATOR_CUFF, Muscle.SERRATUS_ANTERIOR,
+                Muscle.HIP_FLEXORS, Muscle.TIBIALIS_ANTERIOR, Muscle.HIP_ABDUCTORS, Muscle.UPPER_BACK, Muscle.NECK,
+            ),
+            offFigureMuscles,
+        )
     }
 
     @Test

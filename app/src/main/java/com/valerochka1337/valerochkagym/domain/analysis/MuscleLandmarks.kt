@@ -52,8 +52,13 @@ fun Muscle.zoneFor(weeklySets: Double): VolumeZone =
  * половину, стабилизация ниже 25 не учитывается. Это практическая оценка для карты упражнений;
  * приложение не знает близость подхода к отказу, технику, сон или восстановление.
  */
-fun setWeightFor(contribution: Int): Double = when {
-    contribution >= 60 -> 1.0
-    contribution >= 25 -> 0.5
+fun setWeightFor(contribution: Int): Double = when (contribution) {
+    100 -> 1.0
+    50 -> 0.5
+    0 -> 0.0
+    // Defensive compatibility for pre-migration in-memory fixtures only. Room, Sheets and AI
+    // normalize persisted input to the three values above before analytics observes it.
+    in 60..99 -> 1.0
+    in 25..59 -> 0.5
     else -> 0.0
 }

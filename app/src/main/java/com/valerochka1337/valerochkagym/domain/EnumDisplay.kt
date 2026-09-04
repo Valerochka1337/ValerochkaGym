@@ -21,10 +21,13 @@ fun MuscleGroup.displayName(): String = when (this) {
  * редакторе упражнения. Короткие (2 слова максимум): подписи стоят рядом с числами на графиках.
  */
 fun Muscle.displayName(): String = when (this) {
-    Muscle.CHEST -> "Грудь"
+    Muscle.UPPER_CHEST -> "Верх груди"
+    Muscle.LOWER_CHEST -> "Низ груди"
     Muscle.FRONT_DELTS -> "Передняя дельта"
     Muscle.SIDE_DELTS -> "Средняя дельта"
     Muscle.REAR_DELTS -> "Задняя дельта"
+    Muscle.ROTATOR_CUFF -> "Ротаторная манжета"
+    Muscle.SERRATUS_ANTERIOR -> "Передняя зубчатая"
     Muscle.TRAPS -> "Трапеции"
     Muscle.LATS -> "Широчайшие"
     Muscle.UPPER_BACK -> "Середина спины"
@@ -34,11 +37,15 @@ fun Muscle.displayName(): String = when (this) {
     Muscle.FOREARMS -> "Предплечья"
     Muscle.ABS -> "Пресс"
     Muscle.OBLIQUES -> "Косые"
+    Muscle.HIP_FLEXORS -> "Сгибатели бедра"
     Muscle.GLUTES -> "Ягодичные"
     Muscle.QUADS -> "Квадрицепс"
     Muscle.HAMSTRINGS -> "Бицепс бедра"
     Muscle.ADDUCTORS -> "Приводящие"
     Muscle.CALVES -> "Икры"
+    Muscle.TIBIALIS_ANTERIOR -> "Передняя большеберцовая"
+    Muscle.HIP_ABDUCTORS -> "Отводящие бедра"
+    Muscle.NECK -> "Шея"
 }
 
 /** Russian label for an exercise type. */

@@ -30,7 +30,7 @@ class AiApiExerciseAiGeneratorTest {
             content = """
                 {"kind":"new","name":"Тяга гантели к поясу","type":"STRENGTH","loads":[
                   {"muscle":"LATS","contribution":100},
-                  {"muscle":"BICEPS","contribution":55}
+                  {"muscle":"BICEPS","contribution":50}
                 ]}
             """.trimIndent(),
         )
@@ -41,7 +41,7 @@ class AiApiExerciseAiGeneratorTest {
         val exercise = result as ExerciseAiGenerationResult.New
         assertEquals("Тяга гантели к поясу", exercise.name)
         assertEquals(ExerciseType.STRENGTH, exercise.type)
-        assertEquals(mapOf(Muscle.LATS to 100, Muscle.BICEPS to 55), exercise.loads.associate { it.muscle to it.contribution })
+        assertEquals(mapOf(Muscle.LATS to 100, Muscle.BICEPS to 50), exercise.loads.associate { it.muscle to it.contribution })
         val request = api.request!!
         assertEquals(MODEL_ID, request.model)
         assertEquals(2_048, request.maxTokens)
@@ -185,7 +185,7 @@ class AiApiExerciseAiGeneratorTest {
         val generator = generator(
             api = FakeAiApi(
                 """{"kind":"new","existingExerciseId":"not-an-id","name":"Жим в тренажёре",
-                    |"type":"STRENGTH","loads":[{"muscle":"CHEST","contribution":100}]}"""
+                    |"type":"STRENGTH","loads":[{"muscle":"UPPER_CHEST","contribution":100}]}"""
                     .trimMargin(),
             ),
         )
@@ -255,7 +255,7 @@ class AiApiExerciseAiGeneratorTest {
     }
 
     @Test
-    fun `generator accepts a globally calibrated map without a hundred percent target`() = runTest {
+    fun `generator rejects a map without a primary role`() = runTest {
         val generator = generator(
             api = FakeAiApi(
                 """
@@ -267,8 +267,7 @@ class AiApiExerciseAiGeneratorTest {
             ),
         )
 
-        val result = generator.generate("Бегу по лесу") as ExerciseAiGenerationResult.New
-        assertEquals(mapOf(Muscle.QUADS to 20, Muscle.CALVES to 15), result.loads.associate { it.muscle to it.contribution })
+        assertTrue(generator.generate("Бегу по лесу").isFailure())
     }
 
     @Test
@@ -277,7 +276,7 @@ class AiApiExerciseAiGeneratorTest {
             api = FakeAiApi(
                 """
                     {"kind":"new","name":"  жим   штанги лёжа ","type":"STRENGTH","loads":[
-                      {"muscle":"CHEST","contribution":100}
+                      {"muscle":"UPPER_CHEST","contribution":100}
                     ]}
                 """.trimIndent(),
             ),

@@ -7,6 +7,7 @@ import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
 import com.valerochka1337.valerochkagym.data.db.entity.Muscle
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleGroup
 import com.valerochka1337.valerochkagym.data.db.entity.WorkoutSetEntity
+import com.valerochka1337.valerochkagym.data.settings.MuscleLoadUpgradeNotice
 import com.valerochka1337.valerochkagym.domain.analysis.AnalysisPeriod
 import com.valerochka1337.valerochkagym.domain.analysis.AnalyticsEngine
 import com.valerochka1337.valerochkagym.domain.analysis.VolumeZone
@@ -213,15 +214,57 @@ class AnalysisViewModelTest : RoomDaoTest() {
         assertEquals(WeeklyMetric.TONNAGE, state.weeklyMetric)
     }
 
+    @Test
+    fun `selector reselect keeps centered muscle selected`() = runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val viewModel = viewModel()
+        collect(viewModel)
+
+        viewModel.onSelectorMuscleSelected(Muscle.UPPER_CHEST)
+        viewModel.onSelectorMuscleSelected(Muscle.UPPER_CHEST)
+
+        assertEquals(Muscle.UPPER_CHEST, viewModel.uiState.value.selectedMuscle)
+    }
+
+    @Test
+    fun `upgrade notice is emitted once across view model recreation`() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val notice = FakeUpgradeNotice()
+            val first = viewModel(notice)
+            mainDispatcherRule.testDispatcher.scheduler.advanceUntilIdle()
+            assertEquals("История пересчитана по новой модели мышечной нагрузки", first.messages.first())
+            notice.acknowledge()
+
+            val recreated = viewModel(notice)
+            mainDispatcherRule.testDispatcher.scheduler.advanceUntilIdle()
+            recreated.uiState.value
+            assertEquals(1, notice.deliveries)
+        }
+
     // region helpers
 
-    private fun viewModel() = AnalysisViewModel(
+    private fun viewModel(notice: MuscleLoadUpgradeNotice = FakeUpgradeNotice(acknowledged = true)) = AnalysisViewModel(
         workoutDao = db.workoutDao(),
         exerciseMuscleDao = db.exerciseMuscleDao(),
         engine = AnalyticsEngine(),
         // Тестовый диспетчер вместо Dispatchers.Default — пересчёт остаётся на виртуальном времени.
         computeDispatcher = mainDispatcherRule.testDispatcher,
+        upgradeNotice = notice,
     )
+
+    private class FakeUpgradeNotice(private var acknowledged: Boolean = false) : MuscleLoadUpgradeNotice {
+        var calls = 0
+        var deliveries = 0
+        override suspend fun pendingIfNeeded(hasHistoricalWorkouts: Boolean): Boolean {
+            calls++
+            return (!acknowledged).also { deliver ->
+                if (deliver) {
+                    deliveries++
+                }
+            }
+        }
+
+        override suspend fun acknowledge() { acknowledged = true }
+    }
 
     /**
      * Цепляет живого подписчика и ждёт первый посчитанный отчёт.

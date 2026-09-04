@@ -60,8 +60,8 @@ android {
         applicationId = "com.valerochka1337.valerochkagym"
         minSdk = 36
         targetSdk = 37
-        versionCode = testVersionCode ?: 15
-        versionName = testVersionName ?: "1.3.7"
+        versionCode = testVersionCode ?: 16
+        versionName = testVersionName ?: "1.3.8"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -96,6 +96,11 @@ android {
         unitTests {
             isIncludeAndroidResources = true
         }
+    }
+
+    sourceSets {
+        // MigrationTestHelper reads the Robolectric debug target's AssetManager.
+        getByName("debug").assets.directories.add("$projectDir/schemas")
     }
 }
 

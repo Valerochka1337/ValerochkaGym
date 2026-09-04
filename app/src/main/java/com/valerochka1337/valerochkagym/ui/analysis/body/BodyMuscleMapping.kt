@@ -21,11 +21,14 @@ enum class BodyView { FRONT, BACK }
  */
 
 /** Мышцы без своей фигуры на карте — их выбирают из списка, а не тапом по телу. */
-val offFigureMuscles: List<Muscle> = listOf(Muscle.SIDE_DELTS, Muscle.UPPER_BACK)
+val offFigureMuscles: List<Muscle> = listOf(
+    Muscle.LOWER_CHEST, Muscle.SIDE_DELTS, Muscle.ROTATOR_CUFF, Muscle.SERRATUS_ANTERIOR,
+    Muscle.HIP_FLEXORS, Muscle.TIBIALIS_ANTERIOR, Muscle.HIP_ABDUCTORS, Muscle.UPPER_BACK, Muscle.NECK,
+)
 
 /** Слаги фигуры → мышца для вида спереди. */
 private val FRONT_SLUGS: Map<String, Muscle> = mapOf(
-    "chest" to Muscle.CHEST,
+    "chest" to Muscle.UPPER_CHEST,
     "deltoids" to Muscle.FRONT_DELTS,
     "trapezius" to Muscle.TRAPS,
     "biceps" to Muscle.BICEPS,
@@ -61,6 +64,13 @@ fun musclePaths(view: BodyView): Map<Muscle, List<String>> {
     return slugs.mapNotNull { (slug, muscle) ->
         source[slug]?.takeIf { it.isNotEmpty() }?.let { muscle to it }
     }.toMap()
+}
+
+/** Null means no dedicated geometry, so the current side must not jump. */
+fun preferredBodyView(muscle: Muscle): BodyView? = when {
+    muscle in FRONT_SLUGS.values -> BodyView.FRONT
+    muscle in BACK_SLUGS.values -> BodyView.BACK
+    else -> null
 }
 
 /**

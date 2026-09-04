@@ -18,6 +18,8 @@ sealed interface ExerciseSheetRecord {
         val type: ExerciseType,
         val isCustom: Boolean,
         val muscleLoads: Map<Muscle, Int>,
+        /** Legacy CHEST was expanded during parsing and needs a human review before next edit. */
+        val needsMuscleMapReview: Boolean = false,
     ) : ExerciseSheetRecord
 
     data class Tombstone(

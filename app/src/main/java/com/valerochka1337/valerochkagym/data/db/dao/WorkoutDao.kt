@@ -13,9 +13,13 @@ import com.valerochka1337.valerochkagym.data.db.relation.AnalyticsSetRow
 import com.valerochka1337.valerochkagym.data.db.relation.ExerciseWorkoutHistoryRow
 import com.valerochka1337.valerochkagym.data.db.relation.WorkoutFull
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 
 @Dao
 interface WorkoutDao {
+
+    /** Completed-set history only; active or empty workouts must not trigger migration notices. */
+    suspend fun hasCompletedHistory(): Boolean = observeCompletedSets().first().isNotEmpty()
 
     /**
      * Read-only catalog history. A row represents a base exercise once per finished workout,

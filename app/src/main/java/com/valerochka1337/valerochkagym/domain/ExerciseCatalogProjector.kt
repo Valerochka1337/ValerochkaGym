@@ -85,7 +85,7 @@ data class ExerciseCatalogProjection(
             add(exercise.type.displayName())
             snapshot.muscles.filter {
                 it.exerciseId == exercise.id &&
-                    it.contribution >= ExerciseCatalogProjector.SECONDARY_THRESHOLD &&
+                    it.contribution in setOf(100, 50) &&
                     it.muscle.group() == exercise.muscleGroup
             }
                 .forEach { add(it.muscle.displayName()) }
@@ -115,7 +115,7 @@ fun ExerciseCatalogTypeFilter.matches(type: ExerciseType): Boolean = when (this)
 }
 
 object ExerciseCatalogProjector {
-    const val SECONDARY_THRESHOLD = 25
+    const val SECONDARY_THRESHOLD = 50
 
     fun project(snapshot: ExerciseCatalogSnapshot): ExerciseCatalogProjection {
         val availableIds = snapshot.exercises.mapTo(hashSetOf()) { it.id }
