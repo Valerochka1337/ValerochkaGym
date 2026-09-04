@@ -5,6 +5,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -60,5 +61,31 @@ class SaveWorkoutAsProgramDialogTest {
         composeRule.onNodeWithContentDescription("Сохранить").assertIsNotEnabled()
         composeRule.onNodeWithText("Отмена").assertIsNotEnabled()
         composeRule.onNodeWithContentDescription("Сохраняем программу").assertIsDisplayed()
+    }
+
+    @Test
+    fun `confirm is disabled for blank names and enabled only for a nonblank idle name`() {
+        val name = mutableStateOf("")
+        val saving = mutableStateOf(false)
+        composeRule.setContent {
+            GymTheme {
+                SaveWorkoutAsProgramDialog(
+                    name = name.value,
+                    isSaving = saving.value,
+                    error = null,
+                    onNameChange = { name.value = it },
+                    onConfirm = {},
+                    onDismiss = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithContentDescription("Сохранить").assertIsNotEnabled()
+        composeRule.runOnIdle { name.value = "   " }
+        composeRule.onNodeWithContentDescription("Сохранить").assertIsNotEnabled()
+        composeRule.runOnIdle { name.value = "Грудь" }
+        composeRule.onNodeWithContentDescription("Сохранить").assertIsEnabled()
+        composeRule.runOnIdle { saving.value = true }
+        composeRule.onNodeWithContentDescription("Сохранить").assertIsNotEnabled()
     }
 }

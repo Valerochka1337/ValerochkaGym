@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -174,26 +175,13 @@ fun WorkoutSummaryScreen(
                 }
             }
 
-                if (state.canSaveAsProgram) {
-                    PillButton(
-                        text = "Сохранить",
-                        onClick = {
-                            haptics.tap()
-                            viewModel.openSaveAsProgram()
-                        },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(start = 24.dp, end = 24.dp, top = 8.dp)
-                            .semantics { contentDescription = "Сохранить тренировку как программу" },
-                        compact = true,
-                    )
-                }
-                PillButton(
-                    text = "Готово",
-                    onClick = onDone,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(start = 24.dp, end = 24.dp, top = 8.dp, bottom = 16.dp),
+                WorkoutSummaryActions(
+                    canSaveAsProgram = state.canSaveAsProgram,
+                    onSaveAsProgram = {
+                        haptics.tap()
+                        viewModel.openSaveAsProgram()
+                    },
+                    onDone = onDone,
                 )
             }
             SnackbarHost(
@@ -235,6 +223,30 @@ fun WorkoutSummaryScreen(
             onDismiss = viewModel::dismissSaveAsProgram,
         )
     }
+}
+
+@Composable
+internal fun WorkoutSummaryActions(
+    canSaveAsProgram: Boolean,
+    onSaveAsProgram: () -> Unit,
+    onDone: () -> Unit,
+) {
+    if (canSaveAsProgram) {
+        TextButton(
+            onClick = onSaveAsProgram,
+            modifier = Modifier
+                .padding(start = 24.dp, end = 24.dp, top = 8.dp)
+                .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                .semantics { contentDescription = "Сохранить тренировку как программу" },
+        ) { Text("Сохранить") }
+    }
+    PillButton(
+        text = "Готово",
+        onClick = onDone,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 24.dp, end = 24.dp, top = 8.dp, bottom = 16.dp),
+    )
 }
 
 @Composable

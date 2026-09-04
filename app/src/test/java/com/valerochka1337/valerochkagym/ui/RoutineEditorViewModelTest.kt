@@ -466,6 +466,9 @@ class RoutineEditorViewModelTest {
         override suspend fun getRoutineWithExercises(id: Long): RoutineWithExercises? =
             routines.value.find { it.routine.id == id }
 
+        override suspend fun getRoutineBySyncId(syncId: String): RoutineEntity? =
+            routines.value.find { it.routine.syncId == syncId }?.routine
+
         override suspend fun getRoutineName(id: Long): String? =
             routines.value.find { it.routine.id == id }?.routine?.name
 

@@ -240,6 +240,67 @@ class WorkoutSummaryViewModelTest {
             assertFalse(recreated.uiState.value.showSaveAsProgramDialog)
         }
 
+    @Test
+    fun `recreated summary replays a committed operation once and a new dialog gets a new operation`() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val handle = SavedStateHandle(mapOf(GymRoutes.WORKOUT_ID_ARG to "w1"))
+            val repository = CommitThenSuspendSaveGymRepository()
+            val first = viewModel(
+                fullWorkout(),
+                saveUseCase = SaveCompletedWorkoutAsRoutineUseCase(repository, NoOpRoutineUploadScheduler),
+                savedStateHandle = handle,
+            )
+            first.openSaveAsProgram()
+            val operationId = handle.get<String>("save_as_program_operation_sync_id")!!
+            first.confirmSaveAsProgram()
+            repository.firstCommit.await()
+
+            val recreated = viewModel(
+                fullWorkout(),
+                saveUseCase = SaveCompletedWorkoutAsRoutineUseCase(repository, NoOpRoutineUploadScheduler),
+                savedStateHandle = handle,
+            )
+            recreated.confirmSaveAsProgram()
+
+            assertEquals(1, repository.durableRoutines.size)
+            assertEquals(operationId, repository.durableRoutines.values.single().syncId)
+            assertFalse(recreated.uiState.value.showSaveAsProgramDialog)
+
+            recreated.openSaveAsProgram()
+            val freshOperationId = handle.get<String>("save_as_program_operation_sync_id")!!
+            recreated.confirmSaveAsProgram()
+            assertTrue(freshOperationId != operationId)
+            assertEquals(2, repository.durableRoutines.size)
+            repository.release.complete(Unit)
+        }
+
+    @Test
+    fun `orphaned summary draft closes without writing and a later open creates an operation`() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val handle = SavedStateHandle(
+                mapOf(
+                    GymRoutes.WORKOUT_ID_ARG to "w1",
+                    "save_as_program_dialog_visible" to true,
+                    "save_as_program_name" to "Старый черновик",
+                ),
+            )
+            val repository = FakeSaveGymRepository()
+            val viewModel = viewModel(
+                fullWorkout(),
+                saveUseCase = SaveCompletedWorkoutAsRoutineUseCase(repository, NoOpRoutineUploadScheduler),
+                savedStateHandle = handle,
+            )
+
+            assertFalse(viewModel.uiState.value.showSaveAsProgramDialog)
+            viewModel.confirmSaveAsProgram()
+            assertTrue(repository.drafts.isEmpty())
+
+            viewModel.openSaveAsProgram()
+            assertTrue(handle.get<String>("save_as_program_operation_sync_id")?.isNotBlank() == true)
+            viewModel.confirmSaveAsProgram()
+            assertEquals(1, repository.durableRoutines.size)
+        }
+
     private fun viewModel(
         full: WorkoutFull?,
         routineDao: RoutineDao = FakeRoutineDao(null),
@@ -331,6 +392,7 @@ class WorkoutSummaryViewModelTest {
         val replacedExercises = mutableListOf<RoutineExerciseEntity>()
 
         override suspend fun getRoutineWithExercises(id: Long): RoutineWithExercises? = routine
+        override suspend fun getRoutineBySyncId(syncId: String): RoutineEntity? = null
         override suspend fun replaceRoutineExercises(routineId: Long, list: List<RoutineExerciseEntity>) {
             replacedExercises += list
         }
@@ -348,10 +410,15 @@ class WorkoutSummaryViewModelTest {
         private val result: SaveRoutineConfigurationResult? = null,
     ) : GymRepository by NoOpGymRepository {
         val drafts = mutableListOf<RoutineConfigurationDraft>()
+        val durableRoutines = linkedMapOf<String, RoutineEntity>()
 
         override suspend fun saveRoutineConfiguration(draft: RoutineConfigurationDraft): SaveRoutineConfigurationResult {
             drafts += draft
-            return result ?: SaveRoutineConfigurationResult.Saved(1L, draft.routine)
+            result?.let { return it }
+            val saved = durableRoutines.getOrPut(draft.routine.syncId) {
+                draft.routine.copy(id = durableRoutines.size + 1L)
+            }
+            return SaveRoutineConfigurationResult.Saved(saved.id, saved)
         }
     }
 
@@ -363,6 +430,22 @@ class WorkoutSummaryViewModelTest {
             drafts += draft
             release.await()
             return SaveRoutineConfigurationResult.Saved(1L, draft.routine)
+        }
+    }
+
+    private class CommitThenSuspendSaveGymRepository : GymRepository by NoOpGymRepository {
+        val durableRoutines = linkedMapOf<String, RoutineEntity>()
+        val firstCommit = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+
+        override suspend fun saveRoutineConfiguration(draft: RoutineConfigurationDraft): SaveRoutineConfigurationResult {
+            val existing = durableRoutines[draft.routine.syncId]
+            if (existing != null) return SaveRoutineConfigurationResult.Saved(existing.id, existing)
+            val saved = draft.routine.copy(id = durableRoutines.size + 1L)
+            durableRoutines[saved.syncId] = saved
+            firstCommit.complete(Unit)
+            release.await()
+            return SaveRoutineConfigurationResult.Saved(saved.id, saved)
         }
     }
 }

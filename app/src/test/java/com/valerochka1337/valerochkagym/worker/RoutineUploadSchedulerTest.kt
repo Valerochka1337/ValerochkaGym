@@ -70,6 +70,8 @@ class RoutineUploadSchedulerTest {
 
         override suspend fun getRoutineWithExercises(id: Long): RoutineWithExercises? = null
 
+        override suspend fun getRoutineBySyncId(syncId: String): RoutineEntity? = null
+
         override suspend fun getRoutineName(id: Long): String? = null
 
         override suspend fun upsertRoutine(routine: RoutineEntity): Long = routine.id

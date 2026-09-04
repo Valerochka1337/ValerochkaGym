@@ -291,7 +291,7 @@ fun MuscleSelector(
                 .align(Alignment.CenterHorizontally)
                 .wrapContentHeight(),
         ) {
-            val cellWidth = 160.dp
+            val cellWidth = 136.dp
             val sidePeekWidth = ((maxWidth - cellWidth) / 2).coerceAtLeast(0.dp)
             // Lazy layouts have no intrinsic measurement. This invisible, semantic-free row gives
             // the box its real wrapped height before the matching LazyRow is measured.
@@ -439,8 +439,8 @@ private fun SelectorSlot(
                 style = MaterialTheme.typography.labelLarge,
                 color = textColor,
                 textAlign = TextAlign.Center,
-                maxLines = 1,
-                softWrap = false,
+                maxLines = 2,
+                softWrap = true,
                 overflow = TextOverflow.Ellipsis,
             )
             roleText?.let {

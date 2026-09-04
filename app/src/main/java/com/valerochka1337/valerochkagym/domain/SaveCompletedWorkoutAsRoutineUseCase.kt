@@ -29,11 +29,13 @@ class SaveCompletedWorkoutAsRoutineUseCase @Inject constructor(
     suspend operator fun invoke(
         workout: WorkoutFull,
         enteredName: String,
+        operationSyncId: String,
     ): SaveCompletedWorkoutAsRoutineResult {
         val name = enteredName.trim()
         if (name.isBlank()) return SaveCompletedWorkoutAsRoutineResult.BlankName
+        require(operationSyncId.isNotBlank()) { "operationSyncId must not be blank" }
 
-        val routine = RoutineEntity(name = name, note = "")
+        val routine = RoutineEntity(syncId = operationSyncId, name = name, note = "")
         val draft = RoutineConfigurationDraft(
             routine = routine,
             exercises = workout.exercises

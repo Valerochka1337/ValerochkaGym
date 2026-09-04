@@ -4,7 +4,6 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.Query
 import androidx.room.Transaction
-import androidx.room.Update
 import androidx.room.Upsert
 import com.valerochka1337.valerochkagym.data.db.entity.RoutineEntity
 import com.valerochka1337.valerochkagym.data.db.entity.RoutineExerciseEntity
@@ -41,6 +40,13 @@ interface RoutineDao {
     /** Только название программы — для заголовка события календаря (Стадия 21). */
     @Query("SELECT name FROM routines WHERE id = :id")
     suspend fun getRoutineName(id: Long): String?
+
+    /**
+     * Stable create-operation key used to replay a save safely after process death.
+     * The caller must use this only for a new routine, never for editor updates.
+     */
+    @Query("SELECT * FROM routines WHERE syncId = :syncId LIMIT 1")
+    suspend fun getRoutineBySyncId(syncId: String): RoutineEntity?
 
     @Upsert
     suspend fun upsertRoutine(routine: RoutineEntity): Long

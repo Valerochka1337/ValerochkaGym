@@ -43,7 +43,7 @@ fun SaveWorkoutAsProgramDialog(
         confirmButton = {
             TextButton(
                 onClick = onConfirm,
-                enabled = !isSaving,
+                enabled = name.isNotBlank() && !isSaving,
                 modifier = Modifier
                     .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
                     .semantics { contentDescription = "Сохранить" },

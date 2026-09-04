@@ -5,6 +5,7 @@ import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
 import com.valerochka1337.valerochkagym.data.db.entity.GymEntity
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleGroup
+import com.valerochka1337.valerochkagym.data.db.entity.RoutineEntity
 import com.valerochka1337.valerochkagym.data.db.entity.WorkoutEntity
 import com.valerochka1337.valerochkagym.data.db.entity.WorkoutExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.WorkoutSetEntity
@@ -25,7 +26,9 @@ class SaveCompletedWorkoutAsRoutineUseCaseTest {
     fun `blank name does not save a routine`() = runTest {
         val repository = FakeGymRepository()
 
-        val result = SaveCompletedWorkoutAsRoutineUseCase(repository, NoOpRoutineUploadScheduler)(workout(), "  \n ")
+        val result = SaveCompletedWorkoutAsRoutineUseCase(repository, NoOpRoutineUploadScheduler)(
+            workout(), "  \n ", "operation-blank",
+        )
 
         assertEquals(SaveCompletedWorkoutAsRoutineResult.BlankName, result)
         assertTrue(repository.drafts.isEmpty())
@@ -36,11 +39,14 @@ class SaveCompletedWorkoutAsRoutineUseCaseTest {
         val repository = FakeGymRepository()
         val source = workout()
 
-        val result = SaveCompletedWorkoutAsRoutineUseCase(repository, NoOpRoutineUploadScheduler)(source, "  Верх тела  ")
+        val result = SaveCompletedWorkoutAsRoutineUseCase(repository, NoOpRoutineUploadScheduler)(
+            source, "  Верх тела  ", "operation-map",
+        )
 
         assertTrue(result is SaveCompletedWorkoutAsRoutineResult.Saved)
         val draft = repository.drafts.single()
         assertEquals("Верх тела", draft.routine.name)
+        assertEquals("operation-map", draft.routine.syncId)
         assertEquals("", draft.routine.note)
         assertEquals(emptySet<String>(), draft.gymIds)
         assertEquals(listOf(3L, 1L), draft.exercises.map { it.exerciseId })
@@ -65,7 +71,9 @@ class SaveCompletedWorkoutAsRoutineUseCaseTest {
             gyms = source.gyms.toList(),
         )
 
-        SaveCompletedWorkoutAsRoutineUseCase(repository, NoOpRoutineUploadScheduler)(source, "Программа")
+        SaveCompletedWorkoutAsRoutineUseCase(repository, NoOpRoutineUploadScheduler)(
+            source, "Программа", "operation-source",
+        )
 
         assertEquals(listOf(3L, 1L), repository.drafts.single().exercises.map { it.exerciseId })
         assertEquals(before, source)
@@ -77,9 +85,9 @@ class SaveCompletedWorkoutAsRoutineUseCaseTest {
         val repository = FakeGymRepository()
         val useCase = SaveCompletedWorkoutAsRoutineUseCase(repository, scheduler)
 
-        val first = useCase(workout(), "Повтор")
+        val first = useCase(workout(), "Повтор", "operation-first")
         val firstSyncId = (first as SaveCompletedWorkoutAsRoutineResult.Saved).routine.syncId
-        val second = useCase(workout(), "Повтор")
+        val second = useCase(workout(), "Повтор", "operation-second")
         val secondSyncId = (second as SaveCompletedWorkoutAsRoutineResult.Saved).routine.syncId
 
         assertFalse(firstSyncId == secondSyncId)
@@ -87,11 +95,27 @@ class SaveCompletedWorkoutAsRoutineUseCaseTest {
     }
 
     @Test
+    fun `replaying an operation reuses its routine and schedules its same sync id`() = runTest {
+        val scheduler = FakeRoutineUploadScheduler()
+        val repository = FakeGymRepository()
+        val useCase = SaveCompletedWorkoutAsRoutineUseCase(repository, scheduler)
+
+        val first = useCase(workout(), "Повтор", "operation-replay") as SaveCompletedWorkoutAsRoutineResult.Saved
+        val replay = useCase(workout(), "Повтор", "operation-replay") as SaveCompletedWorkoutAsRoutineResult.Saved
+
+        assertEquals(first.routine, replay.routine)
+        assertEquals(1, repository.durableRoutines.size)
+        assertEquals(listOf("operation-replay", "operation-replay"), scheduler.scheduledSyncIds)
+    }
+
+    @Test
     fun `scheduler failure after a durable save still returns saved without another write`() = runTest {
         val repository = FakeGymRepository()
         val scheduler = ThrowingRoutineUploadScheduler()
 
-        val result = SaveCompletedWorkoutAsRoutineUseCase(repository, scheduler)(workout(), "Программа")
+        val result = SaveCompletedWorkoutAsRoutineUseCase(repository, scheduler)(
+            workout(), "Программа", "operation-scheduler",
+        )
 
         assertTrue(result is SaveCompletedWorkoutAsRoutineResult.Saved)
         assertEquals(1, repository.drafts.size)
@@ -109,7 +133,9 @@ class SaveCompletedWorkoutAsRoutineUseCaseTest {
             val scheduler = FakeRoutineUploadScheduler()
             val repository = FakeGymRepository(outcome)
 
-            val result = SaveCompletedWorkoutAsRoutineUseCase(repository, scheduler)(workout(), "Программа")
+            val result = SaveCompletedWorkoutAsRoutineUseCase(repository, scheduler)(
+                workout(), "Программа", "operation-${outcome::class.simpleName}",
+            )
 
             when (outcome) {
                 is SaveRoutineConfigurationResult.Conflict ->
@@ -126,7 +152,9 @@ class SaveCompletedWorkoutAsRoutineUseCaseTest {
     fun `cancellation is rethrown`() = runTest {
         val repository = FakeGymRepository(throwCancellation = true)
 
-        SaveCompletedWorkoutAsRoutineUseCase(repository, NoOpRoutineUploadScheduler)(workout(), "Программа")
+        SaveCompletedWorkoutAsRoutineUseCase(repository, NoOpRoutineUploadScheduler)(
+            workout(), "Программа", "operation-cancel",
+        )
     }
 
     private fun workout(): WorkoutFull = WorkoutFull(
@@ -202,11 +230,16 @@ class SaveCompletedWorkoutAsRoutineUseCaseTest {
         private val throwCancellation: Boolean = false,
     ) : GymRepository by NoOpGymRepository {
         val drafts = mutableListOf<RoutineConfigurationDraft>()
+        val durableRoutines = linkedMapOf<String, RoutineEntity>()
 
         override suspend fun saveRoutineConfiguration(draft: RoutineConfigurationDraft): SaveRoutineConfigurationResult {
             if (throwCancellation) throw CancellationException()
             drafts += draft
-            return outcome ?: SaveRoutineConfigurationResult.Saved(1, draft.routine)
+            outcome?.let { return it }
+            val saved = durableRoutines.getOrPut(draft.routine.syncId) {
+                draft.routine.copy(id = durableRoutines.size + 1L)
+            }
+            return SaveRoutineConfigurationResult.Saved(saved.id, saved)
         }
     }
 

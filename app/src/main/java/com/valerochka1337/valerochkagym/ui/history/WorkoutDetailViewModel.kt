@@ -26,6 +26,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import javax.inject.Inject
+import java.util.UUID
 
 /** Одна строка подхода в деталях: «1 · 80×8», флаг выполнения — для галочки и приглушения. */
 data class DetailSetUi(
@@ -102,20 +103,24 @@ class WorkoutDetailViewModel @Inject constructor(
 
     /** Loaded snapshot; never write it back to the source workout. */
     private var workout: com.valerochka1337.valerochkagym.data.db.relation.WorkoutFull? = null
+    private var saveOperationSyncId: String? = savedStateHandle[SAVE_OPERATION_SYNC_ID]
     private val saveConfirmationMutex = Mutex()
 
     init {
+        clearOrphanedSaveDraft()
         load()
     }
 
     private fun load() {
         val id = workoutId ?: run {
             _uiState.update { it.copy(loading = false) }
+            clearSaveAsProgram()
             return
         }
         viewModelScope.launch {
             val full = workoutDao.getWorkoutFull(id)?.let(::sortedWorkoutFull) ?: run {
                 _uiState.update { it.copy(loading = false) }
+                clearSaveAsProgram()
                 return@launch
             }
             workout = full
@@ -179,10 +184,13 @@ class WorkoutDetailViewModel @Inject constructor(
     }
 
     fun openSaveAsProgram() {
-        updateSaveState { state ->
-            if (!state.canSaveAsProgram || state.isSavingAsProgram) state else state.copy(
+        val state = _uiState.value
+        if (!state.canSaveAsProgram || state.isSavingAsProgram || state.showSaveAsProgramDialog) return
+        saveOperationSyncId = UUID.randomUUID().toString()
+        updateSaveState {
+            it.copy(
                 showSaveAsProgramDialog = true,
-                saveAsProgramName = state.name,
+                saveAsProgramName = it.name,
                 saveAsProgramError = null,
             )
         }
@@ -198,7 +206,13 @@ class WorkoutDetailViewModel @Inject constructor(
         if (!saveConfirmationMutex.tryLock()) return
         val full = workout
         val state = _uiState.value
+        val operationSyncId = saveOperationSyncId
         if (!state.showSaveAsProgramDialog || state.isSavingAsProgram || full == null) {
+            saveConfirmationMutex.unlock()
+            return
+        }
+        if (operationSyncId.isNullOrBlank()) {
+            clearSaveAsProgram()
             saveConfirmationMutex.unlock()
             return
         }
@@ -207,16 +221,9 @@ class WorkoutDetailViewModel @Inject constructor(
 
         viewModelScope.launch {
             try {
-                when (val result = saveCompletedWorkoutAsRoutineUseCase(full, name)) {
+                when (val result = saveCompletedWorkoutAsRoutineUseCase(full, name, operationSyncId)) {
                     is SaveCompletedWorkoutAsRoutineResult.Saved -> {
-                        updateSaveState { current ->
-                            current.copy(
-                                showSaveAsProgramDialog = false,
-                                saveAsProgramName = "",
-                                isSavingAsProgram = false,
-                                saveAsProgramError = null,
-                            )
-                        }
+                        clearSaveAsProgram()
                         _saveEvents.send(Unit)
                     }
                     SaveCompletedWorkoutAsRoutineResult.BlankName -> updateSaveState { current ->
@@ -242,28 +249,51 @@ class WorkoutDetailViewModel @Inject constructor(
     }
 
     fun dismissSaveAsProgram() {
-        updateSaveState { state ->
-            if (state.isSavingAsProgram) state else state.copy(
-                showSaveAsProgramDialog = false,
-                saveAsProgramName = "",
-                saveAsProgramError = null,
-            )
-        }
+        if (!_uiState.value.isSavingAsProgram) clearSaveAsProgram()
     }
 
-    private fun updateSaveState(transform: (WorkoutDetailUiState) -> WorkoutDetailUiState) {
-        _uiState.update { current -> transform(current).also(::persistSaveState) }
+    private fun updateSaveState(transform: (WorkoutDetailUiState) -> WorkoutDetailUiState): WorkoutDetailUiState {
+        var updated: WorkoutDetailUiState? = null
+        _uiState.update { current -> transform(current).also {
+            updated = it
+            persistSaveState(it)
+        } }
+        return requireNotNull(updated)
     }
 
     private fun persistSaveState(state: WorkoutDetailUiState) {
         savedStateHandle[SAVE_DIALOG_VISIBLE] = state.showSaveAsProgramDialog
         savedStateHandle[SAVE_NAME] = state.saveAsProgramName
         savedStateHandle[SAVE_ERROR] = state.saveAsProgramError
+        saveOperationSyncId?.let { savedStateHandle[SAVE_OPERATION_SYNC_ID] = it }
+            ?: savedStateHandle.remove<String>(SAVE_OPERATION_SYNC_ID)
+    }
+
+    private fun clearOrphanedSaveDraft() {
+        val state = _uiState.value
+        if (state.showSaveAsProgramDialog && saveOperationSyncId.isNullOrBlank()) clearSaveAsProgram()
+        if (!state.showSaveAsProgramDialog && saveOperationSyncId != null) {
+            saveOperationSyncId = null
+            persistSaveState(state)
+        }
+    }
+
+    private fun clearSaveAsProgram() {
+        saveOperationSyncId = null
+        updateSaveState { state ->
+            state.copy(
+                showSaveAsProgramDialog = false,
+                saveAsProgramName = "",
+                isSavingAsProgram = false,
+                saveAsProgramError = null,
+            )
+        }
     }
 
     private companion object {
         const val SAVE_DIALOG_VISIBLE = "save_as_program_dialog_visible"
         const val SAVE_NAME = "save_as_program_name"
         const val SAVE_ERROR = "save_as_program_error"
+        const val SAVE_OPERATION_SYNC_ID = "save_as_program_operation_sync_id"
     }
 }
