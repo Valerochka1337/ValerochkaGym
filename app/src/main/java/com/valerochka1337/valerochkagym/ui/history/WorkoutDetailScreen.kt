@@ -1,6 +1,7 @@
 package com.valerochka1337.valerochkagym.ui.history
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -28,17 +29,22 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -50,6 +56,7 @@ import com.valerochka1337.valerochkagym.ui.components.ExerciseAvatar
 import com.valerochka1337.valerochkagym.ui.components.GlowBackground
 import com.valerochka1337.valerochkagym.ui.components.LoadingState
 import com.valerochka1337.valerochkagym.ui.components.GymCard
+import com.valerochka1337.valerochkagym.ui.components.SaveWorkoutAsProgramDialog
 import com.valerochka1337.valerochkagym.ui.haptics.gymHaptics
 
 /**
@@ -67,17 +74,30 @@ fun WorkoutDetailScreen(
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     var showDeleteDialog by rememberSaveable { mutableStateOf(false) }
     val haptics = gymHaptics()
+    val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(Unit) {
         viewModel.deleteEvents.collect { onBack() }
     }
+    LaunchedEffect(Unit) {
+        viewModel.saveEvents.collect {
+            haptics.success()
+            snackbarHostState.showSnackbar("Программа сохранена")
+        }
+    }
 
     GlowBackground(modifier = modifier) {
-        Column(modifier = Modifier.fillMaxSize()) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            Column(modifier = Modifier.fillMaxSize()) {
             DetailHeader(
                 name = state.name,
                 dateTime = state.dateTime,
                 onBack = onBack,
+                canSaveAsProgram = state.canSaveAsProgram,
+                onSaveAsProgram = {
+                    haptics.tap()
+                    viewModel.openSaveAsProgram()
+                },
                 onDelete = { showDeleteDialog = true },
             )
 
@@ -130,6 +150,11 @@ fun WorkoutDetailScreen(
                     }
                 }
             }
+            }
+            SnackbarHost(
+                hostState = snackbarHostState,
+                modifier = Modifier.align(Alignment.BottomCenter),
+            )
         }
     }
 
@@ -155,6 +180,19 @@ fun WorkoutDetailScreen(
             },
         )
     }
+    if (state.showSaveAsProgramDialog) {
+        SaveWorkoutAsProgramDialog(
+            name = state.saveAsProgramName,
+            isSaving = state.isSavingAsProgram,
+            error = state.saveAsProgramError,
+            onNameChange = viewModel::changeSaveAsProgramName,
+            onConfirm = {
+                haptics.tap()
+                viewModel.confirmSaveAsProgram()
+            },
+            onDismiss = viewModel::dismissSaveAsProgram,
+        )
+    }
 }
 
 @Composable
@@ -162,6 +200,8 @@ private fun DetailHeader(
     name: String,
     dateTime: String,
     onBack: () -> Unit,
+    canSaveAsProgram: Boolean,
+    onSaveAsProgram: () -> Unit,
     onDelete: () -> Unit,
 ) {
     Row(
@@ -200,6 +240,14 @@ private fun DetailHeader(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+            }
+        }
+        if (canSaveAsProgram) {
+            TextButton(
+                onClick = onSaveAsProgram,
+                modifier = Modifier.semantics { contentDescription = "Сохранить тренировку как программу" },
+            ) {
+                Text("Сохранить")
             }
         }
         IconButton(onClick = onDelete) {

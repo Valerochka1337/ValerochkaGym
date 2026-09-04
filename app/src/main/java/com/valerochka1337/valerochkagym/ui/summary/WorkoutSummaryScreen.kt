@@ -5,6 +5,7 @@ import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.scaleIn
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -23,6 +24,8 @@ import androidx.compose.material.icons.rounded.Timer
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -32,6 +35,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -42,6 +47,7 @@ import com.valerochka1337.valerochkagym.ui.components.GlowBackground
 import com.valerochka1337.valerochkagym.ui.components.LoadingState
 import com.valerochka1337.valerochkagym.ui.components.GymCard
 import com.valerochka1337.valerochkagym.ui.components.PillButton
+import com.valerochka1337.valerochkagym.ui.components.SaveWorkoutAsProgramDialog
 import com.valerochka1337.valerochkagym.ui.haptics.gymHaptics
 import com.valerochka1337.valerochkagym.ui.theme.GymMotion
 import java.math.BigDecimal
@@ -59,11 +65,18 @@ fun WorkoutSummaryScreen(
     viewModel: WorkoutSummaryViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val snackbarHostState = remember { SnackbarHostState() }
 
     // Один success-отклик на появление рекордов — вместе с их «впрыгивающими» карточками.
     val haptics = gymHaptics()
     LaunchedEffect(state.prs.isNotEmpty()) {
         if (state.prs.isNotEmpty()) haptics.success()
+    }
+    LaunchedEffect(Unit) {
+        viewModel.saveEvents.collect {
+            haptics.success()
+            snackbarHostState.showSnackbar("Программа сохранена")
+        }
     }
 
     GlowBackground(modifier = modifier) {
@@ -72,7 +85,8 @@ fun WorkoutSummaryScreen(
             return@GlowBackground
         }
 
-        Column(modifier = Modifier.fillMaxSize()) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            Column(modifier = Modifier.fillMaxSize()) {
             Text(
                 text = "Тренировка завершена",
                 style = MaterialTheme.typography.headlineSmall,
@@ -160,12 +174,31 @@ fun WorkoutSummaryScreen(
                 }
             }
 
-            PillButton(
-                text = "Готово",
-                onClick = onDone,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(start = 24.dp, end = 24.dp, top = 8.dp, bottom = 16.dp),
+                if (state.canSaveAsProgram) {
+                    PillButton(
+                        text = "Сохранить",
+                        onClick = {
+                            haptics.tap()
+                            viewModel.openSaveAsProgram()
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 24.dp, end = 24.dp, top = 8.dp)
+                            .semantics { contentDescription = "Сохранить тренировку как программу" },
+                        compact = true,
+                    )
+                }
+                PillButton(
+                    text = "Готово",
+                    onClick = onDone,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 24.dp, end = 24.dp, top = 8.dp, bottom = 16.dp),
+                )
+            }
+            SnackbarHost(
+                hostState = snackbarHostState,
+                modifier = Modifier.align(Alignment.BottomCenter),
             )
         }
     }
@@ -187,6 +220,19 @@ fun WorkoutSummaryScreen(
                     Text("Не сейчас")
                 }
             },
+        )
+    }
+    if (state.showSaveAsProgramDialog) {
+        SaveWorkoutAsProgramDialog(
+            name = state.saveAsProgramName,
+            isSaving = state.isSavingAsProgram,
+            error = state.saveAsProgramError,
+            onNameChange = viewModel::changeSaveAsProgramName,
+            onConfirm = {
+                haptics.tap()
+                viewModel.confirmSaveAsProgram()
+            },
+            onDismiss = viewModel::dismissSaveAsProgram,
         )
     }
 }

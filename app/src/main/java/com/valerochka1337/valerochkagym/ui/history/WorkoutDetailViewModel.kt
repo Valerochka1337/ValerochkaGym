@@ -7,6 +7,8 @@ import com.valerochka1337.valerochkagym.data.db.dao.WorkoutDao
 import com.valerochka1337.valerochkagym.data.db.entity.UploadStatus
 import com.valerochka1337.valerochkagym.data.sortedWorkoutFull
 import com.valerochka1337.valerochkagym.domain.PreviousSetsUseCase
+import com.valerochka1337.valerochkagym.domain.SaveCompletedWorkoutAsRoutineResult
+import com.valerochka1337.valerochkagym.domain.SaveCompletedWorkoutAsRoutineUseCase
 import com.valerochka1337.valerochkagym.domain.WorkoutStatsUseCase
 import com.valerochka1337.valerochkagym.domain.displayName
 import com.valerochka1337.valerochkagym.ui.common.formatDuration
@@ -22,6 +24,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
 import javax.inject.Inject
 
 /** Одна строка подхода в деталях: «1 · 80×8», флаг выполнения — для галочки и приглушения. */
@@ -54,6 +57,11 @@ data class WorkoutDetailUiState(
     val uploadError: String? = null,
     val note: String = "",
     val exercises: List<DetailExerciseUi> = emptyList(),
+    val canSaveAsProgram: Boolean = false,
+    val showSaveAsProgramDialog: Boolean = false,
+    val saveAsProgramName: String = "",
+    val isSavingAsProgram: Boolean = false,
+    val saveAsProgramError: String? = null,
 )
 
 /**
@@ -63,22 +71,38 @@ data class WorkoutDetailUiState(
  */
 @HiltViewModel
 class WorkoutDetailViewModel @Inject constructor(
-    savedStateHandle: SavedStateHandle,
+    private val savedStateHandle: SavedStateHandle,
     private val workoutDao: WorkoutDao,
     private val statsUseCase: WorkoutStatsUseCase,
     private val previousSetsUseCase: PreviousSetsUseCase,
     private val uploadScheduler: UploadScheduler,
+    private val saveCompletedWorkoutAsRoutineUseCase: SaveCompletedWorkoutAsRoutineUseCase,
 ) : ViewModel() {
 
     private val workoutId: String? = savedStateHandle[GymRoutes.WORKOUT_ID_ARG]
 
-    private val _uiState = MutableStateFlow(WorkoutDetailUiState())
+    private val _uiState = MutableStateFlow(
+        WorkoutDetailUiState(
+            showSaveAsProgramDialog = savedStateHandle[SAVE_DIALOG_VISIBLE] ?: false,
+            saveAsProgramName = savedStateHandle[SAVE_NAME] ?: "",
+            // An in-flight coroutine cannot survive recreation; restore a retryable draft.
+            isSavingAsProgram = false,
+            saveAsProgramError = savedStateHandle[SAVE_ERROR],
+        ),
+    )
     val uiState: StateFlow<WorkoutDetailUiState> = _uiState.asStateFlow()
 
     private val _deleteEvents = Channel<Unit>(Channel.BUFFERED)
+    private val _saveEvents = Channel<Unit>(Channel.BUFFERED)
 
     /** Событие «тренировка удалена» — экран возвращается на список истории. */
     val deleteEvents = _deleteEvents.receiveAsFlow()
+    /** One-shot acknowledgement; history stays at the current detail destination. */
+    val saveEvents = _saveEvents.receiveAsFlow()
+
+    /** Loaded snapshot; never write it back to the source workout. */
+    private var workout: com.valerochka1337.valerochkagym.data.db.relation.WorkoutFull? = null
+    private val saveConfirmationMutex = Mutex()
 
     init {
         load()
@@ -94,6 +118,7 @@ class WorkoutDetailViewModel @Inject constructor(
                 _uiState.update { it.copy(loading = false) }
                 return@launch
             }
+            workout = full
             val duration = (full.workout.finishedAt ?: full.workout.startedAt) - full.workout.startedAt
             val exercises = full.exercises.map { exercise ->
                 DetailExerciseUi(
@@ -120,7 +145,14 @@ class WorkoutDetailViewModel @Inject constructor(
                 uploadError = full.workout.uploadError,
                 note = full.workout.note,
                 exercises = exercises,
+                canSaveAsProgram = full.workout.finishedAt != null &&
+                    full.exercises.any { section -> section.sets.any { it.isCompleted } },
+                showSaveAsProgramDialog = _uiState.value.showSaveAsProgramDialog,
+                saveAsProgramName = _uiState.value.saveAsProgramName,
+                isSavingAsProgram = _uiState.value.isSavingAsProgram,
+                saveAsProgramError = _uiState.value.saveAsProgramError,
             )
+            if (!_uiState.value.canSaveAsProgram) dismissSaveAsProgram()
             // Дерево тренировки неизменно, но статус выгрузки меняется воркером — держим его живым.
             workoutDao.observeWorkout(id).collect { entity ->
                 if (entity != null) {
@@ -144,5 +176,94 @@ class WorkoutDetailViewModel @Inject constructor(
             workoutDao.deleteWorkout(id)
             _deleteEvents.send(Unit)
         }
+    }
+
+    fun openSaveAsProgram() {
+        updateSaveState { state ->
+            if (!state.canSaveAsProgram || state.isSavingAsProgram) state else state.copy(
+                showSaveAsProgramDialog = true,
+                saveAsProgramName = state.name,
+                saveAsProgramError = null,
+            )
+        }
+    }
+
+    fun changeSaveAsProgramName(name: String) {
+        updateSaveState { state ->
+            if (state.isSavingAsProgram) state else state.copy(saveAsProgramName = name, saveAsProgramError = null)
+        }
+    }
+
+    fun confirmSaveAsProgram() {
+        if (!saveConfirmationMutex.tryLock()) return
+        val full = workout
+        val state = _uiState.value
+        if (!state.showSaveAsProgramDialog || state.isSavingAsProgram || full == null) {
+            saveConfirmationMutex.unlock()
+            return
+        }
+        val name = state.saveAsProgramName
+        updateSaveState { it.copy(isSavingAsProgram = true, saveAsProgramError = null) }
+
+        viewModelScope.launch {
+            try {
+                when (val result = saveCompletedWorkoutAsRoutineUseCase(full, name)) {
+                    is SaveCompletedWorkoutAsRoutineResult.Saved -> {
+                        updateSaveState { current ->
+                            current.copy(
+                                showSaveAsProgramDialog = false,
+                                saveAsProgramName = "",
+                                isSavingAsProgram = false,
+                                saveAsProgramError = null,
+                            )
+                        }
+                        _saveEvents.send(Unit)
+                    }
+                    SaveCompletedWorkoutAsRoutineResult.BlankName -> updateSaveState { current ->
+                        current.copy(isSavingAsProgram = false, saveAsProgramError = "Введите название программы.")
+                    }
+                    is SaveCompletedWorkoutAsRoutineResult.Conflict -> updateSaveState { current ->
+                        current.copy(
+                            isSavingAsProgram = false,
+                            saveAsProgramError = "Некоторые упражнения больше недоступны в выбранных залах.",
+                        )
+                    }
+                    SaveCompletedWorkoutAsRoutineResult.GymNotFound -> updateSaveState { current ->
+                        current.copy(isSavingAsProgram = false, saveAsProgramError = "Не удалось сохранить программу. Попробуйте ещё раз.")
+                    }
+                    SaveCompletedWorkoutAsRoutineResult.Failure -> updateSaveState { current ->
+                        current.copy(isSavingAsProgram = false, saveAsProgramError = "Не удалось сохранить программу. Попробуйте ещё раз.")
+                    }
+                }
+            } finally {
+                saveConfirmationMutex.unlock()
+            }
+        }
+    }
+
+    fun dismissSaveAsProgram() {
+        updateSaveState { state ->
+            if (state.isSavingAsProgram) state else state.copy(
+                showSaveAsProgramDialog = false,
+                saveAsProgramName = "",
+                saveAsProgramError = null,
+            )
+        }
+    }
+
+    private fun updateSaveState(transform: (WorkoutDetailUiState) -> WorkoutDetailUiState) {
+        _uiState.update { current -> transform(current).also(::persistSaveState) }
+    }
+
+    private fun persistSaveState(state: WorkoutDetailUiState) {
+        savedStateHandle[SAVE_DIALOG_VISIBLE] = state.showSaveAsProgramDialog
+        savedStateHandle[SAVE_NAME] = state.saveAsProgramName
+        savedStateHandle[SAVE_ERROR] = state.saveAsProgramError
+    }
+
+    private companion object {
+        const val SAVE_DIALOG_VISIBLE = "save_as_program_dialog_visible"
+        const val SAVE_NAME = "save_as_program_name"
+        const val SAVE_ERROR = "save_as_program_error"
     }
 }
