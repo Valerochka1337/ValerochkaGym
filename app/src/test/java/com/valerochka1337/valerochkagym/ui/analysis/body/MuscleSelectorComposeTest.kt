@@ -17,7 +17,6 @@ import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
-import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -286,6 +285,12 @@ class MuscleSelectorComposeTest {
         assertTrue(tibialis.top >= viewport.top && tibialis.bottom <= viewport.bottom)
         assertTrue(longRole.top >= viewport.top && longRole.bottom <= viewport.bottom)
         assertTrue(previousDivider.height == viewport.height && nextDivider.height == viewport.height)
+        // Pixel remainder from two 1px dividers may make one weighted slot 1px wider.
+        assertEquals(previousSlot.width, currentSlot.width, 1.1f)
+        assertEquals(currentSlot.width, nextSlot.width, 1.1f)
+        val minTouchHeight = 48f
+        assertTrue(previousSlot.height >= minTouchHeight)
+        assertTrue(nextSlot.height >= minTouchHeight)
     }
 
     @Test

@@ -29,6 +29,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -49,6 +51,8 @@ import kotlin.math.abs
 /** Pure virtual-wheel math. A virtual index is intentionally never part of the UI contract. */
 internal object MuscleSelectorState {
     private const val VIRTUAL_ITEM_COUNT = 1_000_001
+    private const val MIN_FOCUS_SCALE = 0.96f
+    private const val MIN_FOCUS_ALPHA = 0.72f
 
     /** A middle index which resolves to the first logical muscle. */
     val middleAnchor: Int = VIRTUAL_ITEM_COUNT / 2 - Math.floorMod(VIRTUAL_ITEM_COUNT / 2, Muscle.entries.size)
@@ -84,7 +88,50 @@ internal object MuscleSelectorState {
         return items.minByOrNull { abs((it.offset + it.size / 2f) - center) }?.index
     }
 
+    /**
+     * A read-only projection of an item's measured distance from the actual lazy viewport
+     * centre. The geometry can be temporarily absent before first layout; in that case the
+     * neutral profile leaves the slot fully readable until measured coordinates arrive.
+     */
+    fun focusProfile(
+        item: VisibleItem,
+        viewportStart: Int,
+        viewportEnd: Int,
+    ): FocusProfile {
+        val halfViewport = (viewportEnd - viewportStart) / 2f
+        if (item.size <= 0 || halfViewport <= 0f) return FocusProfile.Neutral
+
+        val viewportCenter = (viewportStart + viewportEnd) / 2f
+        val itemCenter = item.offset + item.size / 2f
+        val focus = (1f - abs(itemCenter - viewportCenter) / halfViewport).coerceIn(0f, 1f)
+        return FocusProfile(
+            amount = focus,
+            scale = MIN_FOCUS_SCALE + (1f - MIN_FOCUS_SCALE) * focus,
+            alpha = MIN_FOCUS_ALPHA + (1f - MIN_FOCUS_ALPHA) * focus,
+        )
+    }
+
+    /** Resolves a [virtualIndex] from the current visible lazy items without any UI side effect. */
+    fun focusProfileFor(
+        virtualIndex: Int,
+        visibleItems: List<VisibleItem>,
+        viewportStart: Int,
+        viewportEnd: Int,
+    ): FocusProfile = visibleItems.firstOrNull { it.index == virtualIndex }
+        ?.let { focusProfile(it, viewportStart, viewportEnd) }
+        ?: FocusProfile.Neutral
+
     internal data class VisibleItem(val index: Int, val offset: Int, val size: Int)
+
+    internal data class FocusProfile(
+        val amount: Float,
+        val scale: Float,
+        val alpha: Float,
+    ) {
+        companion object {
+            val Neutral = FocusProfile(amount = 0f, scale = 1f, alpha = 1f)
+        }
+    }
 }
 
 /** Three equal text slots in a genuinely scrollable cyclic wheel. */
@@ -244,6 +291,7 @@ fun MuscleSelector(
                 items(count = 1_000_001, key = { it }) { virtualIndex ->
                     val muscle = MuscleSelectorState.muscleAt(virtualIndex)
                     val slot = slotTagFor(muscle, settledMuscle)
+                    val focusProfile = listState.focusProfileFor(virtualIndex)
                     SelectorSlot(
                         muscle = muscle,
                         onClick = when (slot) {
@@ -251,6 +299,12 @@ fun MuscleSelector(
                             else -> null
                         },
                         modifier = Modifier.width(slotWidth).testTag(slot),
+                        focusProfile = focusProfile,
+                        textColor = lerp(
+                            MaterialTheme.colorScheme.onSurfaceVariant,
+                            MaterialTheme.colorScheme.primary,
+                            focusProfile.amount,
+                        ),
                         roleText = if (slot == "muscle_selector_current") roleText?.invoke(muscle) else null,
                         selected = slot == "muscle_selector_current",
                     )
@@ -297,6 +351,18 @@ private fun LazyListState.centeredVirtualIndex(): Int? = MuscleSelectorState.cen
     viewportEnd = layoutInfo.viewportEndOffset,
 )
 
+private fun LazyListState.focusProfileFor(virtualIndex: Int): MuscleSelectorState.FocusProfile {
+    val info = layoutInfo
+    return MuscleSelectorState.focusProfileFor(
+        virtualIndex = virtualIndex,
+        visibleItems = info.visibleItemsInfo.map { item ->
+            MuscleSelectorState.VisibleItem(item.index, item.offset, item.size)
+        },
+        viewportStart = info.viewportStartOffset,
+        viewportEnd = info.viewportEndOffset,
+    )
+}
+
 private fun muscleAtCenterOrNull(state: LazyListState): Muscle? =
     state.centeredVirtualIndex()?.let(MuscleSelectorState::muscleAt)
 
@@ -305,6 +371,8 @@ private fun SelectorSlot(
     muscle: Muscle,
     onClick: (() -> Unit)?,
     modifier: Modifier,
+    focusProfile: MuscleSelectorState.FocusProfile = MuscleSelectorState.FocusProfile.Neutral,
+    textColor: androidx.compose.ui.graphics.Color = MaterialTheme.colorScheme.onSurfaceVariant,
     roleText: String? = null,
     selected: Boolean = false,
 ) {
@@ -321,10 +389,18 @@ private fun SelectorSlot(
             },
         contentAlignment = Alignment.Center,
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Column(
+            modifier = Modifier.graphicsLayer {
+                scaleX = focusProfile.scale
+                scaleY = focusProfile.scale
+                alpha = focusProfile.alpha
+            },
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
             Text(
                 text = muscle.displayName(),
                 style = MaterialTheme.typography.labelLarge,
+                color = textColor,
                 textAlign = TextAlign.Center,
             )
             roleText?.let {
