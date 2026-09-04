@@ -81,7 +81,7 @@ class MuscleSelectorComposeTest {
             val previous = compose.onNodeWithTag("muscle_selector_previous").fetchSemanticsNode().boundsInRoot
             val current = compose.onNodeWithTag("muscle_selector_current").fetchSemanticsNode().boundsInRoot
             val next = compose.onNodeWithTag("muscle_selector_next").fetchSemanticsNode().boundsInRoot
-            assertEquals(previous.width * 2f, current.width, 1.1f)
+            assertEquals(previous.width, current.width, 1.1f)
             assertEquals(previous.right, current.left, 1.1f)
             assertEquals(current.right, next.left, 1.1f)
         }
@@ -330,9 +330,7 @@ class MuscleSelectorComposeTest {
         assertTrue(tibialis.top >= viewport.top && tibialis.bottom <= viewport.bottom)
         assertTrue(longRole.top >= viewport.top && longRole.bottom <= viewport.bottom)
         assertTrue(previousDivider.height == viewport.height && nextDivider.height == viewport.height)
-        assertTrue(currentSlot.width > previousSlot.width)
-        assertTrue(currentSlot.width > nextSlot.width)
-        assertEquals(previousSlot.width * 2f, currentSlot.width, 1.1f)
+        assertEquals(previousSlot.width, currentSlot.width, 1.1f)
         assertEquals(previousSlot.width, nextSlot.width, 1.1f)
         assertEquals(previousSlot.right, currentSlot.left, 1.1f)
         assertEquals(currentSlot.right, nextSlot.left, 1.1f)
@@ -342,7 +340,7 @@ class MuscleSelectorComposeTest {
     }
 
     @Test
-    fun `selector gives the centre a wider slot and keeps neighbor touch targets`() {
+    fun `selector centres equal cells and lets neighbors peek beyond its compact viewport`() {
         val recorder = RecordingHaptics()
         compose.setContent {
             SelectorContent(recorder = recorder, selected = Muscle.UPPER_CHEST, onSelected = {})
@@ -353,12 +351,16 @@ class MuscleSelectorComposeTest {
         val next = compose.onNodeWithTag("muscle_selector_next").fetchSemanticsNode().boundsInRoot
         val minTouchHeight = 48f * compose.density.density
 
-        assertTrue(current.width > previous.width)
-        assertTrue(current.width > next.width)
-        assertEquals(previous.width * 2f, current.width, 1.1f)
+        val viewport = compose.onNodeWithTag("muscle_selector_viewport").fetchSemanticsNode().boundsInRoot
+
+        assertEquals(previous.width, current.width, 1.1f)
         assertEquals(previous.width, next.width, 1.1f)
         assertEquals(previous.right, current.left, 1.1f)
         assertEquals(current.right, next.left, 1.1f)
+        assertTrue(current.left > viewport.left)
+        assertTrue(current.right < viewport.right)
+        assertTrue(previous.left < viewport.left)
+        assertTrue(next.right > viewport.right)
         assertTrue(previous.height >= minTouchHeight)
         assertTrue(next.height >= minTouchHeight)
     }
