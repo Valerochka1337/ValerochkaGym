@@ -15,7 +15,6 @@ import com.valerochka1337.valerochkagym.data.measurements.MeasurementSnapshotCod
 import com.valerochka1337.valerochkagym.worker.HealthSyncScheduler
 import com.valerochka1337.valerochkagym.worker.NoOpHealthSyncScheduler
 import com.valerochka1337.valerochkagym.worker.MeasurementUploadScheduler
-import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -143,9 +142,9 @@ class SyncConflictResolver @Inject constructor(
             supersedesVersion = predecessor.takeIf { it > 0 },
         )
         val observations = if (report.isTombstone) emptyList() else decoded.aggregate.observations.map { source ->
-            // A successor aggregate owns new current-observation identities. Its old exact rows
-            // remain only in the canonical history payload and cannot collide with their conflict.
-            source.copy(syncId = UUID.randomUUID().toString(), version = 1, updatedAt = updatedAt, reportSyncId = syncId)
+            // The correction relation is aggregate-level; a logically same observation retains
+            // its stable identity across a resolved successor.
+            source.copy(version = source.version + 1, updatedAt = updatedAt, reportSyncId = syncId)
         }
         val payload = HealthSyncPayloadCodec.report(report, observations)
         val outbox = outbox(category, syncId, newVersion, updatedAt, payload)

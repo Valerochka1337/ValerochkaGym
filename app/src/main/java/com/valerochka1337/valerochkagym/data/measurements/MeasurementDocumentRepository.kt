@@ -6,6 +6,7 @@ import androidx.room.withTransaction
 import com.valerochka1337.valerochkagym.data.db.GymDatabase
 import com.valerochka1337.valerochkagym.data.db.dao.MeasurementDocumentDao
 import com.valerochka1337.valerochkagym.data.db.entity.MeasurementDocumentEntity
+import com.valerochka1337.valerochkagym.data.health.PrivateOriginalsLifecycleGate
 import com.valerochka1337.valerochkagym.di.ComputeDispatcher
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.ByteArrayOutputStream
@@ -20,8 +21,6 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlin.coroutines.coroutineContext
 
@@ -52,12 +51,8 @@ class NoOpMeasurementDocumentLifecycleHook @Inject constructor() : MeasurementDo
  * A SHA-256 file can be referenced by several measurements, so a separate repository instance
  * must never race another instance's finalization, deletion or recovery sweep.
  */
-@Singleton
-class MeasurementDocumentLifecycleGate @Inject constructor() {
-    private val mutex = Mutex()
-
-    suspend fun <T> withLock(block: suspend () -> T): T = mutex.withLock { block() }
-}
+/** Compatibility name for existing callers; the erased type is the shared private-original gate. */
+typealias MeasurementDocumentLifecycleGate = PrivateOriginalsLifecycleGate
 
 /**
  * Private originals for InBody photos. Files are never part of a snapshot or Sheets payload.
@@ -84,7 +79,7 @@ class LocalMeasurementDocumentRepository @Inject constructor(
     private val database: GymDatabase,
     private val documentDao: MeasurementDocumentDao,
     @param:ComputeDispatcher private val dispatcher: CoroutineDispatcher,
-    private val lifecycleGate: MeasurementDocumentLifecycleGate,
+    private val lifecycleGate: PrivateOriginalsLifecycleGate,
     private val captureRegistry: PendingInBodyCaptureRegistry,
     private val lifecycleHook: MeasurementDocumentLifecycleHook = NoOpMeasurementDocumentLifecycleHook(),
 ) : MeasurementDocumentRepository {
@@ -213,9 +208,7 @@ class LocalMeasurementDocumentRepository @Inject constructor(
     }
 
     override suspend fun recoverCameraImports() = withContext(dispatcher) {
-        lifecycleGate.withLock {
-            captureRegistry.recoverCameraImports(File(context.cacheDir, CAMERA_IMPORT_DIRECTORY))
-        }
+        captureRegistry.recoverCameraImports(File(context.cacheDir, CAMERA_IMPORT_DIRECTORY))
     }
 
     private suspend fun failStoreLocked(

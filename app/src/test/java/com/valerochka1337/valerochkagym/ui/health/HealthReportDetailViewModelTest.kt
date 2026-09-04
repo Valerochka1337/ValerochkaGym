@@ -64,6 +64,22 @@ class HealthReportDetailViewModelTest : RoomDaoTest() {
             collector.cancel()
         }
 
+    @Test fun `detail exposes method material unit and source incompatibility instead of merging a trend`() = runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val dao = db.healthDao()
+        dao.upsertReport(HealthReportEntity("old", 1, 1, false, "FINAL", "LAB", 100, "old"))
+        dao.upsertReport(HealthReportEntity("selected", 1, 2, false, "FINAL", "LAB", 200, "selected"))
+        dao.insertObservations(listOf(
+            observation("old", "old", 100, "4.0", "glucose").copy(unit = "mmol/L", method = "A", material = "plasma", source = "Lab A"),
+            observation("selected", "selected", 200, "5.0", "glucose").copy(unit = "mg/dL", method = "B", material = "serum", source = "Lab B"),
+        ))
+        val vm = HealthReportDetailViewModel(SavedStateHandle(mapOf(GymRoutes.HEALTH_REPORT_ID_ARG to "selected")), dao, HealthRepository(db), FakeDocuments())
+        val c = launch { vm.uiState.collect() }
+        val warning = vm.uiState.first { it.incompatibilities.isNotEmpty() }.incompatibilities.single()
+        assertEquals("glucose", warning.canonicalKey)
+        assertTrue(warning.reason.contains("единицы")); assertTrue(warning.reason.contains("материал")); assertTrue(warning.reason.contains("метод")); assertTrue(warning.reason.contains("источник"))
+        c.cancel()
+    }
+
     private fun observation(id: String, report: String, at: Long, value: String, canonical: String, type: String = "NUMBER") =
         HealthObservationEntity(id, report, 1, at, false, at, canonical, type, value, "mmol/L", canonicalKey = canonical)
 
@@ -90,6 +106,15 @@ class HealthReportDetailViewModelTest : RoomDaoTest() {
         val event = vm.events.first() as HealthReportDeleteEvent.PartialFailure
         assertEquals("Запись удалена, но оригинал удалить не удалось", event.message); assertTrue(dao.report("partial")!!.isTombstone); assertEquals(1, tableCount("health_sync_outbox"))
         vm.deleteReport(true); testScheduler.advanceUntilIdle(); assertEquals(listOf("linked"), docs.deleted); c.cancel()
+    }
+    @Test fun `retry keeps report tombstone and retries only failed original metadata`() = runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val dao = db.healthDao(); dao.upsertReport(HealthReportEntity("retry", 1, 1, false, "CONFIRMED", "LAB", 1, "CBC")); dao.upsertDocument(HealthDocumentEntity("linked", "retry", "a", "READY", "a.pdf", "application/pdf", 1, null, 1))
+        val docs = FakeDocuments(fail = true); val vm = HealthReportDetailViewModel(SavedStateHandle(mapOf(GymRoutes.HEALTH_REPORT_ID_ARG to "retry")), dao, HealthRepository(db), docs); val c = launch { vm.uiState.collect() }
+        vm.uiState.first { it.report?.syncId == "retry" }; vm.deleteReport(true)
+        vm.uiState.first { it.pendingOriginalDeletionIds == setOf("linked") }
+        docs.fail = false; vm.retryOriginalDeletion()
+        vm.uiState.first { it.structuredDeleted && it.pendingOriginalDeletionIds.isEmpty() }
+        assertTrue(dao.report("retry")!!.isTombstone); assertEquals(listOf("linked", "linked"), docs.deleted); c.cancel()
     }
     @Test fun `DOCUMENT provenance reports missing original until linked READY document exists`() = runTest(mainDispatcherRule.testDispatcher.scheduler) {
         val dao=db.healthDao(); dao.upsertReport(HealthReportEntity("document",1,1,false,"CONFIRMED","DOCUMENT",1,"CBC")); dao.insertObservations(listOf(observation("o","document",1,"120","hb")))

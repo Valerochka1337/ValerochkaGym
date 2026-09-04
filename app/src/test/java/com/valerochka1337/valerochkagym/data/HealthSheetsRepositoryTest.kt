@@ -15,6 +15,9 @@ import com.valerochka1337.valerochkagym.data.db.entity.HealthRestrictionEntity
 import com.valerochka1337.valerochkagym.data.db.entity.HealthSyncCategory
 import com.valerochka1337.valerochkagym.data.db.entity.HealthSyncOutboxEntity
 import com.valerochka1337.valerochkagym.data.google.*
+import com.valerochka1337.valerochkagym.data.health.ConflictChoice
+import com.valerochka1337.valerochkagym.data.health.ConflictResolutionResult
+import com.valerochka1337.valerochkagym.data.health.SyncConflictResolver
 import com.valerochka1337.valerochkagym.data.health.HealthSyncPayloadCodec
 import com.valerochka1337.valerochkagym.domain.health.HealthSheetRows
 import com.valerochka1337.valerochkagym.data.settings.HealthSyncCategory as SettingCategory
@@ -44,14 +47,14 @@ class HealthSheetsRepositoryTest {
     @Before fun setup() { db = Room.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext(), GymDatabase::class.java).allowMainThreadQueries().build() }
     @After fun close() = db.close()
     @Test fun `report uploads one stable report and all observations then retry is idempotent`() = runTest {
-        db.healthDao().upsertReport(HealthReportEntity("r",2,2,false,"CONFIRMED","lab",1,"CBC"))
+        db.healthDao().upsertReport(HealthReportEntity("r",2,2,false,"FINAL","lab",1,"CBC"))
         db.healthDao().insertObservations(listOf(HealthObservationEntity("o1","r",1,2,false,1,"Hb","NUMBER","125"), HealthObservationEntity("o2","r",1,2,false,1,"WBC","NUMBER","5")))
         val api = FakeApi(); val settings = SettingsRepository(Store())
         settings.setSpreadsheetId("sheet"); settings.setHealthSyncEnabled(true); settings.setHealthSyncCategory(SettingCategory.HEALTH_REPORTS_AND_OBSERVATIONS,true)
         val repository = HealthSheetsRepositoryImpl(api, Auth(), settings, db)
         val entry = HealthSyncOutboxEntity(HealthSyncCategory.HEALTH_REPORTS_AND_OBSERVATIONS,"r",2,HealthSyncPayloadCodec.report(db.healthDao().report("r")!!, db.healthDao().observations("r")),"h","r:2",2)
         assertEquals(UploadResult.Success, repository.upload(entry)); assertEquals(UploadResult.Success, repository.upload(entry))
-        assertEquals(1, api.rows.getValue("HealthReports!A:L").count { it.first() == "r" })
+        assertEquals(1, api.rows.getValue("HealthReports!A:P").count { it.first() == "r" })
         assertEquals(2, api.rows.getValue("HealthObservations!A:Q").count { it.first().startsWith("o") })
     }
     @Test fun `enable import treats absent sheets as nothing and valid empty header as nothing`() = runTest {
@@ -66,9 +69,9 @@ class HealthSheetsRepositoryTest {
         val settings = SettingsRepository(Store()).also { it.setSpreadsheetId("sheet") }
         val api = FakeApi()
         val repository = HealthSheetsRepositoryImpl(api, Auth(), settings, db)
-        api.rows["HealthReports!A:L"] = mutableListOf(listOf("bad", "private"))
+        api.rows["HealthReports!A:P"] = mutableListOf(listOf("bad", "private"))
         assertTrue(repository.importForEnable(SettingCategory.HEALTH_REPORTS_AND_OBSERVATIONS) is HealthImportResult.Failure)
-        api.rows.clear(); api.rows["HealthReports!A:L"] = mutableListOf(HealthSheetRows.REPORT_HEADER); api.rows["HealthObservations!A:Q"] = mutableListOf(listOf("bad", "private"))
+        api.rows.clear(); api.rows["HealthReports!A:P"] = mutableListOf(HealthSheetRows.REPORT_HEADER); api.rows["HealthObservations!A:Q"] = mutableListOf(listOf("bad", "private"))
         assertTrue(repository.importForEnable(SettingCategory.HEALTH_REPORTS_AND_OBSERVATIONS) is HealthImportResult.Failure)
         api.rows.clear(); api.rows["HealthRestrictions!A:L"] = mutableListOf(listOf("bad", "private"))
         assertTrue(repository.importForEnable(SettingCategory.HEALTH_RESTRICTIONS) is HealthImportResult.Failure)
@@ -80,18 +83,18 @@ class HealthSheetsRepositoryTest {
     }
     @Test fun `report import restores typed aggregate replaces higher version and accepts missing sheet safely`() = runTest {
         val api=FakeApi(); val settings=SettingsRepository(Store()); settings.setSpreadsheetId("sheet"); settings.setHealthSyncEnabled(true); settings.setHealthSyncCategory(SettingCategory.HEALTH_REPORTS_AND_OBSERVATIONS,true)
-        val report=HealthReportEntity("r",2,2,false,"CONFIRMED","DOCUMENT",2,"CBC","note",1); val observation=HealthObservationEntity("o","r",3,2,false,2,"Hb","NUMBER","120","g/L","110-160","m","blood","lab","hb",2)
-        api.rows["HealthReports!A:L"]=mutableListOf(HealthSheetRows.REPORT_HEADER, com.valerochka1337.valerochkagym.domain.health.HealthSheetRows.reportRow(report,"hash","r:2")); api.rows["HealthObservations!A:Q"]=mutableListOf(HealthSheetRows.OBSERVATION_HEADER, HealthSheetRows.observationRow(observation, report.version))
+        val report=HealthReportEntity("r",2,2,false,"FINAL","DOCUMENT",2,"CBC","note",1); val observation=HealthObservationEntity("o","r",3,2,false,2,"Hb","NUMBER","120","g/L","110-160","m","blood","lab","hb",2)
+        api.rows["HealthReports!A:P"]=mutableListOf(HealthSheetRows.REPORT_HEADER, com.valerochka1337.valerochkagym.domain.health.HealthSheetRows.reportRow(report,"hash","r:2")); api.rows["HealthObservations!A:Q"]=mutableListOf(HealthSheetRows.OBSERVATION_HEADER, HealthSheetRows.observationRow(observation, report.version))
         val repository=HealthSheetsRepositoryImpl(api,Auth(),settings,db); assertEquals(1,repository.import(SettingCategory.HEALTH_REPORTS_AND_OBSERVATIONS)); assertEquals(report,db.healthDao().report("r")); assertEquals(listOf(observation),db.healthDao().observations("r")); assertEquals(listOf(2L),db.healthDao().reportSnapshots("r").map { it.version }); assertEquals(0,repository.import(SettingCategory.HEALTH_REPORTS_AND_OBSERVATIONS))
-        api.rows["HealthObservations!A:Q"]=mutableListOf(HealthSheetRows.OBSERVATION_HEADER); assertEquals(0,repository.import(SettingCategory.HEALTH_REPORTS_AND_OBSERVATIONS)); assertEquals(report,db.healthDao().report("r"))
+        api.rows.remove("HealthObservations!A:Q"); assertEquals(0,repository.import(SettingCategory.HEALTH_REPORTS_AND_OBSERVATIONS)); assertEquals(report,db.healthDao().report("r"))
     }
 
     @Test fun `observation page provenance survives exact Sheets round trip`() = runTest {
         val api = FakeApi(); val settings = SettingsRepository(Store())
         settings.setSpreadsheetId("sheet"); settings.setHealthSyncEnabled(true); settings.setHealthSyncCategory(SettingCategory.HEALTH_REPORTS_AND_OBSERVATIONS, true)
-        val report = HealthReportEntity("page-report", 1, 1, false, "CONFIRMED", "DOCUMENT", 1, "CBC")
+        val report = HealthReportEntity("page-report", 1, 1, false, "FINAL", "DOCUMENT", 1, "CBC")
         val observation = HealthObservationEntity("page-observation", "page-report", 1, 1, false, 1, "Hb", "NUMBER", "125", sourcePage = 2)
-        api.rows["HealthReports!A:L"] = mutableListOf(HealthSheetRows.REPORT_HEADER, HealthSheetRows.reportRow(report, "hash", "page-report:1"))
+        api.rows["HealthReports!A:P"] = mutableListOf(HealthSheetRows.REPORT_HEADER, HealthSheetRows.reportRow(report, "hash", "page-report:1"))
         api.rows["HealthObservations!A:Q"] = mutableListOf(HealthSheetRows.OBSERVATION_HEADER, HealthSheetRows.observationRow(observation, report.version))
         val repository = HealthSheetsRepositoryImpl(api, Auth(), settings, db)
         assertEquals(1, repository.import(SettingCategory.HEALTH_REPORTS_AND_OBSERVATIONS))
@@ -101,11 +104,11 @@ class HealthSheetsRepositoryTest {
     @Test fun `shuffled report revisions retain exact snapshot observations and expose only newest projection`() = runTest {
         val api = FakeApi(); val settings = SettingsRepository(Store())
         settings.setSpreadsheetId("sheet"); settings.setHealthSyncEnabled(true); settings.setHealthSyncCategory(SettingCategory.HEALTH_REPORTS_AND_OBSERVATIONS, true)
-        val v1 = HealthReportEntity("revision-report", 1, 10, false, "CONFIRMED", "DOCUMENT", 10, "CBC v1")
+        val v1 = HealthReportEntity("revision-report", 1, 10, false, "FINAL", "DOCUMENT", 10, "CBC v1")
         val v2 = v1.copy(version = 2, updatedAt = 20, title = "CBC v2", supersedesVersion = 1)
         val v1Observation = HealthObservationEntity("observation-v1", "revision-report", 1, 10, false, 10, "Hb", "NUMBER", "120", sourcePage = 1)
         val v2Observation = HealthObservationEntity("observation-v2", "revision-report", 1, 20, false, 20, "Hb", "NUMBER", "125", sourcePage = 2)
-        api.rows["HealthReports!A:L"] = mutableListOf(
+        api.rows["HealthReports!A:P"] = mutableListOf(
             HealthSheetRows.REPORT_HEADER,
             HealthSheetRows.reportRow(v2, "h2", "revision-report:2"),
             HealthSheetRows.reportRow(v1, "h1", "revision-report:1"),
@@ -129,43 +132,43 @@ class HealthSheetsRepositoryTest {
     @Test fun `report clear touches both managed sheets only`() = runTest {
         val api=FakeApi().apply {
             sheets += setOf("HealthReports", "HealthObservations", "HealthRestrictions", "Measurements")
-            rows["HealthReports!A:L"] = mutableListOf(HealthSheetRows.REPORT_HEADER)
+            rows["HealthReports!A:P"] = mutableListOf(HealthSheetRows.REPORT_HEADER)
             rows["HealthObservations!A:Q"] = mutableListOf(HealthSheetRows.OBSERVATION_HEADER)
         }; val settings=SettingsRepository(Store()); settings.setSpreadsheetId("sheet"); val repository=HealthSheetsRepositoryImpl(api,Auth(),settings,db)
-        assertEquals(RemoteClearResult.Success(listOf("HealthReports!A2:L", "HealthObservations!A2:Q")), repository.clearAfterConfirmation(SettingCategory.HEALTH_REPORTS_AND_OBSERVATIONS)); assertEquals(listOf("HealthReports!A2:L","HealthObservations!A2:Q"),api.clears)
+        assertEquals(RemoteClearResult.Success(listOf("HealthReports!A2:P", "HealthObservations!A2:Q")), repository.clearAfterConfirmation(SettingCategory.HEALTH_REPORTS_AND_OBSERVATIONS)); assertEquals(listOf("HealthReports!A2:P","HealthObservations!A2:Q"),api.clears)
         assertEquals(setOf("HealthReports", "HealthObservations", "HealthRestrictions", "Measurements"), api.sheets)
     }
     @Test fun `medical clear accepts legacy observations without touching user columns`() = runTest {
         val api = FakeApi().apply {
             sheets += setOf("HealthReports", "HealthObservations")
-            rows["HealthReports!A:L"] = mutableListOf(HealthSheetRows.REPORT_HEADER + "user_report_column")
+            rows["HealthReports!A:P"] = mutableListOf(HealthSheetRows.REPORT_HEADER + "user_report_column")
             rows["HealthObservations!A:O"] = mutableListOf(HealthSheetRows.LEGACY_OBSERVATION_HEADER + "user_observation_column")
         }
         val settings = SettingsRepository(Store()).also { it.setSpreadsheetId("sheet") }
 
         assertEquals(
-            RemoteClearResult.Success(listOf("HealthReports!A2:L", "HealthObservations!A2:O")),
+            RemoteClearResult.Success(listOf("HealthReports!A2:P", "HealthObservations!A2:O")),
             HealthSheetsRepositoryImpl(api, Auth(), settings, db)
                 .clearAfterConfirmation(SettingCategory.HEALTH_REPORTS_AND_OBSERVATIONS),
         )
-        assertEquals(listOf("HealthReports!A2:L", "HealthObservations!A2:O"), api.clears)
+        assertEquals(listOf("HealthReports!A2:P", "HealthObservations!A2:O"), api.clears)
 
         val interim = FakeApi().apply {
             sheets += setOf("HealthReports", "HealthObservations")
-            rows["HealthReports!A:L"] = mutableListOf(HealthSheetRows.REPORT_HEADER)
+            rows["HealthReports!A:P"] = mutableListOf(HealthSheetRows.REPORT_HEADER)
             rows["HealthObservations!A:P"] = mutableListOf(HealthSheetRows.REPORT_VERSION_OBSERVATION_HEADER + "user_observation_column")
         }
         assertEquals(
-            RemoteClearResult.Success(listOf("HealthReports!A2:L", "HealthObservations!A2:P")),
+            RemoteClearResult.Success(listOf("HealthReports!A2:P", "HealthObservations!A2:P")),
             HealthSheetsRepositoryImpl(interim, Auth(), settings, db)
                 .clearAfterConfirmation(SettingCategory.HEALTH_REPORTS_AND_OBSERVATIONS),
         )
-        assertEquals(listOf("HealthReports!A2:L", "HealthObservations!A2:P"), interim.clears)
+        assertEquals(listOf("HealthReports!A2:P", "HealthObservations!A2:P"), interim.clears)
     }
     @Test fun `medical clear validates all present sheets before clearing and never creates absent ones`() = runTest {
         val api = FakeApi().apply {
             sheets += setOf("HealthReports", "HealthObservations")
-            rows["HealthReports!A:L"] = mutableListOf(HealthSheetRows.REPORT_HEADER)
+            rows["HealthReports!A:P"] = mutableListOf(HealthSheetRows.REPORT_HEADER)
             rows["HealthObservations!A:Q"] = mutableListOf(listOf("user_owned", "private"))
         }
         val settings = SettingsRepository(Store()).also { it.setSpreadsheetId("sheet") }
@@ -187,7 +190,7 @@ class HealthSheetsRepositoryTest {
     @Test fun `report clear retains completed range when observations clear fails`() = runTest {
         val api = FakeApi().apply {
             sheets += setOf("HealthReports", "HealthObservations")
-            rows["HealthReports!A:L"] = mutableListOf(HealthSheetRows.REPORT_HEADER)
+            rows["HealthReports!A:P"] = mutableListOf(HealthSheetRows.REPORT_HEADER)
             rows["HealthObservations!A:Q"] = mutableListOf(HealthSheetRows.OBSERVATION_HEADER)
             failClearAt = 2
         }
@@ -196,18 +199,18 @@ class HealthSheetsRepositoryTest {
         assertEquals(
             RemoteClearResult.Failure(
                 "Нет сети при очистке Google Sheets",
-                listOf("HealthReports!A2:L"),
+                listOf("HealthReports!A2:P"),
                 "HealthObservations!A2:Q",
             ),
             HealthSheetsRepositoryImpl(api, Auth(), settings, db)
                 .clearAfterConfirmation(SettingCategory.HEALTH_REPORTS_AND_OBSERVATIONS),
         )
-        assertEquals(listOf("HealthReports!A2:L"), api.clears)
+        assertEquals(listOf("HealthReports!A2:P"), api.clears)
     }
     @Test fun `report clear revalidates observations header after reports clear`() = runTest {
         val api = FakeApi().apply {
             sheets += setOf("HealthReports", "HealthObservations")
-            rows["HealthReports!A:L"] = mutableListOf(HealthSheetRows.REPORT_HEADER)
+            rows["HealthReports!A:P"] = mutableListOf(HealthSheetRows.REPORT_HEADER)
             rows["HealthObservations!A:Q"] = mutableListOf(HealthSheetRows.OBSERVATION_HEADER)
             mutateHeaderAfterClear = 1 to ("HealthObservations!A:Q" to listOf("user_owned", "column"))
         }
@@ -216,13 +219,13 @@ class HealthSheetsRepositoryTest {
         assertEquals(
             RemoteClearResult.Failure(
                 "Заголовок листа HealthObservations изменён вручную — очистка отменена",
-                clearedRanges = listOf("HealthReports!A2:L"),
+                clearedRanges = listOf("HealthReports!A2:P"),
                 failedRange = "HealthObservations!A2:Q",
             ),
             HealthSheetsRepositoryImpl(api, Auth(), settings, db)
                 .clearAfterConfirmation(SettingCategory.HEALTH_REPORTS_AND_OBSERVATIONS),
         )
-        assertEquals(listOf("HealthReports!A2:L"), api.clears)
+        assertEquals(listOf("HealthReports!A2:P"), api.clears)
     }
     @Test fun `restriction clear returns typed managed range result`() = runTest {
         val api = FakeApi().apply {
@@ -262,16 +265,104 @@ class HealthSheetsRepositoryTest {
         assertEquals(1,HealthSheetsRepositoryImpl(api,Auth(),settings,db).import(SettingCategory.HEALTH_RESTRICTIONS))
         assertEquals(null,db.healthDao().restriction("remote")!!.originalText)
     }
+    @Test fun `newer remote restriction preserves local only original wording`() = runTest {
+        val local = HealthRestrictionEntity("restriction", 1, 1, false, "ACTIVE", "USER", 1, description = "No sprint", originalText = "точная исходная формулировка")
+        db.healthDao().upsertRestriction(local)
+        val remote = local.copy(version = 2, updatedAt = 2, description = "No sprint or jumps", originalText = null)
+        val api = FakeApi(); val settings = SettingsRepository(Store())
+        settings.setSpreadsheetId("sheet"); settings.setHealthSyncEnabled(true); settings.setHealthSyncCategory(SettingCategory.HEALTH_RESTRICTIONS, true)
+        api.rows["HealthRestrictions!A:L"] = mutableListOf(HealthSheetRows.RESTRICTION_HEADER, HealthSheetRows.restrictionRow(remote, "hash", "restriction:2"))
+        assertEquals(1, HealthSheetsRepositoryImpl(api, Auth(), settings, db).import(SettingCategory.HEALTH_RESTRICTIONS))
+        assertEquals("точная исходная формулировка", db.healthDao().restriction("restriction")!!.originalText)
+    }
     @Test fun `equal divergent health aggregate stores conflict and leaves local unchanged`() = runTest {
-        val local=HealthReportEntity("same",2,2,false,"CONFIRMED","LAB",2,"Local"); db.healthDao().upsertReport(local); val localObs=HealthObservationEntity("lo","same",1,2,false,2,"Hb","NUMBER","120"); db.healthDao().insertObservations(listOf(localObs))
+        val local=HealthReportEntity("same",2,2,false,"FINAL","LAB",2,"Local"); db.healthDao().upsertReport(local); val localObs=HealthObservationEntity("lo","same",1,2,false,2,"Hb","NUMBER","120"); db.healthDao().insertObservations(listOf(localObs))
         val api=FakeApi(); val settings=SettingsRepository(Store()); settings.setSpreadsheetId("sheet"); settings.setHealthSyncEnabled(true); settings.setHealthSyncCategory(SettingCategory.HEALTH_REPORTS_AND_OBSERVATIONS,true)
-        val remote=local.copy(title="Remote"); api.rows["HealthReports!A:L"]=mutableListOf(HealthSheetRows.REPORT_HEADER,HealthSheetRows.reportRow(remote,"different","same:2")); api.rows["HealthObservations!A:Q"]=mutableListOf(HealthSheetRows.OBSERVATION_HEADER,HealthSheetRows.observationRow(localObs.copy(rawValue="999"), remote.version))
+        val remote=local.copy(title="Remote"); api.rows["HealthReports!A:P"]=mutableListOf(HealthSheetRows.REPORT_HEADER,HealthSheetRows.reportRow(remote,"different","same:2")); api.rows["HealthObservations!A:Q"]=mutableListOf(HealthSheetRows.OBSERVATION_HEADER,HealthSheetRows.observationRow(localObs.copy(rawValue="999"), remote.version))
         val repository=HealthSheetsRepositoryImpl(api,Auth(),settings,db); assertEquals(0,repository.import(SettingCategory.HEALTH_REPORTS_AND_OBSERVATIONS)); assertEquals(local,db.healthDao().report("same")); assertEquals(listOf(localObs),db.healthDao().observations("same")); assertEquals(1,db.healthDao().conflicts().size)
     }
+    @Test fun `missing remote payload hash creates a resolvable report conflict`() = runTest {
+        val local = HealthReportEntity("missing-hash", 1, 1, false, "FINAL", "LAB", 1, "Local")
+        val localObservation = HealthObservationEntity("local-observation", "missing-hash", 1, 1, false, 1, "Hb", "NUMBER", "120")
+        db.healthDao().upsertReport(local)
+        db.healthDao().insertObservations(listOf(localObservation))
+        db.healthDao().insertReportSnapshot(
+            HealthReportSnapshotEntity("missing-hash", 1, 1, false, HealthSyncPayloadCodec.report(local, listOf(localObservation)), "local-hash"),
+        )
+        val remote = local.copy(title = "Remote")
+        val remoteObservation = localObservation.copy(rawValue = "121")
+        val api = FakeApi(); val settings = SettingsRepository(Store())
+        settings.setSpreadsheetId("sheet"); settings.setHealthSyncEnabled(true)
+        settings.setHealthSyncCategory(SettingCategory.HEALTH_REPORTS_AND_OBSERVATIONS, true)
+        api.rows["HealthReports!A:P"] = mutableListOf(
+            HealthSheetRows.REPORT_HEADER,
+            HealthSheetRows.reportRow(remote, "", "missing-hash:1"),
+        )
+        api.rows["HealthObservations!A:Q"] = mutableListOf(
+            HealthSheetRows.OBSERVATION_HEADER,
+            HealthSheetRows.observationRow(remoteObservation, 1),
+        )
+
+        assertEquals(0, HealthSheetsRepositoryImpl(api, Auth(), settings, db)
+            .import(SettingCategory.HEALTH_REPORTS_AND_OBSERVATIONS))
+        val conflict = db.healthDao().conflict(HealthSyncCategory.HEALTH_REPORTS_AND_OBSERVATIONS, "missing-hash", 1)!!
+        assertEquals(64, conflict.remotePayloadHash!!.length)
+        assertTrue(
+            SyncConflictResolver(db).resolve(
+                HealthSyncCategory.HEALTH_REPORTS_AND_OBSERVATIONS,
+                "missing-hash",
+                1,
+                ConflictChoice.REMOTE,
+                now = 2,
+            ) is ConflictResolutionResult.Resolved,
+        )
+        assertEquals("Remote", db.healthDao().report("missing-hash")!!.title)
+    }
+
+    @Test fun `malformed health lifecycle rows reject the whole import before writing`() = runTest {
+        val api = FakeApi(); val settings = SettingsRepository(Store())
+        settings.setSpreadsheetId("sheet"); settings.setHealthSyncEnabled(true)
+        settings.setHealthSyncCategory(SettingCategory.HEALTH_REPORTS_AND_OBSERVATIONS, true)
+        val valid = HealthReportEntity("valid", 1, 1, false, "FINAL", "LAB", 1, "CBC")
+        val malformed = valid.copy(syncId = "bad-report", version = 0, status = "UNKNOWN")
+        api.rows["HealthReports!A:P"] = mutableListOf(
+            HealthSheetRows.REPORT_HEADER,
+            HealthSheetRows.reportRow(valid, "hash", "valid:1"),
+            HealthSheetRows.reportRow(malformed, "hash", "bad-report:0"),
+        )
+        api.rows["HealthObservations!A:Q"] = mutableListOf(HealthSheetRows.OBSERVATION_HEADER)
+
+        assertTrue(runCatching {
+            HealthSheetsRepositoryImpl(api, Auth(), settings, db)
+                .import(SettingCategory.HEALTH_REPORTS_AND_OBSERVATIONS)
+        }.isFailure)
+        assertEquals(null, db.healthDao().report("valid"))
+
+        settings.setHealthSyncCategory(SettingCategory.HEALTH_RESTRICTIONS, true)
+        val restriction = HealthRestrictionEntity("valid-restriction", 1, 1, false, "ACTIVE", "USER", 1, description = "No sprint")
+        val invalidRestriction = restriction.copy(
+            syncId = "bad-restriction",
+            status = "LIFTED",
+            isTombstone = false,
+            source = "UNKNOWN",
+            confirmedAt = 0,
+        )
+        api.rows["HealthRestrictions!A:L"] = mutableListOf(
+            HealthSheetRows.RESTRICTION_HEADER,
+            HealthSheetRows.restrictionRow(restriction, "hash", "valid-restriction:1"),
+            HealthSheetRows.restrictionRow(invalidRestriction, "hash", "bad-restriction:1"),
+        )
+
+        assertTrue(runCatching {
+            HealthSheetsRepositoryImpl(api, Auth(), settings, db)
+                .import(SettingCategory.HEALTH_RESTRICTIONS)
+        }.isFailure)
+        assertEquals(null, db.healthDao().restriction("valid-restriction"))
+    }
     @Test fun `higher health tombstone hides current aggregate and preserves sync audit`() = runTest {
-        val local=HealthReportEntity("gone",1,1,false,"CONFIRMED","LAB",1,"CBC"); val localObservation=HealthObservationEntity("old","gone",1,1,false,1,"Hb","NUMBER","120"); db.healthDao().upsertReport(local); db.healthDao().insertObservations(listOf(localObservation)); db.healthDao().insertReportSnapshot(HealthReportSnapshotEntity("gone",1,1,false,HealthSyncPayloadCodec.report(local,listOf(localObservation)),"h1"))
+        val local=HealthReportEntity("gone",1,1,false,"FINAL","LAB",1,"CBC"); val localObservation=HealthObservationEntity("old","gone",1,1,false,1,"Hb","NUMBER","120"); db.healthDao().upsertReport(local); db.healthDao().insertObservations(listOf(localObservation)); db.healthDao().insertReportSnapshot(HealthReportSnapshotEntity("gone",1,1,false,HealthSyncPayloadCodec.report(local,listOf(localObservation)),"h1"))
         val api=FakeApi(); val settings=SettingsRepository(Store()); settings.setSpreadsheetId("sheet"); settings.setHealthSyncEnabled(true); settings.setHealthSyncCategory(SettingCategory.HEALTH_REPORTS_AND_OBSERVATIONS,true)
-        val tombstone=local.copy(version=2,updatedAt=2,isTombstone=true,status="REVOKED"); api.rows["HealthReports!A:L"]=mutableListOf(HealthSheetRows.REPORT_HEADER,HealthSheetRows.reportRow(tombstone,"h2","gone:2")); api.rows["HealthObservations!A:Q"]=mutableListOf(HealthSheetRows.OBSERVATION_HEADER)
+        val tombstone=local.copy(version=2,updatedAt=2,isTombstone=true,status="REVOKED"); api.rows["HealthReports!A:P"]=mutableListOf(HealthSheetRows.REPORT_HEADER,HealthSheetRows.reportRow(tombstone,"h2","gone:2")); api.rows["HealthObservations!A:Q"]=mutableListOf(HealthSheetRows.OBSERVATION_HEADER)
         assertEquals(1,HealthSheetsRepositoryImpl(api,Auth(),settings,db).import(SettingCategory.HEALTH_REPORTS_AND_OBSERVATIONS)); assertTrue(db.healthDao().observeLiveReports().first().none { it.syncId=="gone" }); assertTrue(db.healthDao().observations("gone").isEmpty()); assertEquals(2,db.healthDao().report("gone")!!.version); assertEquals(listOf(2L, 1L), db.healthDao().reportSnapshots("gone").map { it.version }); assertTrue(db.healthDao().reportSnapshots("gone").first().isTombstone)
     }
     private class Auth : GoogleAuth { override suspend fun signIn(activity: android.app.Activity)=Result.success("a"); override suspend fun authorize(activity: android.app.Activity)=AuthorizeOutcome.Granted; override suspend fun getAccessToken()=TokenResult.Success("t"); override suspend fun signOut()=Unit }

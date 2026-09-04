@@ -30,6 +30,9 @@ interface HealthDao {
     @Query("SELECT * FROM health_report_snapshots WHERE syncId = :syncId ORDER BY version DESC")
     fun observeReportSnapshots(syncId: String): Flow<List<HealthReportSnapshotEntity>>
 
+    @Query("SELECT * FROM health_report_snapshots WHERE syncId = :syncId AND operationId = :operationId LIMIT 1")
+    suspend fun reportSnapshotForOperation(syncId: String, operationId: String): HealthReportSnapshotEntity?
+
     @Insert
     suspend fun insertObservations(observations: List<HealthObservationEntity>)
 
@@ -86,6 +89,12 @@ interface HealthDao {
     @Query("SELECT * FROM health_restriction_snapshots WHERE syncId = :syncId ORDER BY version DESC")
     suspend fun restrictionSnapshots(syncId: String): List<HealthRestrictionSnapshotEntity>
 
+    @Query("SELECT * FROM health_restriction_snapshots WHERE operationId = :operationId ORDER BY syncId ASC")
+    suspend fun restrictionSnapshotsForOperation(operationId: String): List<HealthRestrictionSnapshotEntity>
+
+    @Query("SELECT * FROM health_restriction_snapshots WHERE syncId = :syncId ORDER BY version DESC")
+    fun observeRestrictionSnapshots(syncId: String): Flow<List<HealthRestrictionSnapshotEntity>>
+
     @Upsert
     suspend fun upsertDocument(document: HealthDocumentEntity)
 
@@ -129,8 +138,14 @@ interface HealthDao {
     @Query("SELECT * FROM health_reports WHERE isTombstone = 0 ORDER BY reportedAt DESC")
     fun observeLiveReports(): Flow<List<HealthReportEntity>>
 
+    @Query("SELECT * FROM health_reports WHERE isTombstone = 0 AND status != 'REVOKED' ORDER BY reportedAt DESC")
+    fun observeCurrentReports(): Flow<List<HealthReportEntity>>
+
     @Query("SELECT * FROM health_restrictions WHERE isTombstone = 0 ORDER BY confirmedAt DESC")
     fun observeLiveRestrictions(): Flow<List<HealthRestrictionEntity>>
+
+    @Query("SELECT * FROM health_restrictions ORDER BY confirmedAt DESC")
+    fun observeRestrictionsForHistory(): Flow<List<HealthRestrictionEntity>>
 
     @Query("SELECT * FROM health_sync_conflicts ORDER BY createdAt ASC")
     suspend fun conflicts(): List<HealthSyncConflictEntity>

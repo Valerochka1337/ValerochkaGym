@@ -50,7 +50,7 @@ fun HealthRestrictionEditorScreen(
     ) }
     GlowBackground {
         Column(Modifier.fillMaxSize()) {
-            HealthScreenHeader("Ограничения", onBack)
+            HealthScreenHeader(if (state.editingId == null) "Ограничения" else "Ограничение", onBack)
             Column(
                 modifier = Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -88,7 +88,12 @@ fun HealthRestrictionEditorScreen(
                         Text("Статус: ${proposal.state.label()}", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
-                TextButton(onClick = { haptics.tap(); viewModel.add() }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("Добавить вручную") }
+                if (state.editingId == null) TextButton(onClick = { haptics.tap(); viewModel.add() }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("Добавить вручную") }
+                if (state.editingId != null && state.proposals.firstOrNull()?.state != HealthRestrictionState.LIFTED) TextButton(
+                    onClick = { haptics.confirm(); viewModel.lift() },
+                    enabled = !state.lifting,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                ) { Text(if (state.lifting) "Снимаем…" else "Снять ограничение", color = MaterialTheme.colorScheme.error) }
                 state.error?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
                 PillButton(
                     text = "Подтвердить ограничения",

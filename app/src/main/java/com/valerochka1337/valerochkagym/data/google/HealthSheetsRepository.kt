@@ -11,14 +11,20 @@ import com.valerochka1337.valerochkagym.data.db.entity.HealthRestrictionEntity
 import com.valerochka1337.valerochkagym.data.db.entity.HealthRestrictionSnapshotEntity
 import com.valerochka1337.valerochkagym.data.settings.HealthSyncCategory as SettingCategory
 import com.valerochka1337.valerochkagym.data.settings.SettingsRepository
+import com.valerochka1337.valerochkagym.domain.health.HealthInformationSource
+import com.valerochka1337.valerochkagym.domain.health.HealthRawValueKind
+import com.valerochka1337.valerochkagym.domain.health.HealthReportStatus
+import com.valerochka1337.valerochkagym.domain.health.HealthRestrictionState
 import com.valerochka1337.valerochkagym.domain.health.HealthSheetRows
 import com.valerochka1337.valerochkagym.data.health.HealthSyncPayloadCodec
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import retrofit2.HttpException
 import java.io.IOException
+import java.security.MessageDigest
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -78,7 +84,7 @@ class HealthSheetsRepositoryImpl @Inject constructor(
                 if (sameVersion != null && sameVersion != expectedReport) {
                     val remotePayload = remoteReportPayload(sameVersion, existingObservationRows)
                         ?: return UploadResult.PermanentFailure("Строка исследования в Google Sheets повреждена")
-                    storeConflict(entry, remotePayload, sameVersion.getOrNull(REPORT_HASH_INDEX))
+                    storeConflict(entry, remotePayload)
                     return UploadResult.PermanentFailure("Конфликт версии в Google Sheets")
                 }
                 val exact = aggregate.observations
@@ -97,7 +103,7 @@ class HealthSheetsRepositoryImpl @Inject constructor(
                                 if (candidate.syncId == observation.syncId) remoteObservation else candidate
                             },
                         )
-                        storeConflict(entry, remotePayload, null)
+                        storeConflict(entry, remotePayload)
                         return UploadResult.PermanentFailure("Конфликт наблюдения в Google Sheets")
                     }
                 }
@@ -119,7 +125,7 @@ class HealthSheetsRepositoryImpl @Inject constructor(
                     val remote = parseRestriction(sameVersion)
                         ?.let(HealthSyncPayloadCodec::restriction)
                         ?: return UploadResult.PermanentFailure("Строка ограничения в Google Sheets повреждена")
-                    storeConflict(entry, remote, sameVersion.getOrNull(definition.hashIndex))
+                    storeConflict(entry, remote)
                     return UploadResult.PermanentFailure("Конфликт версии в Google Sheets")
                 }
                 if (sameVersion == null) api.appendValues(bearer, spreadsheetId, definition.range, AppendValuesDto(jsonRows(listOf(expected))))
@@ -139,6 +145,8 @@ class HealthSheetsRepositoryImpl @Inject constructor(
         validateEnableHeaders(category)
         val imported = importInternal(category, enforceSetting = false)
         if (imported == 0) HealthImportResult.NothingToImport else HealthImportResult.Success(imported)
+    } catch (error: CancellationException) {
+        throw error
     } catch (error: Exception) {
         HealthImportResult.Failure(error.message ?: "Не удалось импортировать данные здоровья")
     }
@@ -152,16 +160,14 @@ class HealthSheetsRepositoryImpl @Inject constructor(
         val definition = definition(category)
         val rows = api.getValues(bearer, spreadsheetId, definition.range).values.orEmpty()
         if (rows.isEmpty()) return // absent health sheet is a compatible legacy state
-        if (rows.first() != definition.header) throw IllegalStateException("Структура листа здоровья несовместима")
+        if (!rows.first().hasManagedPrefix(definition.header)) throw IllegalStateException("Структура листа здоровья несовместима")
         if (category == SettingCategory.HEALTH_REPORTS_AND_OBSERVATIONS) {
             val observationRows = api.getValues(bearer, spreadsheetId, "HealthObservations!A:Q").values.orEmpty()
             if (observationRows.isEmpty()) return
             val header = observationRows.first()
-            if (header !in setOf(
-                    HealthSheetRows.OBSERVATION_HEADER,
-                    HealthSheetRows.REPORT_VERSION_OBSERVATION_HEADER,
-                    HealthSheetRows.LEGACY_OBSERVATION_HEADER,
-                )
+            if (!header.hasManagedPrefix(HealthSheetRows.OBSERVATION_HEADER) &&
+                !header.hasManagedPrefix(HealthSheetRows.REPORT_VERSION_OBSERVATION_HEADER) &&
+                !header.hasManagedPrefix(HealthSheetRows.LEGACY_OBSERVATION_HEADER)
             ) throw IllegalStateException("Структура листа здоровья несовместима")
         }
     }
@@ -175,38 +181,69 @@ class HealthSheetsRepositoryImpl @Inject constructor(
         val definition = definition(category)
         val rows = try {
             api.getValues("Bearer $token", spreadsheetId, definition.range).values.orEmpty()
+        } catch (error: CancellationException) {
+            throw error
         } catch (error: Exception) {
             if (enforceSetting) return 0 else throw error
         }
-        if (rows.isEmpty() || rows.first() != definition.header) return 0 // absent sheets are legacy-compatible.
+        if (rows.isEmpty()) return 0 // An absent sheet is a compatible legacy state.
+        require(rows.first().hasManagedPrefix(definition.header)) { "Структура листа здоровья несовместима" }
         if (category == SettingCategory.HEALTH_REPORTS_AND_OBSERVATIONS) {
             val observations = Definition("HealthObservations", "HealthObservations!A:Q", "Q", HealthSheetRows.OBSERVATION_HEADER, -1)
             val observationRows = try {
                 api.getValues("Bearer $token", spreadsheetId, observations.range).values.orEmpty()
+            } catch (error: CancellationException) {
+                throw error
             } catch (error: Exception) {
                 if (enforceSetting) return 0 else throw error
             }
             val observationHeader = observationRows.firstOrNull() ?: return 0
-            val layout = when (observationHeader) {
-                observations.header -> ObservationWireLayout(reportVersion = true, sourcePage = true)
-                HealthSheetRows.REPORT_VERSION_OBSERVATION_HEADER -> ObservationWireLayout(reportVersion = true, sourcePage = false)
-                HealthSheetRows.LEGACY_OBSERVATION_HEADER -> ObservationWireLayout(reportVersion = false, sourcePage = false)
+            val layout = when {
+                observationHeader.hasManagedPrefix(observations.header) -> ObservationWireLayout(reportVersion = true, sourcePage = true)
+                observationHeader.hasManagedPrefix(HealthSheetRows.REPORT_VERSION_OBSERVATION_HEADER) -> ObservationWireLayout(reportVersion = true, sourcePage = false)
+                observationHeader.hasManagedPrefix(HealthSheetRows.LEGACY_OBSERVATION_HEADER) -> ObservationWireLayout(reportVersion = false, sourcePage = false)
                 else -> return 0
             }
-            val reports = rows.drop(1).mapNotNull(::parseReport)
-                .groupBy(HealthReportEntity::syncId)
-                .values
-                .flatMap { revisions -> revisions.sortedBy(HealthReportEntity::version) }
-            val grouped = observationRows.drop(1).mapNotNull { parseObservation(it, layout) }
-                .groupBy { it.observation.reportSyncId to it.reportVersion }
-            return reports.count { report ->
-                val key = report.syncId to report.version
-                val exact = grouped[key].orEmpty().map(ParsedSheetObservation::observation)
-                val legacyAmbiguous = !layout.reportVersion && report.version != 1L && grouped.keys.any { it.first == report.syncId }
-                if (legacyAmbiguous) false else applyImportedReportAggregate(report, exact, rows.drop(1).firstOrNull { parsed -> parseReport(parsed) == report }.orEmpty())
+            val parsedReports = rows.drop(1).map { row ->
+                val report = parseReport(row)
+                    ?: throw IllegalStateException("Некорректная строка исследования")
+                report to row
+            }
+            require(parsedReports.groupBy { it.first.syncId to it.first.version }.values.all { it.size == 1 }) {
+                "Дублирующаяся версия исследования"
+            }
+            val reports = parsedReports.map { it.first }.sortedWith(compareBy(HealthReportEntity::syncId).thenBy(HealthReportEntity::version))
+            val parsedObservations = observationRows.drop(1).map { row ->
+                parseObservation(row, layout) ?: throw IllegalStateException("Некорректная строка результата")
+            }
+            require(parsedObservations.groupBy { Triple(it.observation.syncId, it.observation.version, it.reportVersion) }.values.all { it.size == 1 }) {
+                "Дублирующийся результат исследования"
+            }
+            val grouped = parsedObservations.groupBy { it.observation.reportSyncId to it.reportVersion }
+            require(grouped.keys.all { key -> reports.any { it.syncId == key.first && (layout.reportVersion && it.version == key.second || !layout.reportVersion && key.second == 1L) } }) {
+                "Результат без исследования"
+            }
+            return database.withTransaction {
+                reports.count { report ->
+                    val key = report.syncId to report.version
+                    val exact = grouped[key].orEmpty().map(ParsedSheetObservation::observation)
+                    val legacyAmbiguous = !layout.reportVersion && report.version != 1L && grouped.keys.any { it.first == report.syncId }
+                    require(report.isTombstone || (!legacyAmbiguous && exact.isNotEmpty())) { "Неполный агрегат исследования" }
+                    applyImportedReportAggregate(report, exact, parsedReports.first { it.first == report }.second)
+                }
             }
         }
-        return rows.drop(1).count { row -> applyImported(category, row, definition) }
+        val restrictionRows = rows.drop(1).map { row ->
+            val restriction = parseRestriction(row)
+                ?: throw IllegalStateException("Некорректная строка ограничения")
+            restriction to row
+        }
+        require(restrictionRows.groupBy { it.first.syncId to it.first.version }.values.all { it.size == 1 }) {
+            "Дублирующаяся версия ограничения"
+        }
+        return database.withTransaction {
+            restrictionRows.count { (restriction, _) -> applyImportedRestriction(restriction) }
+        }
     }
 
     private suspend fun applyImportedReportAggregate(
@@ -216,7 +253,9 @@ class HealthSheetsRepositoryImpl @Inject constructor(
     ): Boolean = database.withTransaction {
         if (observations.isEmpty() && !parsed.isTombstone) return@withTransaction false
         val payload = HealthSyncPayloadCodec.report(parsed, observations)
-        val remoteHash = row.getOrNull(REPORT_HASH_INDEX)?.takeIf(String::isNotBlank)
+        // Sheets v1/v2 rows may omit payload_hash. A conflict must nevertheless be resolvable:
+        // persist the digest of the parsed canonical bytes, never an absent or unverified cell.
+        val remoteHash = payloadHash(payload)
         val local = database.healthDao().report(parsed.syncId)
         if (local != null && local.version > parsed.version) return@withTransaction false
         if (local != null && local.version == parsed.version) {
@@ -244,34 +283,55 @@ class HealthSheetsRepositoryImpl @Inject constructor(
     }
 
     private fun parseReport(row: List<String>): HealthReportEntity? = runCatching {
-        HealthReportEntity(
+        val status = row[4].let { if (it == "CONFIRMED") "FINAL" else it }
+        val report = HealthReportEntity(
             syncId = row[0], version = row[1].toLong(), updatedAt = row[2].toLong(),
-            isTombstone = row[3] == "1", status = row[4], provenance = row[5], reportedAt = row[6].toLong(),
-            title = row[7], note = row.getOrNull(8)?.takeIf(String::isNotBlank),
-            supersedesVersion = row.getOrNull(9)?.toLongOrNull(),
-        ).takeIf { it.syncId.isNotBlank() && it.status.isNotBlank() && it.provenance.isNotBlank() && it.title.isNotBlank() }
+            isTombstone = row[3].toStrictBit(), status = status, provenance = row[5], reportedAt = row[6].toLong(),
+            collectedAt = row.getOrNull(7)?.toLongOrNull(), title = row[8], note = row.getOrNull(9)?.takeIf(String::isNotBlank),
+            supersedesVersion = row.getOrNull(10)?.toLongOrNull(), correctionOfVersion = row.getOrNull(11)?.toLongOrNull(),
+            conditions = row.getOrNull(12)?.takeIf(String::isNotBlank), originalExpected = row[13].toStrictBit(),
+        )
+        require(report.syncId.isNotBlank() && report.title.isNotBlank() && report.provenance.isNotBlank())
+        require(report.version > 0 && report.updatedAt > 0 && report.reportedAt > 0)
+        require(report.collectedAt == null || report.collectedAt > 0)
+        require(report.status in REPORT_STATUSES)
+        require(report.supersedesVersion == null || report.supersedesVersion in 1 until report.version)
+        require(report.correctionOfVersion == null || report.correctionOfVersion in 1 until report.version)
+        require((report.status == "REVOKED") == report.isTombstone)
+        require(report.status != "CORRECTED" || report.correctionOfVersion != null)
+        report
     }.getOrNull()
     private fun parseObservation(row: List<String>, layout: ObservationWireLayout): ParsedSheetObservation? = runCatching {
         val offset = if (layout.reportVersion) 1 else 0
         val reportVersion = if (layout.reportVersion) row[2].toLong() else 1L
-        ParsedSheetObservation(
-            com.valerochka1337.valerochkagym.data.db.entity.HealthObservationEntity(
-                row[0], row[1], row[2 + offset].toLong(), row[3 + offset].toLong(), row[4 + offset] == "1", row[5 + offset].toLong(),
-                row[6 + offset], row[7 + offset], row[8 + offset], row.getOrNull(9 + offset)?.takeIf(String::isNotBlank),
-                row.getOrNull(10 + offset)?.takeIf(String::isNotBlank), row.getOrNull(11 + offset)?.takeIf(String::isNotBlank),
-                row.getOrNull(12 + offset)?.takeIf(String::isNotBlank), row.getOrNull(13 + offset)?.takeIf(String::isNotBlank), row.getOrNull(14 + offset)?.takeIf(String::isNotBlank),
-                if (layout.sourcePage) row.getOrNull(15 + offset)?.toIntOrNull()?.takeIf { it > 0 } else null,
-            ),
-            reportVersion,
+        val observation = com.valerochka1337.valerochkagym.data.db.entity.HealthObservationEntity(
+            row[0], row[1], row[2 + offset].toLong(), row[3 + offset].toLong(), row[4 + offset].toStrictBit(), row[5 + offset].toLong(),
+            row[6 + offset], row[7 + offset], row[8 + offset], row.getOrNull(9 + offset)?.takeIf(String::isNotBlank),
+            row.getOrNull(10 + offset)?.takeIf(String::isNotBlank), row.getOrNull(11 + offset)?.takeIf(String::isNotBlank),
+            row.getOrNull(12 + offset)?.takeIf(String::isNotBlank), row.getOrNull(13 + offset)?.takeIf(String::isNotBlank), row.getOrNull(14 + offset)?.takeIf(String::isNotBlank),
+            if (layout.sourcePage) row.getOrNull(15 + offset)?.toIntOrNull()?.takeIf { it > 0 } else null,
         )
+        require(observation.syncId.isNotBlank() && observation.reportSyncId.isNotBlank())
+        require(reportVersion > 0 && observation.version > 0 && observation.updatedAt > 0 && observation.observedAt > 0)
+        require(observation.rawName.isNotBlank() && observation.rawValue.isNotBlank())
+        require(observation.valueType in OBSERVATION_VALUE_TYPES)
+        ParsedSheetObservation(observation, reportVersion)
     }.getOrNull()
 
     private fun parseRestriction(row: List<String>): HealthRestrictionEntity? = runCatching {
-        HealthRestrictionEntity(
-            syncId = row[0], version = row[1].toLong(), updatedAt = row[2].toLong(), isTombstone = row[3] == "1",
+        val restriction = HealthRestrictionEntity(
+            syncId = row[0], version = row[1].toLong(), updatedAt = row[2].toLong(), isTombstone = row[3].toStrictBit(),
             status = row[4], source = row[5], confirmedAt = row[6].toLong(),
             startsAt = row.getOrNull(7)?.toLongOrNull(), reviewAt = row.getOrNull(8)?.toLongOrNull(), description = row[9],
-        ).takeIf { it.syncId.isNotBlank() && it.status.isNotBlank() && it.source.isNotBlank() && it.description.isNotBlank() }
+        )
+        require(restriction.syncId.isNotBlank() && restriction.description.isNotBlank())
+        require(restriction.version > 0 && restriction.updatedAt > 0 && restriction.confirmedAt > 0)
+        require(restriction.startsAt == null || restriction.startsAt > 0)
+        require(restriction.reviewAt == null || restriction.reviewAt > 0)
+        require(restriction.startsAt == null || restriction.reviewAt == null || restriction.reviewAt >= restriction.startsAt)
+        require(restriction.status in RESTRICTION_STATUSES && restriction.source in RESTRICTION_SOURCES)
+        require((restriction.status == "LIFTED") == restriction.isTombstone)
+        restriction
     }.getOrNull()
 
     private fun remoteReportPayload(
@@ -285,7 +345,7 @@ class HealthSheetsRepositoryImpl @Inject constructor(
             ?.let { observations -> HealthSyncPayloadCodec.report(report, observations) }
     }
 
-    private suspend fun storeConflict(entry: HealthSyncOutboxEntity, remotePayload: String, remoteHash: String?) {
+    private suspend fun storeConflict(entry: HealthSyncOutboxEntity, remotePayload: String) {
         database.healthDao().upsertConflict(
             HealthSyncConflictEntity(
                 category = entry.category,
@@ -294,7 +354,7 @@ class HealthSheetsRepositoryImpl @Inject constructor(
                 localPayload = entry.canonicalPayload,
                 localPayloadHash = entry.payloadHash,
                 remotePayload = remotePayload,
-                remotePayloadHash = remoteHash,
+                remotePayloadHash = payloadHash(remotePayload),
                 createdAt = System.currentTimeMillis(),
             ),
         )
@@ -398,72 +458,32 @@ class HealthSheetsRepositoryImpl @Inject constructor(
         }
     }
 
-    private suspend fun applyImported(category: SettingCategory, row: List<String>, definition: Definition): Boolean {
-        val id = row.getOrNull(0)?.takeIf(String::isNotBlank) ?: return false
-        val version = row.getOrNull(1)?.toLongOrNull() ?: return false
-        val hash = row.getOrNull(definition.hashIndex)?.takeIf(String::isNotBlank)
+    private suspend fun applyImportedRestriction(parsed: HealthRestrictionEntity): Boolean {
+        val id = parsed.syncId
+        val version = parsed.version
+        val remotePayload = HealthSyncPayloadCodec.restriction(parsed)
+        val hash = payloadHash(remotePayload)
         return database.withTransaction {
-            val local = when (category) {
-                SettingCategory.HEALTH_REPORTS_AND_OBSERVATIONS -> database.healthDao().report(id)
-                SettingCategory.HEALTH_RESTRICTIONS -> database.healthDao().restriction(id)
-                else -> null
-            }
-            val localVersion = when (local) {
-                is com.valerochka1337.valerochkagym.data.db.entity.HealthReportEntity -> local.version
-                is com.valerochka1337.valerochkagym.data.db.entity.HealthRestrictionEntity -> local.version
-                else -> null
-            }
+            val local = database.healthDao().restriction(id)
+            val localVersion = local?.version
             if (localVersion != null && localVersion > version) return@withTransaction false
             if (localVersion == version) {
-                val localPayload = when (local) {
-                    is com.valerochka1337.valerochkagym.data.db.entity.HealthReportEntity ->
-                        HealthSyncPayloadCodec.report(local, database.healthDao().observations(local.syncId))
-                    is com.valerochka1337.valerochkagym.data.db.entity.HealthRestrictionEntity ->
-                        HealthSyncPayloadCodec.restriction(local)
-                    else -> return@withTransaction false
-                }
-                val remotePayload = when (category) {
-                    SettingCategory.HEALTH_RESTRICTIONS -> parseRestriction(row)?.let(HealthSyncPayloadCodec::restriction)
-                    else -> null
-                } ?: return@withTransaction false
-                val localHash = database.healthSyncOutboxDao().entry(category.outboxCategory(), id, version)?.payloadHash
-                if (localPayload == remotePayload && (localHash == null || hash == null || localHash == hash)) return@withTransaction false
+                val localPayload = HealthSyncPayloadCodec.restriction(local)
+                val localHash = database.healthSyncOutboxDao()
+                    .entry(HealthSyncCategory.HEALTH_RESTRICTIONS, id, version)?.payloadHash
+                if (localPayload == remotePayload) return@withTransaction false
                 database.healthDao().upsertConflict(HealthSyncConflictEntity(
-                    category = category.outboxCategory(), syncId = id, version = version,
+                    category = HealthSyncCategory.HEALTH_RESTRICTIONS, syncId = id, version = version,
                     localPayload = localPayload, localPayloadHash = localHash,
                     remotePayload = remotePayload, remotePayloadHash = hash, createdAt = System.currentTimeMillis(),
                 ))
                 return@withTransaction false
             }
-            when (category) {
-                SettingCategory.HEALTH_REPORTS_AND_OBSERVATIONS -> {
-                    val parsed = HealthReportEntity(
-                        syncId = id, version = version, updatedAt = row.getOrNull(2)?.toLongOrNull() ?: return@withTransaction false,
-                        isTombstone = row.getOrNull(3) == "1", status = row.getOrNull(4).orEmpty(), provenance = row.getOrNull(5).orEmpty(),
-                        reportedAt = row.getOrNull(6)?.toLongOrNull() ?: return@withTransaction false, title = row.getOrNull(7).orEmpty(),
-                        note = row.getOrNull(8)?.takeIf(String::isNotBlank), supersedesVersion = row.getOrNull(9)?.toLongOrNull(),
-                    )
-                    if (parsed.status.isBlank() || parsed.provenance.isBlank() || parsed.title.isBlank()) return@withTransaction false
-                    val payload = HealthSyncPayloadCodec.report(parsed, emptyList())
-                    database.healthDao().upsertReport(parsed)
-                    database.healthDao().insertReportSnapshot(HealthReportSnapshotEntity(parsed.syncId, parsed.version, parsed.updatedAt, parsed.isTombstone, payload, hash))
-                    true
-                }
-                SettingCategory.HEALTH_RESTRICTIONS -> {
-                    val parsed = HealthRestrictionEntity(
-                        syncId = id, version = version, updatedAt = row.getOrNull(2)?.toLongOrNull() ?: return@withTransaction false,
-                        isTombstone = row.getOrNull(3) == "1", status = row.getOrNull(4).orEmpty(), source = row.getOrNull(5).orEmpty(),
-                        confirmedAt = row.getOrNull(6)?.toLongOrNull() ?: return@withTransaction false,
-                        startsAt = row.getOrNull(7)?.toLongOrNull(), reviewAt = row.getOrNull(8)?.toLongOrNull(), description = row.getOrNull(9).orEmpty(),
-                    )
-                    if (parsed.status.isBlank() || parsed.source.isBlank() || parsed.description.isBlank()) return@withTransaction false
-                    val payload = HealthSyncPayloadCodec.restriction(parsed)
-                    database.healthDao().upsertRestriction(parsed)
-                    database.healthDao().insertRestrictionSnapshot(HealthRestrictionSnapshotEntity(parsed.syncId, parsed.version, parsed.updatedAt, parsed.isTombstone, payload, hash))
-                    true
-                }
-                else -> false
-            }
+            database.healthDao().upsertRestriction(parsed.copy(originalText = local?.originalText))
+            database.healthDao().insertRestrictionSnapshot(
+                HealthRestrictionSnapshotEntity(parsed.syncId, parsed.version, parsed.updatedAt, parsed.isTombstone, remotePayload, hash),
+            )
+            true
         }
     }
 
@@ -472,18 +492,18 @@ class HealthSheetsRepositoryImpl @Inject constructor(
         if (sheet == null) api.batchUpdate(bearer, spreadsheetId, BatchUpdateRequestDto(listOf(BatchRequestDto(addSheet = AddSheetDto(SheetPropertiesDto(definition.sheet))))))
         val header = api.getValues(bearer, spreadsheetId, "${definition.sheet}!1:1").values?.firstOrNull().orEmpty()
         if (header.isEmpty()) api.updateValues(bearer, spreadsheetId, "${definition.sheet}!A1", UpdateValuesDto(jsonRows(listOf(definition.header))))
-        else check(header == definition.header) { "Несовместимый заголовок ${definition.sheet}" }
+        else check(header.hasManagedPrefix(definition.header)) { "Несовместимый заголовок ${definition.sheet}" }
     }
 
     private fun definition(category: SettingCategory): Definition = when (category) {
-        SettingCategory.HEALTH_REPORTS_AND_OBSERVATIONS -> Definition("HealthReports", "HealthReports!A:L", "L", HealthSheetRows.REPORT_HEADER, REPORT_HASH_INDEX)
+        SettingCategory.HEALTH_REPORTS_AND_OBSERVATIONS -> Definition(HealthSheetRows.REPORT_SHEET, "${HealthSheetRows.REPORT_SHEET}!A:P", "P", HealthSheetRows.REPORT_HEADER, REPORT_HASH_INDEX)
         SettingCategory.HEALTH_RESTRICTIONS -> Definition("HealthRestrictions", "HealthRestrictions!A:L", "L", HealthSheetRows.RESTRICTION_HEADER, 10)
         else -> error("Not a health Sheets category")
     }
 
     private fun clearDefinitions(category: SettingCategory): List<ClearDefinition>? = when (category) {
         SettingCategory.HEALTH_REPORTS_AND_OBSERVATIONS -> listOf(
-            ClearDefinition("HealthReports", listOf(HealthSheetRows.REPORT_HEADER to "L")),
+            ClearDefinition(HealthSheetRows.REPORT_SHEET, listOf(HealthSheetRows.REPORT_HEADER to "P")),
             ClearDefinition(
                 "HealthObservations",
                 listOf(
@@ -530,5 +550,20 @@ class HealthSheetsRepositoryImpl @Inject constructor(
         }?.second?.let { "$sheet!A2:$it" }
     }
 
-    private companion object { const val REPORT_HASH_INDEX = 10 }
+    private fun List<String>.hasManagedPrefix(expected: List<String>): Boolean = size >= expected.size && take(expected.size) == expected
+    private fun String.toStrictBit(): Boolean = when (this) {
+        "0" -> false
+        "1" -> true
+        else -> error("Expected 0 or 1")
+    }
+    private fun payloadHash(payload: String): String = MessageDigest.getInstance("SHA-256")
+        .digest(payload.toByteArray(Charsets.UTF_8))
+        .joinToString("") { "%02x".format(it) }
+    private companion object {
+        const val REPORT_HASH_INDEX = 14
+        val REPORT_STATUSES = HealthReportStatus.entries.mapTo(linkedSetOf()) { it.name }
+        val RESTRICTION_STATUSES = HealthRestrictionState.entries.mapTo(linkedSetOf()) { it.name }
+        val RESTRICTION_SOURCES = HealthInformationSource.entries.mapTo(linkedSetOf()) { it.name }
+        val OBSERVATION_VALUE_TYPES = HealthRawValueKind.entries.mapTo(linkedSetOf()) { it.name }
+    }
 }

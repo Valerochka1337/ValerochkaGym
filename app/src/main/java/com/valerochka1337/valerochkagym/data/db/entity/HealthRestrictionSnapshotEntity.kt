@@ -18,4 +18,5 @@ data class HealthRestrictionSnapshotEntity(
     val payloadHash: String?,
     /** Immutable local wording matching this confirmed snapshot; never part of canonicalPayload. */
     val originalText: String? = null,
+    val operationId: String? = null,
 )

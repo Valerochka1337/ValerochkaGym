@@ -21,7 +21,16 @@ import javax.inject.Singleton
 
 data class HealthReportAiDraft(val report: HealthReportDraft, val sourcePages: List<Int>)
 sealed interface HealthReportAiResult { data class Success(val draft: HealthReportAiDraft) : HealthReportAiResult; data class Failure(val message: String) : HealthReportAiResult }
-interface HealthReportAiReader { suspend fun read(uri: Uri, loopbackHttpConsent: Boolean = false): HealthReportAiResult }
+interface HealthReportAiReader {
+    suspend fun read(uri: Uri, loopbackHttpConsent: Boolean = false): HealthReportAiResult
+
+    /** The disclosed endpoint and model are the request configuration; do not re-read settings. */
+    suspend fun read(
+        uri: Uri,
+        configuration: AiApiRequestConfiguration,
+        loopbackHttpConsent: Boolean,
+    ): HealthReportAiResult = read(uri, loopbackHttpConsent)
+}
 
 /** Strict draft-only reader: parsing never has access to repositories or schedulers. */
 @Singleton
@@ -35,6 +44,14 @@ class AiApiHealthReportAiReader @Inject constructor(
     override suspend fun read(uri: Uri, loopbackHttpConsent: Boolean): HealthReportAiResult {
         val configuration = configurationProvider.requestConfiguration()
             ?: return HealthReportAiResult.Failure("Настройте нейросеть в настройках")
+        return read(uri, configuration, loopbackHttpConsent)
+    }
+
+    override suspend fun read(
+        uri: Uri,
+        configuration: AiApiRequestConfiguration,
+        loopbackHttpConsent: Boolean,
+    ): HealthReportAiResult {
         when (healthAiEndpointDecision(configuration.connection.baseUrl, loopbackHttpConsent)) {
             HealthAiEndpointDecision.Allowed -> Unit
             HealthAiEndpointDecision.LoopbackConsentRequired -> return HealthReportAiResult.Failure("Подтвердите передачу медицинского документа локальному HTTP-серверу")
@@ -80,7 +97,7 @@ class AiApiHealthReportAiReader @Inject constructor(
     }
     private fun typedValue(kind: String, raw: String): HealthRawValue? = when (kind) {
         "NUMBER" -> raw.toDoubleOrNull()?.takeIf(Double::isFinite)?.let { HealthRawValue.Number(it, raw) }
-        "NUMBER_WITH_OPERATOR" -> Regex("(<=|>=|<|>)(.+)").matchEntire(raw)?.let { m -> m.groupValues[2].toDoubleOrNull()?.takeIf(Double::isFinite)?.let { HealthRawValue.NumberWithOperator(m.groupValues[1], it) } }
+        "NUMBER_WITH_OPERATOR" -> Regex("(<=|>=|<|>)(.+)").matchEntire(raw)?.let { m -> m.groupValues[2].toDoubleOrNull()?.takeIf(Double::isFinite)?.let { HealthRawValue.NumberWithOperator(m.groupValues[1], it, raw) } }
         "RANGE" -> HealthRawValue.Range(null, null, raw).takeIf { raw.isNotBlank() }
         "CATEGORY" -> HealthRawValue.Category(raw).takeIf { raw.isNotBlank() }
         "CODE" -> HealthRawValue.Code(raw).takeIf { raw.isNotBlank() }

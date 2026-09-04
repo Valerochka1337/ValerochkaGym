@@ -8,6 +8,7 @@ import androidx.lifecycle.viewModelScope
 import com.valerochka1337.valerochkagym.data.backup.ClearDataUseCase
 import com.valerochka1337.valerochkagym.data.backup.DatabaseExporter
 import com.valerochka1337.valerochkagym.data.backup.ExportResult
+import com.valerochka1337.valerochkagym.data.backup.PrivateOriginalsClearFailure
 import com.valerochka1337.valerochkagym.data.ai.AiModel
 import com.valerochka1337.valerochkagym.data.ai.AiModelCatalog
 import com.valerochka1337.valerochkagym.data.ai.normalizeAiBaseUrl
@@ -40,6 +41,7 @@ import com.valerochka1337.valerochkagym.worker.WeeklyScheduleRecoveryScheduler
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -52,6 +54,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import javax.inject.Inject
 import kotlin.time.Duration.Companion.milliseconds
@@ -300,6 +303,7 @@ class SettingsViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
+            settingsRepository.initializeLegacyHealthSyncIfNeeded()
             aiApiKeyPreview.value = aiApiKeyStore.preview()
             val settings = settingsRepository.settings.first()
             if (settings.aiBaseUrl != null && aiApiKeyStore.isConfigured.first()) {
@@ -374,8 +378,35 @@ class SettingsViewModel @Inject constructor(
         }
         spreadsheetError.value = false
         viewModelScope.launch {
-            settingsRepository.setSpreadsheetId(id)
-            importHistory()
+            healthSyncMutationMutex.withLock {
+                val previousId = settingsRepository.settings.first().spreadsheetId
+                if (previousId == id) {
+                    importHistory()
+                    return@withLock
+                }
+                // The new target is only retained after its managed history can be read. The
+                // mutex also prevents category scheduling from observing a half-validated target.
+                settingsRepository.setSpreadsheetId(id)
+                try {
+                    // A first connection performs one primary-data probe even though sync stays
+                    // disabled. An explicit master-off choice is never bypassed; medical data
+                    // remains consent-scoped in [importHistory].
+                    val firstConnectionProbe = previousId == null &&
+                        !settingsRepository.hasExplicitHealthSyncEnabledChoice()
+                    if (!importHistory(forcePrimaryImport = firstConnectionProbe)) {
+                        settingsRepository.setSpreadsheetId(previousId)
+                        _messages.send("Не удалось проверить новую таблицу; прежняя таблица сохранена")
+                    }
+                } catch (error: CancellationException) {
+                    withContext(NonCancellable) {
+                        settingsRepository.setSpreadsheetId(previousId)
+                    }
+                    throw error
+                } catch (_: Exception) {
+                    settingsRepository.setSpreadsheetId(previousId)
+                    _messages.send("Не удалось проверить новую таблицу; прежняя таблица сохранена")
+                }
+            }
         }
     }
 
@@ -473,12 +504,12 @@ class SettingsViewModel @Inject constructor(
     }
 
     /** Разово восстанавливает все app-managed данные из таблицы и уведомляет о результате. */
-    private suspend fun importHistory() {
+    private suspend fun importHistory(forcePrimaryImport: Boolean = false): Boolean {
         val sync = settingsRepository.settings.first().healthSync
         val primary = setOf(
             HealthSyncCategory.WORKOUTS_AND_CONFIGURATION,
             HealthSyncCategory.MEASUREMENTS,
-        ).filterTo(linkedSetOf(), sync::isEnabled)
+        ).filterTo(linkedSetOf()) { category -> forcePrimaryImport || sync.isEnabled(category) }
         val primaryResult = if (primary.isEmpty()) ImportResult.NothingToImport else importRepository.import(primary)
         val message = when (primaryResult) {
             is ImportResult.Success -> buildImportMessage(primaryResult)
@@ -487,7 +518,7 @@ class SettingsViewModel @Inject constructor(
         }
         if (primaryResult is ImportResult.Failure) {
             _messages.send(message)
-            return
+            return false
         }
         val healthImported = MEDICAL_SYNC_CATEGORIES
             .filter(sync::isEnabled)
@@ -495,6 +526,7 @@ class SettingsViewModel @Inject constructor(
         _messages.send(
             if (healthImported == 0) message else "Импортировано данных здоровья: $healthImported",
         )
+        return true
     }
 
     /** После входа восстанавливаем данные, только если ID таблицы уже вернулся из backup/DataStore. */
@@ -666,14 +698,23 @@ class SettingsViewModel @Inject constructor(
         pendingRemoteClear.value = confirmation.copy(isClearing = true)
         viewModelScope.launch {
             try {
-                val outcomes = mutableListOf<Pair<HealthSyncCategory, RemoteClearResult>>()
-                for (category in confirmation.selected) {
-                    val result = clearRemoteCategory(category)
-                    outcomes += category to result
-                    if (result is RemoteClearResult.Failure) break
+                healthSyncMutationMutex.withLock {
+                    val paused = pauseRemoteClearWorkers(confirmation.selected)
+                    try {
+                        val outcomes = mutableListOf<Pair<HealthSyncCategory, RemoteClearResult>>()
+                        for (category in confirmation.selected) {
+                            val result = clearRemoteCategory(category)
+                            outcomes += category to result
+                            if (result is RemoteClearResult.Failure) break
+                        }
+                        pendingRemoteClear.value = null
+                        _messages.send(remoteClearMessage(confirmation.selected, outcomes))
+                    } finally {
+                        withContext(NonCancellable) {
+                            restoreRemoteClearWorkers(paused)
+                        }
+                    }
                 }
-                pendingRemoteClear.value = null
-                _messages.send(remoteClearMessage(confirmation.selected, outcomes))
             } catch (error: CancellationException) {
                 pendingRemoteClear.value = confirmation.copy(isClearing = false)
                 throw error
@@ -695,6 +736,36 @@ class SettingsViewModel @Inject constructor(
         HealthSyncCategory.HEALTH_RESTRICTIONS,
         -> healthSheetsRepository?.clearAfterConfirmation(category)
             ?: RemoteClearResult.Failure("Очистка данных здоровья недоступна")
+    }
+
+    /** Stops only currently effective category workers while a remote range is being cleared. */
+    private suspend fun pauseRemoteClearWorkers(
+        selected: List<HealthSyncCategory>,
+    ): Set<HealthSyncCategory> {
+        val sync = settingsRepository.settings.first().healthSync
+        val active = selected.filterTo(linkedSetOf(), sync::isEnabled)
+        active.forEach { category -> applyCategoryScheduling(category, enabled = false) }
+        return active
+    }
+
+    /** Restores the current persisted state; a concurrent settings change cannot interleave the mutex. */
+    private suspend fun restoreRemoteClearWorkers(categories: Set<HealthSyncCategory>) {
+        val sync = settingsRepository.settings.first().healthSync
+        categories.forEach { category ->
+            applyCategoryScheduling(category, enabled = sync.isEnabled(category))
+        }
+    }
+
+    private suspend fun applyCategoryScheduling(category: HealthSyncCategory, enabled: Boolean) = when (category) {
+        HealthSyncCategory.WORKOUTS_AND_CONFIGURATION -> {
+            uploadScheduler.onCategoryChanged(enabled)
+            routineUploadScheduler.onCategoryChanged(enabled)
+            configurationUploadScheduler.onCategoryChanged(enabled)
+        }
+        HealthSyncCategory.MEASUREMENTS -> measurementUploadScheduler.onCategoryChanged(enabled)
+        HealthSyncCategory.HEALTH_REPORTS_AND_OBSERVATIONS,
+        HealthSyncCategory.HEALTH_RESTRICTIONS,
+        -> healthSyncScheduler.onCategoryChanged(category, enabled)
     }
 
     private fun remoteClearMessage(
@@ -745,13 +816,8 @@ class SettingsViewModel @Inject constructor(
 
     /** Settings are committed before WorkManager cancellation/rescheduling observes their effect. */
     private suspend fun applyHealthSyncSettings(sync: HealthSyncSettings) {
-        val workoutsEnabled = sync.isEnabled(HealthSyncCategory.WORKOUTS_AND_CONFIGURATION)
-        uploadScheduler.onCategoryChanged(workoutsEnabled)
-        routineUploadScheduler.onCategoryChanged(workoutsEnabled)
-        configurationUploadScheduler.onCategoryChanged(workoutsEnabled)
-        measurementUploadScheduler.onCategoryChanged(sync.isEnabled(HealthSyncCategory.MEASUREMENTS))
-        MEDICAL_SYNC_CATEGORIES.forEach { category ->
-            healthSyncScheduler.onCategoryChanged(category, sync.isEnabled(category))
+        HealthSyncCategory.entries.forEach { category ->
+            applyCategoryScheduling(category, sync.isEnabled(category))
         }
     }
 
@@ -819,8 +885,16 @@ class SettingsViewModel @Inject constructor(
     /** Стирает историю тренировок (каталог пересевается); настройки не трогаются. */
     fun clearAllData() {
         viewModelScope.launch {
-            clearDataUseCase()
-            _messages.send("Данные очищены")
+            try {
+                clearDataUseCase()
+                _messages.send("Данные очищены")
+            } catch (error: PrivateOriginalsClearFailure) {
+                _messages.send(error.message ?: "Данные очищены частично")
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                _messages.send("Не удалось очистить данные")
+            }
         }
     }
 

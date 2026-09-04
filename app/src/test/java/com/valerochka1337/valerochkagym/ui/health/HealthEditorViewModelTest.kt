@@ -108,6 +108,29 @@ class HealthEditorViewModelTest : RoomDaoTest() {
             assertEquals(2, db.healthDao().observations(original.syncId).single { it.rawName == "n" }.sourcePage)
         }
 
+    @Test
+    fun `correction recreation replays one operation with stable observation identities`() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val repository = HealthRepository(db)
+            val original = repository.saveConfirmedReport(
+                HealthReportDraft("Panel", "LAB", 1, listOf(
+                    HealthObservationDraft("Hb", HealthRawValue.Number(120.0, "120"), observedAt = 1),
+                )), 1,
+            )
+            val handle = SavedStateHandle(mapOf("correctsSyncId" to original.syncId))
+            val first = HealthEditorViewModel(repository, FakeReader(), FakeConfiguration(), FailingDocuments(), handle)
+            first.uiState.first { it.observations.single().observationSyncId != null }
+            first.save(); first.finished.first()
+            val firstObservationId = db.healthDao().observations(original.syncId).single().syncId
+
+            val recreated = HealthEditorViewModel(repository, FakeReader(), FakeConfiguration(), FailingDocuments(), handle)
+            recreated.uiState.first { it.observations.single().observationSyncId == firstObservationId }
+            recreated.save(); recreated.finished.first()
+
+            assertEquals(listOf(2L, 1L), db.healthDao().reportSnapshots(original.syncId).map { it.version })
+            assertEquals(firstObservationId, db.healthDao().observations(original.syncId).single().syncId)
+        }
+
     private class FakeReader : HealthReportAiReader {
         override suspend fun read(uri: Uri, loopbackHttpConsent: Boolean): HealthReportAiResult = HealthReportAiResult.Success(
             HealthReportAiDraft(

@@ -131,6 +131,11 @@ fun HealthEditorScreen(onBack: () -> Unit, viewModel: HealthEditorViewModel = hi
                         OutlinedTextField(row.method, { viewModel.updateObservation(index, row.copy(method = it)) }, Modifier.fillMaxWidth(), label = { Text("Метод") })
                         OutlinedTextField(row.material, { viewModel.updateObservation(index, row.copy(material = it)) }, Modifier.fillMaxWidth(), label = { Text("Материал") })
                         OutlinedTextField(row.source, { viewModel.updateObservation(index, row.copy(source = it)) }, Modifier.fillMaxWidth(), label = { Text("Источник") })
+                        OutlinedTextField(row.canonicalKey, { viewModel.updateObservation(index, row.copy(canonicalKey = it, canonicalKeyAccepted = false)) }, Modifier.fillMaxWidth(), label = { Text("Ключ для динамики (необязательно)") })
+                        if (row.canonicalKey.isNotBlank()) Row(verticalAlignment = Alignment.CenterVertically) {
+                            Checkbox(checked = row.canonicalKeyAccepted, onCheckedChange = { accepted -> haptics.toggle(accepted); viewModel.updateObservation(index, row.copy(canonicalKeyAccepted = accepted)) })
+                            Text("Я подтверждаю это сопоставление показателя")
+                        }
                         TextButton(onClick = { haptics.tap(); observationDateIndex = index }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Дата результата: ${formatDate(row.observedAt, zone)}") }
                         row.sourcePage?.let { Text("Страница источника: $it", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                         TextButton(onClick = { haptics.reject(); viewModel.removeObservation(index) }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Убрать результат", color = MaterialTheme.colorScheme.error) }

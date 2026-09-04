@@ -27,6 +27,15 @@ class HealthReportAiReaderTest {
         assertEquals(1, (result as HealthReportAiResult.Success).draft.report.observations.single().sourcePage)
     }
     @Test
+    fun `reader uses the exact disclosed endpoint and model without rereading configuration`() = runTest {
+        val api = FakeApi("""{"title":"CBC","provenance":"lab","reportedAt":"2026-01-10","observations":[{"rawName":"Hb","valueType":"NUMBER","rawValue":"125","observedAt":"2026-01-10","sourcePage":1}]}""")
+        val frozen = AiApiRequestConfiguration(AiApiConnection("https://frozen.example/v1/", "key"), "frozen-model")
+
+        reader(api, Renderer()).read(Uri.parse("content://report"), frozen, false)
+
+        assertEquals("frozen-model", api.request!!.model)
+    }
+    @Test
     fun `reader rejects duplicate and nonfinite values`() = runTest {
         val duplicate = """{"title":"CBC","provenance":"lab","reportedAt":"2026-01-10","observations":[{"rawName":"Hb","valueType":"NUMBER","rawValue":"NaN","observedAt":"2026-01-10","sourcePage":1}]}"""
         assertTrue(reader(duplicate).read(Uri.parse("content://report")) is HealthReportAiResult.Failure)

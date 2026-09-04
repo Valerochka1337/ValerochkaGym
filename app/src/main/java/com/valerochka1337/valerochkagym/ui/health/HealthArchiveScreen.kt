@@ -54,7 +54,10 @@ fun HealthArchiveScreen(onBack: () -> Unit, viewModel: HealthArchiveViewModel = 
                 // Providers can reject a destination after the user accepted CreateDocument.
                 viewModel.onOutputUnavailable()
             }
-        }
+        } ?: viewModel.onDestinationCancelled()
+    }
+    LaunchedEffect(state.awaitingDestination) {
+        if (state.awaitingDestination) launcher.launch("health-archive.zip")
     }
     var reports by remember { mutableStateOf(emptyList<HealthReportEntity>()) }
     var restrictions by remember { mutableStateOf(emptyList<HealthRestrictionEntity>()) }
@@ -174,8 +177,8 @@ fun HealthArchiveScreen(onBack: () -> Unit, viewModel: HealthArchiveViewModel = 
                     state.error?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
                     state.success?.let { Text(it, color = MaterialTheme.colorScheme.primary, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
                     Button(
-                        onClick = { haptics.confirm(); launcher.launch("health-archive.zip") },
-                        enabled = !state.exporting && !state.initializing,
+                        onClick = { haptics.confirm(); viewModel.prepareExport() },
+                        enabled = !state.exporting && !state.initializing && !state.awaitingDestination,
                         modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
                     ) { Text(if (state.exporting) "Создание…" else "Создать ZIP") }
                 }

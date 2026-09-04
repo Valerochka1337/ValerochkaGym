@@ -88,6 +88,26 @@ class Migration13To14Test {
                     tables,
                 )
             }
+            assertColumns(
+                db,
+                "health_reports",
+                setOf("correctionOfVersion", "collectedAt", "conditions", "originalExpected"),
+            )
+            assertColumns(db, "health_report_snapshots", setOf("operationId"))
+            assertColumns(db, "health_restriction_snapshots", setOf("operationId"))
+        }
+    }
+
+    private fun assertColumns(
+        database: SupportSQLiteDatabase,
+        table: String,
+        expected: Set<String>,
+    ) {
+        database.query("PRAGMA table_info(`$table`)").use { cursor ->
+            val columns = buildSet {
+                while (cursor.moveToNext()) add(cursor.getString(cursor.getColumnIndexOrThrow("name")))
+            }
+            assertTrue(columns.containsAll(expected))
         }
     }
 

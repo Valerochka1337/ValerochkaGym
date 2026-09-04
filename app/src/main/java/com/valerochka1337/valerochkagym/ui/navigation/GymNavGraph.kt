@@ -63,7 +63,8 @@ object GymRoutes {
     const val SCHEDULE_EDITOR = "schedule_editor"
     const val HEALTH_CORRECTS_ID_ARG = "correctsSyncId"
     const val HEALTH_EDITOR = "health_editor?$HEALTH_CORRECTS_ID_ARG={$HEALTH_CORRECTS_ID_ARG}"
-    const val HEALTH_RESTRICTION_EDITOR = "health_restriction_editor"
+    const val HEALTH_RESTRICTION_ID_ARG = "restrictionId"
+    const val HEALTH_RESTRICTION_EDITOR = "health_restriction_editor?$HEALTH_RESTRICTION_ID_ARG={$HEALTH_RESTRICTION_ID_ARG}"
     const val HEALTH_ARCHIVE = "health_archive"
     const val HEALTH_REPORT_ID_ARG = "healthReportId"
     const val HEALTH_PERIOD_START_ARG = "healthPeriodStart"
@@ -96,6 +97,8 @@ object GymRoutes {
     fun workoutSummary(workoutId: String) = "workout_summary/$workoutId"
     fun healthEditor(correctsSyncId: String? = null) =
         if (correctsSyncId == null) "health_editor" else "health_editor?$HEALTH_CORRECTS_ID_ARG=${Uri.encode(correctsSyncId)}"
+    fun healthRestrictionEditor(restrictionId: String? = null) =
+        if (restrictionId == null) "health_restriction_editor" else "health_restriction_editor?$HEALTH_RESTRICTION_ID_ARG=${Uri.encode(restrictionId)}"
     fun workoutDetail(workoutId: String) = "workout_detail/$workoutId"
     fun exerciseDetail(exerciseId: Long) = "exercise_detail/$exerciseId"
     fun measurementEditor(measurementId: String? = null) =
@@ -227,7 +230,8 @@ fun GymNavGraph(
                 onOpenMeasurements = { navController.navigate(GymRoutes.MEASUREMENTS) },
                 onOpenMeasurement = { id -> navController.navigate(GymRoutes.measurementEditor(id)) },
                 onCreateHealthReport = { navController.navigate(GymRoutes.healthEditor()) },
-                onCreateRestriction = { navController.navigate(GymRoutes.HEALTH_RESTRICTION_EDITOR) },
+                onCreateRestriction = { navController.navigate(GymRoutes.healthRestrictionEditor()) },
+                onOpenHealthRestriction = { id -> navController.navigate(GymRoutes.healthRestrictionEditor(id)) },
                 onOpenHealthArchive = { navController.navigate(GymRoutes.HEALTH_ARCHIVE) },
                 onOpenHealthReport = { id, start, end -> navController.navigate(GymRoutes.healthReportDetail(id, start, end)) },
                 onOpenHealthConflict = { category, syncId, version ->
@@ -453,7 +457,10 @@ fun GymNavGraph(
             enterTransition = { slideIntoContainer(SlideDirection.Up, NavSlideSpec) },
             popExitTransition = { slideOutOfContainer(SlideDirection.Down, NavSlideSpec) },
         ) { HealthEditorScreen(onBack = { navController.popBackStack() }) }
-        composable(GymRoutes.HEALTH_RESTRICTION_EDITOR) { HealthRestrictionEditorScreen(onBack = { navController.popBackStack() }) }
+        composable(
+            route = GymRoutes.HEALTH_RESTRICTION_EDITOR,
+            arguments = listOf(navArgument(GymRoutes.HEALTH_RESTRICTION_ID_ARG) { type = NavType.StringType; nullable = true; defaultValue = null }),
+        ) { HealthRestrictionEditorScreen(onBack = { navController.popBackStack() }) }
         composable(GymRoutes.HEALTH_ARCHIVE) { HealthArchiveScreen(onBack = { navController.popBackStack() }) }
         composable(
             route = GymRoutes.HEALTH_CONFLICT,

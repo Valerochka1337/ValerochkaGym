@@ -62,7 +62,7 @@ class HealthSyncWorkerTest {
         assertEquals(NetworkType.CONNECTED, request.workSpec.constraints.requiredNetworkType)
         assertEquals(BackoffPolicy.EXPONENTIAL, request.workSpec.backoffPolicy)
         assertTrue(HealthSyncWorker.TAG_RESTRICTIONS in request.tags)
-        assertEquals("health_sync_HEALTH_RESTRICTIONS_r_2", HealthSyncWorker.workName(SettingsCategory.HEALTH_RESTRICTIONS, "r", 2))
+        assertEquals("HEALTH_RESTRICTIONS:r:2", HealthSyncWorker.workName(SettingsCategory.HEALTH_RESTRICTIONS, "r", 2))
     }
     @Test fun `final transient attempt retains exact outbox without acknowledgement`() = runTest {
         val store = FakeStore(); val settings = SettingsRepository(store)

@@ -10,6 +10,7 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import com.valerochka1337.valerochkagym.data.backup.ClearDataUseCase
 import com.valerochka1337.valerochkagym.data.backup.DatabaseExporter
 import com.valerochka1337.valerochkagym.data.backup.ExportResult
+import com.valerochka1337.valerochkagym.data.backup.PrivateOriginalsClearFailure
 import com.valerochka1337.valerochkagym.data.ai.AiModel
 import com.valerochka1337.valerochkagym.data.ai.AiModelCatalog
 import com.valerochka1337.valerochkagym.data.google.AuthorizeOutcome
@@ -59,6 +60,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
+import java.io.File
 import kotlin.time.Duration.Companion.milliseconds
 
 /**
@@ -241,6 +243,29 @@ class SettingsViewModelTest {
             assertTrue(message.contains("Не очищено: Состав тела и InBody: Measurements!A2:AY"))
             assertTrue(message.contains("Осталось: Медицинские анализы, Ограничения и важная информация"))
             assertTrue(health.clearCalls.isEmpty())
+        }
+
+    @Test
+    fun `remote clear pauses and restores the selected effective category workers`() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val settings = settingsRepository().also {
+                it.setHealthSyncEnabled(true)
+                it.setHealthSyncCategory(HealthSyncCategory.MEASUREMENTS, true)
+            }
+            val measurements = FakeMeasurementUploadScheduler()
+            val vm = SettingsViewModel(
+                settings, FakeGoogleAuth(), FakeUploadScheduler(), FakeImportRepository(),
+                FakeDatabaseExporter(), FakeClearData(), measurementUploadScheduler = measurements,
+                sheetsRepository = RecordingRemoteClearSheets(),
+            )
+
+            vm.requestRemoteClear()
+            vm.toggleRemoteClearCategory(HealthSyncCategory.MEASUREMENTS)
+            vm.continueRemoteClear()
+            vm.confirmRemoteClear()
+            advanceUntilIdle()
+
+            assertEquals(listOf(false, true), measurements.categoryChanges)
         }
 
     @Test
@@ -970,6 +995,25 @@ class SettingsViewModelTest {
             assertEquals("Нет доступа к таблице — проверьте вход и права", viewModel.messages.first())
         }
 
+    @Test
+    fun `failed replacement spreadsheet import restores the previous target`() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val previous = "1PreviousSpreadsheetId0000000000000000000"
+            val settings = settingsRepository().also { it.setSpreadsheetId(previous) }
+            val failingImport = FakeImportRepository(ImportResult.Failure("Нет доступа к таблице"))
+            settings.setHealthSyncEnabled(true)
+            settings.setHealthSyncCategory(HealthSyncCategory.WORKOUTS_AND_CONFIGURATION, true)
+            val viewModel = SettingsViewModel(
+                settings, FakeGoogleAuth(), FakeUploadScheduler(), failingImport,
+                FakeDatabaseExporter(), FakeClearData(),
+            )
+
+            viewModel.setSpreadsheetInput(validSpreadsheetId)
+
+            assertEquals(previous, settings.settings.first().spreadsheetId)
+            assertEquals("Нет доступа к таблице", viewModel.messages.first())
+        }
+
     // endregion
 
     // region data card
@@ -1034,6 +1078,22 @@ class SettingsViewModelTest {
 
             assertEquals(1, clear.calls)
             assertEquals("Данные очищены", viewModel.messages.first())
+        }
+
+    @Test
+    fun `clearAllData reports partial cleanup rather than success`() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val viewModel = SettingsViewModel(
+                settingsRepository(), FakeGoogleAuth(), FakeUploadScheduler(), FakeImportRepository(),
+                FakeDatabaseExporter(), PartialClearData(),
+            )
+
+            viewModel.clearAllData()
+
+            assertEquals(
+                "Не удалось удалить локальные оригиналы: health_documents",
+                viewModel.messages.first(),
+            )
         }
 
     // endregion
@@ -1159,6 +1219,12 @@ class SettingsViewModelTest {
         override suspend fun invoke() {
             calls++
         }
+    }
+
+    private class PartialClearData : ClearDataUseCase {
+        override suspend fun invoke(): Nothing = throw PrivateOriginalsClearFailure(
+            listOf(File("health_documents")),
+        )
     }
 
     /** No-op [UploadScheduler]: these tests never invoke the export path. */

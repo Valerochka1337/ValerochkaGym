@@ -42,10 +42,20 @@ class AndroidHealthDocumentRenderer @Inject constructor(
     }
 
     private suspend fun renderImage(uri: Uri): HealthDocumentRenderResult {
-        val bitmap = resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it) }
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
+            return HealthDocumentRenderResult.Failure("Не удалось открыть изображение — введите результаты вручную")
+        }
+        var sample = 1
+        while (bounds.outWidth / sample > MAX_IMAGE_DIMENSION || bounds.outHeight / sample > MAX_IMAGE_DIMENSION ||
+            (bounds.outWidth / sample).toLong() * (bounds.outHeight / sample) > MAX_IMAGE_PIXELS) sample *= 2
+        val options = BitmapFactory.Options().apply { inSampleSize = sample }
+        val bitmap = resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, options) }
             ?: return HealthDocumentRenderResult.Failure("Не удалось открыть изображение — введите результаты вручную")
-        return bitmap.jpegDataUrl()?.let { HealthDocumentRenderResult.Success(listOf(it)) }
+        return try { bitmap.jpegDataUrl()?.let { HealthDocumentRenderResult.Success(listOf(it)) }
             ?: HealthDocumentRenderResult.Failure("Изображение слишком большое — введите результаты вручную")
+        } finally { bitmap.recycle() }
     }
 
     private suspend fun renderPdf(uri: Uri): HealthDocumentRenderResult {
@@ -74,5 +84,5 @@ class AndroidHealthDocumentRenderer @Inject constructor(
         if (bytes.size > MAX_PAGE_BYTES) return null
         return "data:image/jpeg;base64," + Base64.encodeToString(bytes, Base64.NO_WRAP)
     }
-    private companion object { const val MAX_SOURCE_BYTES = 20 * 1024 * 1024; const val MAX_PAGES = 10; const val MAX_PAGE_BYTES = 6 * 1024 * 1024; const val MAX_REQUEST_CHARS = 20 * 1024 * 1024 * 4 / 3 }
+    private companion object { const val MAX_SOURCE_BYTES = 20 * 1024 * 1024; const val MAX_PAGES = 10; const val MAX_PAGE_BYTES = 6 * 1024 * 1024; const val MAX_REQUEST_CHARS = 20 * 1024 * 1024 * 4 / 3; const val MAX_IMAGE_DIMENSION = 2_048; const val MAX_IMAGE_PIXELS = 4_194_304L }
 }

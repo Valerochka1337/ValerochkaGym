@@ -1,4 +1,4 @@
-# Health data — implementation tracker
+# Superseded checkpoint tracker — retained as evidence only
 
 Plan: `vibe/health-data-plan.md`. Status vocabulary: `pending | in_progress | done | blocked`.
 
@@ -101,3 +101,84 @@ feature acceptance, not this checkpoint.
 
 Passed: all ACs map to tasks and checks; one writer has non-overlapping ownership; contracts and
 waves precede dependent work; conditional gates and final sequential gates are explicit.
+
+---
+
+# Final execution tracker — health-data
+
+Plan: `vibe/health-data-plan.md`, final implementation plan. Status vocabulary:
+`pending | in_progress | done | blocked`. Checkpoint commands above are historical evidence only;
+they do not mark the final tasks done.
+
+## Tasks
+
+| Task | Status | Owner | Dependencies | Observable done evidence |
+|---|---|---|---|---|
+| T-001 Contract + v10 migration | done | Coder A | — | Gate I passed. Frozen API: `ReportSaveCommand`/`ReportSaveResult`, `ConfirmRestrictionProposalsCommand`/`RestrictionConfirmationResult`, `saveReport`, `correctionTarget(reportSyncId): ConfirmedHealthReport?`, `revoke(operationId)`, `liftRestriction`, all/current report/restriction flows and `SyncConflictResolver.resolve`; `HealthSheetRows` owns final health wire/header constants. v10 keeps `PRELIMINARY/FINAL/CORRECTED/REVOKED`, exact raw operator text, explicit canonical acceptance, correction relation, dates/conditions/original expectation, immutable snapshot/outbox and retry operation receipts. |
+| T-002 Sheets/settings/workers + primary import | in_progress | Coder A | T-001 / Gate I | B1 implementation is complete: final v10 report header/prefix and strict aggregate validation, cancellation propagation, local-only restriction wording retention, one-time legacy consent/fresh-disabled target, serialized target import with rollback, remote-clear worker pause/restore, exact `CATEGORY:syncId:version` work names, and `PrimaryImportAnalysisIntegrationTest`. Strict review repair computes canonical SHA-256 for every remote conflict (including missing Sheets hash), and rejects invalid enum/positive-time/bit/lifecycle rows before a transaction. Added observable Settings tests plus missing-hash conflict-resolution and atomic malformed-import tests. Existing B1 repair gate passed; the new three-class targeted run is blocked only by current B2 compile errors. `git diff --check` passes. |
+| T-003 AI/private originals/Clear Data/UI/history/archive | in_progress | Coder B | T-001 / Gate I | Shared `PrivateOriginalsLifecycleGate` serializes health/measurement originals, capture markers and non-cancellable background Clear Data. Corrections retain observation IDs plus a SavedStateHandle-stable operation/version; report/restriction history, restriction edit/lift, visible unit/method/material/source incompatibilities, retryable failed-original deletion, and pre-SAF archive selection are reachable. Targeted B2 unit gate and `git diff --check` pass (2026-09-04). |
+| T-004 Consolidated fix + version integration | pending | Coder A | T-002,T-003,tester/reviewer findings | Findings resolved or accepted residual P2, `ARCHITECTURE.md` reconciled with durable header/managed-clear/worker contracts, `origin/main` version comparison and exactly one required increment recorded, final gates complete. |
+
+## AC → task → test traceability
+
+| AC | Task | Evidence |
+|---|---|---|
+| AC-001–003 | T-001,T-003 | repository draft/idempotency tests; editor empty/draft/cancel UI-state tests |
+| AC-004–005 | T-001 | payload codec and canonical-key acceptance tests |
+| AC-006–008 | T-001,T-003 | trend/comparability projection + accessible table/incompatibility UI tests |
+| AC-009–010 | T-001,T-003 | report correction/revoke and restriction proposal/confirm/lift history tests |
+| AC-011 | T-003 | semantic/action-size and fontScale 2.0 manual accessibility check |
+| AC-012–014 | T-001,T-002 | round-trip/strict header+clear/re-import/outbox exact-ACK/cancel/category-disable/conflict tests; B1 gate pending |
+| AC-015–018 | T-002,T-003 | READY-only recovery/archive/hash; retry/idempotency; scoped remote-clear with worker pause/restore and manual SAF-cancel checks |
+| AC-019–022 | T-001,T-002,T-003 | legacy Measurements projection/same-route/no-observation/conditions/no-device tests |
+| AC-023–027 | T-001,T-002 | legacy marker/fresh-disabled plus serialized import rollback; A:AY and legacy parser; snapshot/tombstone/conflict/retry tests |
+| AC-028–032 | T-003 | Health+InBody exact endpoint/model consent/TOCTOU, strict failures, redaction, public-HTTP/local-warning/cancellation tests |
+| AC-033–034 | T-002 | unified category settings, remote-clear worker isolation and InBody-only-via-Measurements tests |
+| AC-035–037 | T-002,T-004 | Coder A-owned `PrimaryImportAnalysisIntegrationTest`: Workouts/Measurements import refreshes Analysis; no derived sheet; legacy-state regression and final architecture reconciliation |
+
+## Gate and command results
+
+| Gate / command | Status / result |
+|---|---|
+| Gate I T-001 command in plan | passed — `./gradlew :app:testDebugUnitTest --tests '*Migration9To10Test' --tests '*Migration1To10Test' --tests '*HealthRepositoryTest' --tests '*HealthSyncPayloadCodecTest' --tests '*HealthTrendCalculatorTest'` (BUILD SUCCESSFUL, 2026-09-04) |
+| B1 T-002 repair command | passed — `./gradlew :app:testDebugUnitTest --tests '*HealthSheetsRepositoryTest' --tests '*SettingsViewModelTest' --tests '*HealthSyncWorkerTest' --tests '*MeasurementUploadSchedulerTest' --tests '*UploadMeasurementWorkerTest'` (BUILD SUCCESSFUL in 12s, 37 actionable tasks, 10 executed, 2026-09-04). The larger planned B1 gate still includes `HealthSyncStartupReconcilerTest`, `UploadMeasurementWorkerVersionTest` and `PrimaryImportAnalysisIntegrationTest`. |
+| Strict review repair command | blocked before tests — `./gradlew :app:testDebugUnitTest --tests '*HealthSheetsRepositoryTest' --tests '*SyncConflictResolverTest' --tests '*HealthRepositoryTest'`; current B2 errors: `ClearDataUseCase.kt:70` syntax and `HealthEditorViewModel.kt` unresolved `savedStateHandle` at 76/77/78/130/133/136. No B1 compile error was reported. |
+| B2 T-003 focused repair command | passed — `./gradlew :app:testDebugUnitTest --tests '*HealthEditorViewModelTest' --tests '*HealthReportDetailViewModelTest' --tests '*HealthDocumentRepositoryTest' --tests '*ClearDataUseCaseTest' --tests '*ClearDataUseCaseRaceTest' --tests '*HealthArchiveViewModelTest' --tests '*PendingInBodyCaptureRegistryTest' --tests '*AnalysisViewModelTest'` (BUILD SUCCESSFUL in 15s, 37 actionable tasks, 10 executed, 2026-09-04). |
+| B2 writer whitespace gate | passed — `git diff --check` (2026-09-04); no Gradle run while B1 is active |
+| Tester/reviewer wave | pending; tester is sole Gradle owner |
+| `./gradlew :app:testDebugUnitTest` | pending; run once after final stable diff |
+| `./gradlew :app:assembleDebug` | pending; run once after full tests |
+| `./gradlew :app:assembleRelease` | pending; attempt once after debug; expected possible local signing blocker |
+
+## Deviations
+
+- None accepted for the final plan. The checkpoint’s nullable migrated v1 hash and PDF limits must
+  be revalidated by T-001/T-003 rather than treated as acceptance.
+- T-001 keeps the unreleased database at v10 (not v11): `MIGRATION_9_10` and `10.json` were amended together. Legacy `CONFIRMED` is mapped only while decoding old checkpoint payloads; new writes use `FINAL`.
+
+## Findings to close
+
+- T-001: report lifecycle/date/conditions/originalExpected, raw operator fidelity, explicit
+  canonical key, migration/schema/payload, save idempotency, restriction lifecycle/history.
+- T-002: implementation complete; pending only the listed B1 Gradle verification for strict Sheets
+  aggregate/header/absent/duplicate-orphan/local-originalText/cancellation, validated A2:AY clear
+  preserving AZ+, exact worker scheduling/ACK/startup reconciliation, target/category rollback and
+  remote-clear worker pause/restore, plus Coder A-only AC-035/036 integration.
+- T-003: Health+InBody config TOCTOU/logger; `PendingInBodyCaptureRegistry` plus the shared
+  measurement-document lifecycle gate serialize active capture/store callbacks before verified
+  health+measurement private-file/Clear Data deletion and partial failure; accessible
+  history/conflict UI, incompatibility warning, deletion retry and SAF recreation selection.
+
+## Residual risks
+
+- Release assembly may remain blocked solely by unavailable signing material; record the exact
+  message, never work around it.
+- Device/provider PDF and SAF cancellation plus fontScale 2.0 remain manual checks; no screenshots
+  or render-artifact inspection without explicit user permission.
+
+## Gate P
+
+Passed: each AC has an implementation task and verification; T-001 alone owns `HealthSheetRows`,
+Coder A B1 alone owns DI/Sheets/settings/workers/primary-import integration, and Coder B B2 alone
+owns the full AI/InBody/logger/private-file/UI chain; Gate I freezes required APIs before parallel
+implementation; relevant conditional/final gates only are listed.

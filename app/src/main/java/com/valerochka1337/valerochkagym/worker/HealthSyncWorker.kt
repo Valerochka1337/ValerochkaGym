@@ -73,7 +73,7 @@ class HealthSyncWorker @AssistedInject constructor(
                 .setInputData(workDataOf(KEY_CATEGORY to category.name, KEY_SYNC_ID to id, KEY_VERSION to version))
                 .build()
         internal fun workName(category: SettingCategory, id: String, version: Long) =
-            "health_sync_${category.name}_${id}_$version"
+            "${category.name}:$id:$version"
         private fun categoryTag(category: SettingCategory) =
             if (category == SettingCategory.HEALTH_RESTRICTIONS) TAG_RESTRICTIONS else TAG_REPORTS
         const val MAX_ATTEMPTS = 5

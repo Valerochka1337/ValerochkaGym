@@ -16,4 +16,6 @@ data class HealthReportSnapshotEntity(
     val isTombstone: Boolean,
     val canonicalPayload: String,
     val payloadHash: String?,
+    /** Local idempotency receipt; deliberately excluded from the immutable sync payload. */
+    val operationId: String? = null,
 )

@@ -52,6 +52,8 @@ data class HealthArchiveUiState(
     val initializing: Boolean = true,
     val preview: HealthArchivePreview? = null,
     val exporting: Boolean = false,
+    /** A SAF destination is requested only after this exact selection is frozen. */
+    val awaitingDestination: Boolean = false,
     val success: String? = null,
     val error: String? = null,
 )
@@ -71,6 +73,7 @@ class HealthArchiveViewModel @Inject constructor(
     val uiState: StateFlow<HealthArchiveUiState> = mutableState.asStateFlow()
     private var previewGeneration = 0L
     private var selectionRevision = 0L
+    private var frozenSelection: HealthArchiveSelection? = null
 
     init { materializeInitialSelection() }
     fun toggleMeasurement(id: String) { mutateSelection { it.copy(measurementIds = it.measurementIds.toggle(id)) } }
@@ -98,21 +101,32 @@ class HealthArchiveViewModel @Inject constructor(
     }
     /** Called by the SAF host when the provider cannot open a caller-owned destination stream. */
     fun onOutputUnavailable() {
-        if (!mutableState.value.exporting) mutableState.update { it.copy(error = "Не удалось открыть файл для архива") }
+        frozenSelection = null
+        if (!mutableState.value.exporting) mutableState.update { it.copy(awaitingDestination = false, error = "Не удалось открыть файл для архива") }
     }
+    /** Called before CreateDocument. Recreation has no frozen instance selection and therefore fails closed. */
+    fun prepareExport() {
+        val state = mutableState.value
+        if (state.initializing || state.exporting || state.awaitingDestination) return
+        frozenSelection = selection(state)
+        previewGeneration++
+        mutableState.update { it.copy(awaitingDestination = true, error = null, success = null) }
+    }
+    fun onDestinationCancelled() { frozenSelection = null; mutableState.update { it.copy(awaitingDestination = false) } }
     fun export(output: OutputStream) = viewModelScope.launch {
         val state = mutableState.value
-        if (state.initializing) {
+        val frozen = frozenSelection
+        if (state.initializing || frozen == null || !state.awaitingDestination) {
             runCatching { output.close() }
-            mutableState.update { it.copy(error = "Состав архива ещё готовится") }
+            mutableState.update { it.copy(awaitingDestination = false, error = "Состав архива нужно выбрать заново") }
             return@launch
         }
         if (state.exporting) { runCatching { output.close() }; return@launch }
-        val frozenSelection = selection(state)
+        frozenSelection = null
         previewGeneration++
-        mutableState.update { it.copy(exporting = true, error = null, success = null) }
+        mutableState.update { it.copy(exporting = true, awaitingDestination = false, error = null, success = null) }
         try {
-            when (val result = exporter.export(output, frozenSelection)) {
+            when (val result = exporter.export(output, frozen)) {
                 is HealthArchiveExportResult.Success -> mutableState.update { it.copy(exporting = false, success = "Архив создан: ${result.records} записей") }
                 is HealthArchiveExportResult.Failure -> mutableState.update { it.copy(exporting = false, error = result.message) }
             }

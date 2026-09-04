@@ -76,8 +76,8 @@ data class HealthAnalysisState(
     val conflicts: List<HealthSyncConflictEntity> = emptyList(),
 ) {
     val latestMeasurement get() = measurements.maxByOrNull { it.measuredAt }
-    val latestReport get() = reports.maxByOrNull { it.reportedAt }
-    val activeRestrictions get() = restrictions.filter { it.status != "LIFTED" }
+    val latestReport get() = reports.filterNot { it.isTombstone || it.status == "REVOKED" }.maxByOrNull { it.reportedAt }
+    val activeRestrictions get() = restrictions.filterNot { it.isTombstone || it.status == "LIFTED" }
 }
 
 /**
@@ -149,8 +149,8 @@ class AnalysisViewModel @Inject constructor(
 
     private val healthState = combine(
         bodyMeasurementDao.observeAll(),
-        healthDao.observeLiveReports(),
-        healthDao.observeLiveRestrictions(),
+        healthDao.observeReportsForHistory(),
+        healthDao.observeRestrictionsForHistory(),
         healthDao.observeConflicts(),
     ) { measurements, reports, restrictions, conflicts ->
         HealthAnalysisState(measurements, reports, restrictions, conflicts)

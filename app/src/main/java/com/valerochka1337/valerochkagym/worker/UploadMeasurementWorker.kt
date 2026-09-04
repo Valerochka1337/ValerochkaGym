@@ -109,7 +109,7 @@ class UploadMeasurementWorker @AssistedInject constructor(
                 .build()
             workManager.enqueueUniqueWork(
                 if (version == null) "upload_measurement_$measurementId"
-                else "upload_measurement_${measurementId}_$version",
+                else "${HealthSyncCategory.MEASUREMENTS}:$measurementId:$version",
                 ExistingWorkPolicy.REPLACE,
                 request,
             )

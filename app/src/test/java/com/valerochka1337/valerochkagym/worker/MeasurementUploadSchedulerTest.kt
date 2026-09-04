@@ -47,8 +47,8 @@ class MeasurementUploadSchedulerTest {
 
         scheduler.schedule("m1")
 
-        assertEquals(1, workManager.getWorkInfosForUniqueWork("upload_measurement_m1_1").get().size)
-        assertEquals(1, workManager.getWorkInfosForUniqueWork("upload_measurement_m1_2").get().size)
+        assertEquals(1, workManager.getWorkInfosForUniqueWork("MEASUREMENTS:m1:1").get().size)
+        assertEquals(1, workManager.getWorkInfosForUniqueWork("MEASUREMENTS:m1:2").get().size)
         assertTrue(dao.statusUpdates.isEmpty())
     }
 
@@ -59,7 +59,7 @@ class MeasurementUploadSchedulerTest {
 
         scheduler.onCategoryChanged(true)
 
-        assertEquals(1, workManager.getWorkInfosForUniqueWork("upload_measurement_migrated_1").get().size)
+        assertEquals(1, workManager.getWorkInfosForUniqueWork("MEASUREMENTS:migrated:1").get().size)
         assertTrue(dao.statusUpdates.isEmpty())
     }
 
@@ -72,8 +72,8 @@ class MeasurementUploadSchedulerTest {
         assertEquals(listOf(1L, 2L), outbox.pending(HealthSyncCategory.MEASUREMENTS).map { it.version })
         scheduler.onCategoryChanged(true)
 
-        assertEquals(1, workManager.getWorkInfosForUniqueWork("upload_measurement_retained_1").get().size)
-        assertEquals(1, workManager.getWorkInfosForUniqueWork("upload_measurement_retained_2").get().size)
+        assertEquals(1, workManager.getWorkInfosForUniqueWork("MEASUREMENTS:retained:1").get().size)
+        assertEquals(1, workManager.getWorkInfosForUniqueWork("MEASUREMENTS:retained:2").get().size)
     }
 
     @Test
@@ -91,7 +91,7 @@ class MeasurementUploadSchedulerTest {
             listOf("m1" to UploadStatus.PENDING),
             dao.statusUpdates,
         )
-        listOf("upload_measurement_m1_1", "upload_measurement_m2_1", "upload_measurement_m2_2").forEach { name ->
+        listOf("MEASUREMENTS:m1:1", "MEASUREMENTS:m2:1", "MEASUREMENTS:m2:2").forEach { name ->
             assertEquals(1, workManager.getWorkInfosForUniqueWork(name).get().size)
         }
     }
@@ -109,7 +109,7 @@ class MeasurementUploadSchedulerTest {
         val count = scheduler.scheduleAllPending()
 
         assertEquals(0, count)
-        assertTrue(workManager.getWorkInfosForUniqueWork("upload_measurement_m1_1").get().isEmpty())
+        assertTrue(workManager.getWorkInfosForUniqueWork("MEASUREMENTS:m1:1").get().isEmpty())
         assertEquals(1, outbox.pending(HealthSyncCategory.MEASUREMENTS).size)
     }
 

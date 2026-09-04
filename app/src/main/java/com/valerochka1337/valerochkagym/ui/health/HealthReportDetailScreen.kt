@@ -105,9 +105,14 @@ fun HealthReportDetailScreen(
                 }
             }
             state.deletionError?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
+            if (state.pendingOriginalDeletionIds.isNotEmpty()) TextButton(
+                onClick = { haptics.confirm(); viewModel.retryOriginalDeletion() },
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+            ) { Text("Повторить удаление оригинала") }
             message?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
 
             VersionHistory(state.history, zone)
+            IncompatibilityWarnings(state.incompatibilities)
             ComparableTrends(state.comparableSeries, zone)
             Text("Результаты", style = MaterialTheme.typography.titleLarge)
             state.observations.forEach { ObservationCard(it, zone) }
@@ -121,6 +126,17 @@ fun HealthReportDetailScreen(
         dismissButton = { TextButton(onClick = { haptics.reject(); deleteDialog = false }, enabled = !state.deleting) { Text("Отмена") } },
         confirmButton = { Column { TextButton(onClick = { haptics.reject(); viewModel.deleteReport(false); deleteDialog = false }, enabled = !state.deleting) { Text("Удалить запись, оставить оригинал") }; TextButton(onClick = { haptics.reject(); viewModel.deleteReport(true); deleteDialog = false }, enabled = !state.deleting) { Text("Удалить запись и оригинал", color = MaterialTheme.colorScheme.error) } } },
     )
+}
+
+@Composable
+private fun IncompatibilityWarnings(items: List<HealthTrendIncompatibility>) {
+    if (items.isEmpty()) return
+    GymCard(modifier = Modifier.fillMaxWidth()) {
+        Text("Несопоставимые результаты", style = MaterialTheme.typography.titleLarge)
+        items.forEach { item ->
+            ValueRow(item.canonicalKey, item.reason)
+        }
+    }
 }
 
 @Composable

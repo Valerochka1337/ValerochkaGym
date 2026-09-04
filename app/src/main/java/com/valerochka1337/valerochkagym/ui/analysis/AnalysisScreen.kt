@@ -89,6 +89,7 @@ fun AnalysisScreen(
     onOpenMeasurement: (String) -> Unit = {},
     onCreateHealthReport: () -> Unit = {},
     onCreateRestriction: () -> Unit = {},
+    onOpenHealthRestriction: (String) -> Unit = {},
     onOpenHealthArchive: () -> Unit = {},
     onOpenHealthReport: (String, Long, Long) -> Unit = { _, _, _ -> },
     onOpenHealthConflict: (String, String, Long) -> Unit = { _, _, _ -> },
@@ -188,6 +189,7 @@ fun AnalysisScreen(
                                 val end = state.report.range.endInclusive.plusDays(1).atStartOfDay(state.zone).toInstant().toEpochMilli() - 1
                                 onOpenHealthReport(id, start, end)
                             },
+                            onOpenRestriction = onOpenHealthRestriction,
                             onOpenArchive = onOpenHealthArchive,
                             onOpenConflict = { conflict ->
                                 onOpenHealthConflict(conflict.category, conflict.syncId, conflict.version)

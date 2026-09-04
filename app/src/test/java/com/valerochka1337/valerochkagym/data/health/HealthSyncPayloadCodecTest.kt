@@ -7,4 +7,10 @@ class HealthSyncPayloadCodecTest {
  @Test fun `report payload is deterministic and preserves typed rows`() { val r=HealthReportEntity("r",2,3,true,"REVOKED","DOCUMENT",4,"CBC","n",1); val a=HealthObservationEntity("a","r",1,2,false,4,"Hb","NUMBER","120","g", "ref","m","blood","lab","hb",2); val b=a.copy(syncId="b",valueType="TEXT",rawValue="ok",sourcePage=3); val one=HealthSyncPayloadCodec.report(r,listOf(b,a)); val two=HealthSyncPayloadCodec.report(r,listOf(a,b)); assertEquals(one,two); val decoded=HealthSyncPayloadCodec.decodeReport(one)!!; assertEquals(r,decoded.report); assertEquals(listOf(a,b),decoded.observations) }
  @Test fun `restriction sync payload and Sheets row exclude local original wording`() { val r=HealthRestrictionEntity("x",1,2,false,"ACTIVE","USER",3,null,4,"No sprint",originalText="Полная исходная формулировка"); val payload=HealthSyncPayloadCodec.restriction(r); assertFalse(payload.contains("Полная исходная формулировка")); assertNull(HealthSyncPayloadCodec.decodeRestriction(payload)!!.originalText); assertFalse(HealthSheetRows.restrictionRow(r,"hash","x:1").contains("Полная исходная формулировка")); assertEquals(HealthSheetRows.RESTRICTION_HEADER.size,HealthSheetRows.restrictionRow(r,"hash","x:1").size) }
  @Test fun `restriction and malformed payload decode safely`() { val r=HealthRestrictionEntity("x",1,2,false,"ACTIVE","USER",3,null,4,"No sprint"); assertEquals(r,HealthSyncPayloadCodec.decodeRestriction(HealthSyncPayloadCodec.restriction(r))); assertNull(HealthSyncPayloadCodec.decodeReport("bad")) }
+ @Test fun `report wire retains separate dates conditions and original expectation`() {
+  val report=HealthReportEntity("r",1,20,false,"FINAL","LAB",30,"CBC",null,null,correctionOfVersion=7,collectedAt=10,conditions="fasting",originalExpected=true)
+  val observation=HealthObservationEntity("o","r",1,20,false,10,"Hb","NUMBER_WITH_OPERATOR",">=02.00")
+  val decoded=HealthSyncPayloadCodec.decodeReport(HealthSyncPayloadCodec.report(report,listOf(observation)))!!
+  assertEquals(report,decoded.report);assertEquals(">=02.00",decoded.observations.single().rawValue)
+ }
 }

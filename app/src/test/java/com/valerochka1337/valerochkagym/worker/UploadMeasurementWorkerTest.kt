@@ -122,8 +122,8 @@ class UploadMeasurementWorkerTest {
         assertTrue(repository.measurementIds.isEmpty())
         assertTrue(repository.snapshots.isEmpty())
         assertEquals(listOf(1L, 2L), outbox.pending(HealthSyncCategory.MEASUREMENTS).map { it.version })
-        assertEquals(1, workManager.getWorkInfosForUniqueWork("upload_measurement_m1_1").get().size)
-        assertEquals(1, workManager.getWorkInfosForUniqueWork("upload_measurement_m1_2").get().size)
+        assertEquals(1, workManager.getWorkInfosForUniqueWork("MEASUREMENTS:m1:1").get().size)
+        assertEquals(1, workManager.getWorkInfosForUniqueWork("MEASUREMENTS:m1:2").get().size)
     }
 
     @Test

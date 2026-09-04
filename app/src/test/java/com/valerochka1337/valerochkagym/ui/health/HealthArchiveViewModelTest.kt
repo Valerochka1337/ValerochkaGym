@@ -39,13 +39,14 @@ class HealthArchiveViewModelTest : RoomDaoTest() {
         vm.toggleReport("report")
         testScheduler.advanceUntilIdle()
         assertEquals(emptySet<String>(), vm.uiState.value.reportIds)
+        vm.prepareExport()
         val output = ByteArrayOutputStream(); vm.export(output); testScheduler.advanceUntilIdle()
         assertTrue(vm.uiState.value.success!!.contains("Архив"))
         assertEquals(emptySet<String>(), exporter.lastSelection!!.reportIds)
         assertEquals("zip".encodeToByteArray().toList(), output.toByteArray().toList())
         assertEquals("CBC", db.healthDao().report("report")!!.title)
 
-        exporter.fail = true; vm.export(ByteArrayOutputStream()); testScheduler.advanceUntilIdle()
+        exporter.fail = true; vm.prepareExport(); vm.export(ByteArrayOutputStream()); testScheduler.advanceUntilIdle()
         assertEquals("ошибка", vm.uiState.value.error)
         assertFalse(vm.uiState.value.exporting)
     }
@@ -71,7 +72,7 @@ class HealthArchiveViewModelTest : RoomDaoTest() {
         assertEquals(setOf("r2"), vm.uiState.value.reportIds)
         assertEquals(setOf("x1"), vm.uiState.value.restrictionIds)
         assertEquals(setOf("m2"), vm.uiState.value.measurementIds)
-        vm.export(ByteArrayOutputStream()); testScheduler.advanceUntilIdle()
+        vm.prepareExport(); vm.export(ByteArrayOutputStream()); testScheduler.advanceUntilIdle()
         assertEquals(setOf("r2"), exporter.lastSelection!!.reportIds)
         assertEquals(setOf("x1"), exporter.lastSelection!!.restrictionIds)
 
@@ -96,12 +97,13 @@ class HealthArchiveViewModelTest : RoomDaoTest() {
         vm.export(early)
         testScheduler.advanceUntilIdle()
         assertEquals(1, early.closeCalls)
-        assertEquals("Состав архива ещё готовится", vm.uiState.value.error)
+        assertEquals("Состав архива нужно выбрать заново", vm.uiState.value.error)
         assertEquals(0, exporter.exports)
 
         vm.uiState.first { !it.initializing }
         exporter.fail = true
         val failing = TrackingOutputStream()
+        vm.prepareExport()
         vm.export(failing)
         testScheduler.advanceUntilIdle()
         assertEquals(1, failing.closeCalls)

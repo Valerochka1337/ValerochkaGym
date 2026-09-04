@@ -34,15 +34,23 @@ data class HealthReportDetailState(
     val observations: List<HealthObservationEntity> = emptyList(),
     val documents: List<HealthDocumentEntity> = emptyList(),
     val comparableSeries: List<HealthTrendSeries> = emptyList(),
+    val incompatibilities: List<HealthTrendIncompatibility> = emptyList(),
     val conflicts: List<HealthSyncConflictEntity> = emptyList(),
     val history: List<HealthReportSnapshotEntity> = emptyList(),
     val deleting: Boolean = false,
     val structuredDeleted: Boolean = false,
+    val pendingOriginalDeletionIds: Set<String> = emptySet(),
     val deletionError: String? = null,
 ) {
     val hasReadyOriginal: Boolean get() = documents.any { it.state == "READY" }
     val missingOriginal: Boolean get() = report?.provenance == "DOCUMENT" && !hasReadyOriginal
 }
+
+/** Same canonical key is not a trend when its measurement context differs. */
+data class HealthTrendIncompatibility(
+    val canonicalKey: String,
+    val reason: String,
+)
 
 /** The detail is keyed by sync id; historical values are grouped only by strict comparable keys. */
 @HiltViewModel
@@ -75,16 +83,19 @@ class HealthReportDetailViewModel @Inject constructor(
         val report = selected.report
         val observations = selected.observations
         val selectedCanonicalKeys = observations.mapNotNull(HealthObservationEntity::canonicalKey).toSet()
+        val selectedDrafts = observations.mapNotNull(HealthObservationEntity::toDraft)
+        val matchingHistory = history
+            .filter { it.observedAt in periodStart..periodEnd }
+            .filter { it.canonicalKey in selectedCanonicalKeys }
+            .mapNotNull(HealthObservationEntity::toDraft)
         HealthReportDetailState(
             report = report,
             observations = observations,
             documents = selected.documents,
             comparableSeries = HealthTrendCalculator.series(
-                history
-                    .filter { it.observedAt in periodStart..periodEnd }
-                    .filter { it.canonicalKey in selectedCanonicalKeys }
-                    .mapNotNull(HealthObservationEntity::toDraft),
+                matchingHistory,
             ),
+            incompatibilities = trendIncompatibilities(selectedDrafts + matchingHistory),
             conflicts = conflicts,
             history = selected.snapshots,
         )
@@ -97,7 +108,7 @@ class HealthReportDetailViewModel @Inject constructor(
         val snapshots: List<HealthReportSnapshotEntity>,
     )
     val uiState: StateFlow<HealthReportDetailState> = combine(detail, deletion) { detail, deletion ->
-        detail.copy(deleting = deletion.deleting, structuredDeleted = deletion.structuredDeleted, deletionError = deletion.error)
+        detail.copy(deleting = deletion.deleting, structuredDeleted = deletion.structuredDeleted, pendingOriginalDeletionIds = deletion.pendingOriginalDeletionIds, deletionError = deletion.error)
     }.stateIn(
         viewModelScope,
         SharingStarted.WhileSubscribed(5_000),
@@ -112,25 +123,69 @@ class HealthReportDetailViewModel @Inject constructor(
             deletion.value = DeleteState(error = "Не удалось удалить исследование")
             eventsChannel.send(HealthReportDeleteEvent.Failure("Не удалось удалить исследование")); return@launch
         }
-        val failed = if (deleteOriginals) uiState.value.documents.filter { it.state == "READY" }.any { !documentsRepository.delete(it.id) } else false
-        if (failed) {
+        val failedIds = if (deleteOriginals) uiState.value.documents.filter { it.state == "READY" }
+            .filterNot { documentsRepository.delete(it.id) }.mapTo(linkedSetOf()) { it.id } else emptySet()
+        if (failedIds.isNotEmpty()) {
             val message = "Запись удалена, но оригинал удалить не удалось"
-            deletion.value = DeleteState(structuredDeleted = true, error = message)
+            deletion.value = DeleteState(structuredDeleted = true, pendingOriginalDeletionIds = failedIds, error = message)
             eventsChannel.send(HealthReportDeleteEvent.PartialFailure(message))
         } else {
             deletion.value = DeleteState(structuredDeleted = true)
             eventsChannel.send(HealthReportDeleteEvent.Success)
         }
     }
+
+    /** Metadata remains after a failed deletion, making this retry idempotent and explicit. */
+    fun retryOriginalDeletion() = viewModelScope.launch {
+        val pending = deletion.value.pendingOriginalDeletionIds
+        if (deletion.value.deleting || pending.isEmpty()) return@launch
+        deletion.value = deletion.value.copy(deleting = true, error = null)
+        val remaining = pending.filterNotTo(linkedSetOf()) { documentsRepository.delete(it) }
+        if (remaining.isEmpty()) {
+            deletion.value = DeleteState(structuredDeleted = true)
+            eventsChannel.send(HealthReportDeleteEvent.Success)
+        } else {
+            val message = "Оригинал всё ещё не удалось удалить"
+            deletion.value = DeleteState(structuredDeleted = true, pendingOriginalDeletionIds = remaining, error = message)
+            eventsChannel.send(HealthReportDeleteEvent.PartialFailure(message))
+        }
+    }
 }
 
-private data class DeleteState(val deleting: Boolean = false, val structuredDeleted: Boolean = false, val error: String? = null)
+private fun trendIncompatibilities(observations: List<HealthObservationDraft>): List<HealthTrendIncompatibility> =
+    observations.filter { it.canonicalKey != null }.groupBy { it.canonicalKey!! }
+        .mapNotNull { (key, values) ->
+            val units = values.map { it.unit.orEmpty() }.distinct()
+            val materials = values.map { it.material.orEmpty() }.distinct()
+            val methods = values.map { it.method.orEmpty() }.distinct()
+            val sources = values.map { it.source.orEmpty() }.distinct()
+            val changed = buildList {
+                if (units.size > 1) add("единицы: ${units.labelValues()}")
+                if (materials.size > 1) add("материал: ${materials.labelValues()}")
+                if (methods.size > 1) add("метод: ${methods.labelValues()}")
+                if (sources.size > 1) add("источник: ${sources.labelValues()}")
+            }
+            changed.takeIf { it.isNotEmpty() }?.let {
+                HealthTrendIncompatibility(key, "Показатели не объединены: отличаются ${it.joinToString()}")
+            }
+        }.sortedBy(HealthTrendIncompatibility::canonicalKey)
+
+private fun List<String>.labelValues() = joinToString(" / ") { it.ifBlank { "не указан" } }
+
+private data class DeleteState(
+    val deleting: Boolean = false,
+    val structuredDeleted: Boolean = false,
+    val pendingOriginalDeletionIds: Set<String> = emptySet(),
+    val error: String? = null,
+)
 sealed interface HealthReportDeleteEvent { data object Success : HealthReportDeleteEvent; data class PartialFailure(val message: String) : HealthReportDeleteEvent; data class Failure(val message: String) : HealthReportDeleteEvent }
 
 private fun HealthObservationEntity.toDraft(): HealthObservationDraft? {
     val value = when (valueType) {
         "NUMBER" -> rawValue.toDoubleOrNull()?.takeIf(Double::isFinite)?.let(HealthRawValue::Number)
-        "NUMBER_WITH_OPERATOR" -> HealthRawValue.NumberWithOperator("", 0.0)
+        "NUMBER_WITH_OPERATOR" -> Regex("(<=|>=|<|>)(.+)").matchEntire(rawValue)
+            ?.let { match -> match.groupValues[2].toDoubleOrNull()?.takeIf(Double::isFinite)
+                ?.let { value -> HealthRawValue.NumberWithOperator(match.groupValues[1], value, rawValue) } }
         "RANGE" -> HealthRawValue.Range(null, null, rawValue)
         "CATEGORY" -> HealthRawValue.Category(rawValue)
         "CODE" -> HealthRawValue.Code(rawValue)

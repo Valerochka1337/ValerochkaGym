@@ -13,6 +13,7 @@ import com.valerochka1337.valerochkagym.ui.theme.PaletteMode
 import com.valerochka1337.valerochkagym.ui.theme.ThemeMode
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import java.io.IOException
 import javax.inject.Inject
@@ -80,6 +81,8 @@ class SettingsRepository @Inject constructor(
         val HEALTH_SYNC_MEASUREMENTS = booleanPreferencesKey("health_sync_measurements")
         val HEALTH_SYNC_REPORTS = booleanPreferencesKey("health_sync_reports")
         val HEALTH_SYNC_RESTRICTIONS = booleanPreferencesKey("health_sync_restrictions")
+        /** Written once so a newly selected spreadsheet never inherits a legacy opt-in. */
+        val HEALTH_SYNC_LEGACY_INITIALIZED = booleanPreferencesKey("health_sync_legacy_initialized")
     }
 
     val settings: Flow<GymSettings> = dataStore.data
@@ -113,9 +116,9 @@ class SettingsRepository @Inject constructor(
             // Existing configured Sheets users retain the old workout/measurement behavior.
             // Medical categories never existed, so their absence is an explicit false.
             healthSync = HealthSyncSettings(
-                enabled = prefs[Keys.HEALTH_SYNC_ENABLED] ?: (prefs[Keys.SPREADSHEET_ID] != null),
+                enabled = prefs[Keys.HEALTH_SYNC_ENABLED] ?: (prefs[Keys.SPREADSHEET_ID] != null && prefs[Keys.HEALTH_SYNC_LEGACY_INITIALIZED] != true),
                 categories = buildSet {
-                    val legacyEnabled = prefs[Keys.SPREADSHEET_ID] != null
+                    val legacyEnabled = prefs[Keys.SPREADSHEET_ID] != null && prefs[Keys.HEALTH_SYNC_LEGACY_INITIALIZED] != true
                     if (prefs[Keys.HEALTH_SYNC_WORKOUTS] ?: legacyEnabled) add(HealthSyncCategory.WORKOUTS_AND_CONFIGURATION)
                     if (prefs[Keys.HEALTH_SYNC_MEASUREMENTS] ?: legacyEnabled) add(HealthSyncCategory.MEASUREMENTS)
                     if (prefs[Keys.HEALTH_SYNC_REPORTS] == true) add(HealthSyncCategory.HEALTH_REPORTS_AND_OBSERVATIONS)
@@ -129,9 +132,27 @@ class SettingsRepository @Inject constructor(
         if (value == null) prefs.remove(Keys.GOOGLE_EMAIL) else prefs[Keys.GOOGLE_EMAIL] = value
     }
 
+    /** Fresh spreadsheet choices start disabled; only pre-marker installations retain legacy consent. */
     suspend fun setSpreadsheetId(value: String?) = dataStore.edit { prefs ->
         if (value == null) prefs.remove(Keys.SPREADSHEET_ID) else prefs[Keys.SPREADSHEET_ID] = value
+        prefs[Keys.HEALTH_SYNC_LEGACY_INITIALIZED] = true
     }
+
+    /** Converts the one observable pre-v10 state into explicit preferences exactly once. */
+    suspend fun initializeLegacyHealthSyncIfNeeded() = dataStore.edit { prefs ->
+        if (prefs[Keys.HEALTH_SYNC_LEGACY_INITIALIZED] == true) return@edit
+        val legacy = prefs[Keys.SPREADSHEET_ID] != null
+        if (legacy) {
+            prefs[Keys.HEALTH_SYNC_ENABLED] = true
+            prefs[Keys.HEALTH_SYNC_WORKOUTS] = true
+            prefs[Keys.HEALTH_SYNC_MEASUREMENTS] = true
+        }
+        prefs[Keys.HEALTH_SYNC_LEGACY_INITIALIZED] = true
+    }
+
+    /** A fresh spreadsheet may be probed once before the user has made an explicit sync choice. */
+    suspend fun hasExplicitHealthSyncEnabledChoice(): Boolean =
+        dataStore.data.first()[Keys.HEALTH_SYNC_ENABLED] != null
 
     suspend fun setDefaultRestSeconds(value: Int) = dataStore.edit { prefs ->
         prefs[Keys.DEFAULT_REST_SECONDS] = value

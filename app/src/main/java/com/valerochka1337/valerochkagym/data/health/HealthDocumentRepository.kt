@@ -9,6 +9,7 @@ import com.valerochka1337.valerochkagym.data.db.entity.HealthDocumentEntity
 import com.valerochka1337.valerochkagym.di.ComputeDispatcher
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
@@ -44,17 +45,18 @@ interface HealthDocumentRepository {
 
 @Singleton
 class LocalHealthDocumentRepository @Inject constructor(
-    @ApplicationContext private val context: Context,
+    @param:ApplicationContext private val context: Context,
     private val database: GymDatabase,
     private val healthDao: HealthDao,
     @param:ComputeDispatcher private val dispatcher: CoroutineDispatcher,
+    private val lifecycleGate: PrivateOriginalsLifecycleGate,
 ) : HealthDocumentRepository {
     private val directory = File(context.noBackupFilesDir, DIRECTORY_NAME)
 
     override suspend fun store(input: HealthDocumentInput, source: InputStream): HealthDocumentStoreResult =
         withContext(dispatcher) {
             val bytes = try {
-                source.readBounded(MAX_SOURCE_BYTES)
+                source.use { it.readBounded(MAX_SOURCE_BYTES) }
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
@@ -73,31 +75,36 @@ class LocalHealthDocumentRepository @Inject constructor(
                 sourcePage = input.sourcePage,
                 createdAt = System.currentTimeMillis(),
             )
+            val temporary = File(directory, "$documentId.$digest.tmp")
+            lifecycleGate.withLock {
             try {
                 database.withTransaction { healthDao.upsertDocument(pending) }
                 directory.mkdirs()
-                val temporary = File(directory, "$digest.tmp")
                 val final = File(directory, digest)
                 temporary.outputStream().use { output -> output.write(bytes) }
                 coroutineContext.ensureActive()
                 if (sha256(temporary.readBytes()) != digest) {
                     temporary.delete()
                     database.withTransaction { healthDao.deleteDocument(documentId) }
-                    return@withContext HealthDocumentStoreResult.Failure("Не удалось проверить документ")
+                    return@withLock HealthDocumentStoreResult.Failure("Не удалось проверить документ")
                 }
                 if (!temporary.renameTo(final) && !final.isFile) {
-                    temporary.delete()
-                    database.withTransaction { healthDao.deleteDocument(documentId) }
-                    return@withContext HealthDocumentStoreResult.Failure("Не удалось сохранить документ")
+                    cleanupFailedStoreLocked(documentId, temporary, digest)
+                    return@withLock HealthDocumentStoreResult.Failure("Не удалось сохранить документ")
+                }
+                if (!final.isFile || final.length() != bytes.size.toLong() || sha256(final.readBytes()) != digest) {
+                    cleanupFailedStoreLocked(documentId, temporary, digest)
+                    return@withLock HealthDocumentStoreResult.Failure("Не удалось проверить документ")
                 }
                 database.withTransaction { healthDao.upsertDocument(pending.copy(state = STATE_READY)) }
                 HealthDocumentStoreResult.Ready(documentId, digest, bytes.size.toLong())
             } catch (e: CancellationException) {
+                withContext(NonCancellable) { cleanupFailedStoreLocked(documentId, temporary, digest) }
                 throw e
             } catch (_: Exception) {
-                File(directory, "$digest.tmp").delete()
-                database.withTransaction { healthDao.deleteDocument(documentId) }
+                cleanupFailedStoreLocked(documentId, temporary, digest)
                 HealthDocumentStoreResult.Failure("Не удалось сохранить документ")
+            }
             }
         }
 
@@ -109,26 +116,56 @@ class LocalHealthDocumentRepository @Inject constructor(
 
     override suspend fun hasReadyDocument(documentId: String): Boolean = withContext(dispatcher) {
         val document = healthDao.document(documentId) ?: return@withContext false
-        document.state == STATE_READY && File(directory, document.sha256).isFile
+        document.state == STATE_READY && readyFile(document) != null
     }
 
     override suspend fun delete(documentId: String): Boolean = withContext(dispatcher) {
-        val document = healthDao.document(documentId) ?: return@withContext false
-        database.withTransaction { healthDao.deleteDocument(documentId) }
-        // Same digest may be deliberately referenced by another report; retain its shared private file.
-        if (healthDao.documentsInState(STATE_READY).none { it.sha256 == document.sha256 }) {
-            File(directory, document.sha256).delete()
+        lifecycleGate.withLock {
+            val document = healthDao.document(documentId) ?: return@withLock false
+            val isLastReadyReference = healthDao.documentsInState(STATE_READY)
+                .none { it.id != document.id && it.sha256 == document.sha256 }
+            if (isLastReadyReference) {
+                val file = File(directory, document.sha256)
+                // Metadata is the retry receipt: retain it until the private bytes are gone.
+                if (file.exists() && !file.delete()) return@withLock false
+                if (file.exists()) return@withLock false
+            }
+            database.withTransaction { healthDao.deleteDocument(documentId) }
+            true
         }
-        true
     }
 
     override suspend fun recoverInterruptedCopies() = withContext(dispatcher) {
-        directory.mkdirs()
-        healthDao.documentsInState(STATE_PENDING).forEach { pending ->
-            File(directory, "${pending.sha256}.tmp").delete()
-            healthDao.deleteDocument(pending.id)
+        lifecycleGate.withLock {
+            directory.mkdirs()
+            healthDao.documentsInState(STATE_PENDING).forEach { pending ->
+                File(directory, "${pending.id}.${pending.sha256}.tmp").delete()
+                healthDao.deleteDocument(pending.id)
+            }
+            directory.listFiles { file -> file.name.endsWith(".tmp") }?.forEach(File::delete) ?: Unit
+            val validHashes = healthDao.documentsInState(STATE_READY)
+                .filter { readyFile(it) != null }
+                .mapTo(mutableSetOf()) { it.sha256 }
+            healthDao.documentsInState(STATE_READY).filter { it.sha256 !in validHashes }.forEach { healthDao.deleteDocument(it.id) }
+            directory.listFiles { file -> file.isFile && !file.name.endsWith(".tmp") }
+                ?.filter { it.name !in validHashes }?.forEach(File::delete) ?: Unit
         }
-        directory.listFiles { file -> file.name.endsWith(".tmp") }?.forEach(File::delete) ?: Unit
+    }
+
+    private suspend fun cleanupFailedStoreLocked(documentId: String, temporary: File, digest: String) {
+        temporary.delete()
+        database.withTransaction { healthDao.deleteDocument(documentId) }
+        cleanupUnreferencedLocked(digest)
+    }
+
+    private suspend fun cleanupUnreferencedLocked(digest: String) {
+        if (healthDao.documentsInState(STATE_READY).none { it.sha256 == digest }) File(directory, digest).delete()
+    }
+
+    private fun readyFile(document: HealthDocumentEntity): File? {
+        if (document.state != STATE_READY) return null
+        val file = File(directory, document.sha256)
+        return file.takeIf { it.isFile && it.length() == document.byteSize && sha256(it.readBytes()) == document.sha256 }
     }
 
     private suspend fun InputStream.readBounded(limit: Int): ByteArray {

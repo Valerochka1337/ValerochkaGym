@@ -34,7 +34,9 @@ class HealthDocumentRepositoryTest {
         context = ApplicationProvider.getApplicationContext()
         database = Room.inMemoryDatabaseBuilder(context, GymDatabase::class.java).allowMainThreadQueries().build()
         database.healthDao().upsertReport(HealthReportEntity("report", 1, 1, false, "CONFIRMED", "lab", 1, "Report"))
-        repository = LocalHealthDocumentRepository(context, database, database.healthDao(), UnconfinedTestDispatcher())
+        repository = LocalHealthDocumentRepository(
+            context, database, database.healthDao(), UnconfinedTestDispatcher(), PrivateOriginalsLifecycleGate(),
+        )
         directory = File(context.noBackupFilesDir, "health_documents").also { it.deleteRecursively(); it.mkdirs() }
     }
     @After fun tearDown() { if (::database.isInitialized) database.close(); if (::directory.isInitialized) directory.deleteRecursively() }
@@ -63,6 +65,21 @@ class HealthDocumentRepositoryTest {
         assertFalse(File(directory, "$pendingHash.tmp").exists())
         assertTrue(File(directory, readyHash).isFile)
         assertTrue(repository.hasReadyDocument("ready"))
+    }
+
+    @Test fun `recovery removes corrupt ready metadata and orphan private bytes`() = runTest {
+        val digest = hash("expected".encodeToByteArray())
+        database.healthDao().upsertDocument(
+            HealthDocumentEntity("corrupt", "report", digest, "READY", "r", "image/jpeg", 8, createdAt = 1),
+        )
+        File(directory, digest).writeText("different")
+        File(directory, "orphan").writeText("private")
+
+        repository.recoverInterruptedCopies()
+
+        assertFalse(repository.hasReadyDocument("corrupt"))
+        assertFalse(File(directory, digest).exists())
+        assertFalse(File(directory, "orphan").exists())
     }
 
     private fun hash(bytes: ByteArray) = MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }

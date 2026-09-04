@@ -14,12 +14,23 @@ import javax.inject.Singleton
 
 data class RestrictionProposal(val limitedActivity: String, val source: HealthInformationSource, val startsAt: Long?, val reviewAt: Long?, val state: HealthRestrictionState, val clarification: String? = null)
 sealed interface RestrictionInterpretation { data class Success(val proposals: List<RestrictionProposal>) : RestrictionInterpretation; data class Failure(val message: String) : RestrictionInterpretation }
-interface HealthRestrictionAiInterpreter { suspend fun interpret(originalText: String, loopbackConsent: Boolean = false): RestrictionInterpretation }
+interface HealthRestrictionAiInterpreter {
+    suspend fun interpret(originalText: String, loopbackConsent: Boolean = false): RestrictionInterpretation
+    suspend fun interpret(
+        originalText: String,
+        configuration: AiApiRequestConfiguration,
+        loopbackConsent: Boolean,
+    ): RestrictionInterpretation = interpret(originalText, loopbackConsent)
+}
 
 @Singleton class AiHealthRestrictionAiInterpreter @Inject constructor(private val api: AiApi, private val config: AiApiConfigurationProvider, private val json: Json) : HealthRestrictionAiInterpreter {
     override suspend fun interpret(originalText: String, loopbackConsent: Boolean): RestrictionInterpretation {
         if (originalText.isBlank()) return RestrictionInterpretation.Failure("Введите исходную формулировку")
         val c=config.requestConfiguration() ?: return RestrictionInterpretation.Failure("Настройте нейросеть в настройках")
+        return interpret(originalText, c, loopbackConsent)
+    }
+    override suspend fun interpret(originalText: String, c: AiApiRequestConfiguration, loopbackConsent: Boolean): RestrictionInterpretation {
+        if (originalText.isBlank()) return RestrictionInterpretation.Failure("Введите исходную формулировку")
         when(healthAiEndpointDecision(c.connection.baseUrl, loopbackConsent)) { HealthAiEndpointDecision.Allowed -> Unit; HealthAiEndpointDecision.LoopbackConsentRequired -> return RestrictionInterpretation.Failure("Подтвердите локальную отправку"); HealthAiEndpointDecision.PublicHttpRejected -> return RestrictionInterpretation.Failure("Ограничения можно отправлять только через HTTPS"); HealthAiEndpointDecision.Invalid -> return RestrictionInterpretation.Failure("Некорректный адрес") }
         return try { parse((api.createCompletion(aiApiChatCompletionsEndpoint(c.connection.baseUrl), "Bearer ${c.connection.apiKey}", AiApiChatRequest(c.modelId,listOf(AiApiMessage.text("system","Верни JSON proposals: limitedActivity,source,startsAt,reviewAt,status,clarification. Не ставь LIFTED."),AiApiMessage.text("user",originalText)),AiApiResponseFormat(),1024)).choices.firstOrNull()?.message?.content as? JsonPrimitive)?.contentOrNull) } catch (error: CancellationException) { throw error } catch (_: Exception) { RestrictionInterpretation.Failure("Не удалось разобрать текст — заполните вручную") }
     }

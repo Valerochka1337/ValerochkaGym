@@ -463,7 +463,7 @@ endpoint или неподдерживаемый документ всегда �
 
 ---
 
-# Implementation plan — первый инкремент
+# Superseded checkpoint plan — do not execute
 
 Статус: готов к реализации. Этот раздел сохраняет продуктовый контракт выше и замораживает
 технические решения до начала T-001.
@@ -657,3 +657,107 @@ destination cancellation; screenshots or render artifacts are not requested or i
 - Relevant gates only: Room/outbox paths, WorkManager, Sheets clear transport, AI/network/files,
   backup, Compose/accessibility, Analysis render and final unit/debug/release assembly. No code
   gates run for this plan-only change.
+
+---
+
+# Final implementation plan — dependency-ordered execution
+
+Status: ready to resume from checkpoint `b1e2398`. The approved Feature Brief and AC-001…AC-037
+above remain authoritative; this plan supersedes the checkpoint plan immediately above.
+
+## Goal, scope, non-goals, assumptions
+
+**Goal.** Room is the local SSOT for confirmed reports, observations and restrictions;
+`Measurements` remains the sole InBody source; opt-in Sheets carries only primary confirmed
+versions. **Scope.** Close all ACs and checkpoint findings: unreleased v10 contract, idempotent
+repository writes, private documents/AI, strict Sheets, settings/workers, history/conflicts/archive
+and primary import→Analysis. **Non-goals.** OCR, Health Connect, cloud originals, new dependencies
+or permissions, and derived Sheets records. **Assumptions.** Existing endpoint/image constraints
+stand; PDF rejects (not truncates) above 10 pages/20 MiB source/6 MiB page/20 MiB request while
+manual entry remains. Originals are `noBackupFilesDir` only and Clear Data removes them. One version
+increment happens only after comparison with `origin/main` during final integration.
+
+## Current → target flow
+
+| Checkpoint | Target flow / SSOT |
+|---|---|
+| Report lifecycle and payload are partial | Room reports use `PRELIMINARY/FINAL/CORRECTED/REVOKED`, separate collected/reported dates, conditions and original expected text; immutable payloads retain raw operators. |
+| Mutation/concurrency gaps | `HealthRepository` is the sole transactional aggregate boundary: projection + snapshot + exact outbox; drafts remain ViewModel-only. |
+| Sheets/settings are partial | Strict aggregates preserve managed headers/user columns/local-only `originalText`; exact ACK follows outer commit; target/category changes own cancellation and rollback. |
+| AI/files/history/archive gaps | Consented AI and private originals use hash-verified `PENDING → READY`; immutable UI state/events expose lifecycle history, conflicts and frozen SAF selection. |
+
+## Frozen contracts before parallel work
+
+1. `syncId` is stable UUID; `version > 0`; payload has update time, tombstone, SHA-256 and
+   `idempotencyKey = syncId:version`. Equal ID/version and unequal hash is a durable conflict;
+   time/import order never wins. Migration is manual, registered and non-destructive.
+2. `originalText` and `<`/`>` operator preserve exact fidelity. `canonicalKey` stays nullable until
+   explicit user acceptance; no similar-name inference. Trends require key+unit+material+method+
+   source; incompatibility returns a visible reason. Corrected/revoked/lifted history stays reachable.
+3. Wave A freezes typed commands/results for idempotent report save, correction/revoke,
+   restriction proposal/confirm/lift, history/current flows, conflict detail/resolve, measurement
+   snapshot and import apply. B writers consume these APIs only. Main-safe work uses injected
+   dispatchers; heavy flows use `flowOn(@ComputeDispatcher)` and propagate cancellation.
+4. `HealthSheetRows.kt` is a T-001-owned frozen contract: it defines every health payload DTO and
+   final managed header/wire constant. B1 consumes it without editing. Health Sheets are strict
+   aggregates: absent sheet is compatible empty; duplicate/orphan/malformed
+   or divergent rows create conflict/error, never partial success. Measurements remains A:AY while
+   legacy A:AP/A:AU reads work. Managed clear first validates/upgrades the header then clears
+   **exactly `A2:AY`**; user-owned `AZ+` columns survive. Derived analytics never sync.
+5. UI state is immutable and events sealed; `SavedStateHandle` keeps only route ID/tab/filter/draft
+   step. Room-backed flows use `stateIn(WhileSubscribed(5000))`. B1 exclusively owns Hilt modules;
+   B2 exclusively owns navigation.
+
+## Tasks
+
+| Task | Owner and exclusive files | Depends | Action / observable done condition | AC | Automated verification |
+|---|---|---|---|---|---|
+| T-001 Wave A: contract + v10 | **Coder A:** `data/db/GymDatabase.kt`; `data/db/entity/{HealthReportEntity,HealthReportSnapshotEntity,HealthObservationEntity,HealthRestrictionEntity,HealthRestrictionSnapshotEntity,HealthSyncConflictEntity,HealthSyncOutboxEntity,MeasurementSnapshotEntity}.kt`; `data/db/dao/{HealthDao,HealthSyncOutboxDao,BodyMeasurementDao}.kt`; `data/health/{HealthRepository,HealthSyncPayloadCodec,SyncConflictResolver}.kt`; `domain/health/{HealthModels,HealthSheetRows,HealthTrendCalculator}.kt`; `app/schemas/.../GymDatabase/10.json`; matching migration/repository/codec/trend tests | — | Implement and publish frozen API; atomically backfill v9 and enforce report/restriction lifecycles, exact values, explicit canonical acceptance, conflicts and idempotency. Done: legacy v1 and local v2 retain identity/history and all lifecycle rows query. | 002–010, 012–013, 017, 019, 025–027 | `./gradlew :app:testDebugUnitTest --tests '*Migration9To10Test' --tests '*Migration1To10Test' --tests '*HealthRepositoryTest' --tests '*HealthSyncPayloadCodecTest' --tests '*HealthTrendCalculatorTest'` |
+| T-002 Wave B1: Sheets/settings/workers | **Coder A:** `di/{DataModule,DomainModule,NetworkModule}.kt`; `data/google/{HealthSheetsRepository,SheetsRepository,SheetsApi,ConfigurationSheetsRepository,WorkoutImportRepository}.kt`; `data/settings/{HealthSyncSettings,SettingsRepository}.kt`; `data/measurements/MeasurementRepository.kt`; `domain/measurements/{BodyMeasurementRowMapper,BodyMeasurementRowParser}.kt`; `worker/{HealthSyncWorker,HealthSyncStartupReconciler,MeasurementUploadScheduler,UploadMeasurementWorker}.kt`; `ui/settings/{SettingsViewModel,SettingsScreen}.kt`; `ui/measurements/MeasurementsViewModel.kt`; **new exclusive** `test/.../integration/PrimaryImportAnalysisIntegrationTest.kt`; matching Sheets/settings/worker/measurement/import tests | T-001 Gate I | Consume (do not edit) T-001 `HealthSheetRows` constants. Strict headers/parser/conflicts and exact post-commit ACK; validate/upgrade header before clear `A2:AY`, preserve `AZ+`, then test clear/re-import/header. Work names are stable `category:syncId:version`, `REPLACE`, category tags, network constraint, exponential bounded retry; disabled/clear suppresses work and startup reconciles pending effective categories. Serialize target/category change, import-first rollback and remote clear. Done: no silent loss, duplicate scheduling or category race; primary import refreshes Analysis without derived sheets. | 012–014, 017–018, 021, 023–027, 033–037 | `./gradlew :app:testDebugUnitTest --tests '*HealthSheetsRepositoryTest' --tests '*SheetsRepositoryTest' --tests '*WorkoutImportRepositoryTest' --tests '*PrimaryImportAnalysisIntegrationTest' --tests '*BodyMeasurementRowParserTest' --tests '*MeasurementRepositoryTest' --tests '*HealthSyncWorkerTest' --tests '*HealthSyncStartupReconcilerTest' --tests '*UploadMeasurementWorkerTest' --tests '*UploadMeasurementWorkerVersionTest' --tests '*MeasurementUploadSchedulerTest' --tests '*SettingsViewModelTest'` |
+| T-003 Wave B2: AI/files/UI/history/archive | **Coder B:** `data/ai/{AiResponseLogger,HealthAiEndpointPolicy,HealthDocumentRenderer,HealthReportAiReader,HealthRestrictionAiInterpreter,InBodyReportAiReader}.kt`; `data/backup/ClearDataUseCase.kt`; `data/health/{PrivateOriginalsLifecycleGate,HealthDocumentRepository,HealthDocumentRecoveryCoordinator,HealthArchiveExporter}.kt`; `data/measurements/{MeasurementDocumentRepository,PendingInBodyCaptureRegistry}.kt`; `ui/analysis/{AnalysisScreen,AnalysisViewModel,HealthCards}.kt`; `ui/health/{HealthArchiveScreen,HealthArchiveViewModel,HealthConflictFormatter,HealthConflictScreen,HealthConflictViewModel,HealthEditorScreen,HealthEditorViewModel,HealthReportDetailScreen,HealthReportDetailViewModel,HealthRestrictionEditorScreen,HealthRestrictionEditorViewModel,HealthScreenHeader}.kt`; `ui/navigation/GymNavGraph.kt`; `ui/measurements/{MeasurementEditorScreen,MeasurementEditorViewModel,MeasurementsScreen}.kt`; `res/xml/{backup_rules,data_extraction_rules}.xml`; `test/.../data/ai/{HealthAiEndpointPolicyTest,HealthReportAiReaderTest,HealthRestrictionAiInterpreterTest,InBodyReportAiReaderTest}.kt`; `test/.../data/{ClearDataUseCaseTest,measurements/MeasurementDocumentRepositoryTest,measurements/PendingInBodyCaptureRegistryTest}`; `test/.../data/health/{HealthDocumentRepositoryTest,HealthDocumentRecoveryCoordinatorTest,HealthArchiveExporterTest}.kt`; `test/.../ui/{AnalysisViewModelTest,AnalysisRenderTest,HealthRestrictionEditorViewModelTest,MeasurementEditorScreenTest,MeasurementEditorViewModelTest}.kt`; `test/.../ui/health/{HealthArchiveScreenTest,HealthArchiveViewModelTest,HealthConflictFormatterTest,HealthConflictViewModelTest,HealthEditorViewModelTest,HealthReportDetailViewModelTest}.kt` | T-001 Gate I | Consume frozen API. One full Health+InBody consent/TOCTOU/logger chain binds exact endpoint/model per send, rejects public HTTP and visibly warns local HTTP; redact sensitive logs. **A single `PrivateOriginalsLifecycleGate` serializes `HealthDocumentRepository`, `MeasurementDocumentRepository`, capture-registry callbacks and Clear Data. Clear Data acquires it before clearing Room, then verifies deletion of both no-backup roots and `.tmp` files, deletes capture-registry markers/cache, and finally releases it.** Surface partial deletion failure and test both health-document-store-vs-clear and registry/measurement-vs-clear races so no writer can recreate bytes or markers after a successful clear. Implement cancellation-safe hash/copy/rename/recovery/bounded decode/deletion retry. Render all lifecycle history/full diff/incompatibility, loading-empty-error-content, accessible table/adaptive fourth selector/state restoration/same measurement route; archive freezes selection before SAF and exports READY files only. Done: recreation cannot widen archive; no private file/camera registry survives successful clear. | 001–011, 015–016, 019–020, 022, 028–032 | `./gradlew :app:testDebugUnitTest --tests '*HealthReportAiReaderTest' --tests '*InBodyReportAiReaderTest' --tests '*HealthAiEndpointPolicyTest' --tests '*HealthDocumentRepositoryTest' --tests '*MeasurementDocumentRepositoryTest' --tests '*PendingInBodyCaptureRegistryTest' --tests '*ClearDataUseCaseTest' --tests '*ClearDataUseCaseRaceTest' --tests '*HealthArchiveExporterTest' --tests '*HealthEditorViewModelTest' --tests '*HealthReportDetailViewModelTest' --tests '*HealthConflictViewModelTest' --tests '*MeasurementEditorViewModelTest' --tests '*AnalysisViewModelTest' --tests '*AnalysisRenderTest'` (do not inspect artifacts) |
+| T-004 Consolidated fix + version | **Coder A:** only files implicated by verified findings; `app/build.gradle.kts` exclusively for version; may edit `ARCHITECTURE.md` only to reconcile implemented durable contracts | T-002,T-003 + review | One bounded fix batch, reconcile `ARCHITECTURE.md` with final managed-clear/header/WorkManager contract, then compare with `origin/main`; increment code and patch exactly once only if absent. Done: AC evidence and architecture reconciliation recorded; no double bump. | 001–037 | smallest affected test, then final gates |
+
+## Ownership and execution waves
+
+| Wave | Owner | Boundary / gate |
+|---|---|---|
+| A | Coder A, T-001 | Room entity+DAO+migration+schema and all domain/payload/repository contracts stay one owner. **Gate I:** listed targeted tests pass and frozen API signatures are recorded in tracker. |
+| B1 | Coder A, T-002 | Sole owner of shared DI, Sheets, settings, workers and primary-import integration. |
+| B2 | Coder B, T-003 | Sole owner of AI/private storage/Clear Data, health UI/navigation/history/conflict/archive. It changes no T-001/B1 files. B1 and B2 run in parallel only after Gate I; no Gradle while writers are active. |
+| C | Tester + reviewer, parallel/read-only | Tester owns Gradle and AC coverage; strict reviewer audits data/concurrency/privacy/accessibility. |
+| D | Coder A, T-004 | One consolidated fix loop; reviewer rechecks affected findings only, then final sequential gates. |
+
+## Quality gates
+
+Relevant gates only: manual 9→10/1→10 migration and schema, Room transaction/idempotent retry,
+WorkManager unique/cancel/backoff/category gates, consent/HTTP/redaction, no-backup recovery/Clear
+Data, Sheets headers/absent/duplicate-orphan-conflict, state restoration/48dp semantics/fontScale
+2.0/adaptive navigation and SAF cancellation. Run `AnalysisRenderTest` but never inspect artifacts
+without user permission. Network/storage/release-sensitive work also requires release assembly.
+
+After stable final code, exactly once and sequentially:
+
+```bash
+./gradlew :app:testDebugUnitTest
+./gradlew :app:assembleDebug
+./gradlew :app:assembleRelease
+```
+
+If signing is unavailable, report its exact blocker. No Gradle command is run for this plan-only edit.
+
+## Risks, unresolved questions, rollback/data preservation
+
+No downgrade after v10; retain source rows through additive/manual migration and never use destructive
+fallback. Conflicts keep both payloads. Disabling sync/remote clear never deletes local history;
+Sheets cannot recover originals. Exact outbox idempotency makes lost-response retries safe.
+Unresolved but non-blocking: publication-region legal review and future secure cloud backup. Manual
+checks remain real PDF/SAF cancellation, consent wording, fontScale 2.0 and local-HTTP warning.
+
+## Gate P self-check
+
+- AC-001…AC-037 map to T-001/T-002/T-003 and the tracker’s exact test/manual evidence; T-004
+  reconciles final evidence.
+- Ownership is non-overlapping: A owns Room/domain/payload; B1 owns DI/Sheets/settings/workers;
+  B2 owns AI/files/UI/navigation. Only post-parallel finding integration can cross boundaries.
+- Contracts are frozen at Gate I before B parallelism. All and only relevant Room, worker, privacy,
+  accessibility/adaptive, archive and release gates are present.

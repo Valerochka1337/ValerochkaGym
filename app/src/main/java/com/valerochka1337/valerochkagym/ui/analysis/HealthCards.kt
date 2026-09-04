@@ -23,6 +23,7 @@ internal fun HealthOverviewCard(
     onCreateReport: () -> Unit,
     onCreateRestriction: () -> Unit,
     onOpenReport: (String) -> Unit,
+    onOpenRestriction: (String) -> Unit = {},
     onOpenArchive: () -> Unit = {},
     onOpenConflict: (HealthSyncConflictEntity) -> Unit = {},
 ) {
@@ -60,7 +61,23 @@ internal fun HealthOverviewCard(
                     modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
                 ) { Text("Открыть исследование") }
             }
+            if (state.reports.isNotEmpty()) {
+                Text("История исследований", style = MaterialTheme.typography.titleMedium)
+                state.reports.sortedByDescending { it.reportedAt }.forEach { historical ->
+                    TextButton(onClick = { onOpenReport(historical.syncId) }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+                        Text("${historical.title} · ${historical.status}")
+                    }
+                }
+            }
             Text("Актуальные ограничения: ${if (restrictions.isEmpty()) "нет" else restrictions.joinToString { it.description }}")
+            if (state.restrictions.isNotEmpty()) {
+                Text("История ограничений", style = MaterialTheme.typography.titleMedium)
+                state.restrictions.sortedByDescending { it.confirmedAt }.forEach { restriction ->
+                    TextButton(onClick = { onOpenRestriction(restriction.syncId) }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+                        Text("${restriction.description} · ${restriction.status}")
+                    }
+                }
+            }
             if (state.conflicts.isNotEmpty()) {
                 Text(
                     "Конфликты синхронизации: ${state.conflicts.size}",

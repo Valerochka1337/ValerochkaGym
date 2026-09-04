@@ -8,6 +8,9 @@ import com.valerochka1337.valerochkagym.domain.health.HealthRawValue
 import com.valerochka1337.valerochkagym.domain.health.HealthReportDraft
 import com.valerochka1337.valerochkagym.domain.health.HealthRestrictionDraft
 import com.valerochka1337.valerochkagym.domain.health.HealthRestrictionState
+import com.valerochka1337.valerochkagym.domain.health.HealthRestrictionProposal
+import com.valerochka1337.valerochkagym.domain.health.ConfirmRestrictionProposalsCommand
+import com.valerochka1337.valerochkagym.domain.health.ReportSaveCommand
 import com.valerochka1337.valerochkagym.data.db.entity.HealthSyncOutboxEntity
 import com.valerochka1337.valerochkagym.worker.HealthSyncScheduler
 import com.valerochka1337.valerochkagym.data.settings.HealthSyncCategory as SettingsCategory
@@ -147,6 +150,61 @@ class HealthRepositoryTest : RoomDaoTest() {
         assertEquals(
             listOf("Врач попросил пока не бегать", "Врач попросил пока не бегать"),
             db.healthDao().restrictionSnapshots("restriction-original").map { it.originalText },
+        )
+    }
+
+    @Test
+    fun `retrying stable report command returns one revision and preserves raw operator text`() = runTest {
+        val repository = HealthRepository(db)
+        val draft = HealthReportDraft("Lab", "manual", 20, listOf(
+            HealthObservationDraft("marker", HealthRawValue.NumberWithOperator(">=", 2.0, ">=02.00"), canonicalKey = "suggested", observedAt = 10),
+        ), collectedAt = 10, conditions = "fasting", originalExpected = true)
+        val command = ReportSaveCommand("operation", "report", draft)
+
+        val first = repository.saveReport(command, 100)
+        val replay = repository.saveReport(command, 200)
+
+        assertEquals(first.report.version, replay.report.version)
+        assertEquals(1, db.healthDao().reportSnapshots("report").size)
+        val observation = db.healthDao().observations("report").single()
+        assertEquals(">=02.00", observation.rawValue)
+        assertEquals(null, observation.canonicalKey)
+        assertEquals(10L, db.healthDao().report("report")!!.collectedAt)
+        assertEquals("fasting", db.healthDao().report("report")!!.conditions)
+        assertTrue(db.healthDao().report("report")!!.originalExpected)
+    }
+
+    @Test
+    fun `correction retains observation identity and proposal confirmation is atomic`() = runTest {
+        val repository = HealthRepository(db)
+        val created = repository.saveConfirmedReport(draft("v1"), 10)
+        val original = db.healthDao().observations(created.syncId).single().syncId
+        val corrected = repository.correct(created.syncId, repository.correctionDraft(created.syncId)!!.copy(title = "v2"), 20)
+
+        assertEquals(original, db.healthDao().observations(created.syncId).single().syncId)
+        assertEquals(created.version, corrected.correctionOfVersion)
+        repository.confirmRestrictionProposals(
+            ConfirmRestrictionProposalsCommand("restrictions", listOf(
+                HealthRestrictionProposal("one", "No sprint", HealthRestrictionState.TEMPORARY, HealthInformationSource.USER),
+                HealthRestrictionProposal("two", "No jump", HealthRestrictionState.ACTIVE, HealthInformationSource.CLINICIAN),
+            )), 30,
+        )
+        assertEquals(listOf("one", "two"), db.healthDao().observeLiveRestrictions().first().map { it.syncId }.sorted())
+        assertEquals(2, db.healthSyncOutboxDao().pending("HEALTH_RESTRICTIONS").size)
+    }
+
+    @Test
+    fun `correction target exposes the current revision and stable observation identity`() = runTest {
+        val repository = HealthRepository(db)
+        val created = repository.saveConfirmedReport(draft("v1"), 10)
+
+        val target = repository.correctionTarget(created.syncId)
+
+        assertEquals(created.version, target!!.version)
+        assertEquals(created.syncId, target.syncId)
+        assertEquals(
+            db.healthDao().observations(created.syncId).single().syncId,
+            target.draft.observations.single().observationSyncId,
         )
     }
 
