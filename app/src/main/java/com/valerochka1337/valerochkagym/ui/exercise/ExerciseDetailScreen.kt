@@ -36,6 +36,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.valerochka1337.valerochkagym.data.db.CanonicalExerciseRegistry
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleLoad
 import com.valerochka1337.valerochkagym.domain.ExerciseStatistics
@@ -45,6 +46,8 @@ import com.valerochka1337.valerochkagym.ui.analysis.formatDateWithYear
 import com.valerochka1337.valerochkagym.ui.analysis.charts.LinePoint
 import com.valerochka1337.valerochkagym.ui.analysis.charts.TrendLineChart
 import com.valerochka1337.valerochkagym.ui.analysis.body.BodyMapFlip
+import com.valerochka1337.valerochkagym.ui.analysis.body.MuscleSector
+import com.valerochka1337.valerochkagym.ui.analysis.body.strongestMember
 import com.valerochka1337.valerochkagym.ui.components.CircleIconButton
 import com.valerochka1337.valerochkagym.ui.components.ExerciseAvatar
 import com.valerochka1337.valerochkagym.ui.components.GlowBackground
@@ -135,12 +138,12 @@ private fun ExerciseHeader(
             }
         },
         actions = {
-            if (exercise != null) {
-            CircleIconButton(
-                icon = Icons.Rounded.Edit,
-                contentDescription = if (exercise.isCustom) "Редактировать упражнение" else "Персонализировать упражнение",
-                onClick = onEdit,
-            )
+            if (exercise != null && !CanonicalExerciseRegistry.isBuiltIn(exercise)) {
+                CircleIconButton(
+                    icon = Icons.Rounded.Edit,
+                    contentDescription = "Редактировать упражнение",
+                    onClick = onEdit,
+                )
             }
         },
         colors = TopAppBarDefaults.topAppBarColors(
@@ -199,7 +202,12 @@ private fun ProfileCard(exercise: ExerciseEntity) {
 
 @Composable
 private fun MusclesCard(loads: List<MuscleLoad>) {
-    val roleColor = MaterialTheme.colorScheme.primary
+    val fills = ExerciseDetailRoleFills(
+        inactive = MaterialTheme.colorScheme.surfaceContainer,
+        primary = MaterialTheme.colorScheme.primary,
+        secondary = MaterialTheme.colorScheme.primary.copy(alpha = 0.62f),
+        stabilizer = MaterialTheme.colorScheme.primary.copy(alpha = 0.32f),
+    )
     GymCard(modifier = Modifier.fillMaxWidth()) {
         Text(
             text = "Вовлечение мышц",
@@ -218,7 +226,8 @@ private fun MusclesCard(loads: List<MuscleLoad>) {
         }
         Spacer(Modifier.height(8.dp))
         BodyMapFlip(
-            fillFor = { roleColor },
+            fillFor = roleSectorFillFor(loads, fills),
+            onMuscleClick = null,
         )
         Spacer(Modifier.height(8.dp))
         loads.forEach { load ->
@@ -237,6 +246,30 @@ private fun MusclesCard(loads: List<MuscleLoad>) {
                 )
             }
             Spacer(Modifier.height(10.dp))
+        }
+    }
+}
+
+/** Display-only colour strengths keep the labelled role rows as the text alternative. */
+internal data class ExerciseDetailRoleFills(
+    val inactive: androidx.compose.ui.graphics.Color,
+    val primary: androidx.compose.ui.graphics.Color,
+    val secondary: androidx.compose.ui.graphics.Color,
+    val stabilizer: androidx.compose.ui.graphics.Color,
+)
+
+/** A shared visual sector reflects its strongest logical role. */
+internal fun roleSectorFillFor(
+    loads: List<MuscleLoad>,
+    fills: ExerciseDetailRoleFills,
+): (MuscleSector) -> androidx.compose.ui.graphics.Color {
+    val roles = loads.associateBy(MuscleLoad::muscle)
+    return { sector ->
+        when (sector.strongestMember(roles) { it.contribution }?.role) {
+            com.valerochka1337.valerochkagym.data.db.entity.MuscleRole.PRIMARY -> fills.primary
+            com.valerochka1337.valerochkagym.data.db.entity.MuscleRole.SECONDARY -> fills.secondary
+            com.valerochka1337.valerochkagym.data.db.entity.MuscleRole.STABILIZER -> fills.stabilizer
+            null -> fills.inactive
         }
     }
 }

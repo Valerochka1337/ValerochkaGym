@@ -3,6 +3,7 @@ package com.valerochka1337.valerochkagym.ui.exercise
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.valerochka1337.valerochkagym.data.db.CanonicalExerciseRegistry
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseDao
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseMuscleDao
 import com.valerochka1337.valerochkagym.data.db.dao.WorkoutDao
@@ -90,12 +91,13 @@ class ExerciseDetailViewModel @Inject constructor(
     fun openEditor() {
         val state = uiState.value
         val exercise = state.exercise ?: return
+        if (CanonicalExerciseRegistry.isBuiltIn(exercise)) return
         _editor.value = ExerciseEditorState(
             exerciseId = exercise.id,
             name = exercise.name,
             type = exercise.type,
             loads = state.loads.associate { it.muscle to it.contribution },
-            editableName = exercise.isCustom,
+            editableName = !CanonicalExerciseRegistry.isBuiltIn(exercise),
             needsMuscleMapReview = exercise.needsMuscleMapReview,
         )
     }
@@ -131,30 +133,20 @@ class ExerciseDetailViewModel @Inject constructor(
                 showSaveFailure()
                 return@launch
             }
+            if (CanonicalExerciseRegistry.isBuiltIn(existing)) {
+                _editor.value = null
+                return@launch
+            }
             val updated = existing.copy(
-                name = if (current.editableName) trimmed else existing.name,
+                name = trimmed,
                 type = type,
-                needsMuscleMapReview = if (current.editableName) false else existing.needsMuscleMapReview,
+                needsMuscleMapReview = false,
             ).withNextUpdatedAt()
             val muscleRows = loads.map { load ->
                 ExerciseMuscleEntity(exerciseId, load.muscle, load.contribution)
             }
             val saved = try {
-                if (!current.editableName) {
-                    val clone = ExerciseEntity(
-                        name = "${existing.name} (своё)",
-                        muscleGroup = existing.muscleGroup,
-                        type = type,
-                        isCustom = true,
-                    )
-                    if (gymRepository === NoOpGymRepository) {
-                        val cloneId = exerciseDao.insert(clone)
-                        exerciseMuscleDao.replaceForExercise(cloneId, muscleRows.map { it.copy(exerciseId = cloneId) })
-                        clone.copy(id = cloneId)
-                    } else {
-                        gymRepository.createExerciseAndAssign(NewExerciseConfiguration(clone, muscleRows), emptySet())
-                    }
-                } else if (gymRepository === NoOpGymRepository) {
+                if (gymRepository === NoOpGymRepository) {
                     // Fallback для прямых unit-тестов; production идёт через одну repo-транзакцию.
                     exerciseDao.update(updated)
                     exerciseMuscleDao.replaceForExercise(exerciseId, muscleRows)

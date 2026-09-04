@@ -14,6 +14,7 @@ import com.valerochka1337.valerochkagym.domain.analysis.VolumeZone
 import com.valerochka1337.valerochkagym.ui.analysis.AnalysisViewModel
 import com.valerochka1337.valerochkagym.ui.analysis.WeeklyMetric
 import com.valerochka1337.valerochkagym.util.MainDispatcherRule
+import androidx.lifecycle.SavedStateHandle
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -226,6 +227,19 @@ class AnalysisViewModelTest : RoomDaoTest() {
     }
 
     @Test
+    fun `selected logical muscle survives view model recreation`() = runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val state = SavedStateHandle()
+        val first = viewModel(savedStateHandle = state)
+        collect(first)
+        first.onSelectorMuscleSelected(Muscle.LOWER_CHEST)
+
+        val recreated = viewModel(savedStateHandle = state)
+        collect(recreated)
+
+        assertEquals(Muscle.LOWER_CHEST, recreated.uiState.value.selectedMuscle)
+    }
+
+    @Test
     fun `upgrade notice is emitted once across view model recreation`() =
         runTest(mainDispatcherRule.testDispatcher.scheduler) {
             val notice = FakeUpgradeNotice()
@@ -242,13 +256,17 @@ class AnalysisViewModelTest : RoomDaoTest() {
 
     // region helpers
 
-    private fun viewModel(notice: MuscleLoadUpgradeNotice = FakeUpgradeNotice(acknowledged = true)) = AnalysisViewModel(
+    private fun viewModel(
+        notice: MuscleLoadUpgradeNotice = FakeUpgradeNotice(acknowledged = true),
+        savedStateHandle: SavedStateHandle = SavedStateHandle(),
+    ) = AnalysisViewModel(
         workoutDao = db.workoutDao(),
         exerciseMuscleDao = db.exerciseMuscleDao(),
         engine = AnalyticsEngine(),
         // Тестовый диспетчер вместо Dispatchers.Default — пересчёт остаётся на виртуальном времени.
         computeDispatcher = mainDispatcherRule.testDispatcher,
         upgradeNotice = notice,
+        savedStateHandle = savedStateHandle,
     )
 
     private class FakeUpgradeNotice(private var acknowledged: Boolean = false) : MuscleLoadUpgradeNotice {

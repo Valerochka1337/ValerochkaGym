@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.valerochka1337.valerochkagym.data.ai.ExerciseAiGenerationResult
 import com.valerochka1337.valerochkagym.data.ai.ExerciseAiGenerator
 import com.valerochka1337.valerochkagym.data.ai.AiApiConfigurationProvider
+import com.valerochka1337.valerochkagym.data.db.CanonicalExerciseRegistry
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseDao
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseMuscleDao
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
@@ -365,6 +366,10 @@ class ExerciseLibraryViewModel @Inject constructor(
             showGenerationFailure(generationId, "Упражнение больше не найдено")
             return
         }
+        if (CanonicalExerciseRegistry.isBuiltIn(exercise)) {
+            showGenerationFailure(generationId, "Стандартное упражнение нельзя редактировать")
+            return
+        }
         val loads = exerciseMuscleDao.getForExercise(exercise.id)
             .associate { it.muscle to it.contribution }
         val needsGymAssignment = selectedGymIds.isNotEmpty() &&
@@ -376,7 +381,7 @@ class ExerciseLibraryViewModel @Inject constructor(
             name = exercise.name,
             type = exercise.type,
             loads = loads,
-            editableName = exercise.isCustom,
+            editableName = !CanonicalExerciseRegistry.isBuiltIn(exercise),
             wasFoundByAi = true,
             assignToSelectedGyms = needsGymAssignment,
             selectionTarget = pickerTarget(),
@@ -411,6 +416,7 @@ class ExerciseLibraryViewModel @Inject constructor(
 
     /** Открывает разметку существующего упражнения — текущая карта подгружается из базы. */
     fun openEdit(exercise: ExerciseEntity) {
+        if (CanonicalExerciseRegistry.isBuiltIn(exercise)) return
         viewModelScope.launch {
             val loads = exerciseMuscleDao.getForExercise(exercise.id)
                 .associate { it.muscle to it.contribution }
@@ -419,7 +425,7 @@ class ExerciseLibraryViewModel @Inject constructor(
                 name = exercise.name,
                 type = exercise.type,
                 loads = loads,
-                editableName = exercise.isCustom,
+                editableName = !CanonicalExerciseRegistry.isBuiltIn(exercise),
                 needsMuscleMapReview = exercise.needsMuscleMapReview,
             )
         }
@@ -488,32 +494,17 @@ class ExerciseLibraryViewModel @Inject constructor(
                             selectedGymIds,
                         )
                     }
-                } else if (!current.editableName) {
-                    // Built-ins are immutable catalogue authority. Personalization creates a separate
-                    // custom identity and deliberately assigns it to no gyms.
-                    val source = exerciseDao.getById(current.exerciseId)
-                        ?: return@launch showSaveFailure()
-                    val clone = ExerciseEntity(
-                        name = "${source.name} (своё)",
-                        muscleGroup = source.muscleGroup,
-                        type = type,
-                        isCustom = true,
-                    )
-                    val cloneRows = loads.map { ExerciseMuscleEntity(0, it.muscle, it.contribution) }
-                    if (gymRepository === NoOpGymRepository) {
-                        val cloneId = exerciseDao.insert(clone)
-                        exerciseMuscleDao.replaceForExercise(cloneId, cloneRows.map { it.copy(exerciseId = cloneId) })
-                        clone.copy(id = cloneId)
-                    } else {
-                        gymRepository.createExerciseAndAssign(NewExerciseConfiguration(clone, cloneRows), emptySet())
-                    }
                 } else {
                     val existing = exerciseDao.getById(current.exerciseId)
                         ?: return@launch showSaveFailure()
+                    if (CanonicalExerciseRegistry.isBuiltIn(existing)) {
+                        _editor.value = null
+                        return@launch
+                    }
                     val updated = existing.copy(
-                        name = if (current.editableName) trimmed else existing.name,
+                        name = trimmed,
                         type = type,
-                        needsMuscleMapReview = if (current.editableName) false else existing.needsMuscleMapReview,
+                        needsMuscleMapReview = false,
                     ).withNextUpdatedAt()
                     val muscleRows = loads.map {
                         ExerciseMuscleEntity(existing.id, it.muscle, it.contribution)

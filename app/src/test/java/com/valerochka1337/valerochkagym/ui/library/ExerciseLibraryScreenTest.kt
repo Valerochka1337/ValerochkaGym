@@ -8,6 +8,9 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performScrollToIndex
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.semantics.SemanticsActions
+import com.valerochka1337.valerochkagym.data.db.CanonicalExerciseRegistry
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseDao
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseMuscleDao
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
@@ -100,6 +103,71 @@ class ExerciseLibraryScreenTest {
 
         composeRule.runOnIdle {
             assertEquals(0, listState.firstVisibleItemIndex)
+        }
+    }
+
+    @Test
+    fun `browse mode leaves built-in rows inert while custom rows stay editable`() {
+        val computeDispatcher = StandardTestDispatcher()
+        val builtIn = CanonicalExerciseRegistry.entries.first().exercise.copy(id = 201L)
+        val custom = ExerciseEntity(
+            id = 202L,
+            name = "Своё упражнение",
+            muscleGroup = MuscleGroup.CHEST,
+            type = ExerciseType.STRENGTH,
+            isCustom = true,
+        )
+        val viewModel = ExerciseLibraryViewModel(
+            exerciseDao = FakeExerciseDao,
+            exerciseMuscleDao = FakeExerciseMuscleDao,
+            catalogRepository = FakeExerciseCatalogRepository(listOf(builtIn, custom)),
+            computeDispatcher = computeDispatcher,
+        )
+
+        composeRule.setContent {
+            GymTheme {
+                ExerciseLibraryScreen(onBack = {}, onOpenSettings = {}, viewModel = viewModel)
+            }
+        }
+        computeDispatcher.scheduler.advanceUntilIdle()
+        composeRule.waitForIdle()
+
+        assertTrue(!composeRule.onNodeWithTag("exercise_catalog_row_${builtIn.id}")
+            .fetchSemanticsNode().config.contains(SemanticsActions.OnClick))
+        assertTrue(composeRule.onNodeWithTag("exercise_catalog_row_${custom.id}")
+            .fetchSemanticsNode().config.contains(SemanticsActions.OnClick))
+    }
+
+    @Test
+    fun `picker mode keeps built-in row selection available`() {
+        val computeDispatcher = StandardTestDispatcher()
+        val builtIn = CanonicalExerciseRegistry.entries.first().exercise.copy(id = 203L)
+        val viewModel = ExerciseLibraryViewModel(
+            exerciseDao = FakeExerciseDao,
+            exerciseMuscleDao = FakeExerciseMuscleDao,
+            catalogRepository = FakeExerciseCatalogRepository(listOf(builtIn)),
+            computeDispatcher = computeDispatcher,
+        )
+        val selected = mutableListOf<ExerciseEntity>()
+
+        composeRule.setContent {
+            GymTheme {
+                ExerciseLibraryScreen(
+                    onBack = {},
+                    onOpenSettings = {},
+                    onExerciseSelected = { selected += it },
+                    viewModel = viewModel,
+                )
+            }
+        }
+        computeDispatcher.scheduler.advanceUntilIdle()
+        composeRule.waitForIdle()
+
+        val builtInRow = composeRule.onNodeWithTag("exercise_catalog_row_${builtIn.id}")
+        assertTrue(builtInRow.fetchSemanticsNode().config.contains(SemanticsActions.OnClick))
+        builtInRow.performClick()
+        composeRule.runOnIdle {
+            assertEquals(listOf(builtIn), selected)
         }
     }
 

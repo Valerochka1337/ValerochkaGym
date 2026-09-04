@@ -14,10 +14,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Info
-import androidx.compose.material3.AssistChip
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -46,8 +44,9 @@ import com.valerochka1337.valerochkagym.data.db.entity.MuscleLoad
 import com.valerochka1337.valerochkagym.data.db.entity.group
 import com.valerochka1337.valerochkagym.domain.displayName
 import com.valerochka1337.valerochkagym.ui.analysis.body.BodyMapFlip
+import com.valerochka1337.valerochkagym.ui.analysis.body.MuscleSector
 import com.valerochka1337.valerochkagym.ui.analysis.body.MuscleSelector
-import com.valerochka1337.valerochkagym.ui.analysis.body.offFigureMuscles
+import com.valerochka1337.valerochkagym.ui.analysis.body.strongestMember
 import com.valerochka1337.valerochkagym.ui.components.PillButton
 
 /**
@@ -77,7 +76,9 @@ internal fun ExerciseEditorSheet(
     val loads = remember(initial) { mutableStateMapOf<Muscle, Int>().apply { putAll(initial.loads) } }
     val type = ExerciseType.valueOf(typeName)
     val inactiveColor = MaterialTheme.colorScheme.surfaceContainerHighest
-    val activeColor = MaterialTheme.colorScheme.primaryContainer
+    val primaryColor = MaterialTheme.colorScheme.primaryContainer
+    val secondaryColor = primaryColor.copy(alpha = 0.62f)
+    val stabilizerColor = primaryColor.copy(alpha = 0.32f)
 
     val canSave = name.trim().isNotEmpty() && loads.values.any { it == 100 } && !initial.isSaving
 
@@ -160,9 +161,13 @@ internal fun ExerciseEditorSheet(
 
             Spacer(Modifier.height(12.dp))
             BodyMapFlip(
-                fillFor = { muscle ->
-                    if (loads[muscle] == null) inactiveColor else activeColor
-                },
+                fillFor = editorSectorFillFor(
+                    loads = loads,
+                    inactive = inactiveColor,
+                    primary = primaryColor,
+                    secondary = secondaryColor,
+                    stabilizer = stabilizerColor,
+                ),
                 selectedMuscle = active,
                 onMuscleClick = { muscle ->
                     if (muscle == null) {
@@ -183,30 +188,6 @@ internal fun ExerciseEditorSheet(
                     if (loads[muscle] == null) loads[muscle] = DEFAULT_LOAD
                 },
             )
-
-            // Мышцы без своей области на фигуре не выбрать тапом — добавляем их кнопками.
-            val addable = offFigureMuscles.filter { it !in loads.keys }
-            if (addable.isNotEmpty()) {
-                Spacer(Modifier.height(8.dp))
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    addable.forEach { muscle ->
-                        AssistChip(
-                            onClick = {
-                                active = muscle
-                                if (loads[muscle] == null) loads[muscle] = DEFAULT_LOAD
-                            },
-                            label = { Text(muscle.displayName()) },
-                            leadingIcon = {
-                                Icon(
-                                    imageVector = Icons.Rounded.Add,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            },
-                        )
-                    }
-                }
-            }
 
             val activeMuscle = active
             if (activeMuscle != null) {
@@ -443,6 +424,22 @@ private fun roleLabel(value: Int): String = when (value) {
     50 -> "Вторичная"
     0 -> "Стабилизатор"
     else -> "Не участвует"
+}
+
+/** Shared editor sectors keep the strongest member's role colour. */
+internal fun editorSectorFillFor(
+    loads: Map<Muscle, Int>,
+    inactive: androidx.compose.ui.graphics.Color,
+    primary: androidx.compose.ui.graphics.Color,
+    secondary: androidx.compose.ui.graphics.Color,
+    stabilizer: androidx.compose.ui.graphics.Color,
+): (MuscleSector) -> androidx.compose.ui.graphics.Color = { sector ->
+    when (sector.strongestMember(loads) { it }) {
+        100 -> primary
+        50 -> secondary
+        0 -> stabilizer
+        else -> inactive
+    }
 }
 
 private const val DEFAULT_LOAD = 50

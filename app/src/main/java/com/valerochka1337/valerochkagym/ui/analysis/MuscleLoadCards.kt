@@ -36,7 +36,9 @@ import com.valerochka1337.valerochkagym.domain.analysis.MuscleLoadSummary
 import com.valerochka1337.valerochkagym.domain.analysis.VolumeZone
 import com.valerochka1337.valerochkagym.domain.displayName
 import com.valerochka1337.valerochkagym.ui.analysis.body.BodyMapFlip
+import com.valerochka1337.valerochkagym.ui.analysis.body.MuscleSector
 import com.valerochka1337.valerochkagym.ui.analysis.body.MuscleSelector
+import com.valerochka1337.valerochkagym.ui.analysis.body.maxMember
 import com.valerochka1337.valerochkagym.ui.analysis.charts.ChartSpec
 import com.valerochka1337.valerochkagym.ui.analysis.charts.rememberChartColors
 import com.valerochka1337.valerochkagym.ui.haptics.gymHaptics
@@ -67,14 +69,13 @@ internal fun MuscleHeatmapCard(
         modifier = modifier,
     ) {
         BodyMapFlip(
-            fillFor = { muscle -> ChartPalette.zoneColor(loads[muscle]?.zone ?: VolumeZone.LOW) },
+            fillFor = heatmapSectorFillFor(loads),
             selectedMuscle = state.selectedMuscle,
             onMuscleClick = onMuscleClicked,
         )
 
         MuscleSelector(
             selected = state.selectedMuscle,
-            roleText = { muscle -> "${"%.1f".format(loads[muscle]?.weeklySets ?: 0.0)} эффективных подходов" },
             onSelected = onSelectorSelected,
         )
 
@@ -88,6 +89,13 @@ internal fun MuscleHeatmapCard(
             modifier = Modifier.animateContentSize(GymMotion.spatialDefault()),
         )
     }
+}
+
+/** A shared SVG sector follows its hottest logical muscle, never an aggregate. */
+internal fun heatmapSectorFillFor(
+    loads: Map<Muscle, MuscleLoadSummary>,
+): (MuscleSector) -> androidx.compose.ui.graphics.Color = { sector ->
+    ChartPalette.zoneColor(sector.maxMember(loads) { it.weeklySets }?.zone ?: VolumeZone.LOW)
 }
 
 /** Правила, по которым рабочий подход превращается в вклад в конкретную мышцу. */

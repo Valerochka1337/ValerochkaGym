@@ -1,9 +1,19 @@
 package com.valerochka1337.valerochkagym.ui.analysis.body
 
+import android.app.Application
+import com.valerochka1337.valerochkagym.data.db.entity.Muscle
 import com.valerochka1337.valerochkagym.domain.measurements.InBodySegmentValues
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
 
+@RunWith(RobolectricTestRunner::class)
+@GraphicsMode(GraphicsMode.Mode.NATIVE)
+@Config(application = Application::class)
 class InBodySegmentHeatmapTest {
 
     @Test
@@ -48,5 +58,17 @@ class InBodySegmentHeatmapTest {
 
         assertEquals(InBodyHeatZone.NO_DATA, values.heatZoneFor(InBodySegmentMapMode.LEAN))
         assertEquals(InBodyHeatZone.NO_DATA, values.heatZoneFor(InBodySegmentMapMode.FAT))
+    }
+
+    @Test
+    fun `tibialis SVG paths stay classified as legs`() {
+        val body = ParsedBody.of(BodyView.FRONT)
+        val tibialis = body.sectors.first { it.sector.slug == "tibialis" }
+
+        tibialis.paths.forEach { path ->
+            val segment = inBodySegmentFor(Muscle.TIBIALIS_ANTERIOR, path, BodyView.FRONT, body.viewportW)
+            assertTrue(segment == com.valerochka1337.valerochkagym.domain.measurements.InBodySegment.LEFT_LEG ||
+                segment == com.valerochka1337.valerochkagym.domain.measurements.InBodySegment.RIGHT_LEG)
+        }
     }
 }

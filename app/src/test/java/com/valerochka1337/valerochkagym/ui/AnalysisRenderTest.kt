@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.asAndroidBitmap
@@ -15,9 +16,12 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
@@ -52,6 +56,8 @@ import com.valerochka1337.valerochkagym.ui.analysis.body.BodyMapFlip
 import com.valerochka1337.valerochkagym.ui.analysis.body.BodyView
 import com.valerochka1337.valerochkagym.ui.analysis.body.InBodySegmentMapFlip
 import com.valerochka1337.valerochkagym.ui.analysis.body.InBodySegmentMapMode
+import com.valerochka1337.valerochkagym.ui.analysis.body.MuscleSelector
+import com.valerochka1337.valerochkagym.ui.analysis.body.maxMember
 import com.valerochka1337.valerochkagym.ui.exercise.ExerciseDetailContent
 import com.valerochka1337.valerochkagym.ui.theme.ChartPalette
 import com.valerochka1337.valerochkagym.ui.theme.GymTheme
@@ -130,6 +136,27 @@ class AnalysisRenderTest {
         val bitmap = composeRule.onRoot().captureToImage().asAndroidBitmap()
         assertTrue("картинка должна иметь размер", bitmap.width > 0 && bitmap.height > 0)
         save(bitmap, "analysis-cards.png")
+    }
+
+    @Test
+    fun `muscle selector renders wrapped full names at two times font scale`() {
+        composeRule.setContent {
+            CompositionLocalProvider(LocalDensity provides Density(density = 1f, fontScale = 2f)) {
+                GymTheme {
+                    Column(modifier = Modifier.width(420.dp).padding(16.dp)) {
+                        MuscleSelector(
+                            selected = Muscle.TIBIALIS_ANTERIOR,
+                            onSelected = {},
+                        )
+                    }
+                }
+            }
+        }
+        composeRule.waitForIdle()
+
+        val bitmap = composeRule.onNodeWithTag("muscle_selector_viewport").captureToImage().asAndroidBitmap()
+        assertTrue(bitmap.width > 0 && bitmap.height > 0)
+        save(bitmap, "muscle-selector.png")
     }
 
     @Test
@@ -214,7 +241,8 @@ class AnalysisRenderTest {
                 ExerciseDetailContent(
                     exercise = exercise,
                     loads = listOf(
-                        MuscleLoad(Muscle.CHEST, 100),
+                        MuscleLoad(Muscle.UPPER_CHEST, 50),
+                        MuscleLoad(Muscle.LOWER_CHEST, 100),
                         MuscleLoad(Muscle.TRICEPS, 70),
                         MuscleLoad(Muscle.FRONT_DELTS, 45),
                     ),
@@ -239,7 +267,9 @@ class AnalysisRenderTest {
             GymTheme {
                 Column(modifier = Modifier.width(420.dp).padding(16.dp)) {
                     BodyMapFlip(
-                        fillFor = { muscle -> ChartPalette.zoneColor(loads[muscle]?.zone ?: VolumeZone.LOW) },
+                        fillFor = { sector ->
+                            ChartPalette.zoneColor(sector.maxMember(loads) { it.weeklySets }?.zone ?: VolumeZone.LOW)
+                        },
                         selectedMuscle = Muscle.LATS,
                         initialView = BodyView.BACK,
                     )
@@ -251,6 +281,27 @@ class AnalysisRenderTest {
         val bitmap = composeRule.onRoot().captureToImage().asAndroidBitmap()
         assertTrue(bitmap.width > 0 && bitmap.height > 0)
         save(bitmap, "analysis-body-back.png")
+    }
+
+    @Test
+    fun `heatmap renders lower chest selection in its shared sector`() {
+        val loads = buildState().report.muscleLoads.associateBy { it.muscle }
+        composeRule.setContent {
+            GymTheme {
+                BodyMapFlip(
+                    fillFor = { sector ->
+                        ChartPalette.zoneColor(sector.maxMember(loads) { it.weeklySets }?.zone ?: VolumeZone.LOW)
+                    },
+                    selectedMuscle = Muscle.LOWER_CHEST,
+                    initialView = BodyView.FRONT,
+                    modifier = Modifier.width(420.dp).padding(16.dp),
+                )
+            }
+        }
+        composeRule.waitForIdle()
+        val bitmap = composeRule.onRoot().captureToImage().asAndroidBitmap()
+        assertTrue(bitmap.width > 0 && bitmap.height > 0)
+        save(bitmap, "analysis-body-lower-chest.png")
     }
 
     @Test
@@ -319,7 +370,8 @@ class AnalysisRenderTest {
         // Разметка мышц в редакторе упражнения красится одной зелёной шкалой по доле вовлечения:
         // проверяем, что ступени различимы и фигура не ломается на частичных значениях.
         val loads = mapOf(
-            Muscle.CHEST to 100,
+            Muscle.UPPER_CHEST to 50,
+            Muscle.LOWER_CHEST to 100,
             Muscle.TRICEPS to 65,
             Muscle.FRONT_DELTS to 40,
             Muscle.ABS to 15,
@@ -330,11 +382,11 @@ class AnalysisRenderTest {
                 val accent = MaterialTheme.colorScheme.primary
                 Column(modifier = Modifier.width(420.dp).padding(16.dp)) {
                     BodyMapFlip(
-                        fillFor = { muscle ->
-                            val load = loads[muscle]
+                        fillFor = { sector ->
+                            val load = sector.maxMember(loads) { it.toDouble() }
                             if (load == null) ChartPalette.Empty else lerp(base, accent, load / 100f)
                         },
-                        selectedMuscle = Muscle.TRICEPS,
+                        selectedMuscle = Muscle.LOWER_CHEST,
                     )
                 }
             }
