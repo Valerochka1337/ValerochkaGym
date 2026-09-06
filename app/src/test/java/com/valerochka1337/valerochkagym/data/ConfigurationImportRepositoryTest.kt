@@ -5,6 +5,7 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.mutablePreferencesOf
 import androidx.datastore.preferences.core.stringPreferencesKey
+import com.valerochka1337.valerochkagym.data.db.entity.EquipmentRequirementState
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
 import com.valerochka1337.valerochkagym.data.db.entity.GymEntity
@@ -268,6 +269,49 @@ class ConfigurationImportRepositoryTest : RoomDaoTest() {
   }
 
   @Test
+  fun `known equipment snapshot rejects an unresolved configuration reference atomically`() =
+      runTest {
+        val exerciseRows =
+            ExerciseSheetRowMapper.rows(
+                    ExerciseSheetRecord.Snapshot(
+                        syncId = EXERCISE_ID,
+                        updatedAt = 200,
+                        name = "Новая запись",
+                        muscleGroup = MuscleGroup.CHEST,
+                        type = ExerciseType.STRENGTH,
+                        isCustom = true,
+                        muscleLoads = mapOf(Muscle.UPPER_CHEST to 100),
+                        equipmentRequirementState = EquipmentRequirementState.KNOWN,
+                    ),
+                )
+                .map(::stringRow)
+        val routineGymRows =
+            RoutineGymsSheetRowMapper.rows(
+                    RoutineGymsSheetRecord.Snapshot(
+                        routineSyncId = ROUTINE_ID,
+                        updatedAt = 200,
+                        gymSyncIds = setOf(MISSING_ID),
+                    ),
+                )
+                .map(::stringRow)
+        val api =
+            FakeSheetsApi(
+                sheets =
+                    listOf(ExerciseSheetRowMapper.SHEET_NAME, RoutineGymsSheetRowMapper.SHEET_NAME),
+                valuesByRange =
+                    mapOf(
+                        ExerciseSheetRowMapper.RANGE to
+                            listOf(ExerciseSheetRowMapper.HEADER_ROW) + exerciseRows,
+                        RoutineGymsSheetRowMapper.RANGE to
+                            listOf(RoutineGymsSheetRowMapper.HEADER_ROW) + routineGymRows,
+                    ),
+            )
+
+        assertTrue(repository(api).importAll() is ImportResult.Failure)
+        assertEquals(0, tableCount("exercises"))
+      }
+
+  @Test
   fun `remote gym narrowing rolls back when it conflicts with a linked routine`() = runTest {
     val exerciseId =
         db.exerciseDao()
@@ -324,6 +368,174 @@ class ConfigurationImportRepositoryTest : RoomDaoTest() {
     assertEquals("Основной зал", db.gymDao().getGym(gymId)?.name)
     assertEquals(listOf(exerciseId), db.gymDao().getGymExerciseIds(gymId))
   }
+
+  @Test
+  fun `configured inventory and known requirements restore idempotently`() = runTest {
+    val exerciseRows =
+        ExerciseSheetRowMapper.rows(
+                ExerciseSheetRecord.Snapshot(
+                    syncId = EXERCISE_ID,
+                    updatedAt = 200,
+                    name = "Жим с гантелями",
+                    muscleGroup = MuscleGroup.CHEST,
+                    type = ExerciseType.STRENGTH,
+                    isCustom = true,
+                    muscleLoads = mapOf(Muscle.UPPER_CHEST to 100),
+                    equipmentRequirementState = EquipmentRequirementState.KNOWN,
+                    equipmentIds = setOf("dumbbells", "flat_bench"),
+                ),
+            )
+            .map(::stringRow)
+    val gymRows =
+        GymSheetRowMapper.rows(
+                GymSheetRecord.Snapshot(
+                    syncId = GYM_ID,
+                    updatedAt = 200,
+                    name = "Зал",
+                    exerciseSyncIds = emptySet(),
+                    inventoryConfigured = true,
+                    equipmentIds = setOf("dumbbells", "flat_bench"),
+                ),
+            )
+            .map(::stringRow)
+    val api =
+        FakeSheetsApi(
+            sheets = listOf(ExerciseSheetRowMapper.SHEET_NAME, GymSheetRowMapper.SHEET_NAME),
+            valuesByRange =
+                mapOf(
+                    ExerciseSheetRowMapper.RANGE to
+                        listOf(ExerciseSheetRowMapper.HEADER_ROW) + exerciseRows,
+                    GymSheetRowMapper.RANGE to listOf(GymSheetRowMapper.HEADER_ROW) + gymRows,
+                ),
+        )
+
+    assertTrue(repository(api).importAll() is ImportResult.Success)
+    assertTrue(repository(api).importAll() is ImportResult.NothingToImport)
+    val exercise = db.exerciseDao().getAllOnce().single()
+    val gym = db.gymDao().getGyms().single()
+    assertEquals(EquipmentRequirementState.KNOWN, exercise.equipmentRequirementState)
+    assertEquals(
+        setOf("dumbbells", "flat_bench"),
+        db.exerciseDao().getRequirementIds(exercise.id).toSet(),
+    )
+    assertTrue(gym.inventoryConfigured)
+    assertEquals(setOf("dumbbells", "flat_bench"), db.gymDao().getGymEquipmentIds(gym.id).toSet())
+    assertEquals(2, tableCount("exercise_equipment"))
+    assertEquals(2, tableCount("gym_equipment"))
+  }
+
+  @Test
+  fun `legacy exercise snapshot never downgrades known local requirements`() = runTest {
+    val exerciseId =
+        db.exerciseDao()
+            .insert(
+                ExerciseEntity(
+                    syncId = EXERCISE_ID,
+                    updatedAt = 100,
+                    name = "Свой жим",
+                    muscleGroup = MuscleGroup.CHEST,
+                    type = ExerciseType.STRENGTH,
+                    isCustom = true,
+                    equipmentRequirementState = EquipmentRequirementState.KNOWN,
+                ),
+            )
+    db.exerciseDao().replaceRequirements(exerciseId, setOf("dumbbells"))
+    val legacyRows =
+        ExerciseSheetRowMapper.rows(
+                ExerciseSheetRecord.Snapshot(
+                    syncId = EXERCISE_ID,
+                    updatedAt = 200,
+                    name = "Свой жим после синхронизации",
+                    muscleGroup = MuscleGroup.CHEST,
+                    type = ExerciseType.STRENGTH,
+                    isCustom = true,
+                    muscleLoads = mapOf(Muscle.UPPER_CHEST to 100),
+                ),
+            )
+            .map(::stringRow)
+    val api =
+        FakeSheetsApi(
+            sheets = listOf(ExerciseSheetRowMapper.SHEET_NAME),
+            valuesByRange =
+                mapOf(
+                    ExerciseSheetRowMapper.RANGE to
+                        listOf(ExerciseSheetRowMapper.HEADER_ROW) + legacyRows
+                ),
+        )
+
+    assertTrue(repository(api).importAll() is ImportResult.Success)
+    val restored = db.exerciseDao().getById(exerciseId)!!
+    assertEquals(EquipmentRequirementState.KNOWN, restored.equipmentRequirementState)
+    assertEquals(setOf("dumbbells"), db.exerciseDao().getRequirementIds(exerciseId).toSet())
+  }
+
+  @Test
+  fun `unknown equipment rejects the complete configuration before partial import`() = runTest {
+    val exerciseRows =
+        ExerciseSheetRowMapper.rows(
+                ExerciseSheetRecord.Snapshot(
+                    syncId = EXERCISE_ID,
+                    updatedAt = 200,
+                    name = "Валидное упражнение",
+                    muscleGroup = MuscleGroup.CHEST,
+                    type = ExerciseType.STRENGTH,
+                    isCustom = true,
+                    muscleLoads = mapOf(Muscle.UPPER_CHEST to 100),
+                ),
+            )
+            .map(::stringRow)
+    val invalidGymRow =
+        listOf(GYM_ID, "200", "false", "Повреждённый зал", "", "true", "not-a-real-equipment")
+    val api =
+        FakeSheetsApi(
+            sheets = listOf(ExerciseSheetRowMapper.SHEET_NAME, GymSheetRowMapper.SHEET_NAME),
+            valuesByRange =
+                mapOf(
+                    ExerciseSheetRowMapper.RANGE to
+                        listOf(ExerciseSheetRowMapper.HEADER_ROW) + exerciseRows,
+                    GymSheetRowMapper.RANGE to listOf(GymSheetRowMapper.HEADER_ROW, invalidGymRow),
+                ),
+        )
+
+    assertTrue(repository(api).importAll() is ImportResult.Failure)
+    assertEquals(0, tableCount("exercises"))
+    assertEquals(0, tableCount("gyms"))
+  }
+
+  @Test
+  fun `contradictory configured columns reject the complete configuration before partial import`() =
+      runTest {
+        val exerciseRows =
+            ExerciseSheetRowMapper.rows(
+                    ExerciseSheetRecord.Snapshot(
+                        syncId = EXERCISE_ID,
+                        updatedAt = 200,
+                        name = "Валидное упражнение",
+                        muscleGroup = MuscleGroup.CHEST,
+                        type = ExerciseType.STRENGTH,
+                        isCustom = true,
+                        muscleLoads = mapOf(Muscle.UPPER_CHEST to 100),
+                    ),
+                )
+                .map(::stringRow)
+        val malformedGymRow =
+            listOf(GYM_ID, "200", "false", "Повреждённый зал", EXERCISE_ID, "true", "dumbbells")
+        val api =
+            FakeSheetsApi(
+                sheets = listOf(ExerciseSheetRowMapper.SHEET_NAME, GymSheetRowMapper.SHEET_NAME),
+                valuesByRange =
+                    mapOf(
+                        ExerciseSheetRowMapper.RANGE to
+                            listOf(ExerciseSheetRowMapper.HEADER_ROW) + exerciseRows,
+                        GymSheetRowMapper.RANGE to
+                            listOf(GymSheetRowMapper.HEADER_ROW, malformedGymRow),
+                    ),
+            )
+
+        assertTrue(repository(api).importAll() is ImportResult.Failure)
+        assertEquals(0, tableCount("exercises"))
+        assertEquals(0, tableCount("gyms"))
+      }
 
   private fun repository(api: FakeSheetsApi): WorkoutImportRepositoryImpl =
       WorkoutImportRepositoryImpl(

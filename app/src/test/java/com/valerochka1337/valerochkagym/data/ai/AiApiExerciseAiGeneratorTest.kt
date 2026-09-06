@@ -3,6 +3,7 @@ package com.valerochka1337.valerochkagym.data.ai
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseDao
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseMuscleDao
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
+import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEquipmentEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseMuscleEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
 import com.valerochka1337.valerochkagym.data.db.entity.Muscle
@@ -477,6 +478,18 @@ class AiApiExerciseAiGeneratorTest {
         items.value.firstOrNull { it.id == id }
 
     override suspend fun getAllOnce(): List<ExerciseEntity> = items.value
+
+    override suspend fun getRequirementIds(exerciseId: Long): List<String> = emptyList()
+
+    override suspend fun getRequirements(exerciseIds: List<Long>): List<ExerciseEquipmentEntity> =
+        emptyList()
+
+    override fun observeAllRequirements(): Flow<List<ExerciseEquipmentEntity>> =
+        MutableStateFlow(emptyList())
+
+    override suspend fun insertRequirements(requirements: List<ExerciseEquipmentEntity>) = Unit
+
+    override suspend fun deleteRequirements(exerciseId: Long) = Unit
   }
 
   private class FakeExerciseMuscleDao(initial: List<ExerciseMuscleEntity>) : ExerciseMuscleDao {

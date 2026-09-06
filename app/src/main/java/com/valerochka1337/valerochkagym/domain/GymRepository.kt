@@ -1,5 +1,6 @@
 package com.valerochka1337.valerochkagym.domain
 
+import com.valerochka1337.valerochkagym.data.db.entity.EquipmentRequirementState
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseMuscleEntity
 import com.valerochka1337.valerochkagym.data.db.entity.RoutineEntity
@@ -14,7 +15,17 @@ data class GymConfiguration(
     val id: String,
     val name: String,
     val exercises: List<ExerciseEntity>,
+    val equipmentIds: Set<String> = emptySet(),
+    val inventoryConfigured: Boolean = false,
 )
+
+sealed interface ExerciseEquipmentRequirements {
+  data object UnknownLegacy : ExerciseEquipmentRequirements
+
+  data object ExplicitNone : ExerciseEquipmentRequirements
+
+  data class Required(val equipmentIds: Set<String>) : ExerciseEquipmentRequirements
+}
 
 /** Программа, которая не позволяет удалить зал или сузить его каталог без явного решения. */
 data class GymRoutineReference(
@@ -29,6 +40,7 @@ data class GymRoutineReference(
 data class GymConfigurationConflict(
     val routines: List<GymRoutineReference>,
     val exercises: List<ExerciseEntity>,
+    val missingEquipmentIds: Set<String> = emptySet(),
 )
 
 sealed interface SaveGymResult {
@@ -77,7 +89,17 @@ sealed interface SaveRoutineConfigurationResult {
 data class NewExerciseConfiguration(
     val exercise: ExerciseEntity,
     val muscles: List<ExerciseMuscleEntity>,
+    /** null keeps an existing definition for compatibility; explicit none is a known empty set. */
+    val requirements: ExerciseEquipmentRequirements? = null,
 )
+
+sealed interface SaveExerciseConfigurationResult {
+  data class Saved(val exercise: ExerciseEntity) : SaveExerciseConfigurationResult
+
+  data class Conflict(val details: GymConfigurationConflict) : SaveExerciseConfigurationResult
+
+  data object Failure : SaveExerciseConfigurationResult
+}
 
 data class RoutineDeletion(
     val syncId: String,
@@ -100,6 +122,27 @@ interface GymRepository {
       name: String,
       exerciseIds: Set<Long>,
   ): SaveGymResult
+
+  /** Explicit inventory save turns a legacy gym into a configured equipment inventory. */
+  suspend fun saveGymInventory(
+      id: String?,
+      name: String,
+      equipmentIds: Set<String>,
+  ): SaveGymResult = saveGym(id, name, emptySet())
+
+  suspend fun requirementsFor(exercise: ExerciseEntity): ExerciseEquipmentRequirements =
+      if (exercise.equipmentRequirementState == EquipmentRequirementState.UNKNOWN) {
+        ExerciseEquipmentRequirements.UnknownLegacy
+      } else {
+        ExerciseEquipmentRequirements.ExplicitNone
+      }
+
+  /** Creates or edits one exercise and validates all requested configured gyms atomically. */
+  suspend fun saveExerciseConfiguration(
+      configuration: NewExerciseConfiguration,
+      gymIds: Set<String>,
+      workoutId: String? = null,
+  ): SaveExerciseConfigurationResult = SaveExerciseConfigurationResult.Failure
 
   suspend fun deleteGym(id: String): DeleteGymResult
 

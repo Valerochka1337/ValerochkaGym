@@ -41,12 +41,12 @@ constructor(
             routineDao.getRoutineWithExercises(routineId) ?: return@withTransaction startEmpty()
         val gymIds = routine.gyms.map { it.id }
         if (gymIds.isNotEmpty()) {
-          val availableIds =
-              gymDao.getAvailableExercises(gymIds, gymIds.size).mapTo(hashSetOf()) { it.id }
           val unavailable =
               routine.exercises
                   .map { it.exercise }
-                  .filter { it.id !in availableIds }
+                  .filterNot {
+                    isEquipmentAvailable(it, routine.gyms, gymDao, database.exerciseDao())
+                  }
                   .distinctBy { it.id }
           if (unavailable.isNotEmpty()) {
             throw RoutineGymConflictException(unavailable.map { it.name })
@@ -147,10 +147,10 @@ constructor(
             ?: throw ActiveWorkoutUnavailableException()
         val gyms = gymDao.getGymsForWorkout(workoutId)
         if (gyms.isNotEmpty()) {
+          val selected = database.exerciseDao().getById(exerciseId)
           val available =
-              gymDao.getAvailableExercises(gyms.map { it.id }, gyms.size).any {
-                it.id == exerciseId
-              }
+              selected != null &&
+                  isEquipmentAvailable(selected, gyms, gymDao, database.exerciseDao())
           if (!available) {
             val name = database.exerciseDao().getById(exerciseId)?.name ?: "Упражнение"
             throw RoutineGymConflictException(listOf(name))

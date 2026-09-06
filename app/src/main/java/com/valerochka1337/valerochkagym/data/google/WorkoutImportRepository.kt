@@ -2,6 +2,7 @@ package com.valerochka1337.valerochkagym.data.google
 
 import androidx.room.withTransaction
 import com.valerochka1337.valerochkagym.data.db.CanonicalExerciseRegistry
+import com.valerochka1337.valerochkagym.data.db.EquipmentCatalog
 import com.valerochka1337.valerochkagym.data.db.GymDatabase
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseDao
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseMuscleDao
@@ -21,6 +22,7 @@ import com.valerochka1337.valerochkagym.data.db.entity.WorkoutExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.WorkoutSetEntity
 import com.valerochka1337.valerochkagym.data.db.muscleRows
 import com.valerochka1337.valerochkagym.data.db.relation.RoutineWithExercises
+import com.valerochka1337.valerochkagym.data.isEquipmentAvailable
 import com.valerochka1337.valerochkagym.data.settings.SettingsRepository
 import com.valerochka1337.valerochkagym.domain.ExerciseSheetRecord
 import com.valerochka1337.valerochkagym.domain.ExerciseSheetRowMapper
@@ -168,6 +170,20 @@ constructor(
           } else {
             ParsedRoutineGymsSheetRows(emptyList(), 0)
           }
+      if (exercises.hasInvalidEquipment || gyms.hasInvalidEquipment) {
+        return ImportResult.Failure("Импорт содержит неизвестное оборудование")
+      }
+      // A legacy exercise-link snapshot historically skipped unresolved links. Once this import
+      // carries a v14 inventory or known requirements, unresolved references would instead make
+      // the new aggregate incomplete and must roll back the whole configuration transaction.
+      val hasEquipmentConfiguration =
+          exercises.records.filterIsInstance<ExerciseSheetRecord.Snapshot>().any {
+            it.equipmentRequirementState ==
+                com.valerochka1337.valerochkagym.data.db.entity.EquipmentRequirementState.KNOWN
+          } ||
+              gyms.records.filterIsInstance<GymSheetRecord.Snapshot>().any {
+                it.inventoryConfigured
+              }
       var skippedRows =
           workouts.skippedRows +
               measurements.skippedRows +
@@ -215,7 +231,14 @@ constructor(
         gyms.records.filterIsInstance<GymSheetRecord.Snapshot>().forEach { record ->
           when (applyGym(record)) {
             ApplyConfigurationResult.Applied -> importedGyms++
-            ApplyConfigurationResult.InvalidReference -> skippedRows++
+            ApplyConfigurationResult.InvalidReference ->
+                if (hasEquipmentConfiguration) {
+                  throw ConfigurationImportConflictException(
+                      "Импорт содержит неизвестную или несовместимую конфигурацию зала"
+                  )
+                } else {
+                  skippedRows++
+                }
             ApplyConfigurationResult.Ignored -> Unit
           }
         }
@@ -227,7 +250,14 @@ constructor(
         routineGyms.records.forEach { record ->
           when (applyRoutineGyms(record)) {
             ApplyConfigurationResult.Applied -> importedRoutineGyms++
-            ApplyConfigurationResult.InvalidReference -> skippedRows++
+            ApplyConfigurationResult.InvalidReference ->
+                if (hasEquipmentConfiguration) {
+                  throw ConfigurationImportConflictException(
+                      "Импорт содержит неизвестную связь программы и зала"
+                  )
+                } else {
+                  skippedRows++
+                }
             ApplyConfigurationResult.Ignored -> Unit
           }
         }
@@ -236,7 +266,14 @@ constructor(
         gyms.records.filterIsInstance<GymSheetRecord.Tombstone>().forEach { record ->
           when (applyGym(record)) {
             ApplyConfigurationResult.Applied -> importedGyms++
-            ApplyConfigurationResult.InvalidReference -> skippedRows++
+            ApplyConfigurationResult.InvalidReference ->
+                if (hasEquipmentConfiguration) {
+                  throw ConfigurationImportConflictException(
+                      "Импорт содержит несовместимое удаление зала"
+                  )
+                } else {
+                  skippedRows++
+                }
             ApplyConfigurationResult.Ignored -> Unit
           }
         }
@@ -302,6 +339,21 @@ constructor(
                 type = record.type,
                 isCustom = true,
                 needsMuscleMapReview = record.needsMuscleMapReview,
+                equipmentRequirementState =
+                    if (
+                        existing?.equipmentRequirementState ==
+                            com.valerochka1337.valerochkagym.data.db.entity
+                                .EquipmentRequirementState
+                                .KNOWN &&
+                            record.equipmentRequirementState ==
+                                com.valerochka1337.valerochkagym.data.db.entity
+                                    .EquipmentRequirementState
+                                    .UNKNOWN
+                    ) {
+                      existing.equipmentRequirementState
+                    } else {
+                      record.equipmentRequirementState
+                    },
             )
         val exerciseId =
             if (existing == null) exerciseDao.insert(entity)
@@ -312,6 +364,13 @@ constructor(
               ExerciseMuscleEntity(exerciseId, muscle, contribution)
             },
         )
+        if (
+            record.equipmentRequirementState ==
+                com.valerochka1337.valerochkagym.data.db.entity.EquipmentRequirementState.KNOWN
+        ) {
+          if (record.equipmentIds.any { !EquipmentCatalog.isKnown(it) }) return false
+          exerciseDao.replaceRequirements(exerciseId, record.equipmentIds)
+        }
         true
       }
     }
@@ -355,6 +414,11 @@ constructor(
         }
       }
       is GymSheetRecord.Snapshot -> {
+        // An old exercise-link snapshot may never downgrade a locally configured inventory.
+        if (existing?.inventoryConfigured == true && !record.inventoryConfigured)
+            return ApplyConfigurationResult.Ignored
+        if (record.equipmentIds.any { !EquipmentCatalog.isKnown(it) })
+            return ApplyConfigurationResult.InvalidReference
         val exercisesBySyncId = exerciseDao.getAllOnce().associateBy { it.syncId }
         val linkedExercises = record.exerciseSyncIds.mapNotNull(exercisesBySyncId::get)
         if (linkedExercises.size != record.exerciseSyncIds.size) {
@@ -366,11 +430,17 @@ constructor(
                 syncId = record.syncId,
                 updatedAt = record.updatedAt,
                 name = record.name,
+                inventoryConfigured = record.inventoryConfigured,
             )
         val gymId =
             if (existing == null) gymDao.insertGym(entity)
             else existing.id.also { gymDao.updateGym(entity) }
-        gymDao.replaceGymExercises(gymId, linkedExercises.map { it.id })
+        if (record.inventoryConfigured) {
+          gymDao.replaceGymEquipment(gymId, record.equipmentIds)
+          gymDao.deleteGymExercises(gymId)
+        } else {
+          gymDao.replaceGymExercises(gymId, linkedExercises.map { it.id })
+        }
         localTombstone?.let {
           database.configurationTombstoneDao().delete(it.kind, it.syncId, it.updatedAt)
         }
@@ -398,11 +468,7 @@ constructor(
     val gyms = snapshot.gymSyncIds.mapNotNull(gymsBySyncId::get)
     if (gyms.size != snapshot.gymSyncIds.size) return ApplyConfigurationResult.InvalidReference
     if (gyms.isNotEmpty()) {
-      val availableIds =
-          gymDao.getAvailableExercises(gyms.map(GymEntity::id), gyms.size).mapTo(hashSetOf()) {
-            it.id
-          }
-      if (routine.exercises.any { it.exercise.id !in availableIds }) {
+      if (routine.exercises.any { !isEquipmentAvailable(it.exercise, gyms, gymDao, exerciseDao) }) {
         return ApplyConfigurationResult.InvalidReference
       }
     }
@@ -421,14 +487,10 @@ constructor(
     database.routineDao().observeRoutinesFull().first().forEach { routine ->
       val gyms = routine.gyms
       if (gyms.isEmpty()) return@forEach
-      val availableIds =
-          gymDao
-              .getAvailableExercises(gyms.map(GymEntity::id), gyms.size)
-              .mapTo(hashSetOf(), ExerciseEntity::id)
       val unavailable =
           routine.exercises
               .map { it.exercise }
-              .filter { it.id !in availableIds }
+              .filterNot { isEquipmentAvailable(it, gyms, gymDao, exerciseDao) }
               .distinctBy(ExerciseEntity::id)
       if (unavailable.isNotEmpty()) {
         conflicts += "Программа «${routine.routine.name}»: " + unavailable.joinToString { it.name }
@@ -439,14 +501,10 @@ constructor(
       val workout = workoutDao.getWorkoutFull(workoutId) ?: return@let
       val gyms = gymDao.getGymsForWorkout(workoutId)
       if (gyms.isEmpty()) return@let
-      val availableIds =
-          gymDao
-              .getAvailableExercises(gyms.map(GymEntity::id), gyms.size)
-              .mapTo(hashSetOf(), ExerciseEntity::id)
       val unavailable =
           workout.exercises
               .map { it.exercise }
-              .filter { it.id !in availableIds }
+              .filterNot { isEquipmentAvailable(it, gyms, gymDao, exerciseDao) }
               .distinctBy(ExerciseEntity::id)
       if (unavailable.isNotEmpty()) {
         conflicts +=

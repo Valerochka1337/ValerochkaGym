@@ -9,7 +9,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
-/** A file-backed v10 schema is semantically identical to v12 and validates through the no-op. */
+/** A file-backed v10 base-only schema validates through the production no-op v10 → v12. */
 @RunWith(RobolectricTestRunner::class)
 @Config(application = android.app.Application::class)
 class Migration10To12Test {
@@ -24,13 +24,14 @@ class Migration10To12Test {
   @Test
   fun `room opens file backed v10 schema through the no op migration`() {
     MigrationRecoveryFixtures.createCurrentDatabase(context, name).use { sql ->
+      MigrationRecoveryFixtures.removeV14EquipmentSchema(sql)
       sql.execSQL("PRAGMA user_version = 10")
     }
     val db = MigrationRecoveryFixtures.openThroughProductionList(context, name)
     try {
       db.openHelper.writableDatabase.query("PRAGMA user_version").use { cursor ->
         assertEquals(
-            13,
+            14,
             cursor.run {
               moveToFirst()
               getInt(0)

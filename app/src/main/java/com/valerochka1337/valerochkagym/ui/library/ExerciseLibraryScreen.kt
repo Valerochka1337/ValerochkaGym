@@ -57,6 +57,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.valerochka1337.valerochkagym.data.db.CanonicalExerciseRegistry
+import com.valerochka1337.valerochkagym.data.db.EquipmentCatalog
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleGroup
 import com.valerochka1337.valerochkagym.domain.ExerciseCatalogFilters
@@ -160,6 +161,9 @@ fun ExerciseLibraryScreen(
               FadeInContent {
                 EmptyState(
                     resetVisible = query.isNotBlank() || state.filters != ExerciseCatalogFilters(),
+                    equipmentSelected =
+                        state.filters.equipment.equipmentIds.isNotEmpty() ||
+                            state.filters.equipment.includeExplicitNone,
                     onReset = viewModel::resetCatalog,
                     modifier = Modifier.fillMaxSize(),
                 )
@@ -227,6 +231,8 @@ fun ExerciseLibraryScreen(
         onOrigin = viewModel::setOrigin,
         onGroup = viewModel::toggleGroupFacet,
         onClearGroup = viewModel::clearGroupFacet,
+        onEquipment = viewModel::toggleEquipmentFacet,
+        onNoEquipment = viewModel::toggleNoEquipmentFacet,
         onReset = viewModel::resetFilters,
     )
   }
@@ -353,6 +359,8 @@ private fun FilterSheet(
     onType: (ExerciseCatalogTypeFilter) -> Unit,
     onGroup: (MuscleGroup) -> Unit,
     onClearGroup: () -> Unit,
+    onEquipment: (String) -> Unit,
+    onNoEquipment: () -> Unit,
     onReset: () -> Unit,
 ) {
   val counts = state.facetCounts ?: return
@@ -413,6 +421,28 @@ private fun FilterSheet(
           )
         }
       }
+      SheetChipRow("Оборудование") {
+        GymFilterChip(
+            selected = state.filters.equipment.includeExplicitNone,
+            onClick = onNoEquipment,
+            label = "Без оборудования",
+            count = counts.explicitNoneEquipment,
+        )
+      }
+      EquipmentCatalog.entries
+          .groupBy { it.group }
+          .forEach { (group, entries) ->
+            SheetChipRow("Оборудование · $group") {
+              entries.forEach { equipment ->
+                GymFilterChip(
+                    selected = equipment.id in state.filters.equipment.equipmentIds,
+                    onClick = { onEquipment(equipment.id) },
+                    label = equipment.name,
+                    count = counts.equipment[equipment.id],
+                )
+              }
+            }
+          }
       Spacer(Modifier.height(20.dp))
     }
   }
@@ -557,6 +587,7 @@ private fun CustomBadge() {
 @Composable
 private fun EmptyState(
     resetVisible: Boolean,
+    equipmentSelected: Boolean,
     onReset: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -567,7 +598,11 @@ private fun EmptyState(
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
       Text(
           text =
-              if (resetVisible) "По этим ограничениям ничего не найдено" else "Ничего не найдено",
+              when {
+                !resetVisible -> "Ничего не найдено"
+                equipmentSelected -> "Нет упражнений с выбранным оборудованием"
+                else -> "По этим ограничениям ничего не найдено"
+              },
           style = MaterialTheme.typography.bodyLarge,
           color = MaterialTheme.colorScheme.onSurfaceVariant,
       )

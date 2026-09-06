@@ -1,5 +1,7 @@
 package com.valerochka1337.valerochkagym.domain
 
+import com.valerochka1337.valerochkagym.data.db.EquipmentCatalog
+import com.valerochka1337.valerochkagym.data.db.entity.EquipmentRequirementState
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
 import com.valerochka1337.valerochkagym.data.db.entity.Muscle
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleGroup
@@ -8,7 +10,7 @@ import com.valerochka1337.valerochkagym.data.db.entity.MuscleRole
 /** Append-only Exercises contract. A:I remains legacy-compatible; J marks canonical roles. */
 object ExerciseSheetRowMapper {
   const val SHEET_NAME = "Exercises"
-  const val RANGE = "Exercises!A:J"
+  const val RANGE = "Exercises!A:L"
 
   val HEADER_ROW: List<String> =
       listOf(
@@ -22,6 +24,8 @@ object ExerciseSheetRowMapper {
           "muscle",
           "contribution",
           "model_version",
+          "equipment_requirement_state",
+          "equipment_id",
       )
 
   fun rows(record: ExerciseSheetRecord): List<List<Any?>> =
@@ -33,7 +37,20 @@ object ExerciseSheetRowMapper {
   fun deletion(syncId: String, updatedAt: Long): List<Any?> {
     val canonicalId = requireCanonicalSheetUuid(syncId, "exercise_id")
     requireSheetVersion(updatedAt)
-    return listOf(canonicalId, updatedAt, "true", "", "", "", "", "", "", MODEL_VERSION.toString())
+    return listOf(
+        canonicalId,
+        updatedAt,
+        "true",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        MODEL_VERSION.toString(),
+        "",
+        "",
+    )
   }
 
   private fun snapshotRows(snapshot: ExerciseSheetRecord.Snapshot): List<List<Any?>> {
@@ -55,10 +72,21 @@ object ExerciseSheetRowMapper {
             snapshot.type.name,
             snapshot.isCustom.toString(),
         )
-    if (snapshot.muscleLoads.isEmpty()) return listOf(base + listOf("", "", MODEL_VERSION))
-    return Muscle.entries.mapNotNull { muscle ->
-      snapshot.muscleLoads[muscle]?.let { contribution ->
-        base + listOf(muscle.name, contribution, MODEL_VERSION)
+    val muscleRows =
+        if (snapshot.muscleLoads.isEmpty()) listOf(listOf("", ""))
+        else
+            Muscle.entries.mapNotNull { muscle ->
+              snapshot.muscleLoads[muscle]?.let { contribution ->
+                listOf(muscle.name, contribution)
+              }
+            }
+    val equipmentRows =
+        if (snapshot.equipmentRequirementState == EquipmentRequirementState.KNOWN)
+            snapshot.equipmentIds.sorted().ifEmpty { listOf("") }
+        else listOf("")
+    return muscleRows.flatMap { muscle ->
+      equipmentRows.map { equipment ->
+        base + muscle + listOf(MODEL_VERSION, snapshot.equipmentRequirementState.name, equipment)
       }
     }
   }
@@ -84,7 +112,11 @@ object ExerciseSheetRowParser {
       var sawLegacyRow: Boolean = false,
       var canonicalRoles: Boolean? = null,
       var sawLegacyChest: Boolean = false,
+      var equipmentRequirementState: EquipmentRequirementState? = null,
+      var hasEmptyEquipmentMarker: Boolean = false,
+      val equipmentIds: MutableSet<String> = linkedSetOf(),
       val muscleLoads: MutableMap<Muscle, Int> = linkedMapOf(),
+      var hasInvalidEquipment: Boolean = false,
       var invalid: Boolean = false,
   ) {
     fun accept(row: List<String>): Boolean {
@@ -95,7 +127,14 @@ object ExerciseSheetRowParser {
       if (deleted) {
         if (row.drop(EXERCISE_NAME).take(CONTRIBUTION - EXERCISE_NAME + 1).any(String::isNotBlank))
             return reject()
-        if (metadata != null || hasEmptyMarker || muscleLoads.isNotEmpty()) return reject()
+        if (
+            metadata != null ||
+                hasEmptyMarker ||
+                muscleLoads.isNotEmpty() ||
+                row.sheetCell(EQUIPMENT_REQUIREMENT_STATE).isNotEmpty() ||
+                row.sheetCell(EQUIPMENT_ID).isNotEmpty()
+        )
+            return rejectEquipment()
         return true
       }
 
@@ -119,6 +158,24 @@ object ExerciseSheetRowParser {
           }
       canonicalRoles?.let { previous -> if (previous != canonical) return reject() }
       canonicalRoles = canonical
+
+      val rawState = row.sheetCell(EQUIPMENT_REQUIREMENT_STATE).takeIf(String::isNotBlank)
+      val state =
+          if (rawState == null) EquipmentRequirementState.UNKNOWN
+          else rawState.toEnumOrNull<EquipmentRequirementState>() ?: return rejectEquipment()
+      equipmentRequirementState?.let { previous -> if (previous != state) return rejectEquipment() }
+      equipmentRequirementState = state
+      val equipment = row.sheetCell(EQUIPMENT_ID)
+      if (state == EquipmentRequirementState.UNKNOWN && equipment.isNotEmpty())
+          return rejectEquipment()
+      if (state == EquipmentRequirementState.KNOWN) {
+        if (equipment.isEmpty()) {
+          if (equipmentIds.isNotEmpty()) return rejectEquipment()
+          hasEmptyEquipmentMarker = true
+        } else if (hasEmptyEquipmentMarker || !EquipmentCatalog.isKnown(equipment))
+            return rejectEquipment()
+        else equipmentIds += equipment
+      }
 
       val muscleCell = row.sheetCell(MUSCLE)
       val contributionCell = row.sheetCell(CONTRIBUTION)
@@ -167,6 +224,9 @@ object ExerciseSheetRowParser {
               isCustom = value.isCustom,
               muscleLoads = muscleLoads.toMap(),
               needsMuscleMapReview = sawLegacyChest,
+              equipmentRequirementState =
+                  equipmentRequirementState ?: EquipmentRequirementState.UNKNOWN,
+              equipmentIds = equipmentIds.toSet(),
           )
         }
         null -> null
@@ -176,6 +236,11 @@ object ExerciseSheetRowParser {
     private fun reject(): Boolean {
       invalid = true
       return false
+    }
+
+    private fun rejectEquipment(): Boolean {
+      hasInvalidEquipment = true
+      return reject()
     }
 
     /** Old CHEST is input-only and is intentionally expanded before persistence. */
@@ -206,6 +271,7 @@ object ExerciseSheetRowParser {
 
   fun parse(rows: List<List<String>>): ParsedExerciseSheetRows {
     var skippedRows = 0
+    var hasInvalidEquipment = false
     val versions = LinkedHashMap<String, LinkedHashMap<Long, SnapshotBuilder>>()
     rows.forEach { row ->
       if (row.isBlankSheetRow() || row.sheetCell(EXERCISE_ID) == "exercise_id") return@forEach
@@ -219,13 +285,24 @@ object ExerciseSheetRowParser {
           versions
               .getOrPut(syncId) { LinkedHashMap() }
               .getOrPut(updatedAt) { SnapshotBuilder(syncId, updatedAt) }
+      val rawState = row.sheetCell(EQUIPMENT_REQUIREMENT_STATE)
+      val state = rawState.toEnumOrNull<EquipmentRequirementState>()
+      val equipment = row.sheetCell(EQUIPMENT_ID)
+      if (
+          (rawState.isNotEmpty() && state == null) ||
+              (equipment.isNotEmpty() && !EquipmentCatalog.isKnown(equipment)) ||
+              (state == EquipmentRequirementState.UNKNOWN && equipment.isNotEmpty())
+      ) {
+        hasInvalidEquipment = true
+      }
       if (!builder.accept(row)) skippedRows++
+      if (builder.hasInvalidEquipment) hasInvalidEquipment = true
     }
     val records =
         versions.values.mapNotNull { snapshots ->
           snapshots.values.maxByOrNull(SnapshotBuilder::updatedAt)?.toRecord()
         }
-    return ParsedExerciseSheetRows(records, skippedRows)
+    return ParsedExerciseSheetRows(records, skippedRows, hasInvalidEquipment)
   }
 
   private inline fun <reified T : Enum<T>> String.toEnumOrNull(): T? =
@@ -243,6 +320,8 @@ object ExerciseSheetRowParser {
   private const val MUSCLE = 7
   private const val CONTRIBUTION = 8
   private const val MODEL_VERSION = 9
+  private const val EQUIPMENT_REQUIREMENT_STATE = 10
+  private const val EQUIPMENT_ID = 11
   private const val MIN_CONTRIBUTION = 0
   private const val MAX_CONTRIBUTION = 100
 }

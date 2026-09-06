@@ -37,8 +37,10 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.valerochka1337.valerochkagym.data.db.CanonicalExerciseRegistry
+import com.valerochka1337.valerochkagym.data.db.EquipmentCatalog
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleLoad
+import com.valerochka1337.valerochkagym.domain.ExerciseEquipmentRequirements
 import com.valerochka1337.valerochkagym.domain.ExerciseStatistics
 import com.valerochka1337.valerochkagym.domain.displayName
 import com.valerochka1337.valerochkagym.ui.analysis.body.BodyMapFlip
@@ -71,6 +73,7 @@ fun ExerciseDetailScreen(
     Column(modifier = Modifier.fillMaxSize()) {
       ExerciseHeader(
           exercise = state.exercise,
+          requirements = state.requirements,
           onBack = onBack,
           onEdit = {
             haptics.tap()
@@ -91,6 +94,7 @@ fun ExerciseDetailScreen(
             ExerciseDetailContent(
                 exercise = state.exercise!!,
                 loads = state.loads,
+                requirements = state.requirements,
                 statistics = state.statistics,
             )
       }
@@ -110,6 +114,7 @@ fun ExerciseDetailScreen(
 @OptIn(ExperimentalMaterial3Api::class)
 private fun ExerciseHeader(
     exercise: ExerciseEntity?,
+    requirements: ExerciseEquipmentRequirements,
     onBack: () -> Unit,
     onEdit: () -> Unit,
 ) {
@@ -132,6 +137,12 @@ private fun ExerciseHeader(
           exercise?.let {
             Text(
                 text = "${it.muscleGroup.displayName()} · ${it.type.displayName()}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+            )
+            Text(
+                text = equipmentLine(requirements),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
@@ -159,6 +170,7 @@ private fun ExerciseHeader(
 internal fun ExerciseDetailContent(
     exercise: ExerciseEntity,
     loads: List<MuscleLoad>,
+    requirements: ExerciseEquipmentRequirements = ExerciseEquipmentRequirements.UnknownLegacy,
     statistics: ExerciseStatistics?,
 ) {
   LazyColumn(
@@ -178,6 +190,16 @@ internal fun ExerciseDetailContent(
     }
   }
 }
+
+internal fun equipmentLine(requirements: ExerciseEquipmentRequirements): String =
+    when (requirements) {
+      ExerciseEquipmentRequirements.UnknownLegacy -> "Оборудование не указано"
+      ExerciseEquipmentRequirements.ExplicitNone -> "Без оборудования"
+      is ExerciseEquipmentRequirements.Required ->
+          requirements.equipmentIds.sorted().joinToString(prefix = "Оборудование: ") { id ->
+            EquipmentCatalog.require(id).name
+          }
+    }
 
 @Composable
 private fun ProfileCard(exercise: ExerciseEntity) {

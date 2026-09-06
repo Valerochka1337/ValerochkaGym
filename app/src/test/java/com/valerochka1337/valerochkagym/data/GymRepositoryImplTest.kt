@@ -1,6 +1,7 @@
 package com.valerochka1337.valerochkagym.data
 
 import com.valerochka1337.valerochkagym.data.db.entity.ConfigurationTombstoneKind
+import com.valerochka1337.valerochkagym.data.db.entity.EquipmentRequirementState
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseMuscleEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
@@ -10,8 +11,10 @@ import com.valerochka1337.valerochkagym.data.db.entity.RoutineEntity
 import com.valerochka1337.valerochkagym.data.db.entity.RoutineExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.WorkoutEntity
 import com.valerochka1337.valerochkagym.domain.DeleteGymResult
+import com.valerochka1337.valerochkagym.domain.ExerciseEquipmentRequirements
 import com.valerochka1337.valerochkagym.domain.NewExerciseConfiguration
 import com.valerochka1337.valerochkagym.domain.RoutineConfigurationDraft
+import com.valerochka1337.valerochkagym.domain.SaveExerciseConfigurationResult
 import com.valerochka1337.valerochkagym.domain.SaveGymResult
 import com.valerochka1337.valerochkagym.domain.SaveRoutineConfigurationResult
 import kotlinx.coroutines.flow.first
@@ -39,7 +42,7 @@ class GymRepositoryImplTest : RoomDaoTest() {
   }
 
   @Test
-  fun `creating an exercise assigns it to every selected gym atomically`() = runTest {
+  fun `creating an exercise leaves selected gym inventories unchanged`() = runTest {
     val alpha = savedGym("Альфа")
     val beta = savedGym("Бета")
 
@@ -53,12 +56,9 @@ class GymRepositoryImplTest : RoomDaoTest() {
         )!!
 
     assertTrue(exercise.id > 0)
-    assertEquals(listOf(exercise.id), repository.getGym(alpha)!!.exercises.map { it.id })
-    assertEquals(listOf(exercise.id), repository.getGym(beta)!!.exercises.map { it.id })
-    assertEquals(
-        listOf(exercise.id),
-        repository.observeAvailableExercises(setOf(alpha, beta)).first().map { it.id },
-    )
+    assertTrue(repository.getGym(alpha)!!.exercises.isEmpty())
+    assertTrue(repository.getGym(beta)!!.exercises.isEmpty())
+    assertTrue(repository.observeAvailableExercises(setOf(alpha, beta)).first().isEmpty())
     assertEquals(1, db.exerciseMuscleDao().getForExercise(exercise.id).size)
   }
 
@@ -86,7 +86,7 @@ class GymRepositoryImplTest : RoomDaoTest() {
         listOf(exercise.id),
         db.workoutDao().getWorkoutExercises("active").map { it.exerciseId },
     )
-    assertEquals(listOf(exercise.id), repository.getGym(gym)!!.exercises.map { it.id })
+    assertTrue(repository.getGym(gym)!!.exercises.isEmpty())
     assertEquals(1, tableCount("workout_sets"))
   }
 
@@ -285,6 +285,166 @@ class GymRepositoryImplTest : RoomDaoTest() {
 
     assertEquals(futureVersion + 1, saved.updatedAt)
     assertEquals(futureVersion + 1, db.exerciseDao().getById(exerciseId)?.updatedAt)
+  }
+
+  @Test
+  fun `configured inventory exposes a builtin only when its dumbbells and bench are present`() =
+      runTest {
+        val builtin =
+            com.valerochka1337.valerochkagym.data.db.CanonicalExerciseRegistry.entries
+                .first { it.key == "chest-2-1" }
+                .exercise
+        val exerciseId = db.exerciseDao().insert(builtin.copy(id = 0))
+        val saved =
+            repository.saveGymInventory(
+                id = null,
+                name = "Основной зал",
+                equipmentIds = setOf("dumbbells", "adjustable_bench"),
+            ) as SaveGymResult.Saved
+
+        assertEquals(
+            listOf(exerciseId),
+            repository.observeAvailableExercises(setOf(saved.gymId)).first().map { it.id },
+        )
+        assertTrue(repository.getGym(saved.gymId)!!.inventoryConfigured)
+        assertEquals(
+            setOf("dumbbells", "adjustable_bench"),
+            repository.getGym(saved.gymId)!!.equipmentIds,
+        )
+      }
+
+  @Test
+  fun `unknown custom exercise remains available in legacy gym and is rejected by configured or mixed gyms`() =
+      runTest {
+        val unknown = db.exerciseDao().insert(exercise("Старое упражнение"))
+        val legacy = savedGym("Старый зал", setOf(unknown))
+        val configured =
+            (repository.saveGymInventory(null, "Новый зал", setOf("dumbbells"))
+                    as SaveGymResult.Saved)
+                .gymId
+
+        assertEquals(
+            listOf(unknown),
+            repository.observeAvailableExercises(setOf(legacy)).first().map { it.id },
+        )
+        assertTrue(repository.observeAvailableExercises(setOf(configured)).first().isEmpty())
+        assertTrue(
+            repository.observeAvailableExercises(setOf(legacy, configured)).first().isEmpty()
+        )
+      }
+
+  @Test
+  fun `requirement conflict rolls back linked routine active workout and inventory`() = runTest {
+    val exerciseId =
+        db.exerciseDao()
+            .insert(
+                exercise("Жим с требованиями")
+                    .copy(equipmentRequirementState = EquipmentRequirementState.KNOWN),
+            )
+    db.exerciseDao().replaceRequirements(exerciseId, setOf("dumbbells"))
+    val gym =
+        (repository.saveGymInventory(null, "Зал", setOf("dumbbells")) as SaveGymResult.Saved).gymId
+    val localGym = db.gymDao().getGymBySyncId(gym)!!
+    val routineId = db.routineDao().upsertRoutine(RoutineEntity(name = "Грудь"))
+    db.routineDao()
+        .replaceRoutineExercises(
+            routineId,
+            listOf(
+                RoutineExerciseEntity(routineId = routineId, exerciseId = exerciseId, position = 0)
+            ),
+        )
+    db.gymDao().replaceRoutineGyms(routineId, listOf(localGym.id))
+    db.workoutDao().insertWorkout(WorkoutEntity(id = "active", name = "Активная", startedAt = 1))
+    db.gymDao().replaceWorkoutGyms("active", listOf(localGym.id))
+    val workoutExercise =
+        db.workoutDao()
+            .insertWorkoutExercise(
+                com.valerochka1337.valerochkagym.data.db.entity.WorkoutExerciseEntity(
+                    workoutId = "active",
+                    exerciseId = exerciseId,
+                    position = 0,
+                ),
+            )
+    db.workoutDao()
+        .insertSet(
+            com.valerochka1337.valerochkagym.data.db.entity.WorkoutSetEntity(
+                workoutExerciseId = workoutExercise,
+                setIndex = 0,
+            ),
+        )
+    val existing = db.exerciseDao().getById(exerciseId)!!
+
+    val result =
+        repository.saveExerciseConfiguration(
+            NewExerciseConfiguration(
+                exercise = existing.copy(name = "Нельзя сохранить"),
+                muscles = emptyList(),
+                requirements =
+                    ExerciseEquipmentRequirements.Required(setOf("dumbbells", "flat_bench")),
+            ),
+            gymIds = emptySet(),
+        )
+
+    assertTrue(result is SaveExerciseConfigurationResult.Conflict)
+    result as SaveExerciseConfigurationResult.Conflict
+    assertEquals(setOf("flat_bench"), result.details.missingEquipmentIds)
+    assertEquals(setOf("dumbbells"), db.exerciseDao().getRequirementIds(exerciseId).toSet())
+    assertEquals("Жим с требованиями", db.exerciseDao().getById(exerciseId)!!.name)
+    assertEquals(setOf("dumbbells"), db.gymDao().getGymEquipmentIds(localGym.id).toSet())
+    assertEquals(1, db.workoutDao().getWorkoutExercises("active").size)
+    assertEquals(1, tableCount("workout_sets"))
+  }
+
+  @Test
+  fun `inventory conflict names only routines with equipment that becomes unavailable`() = runTest {
+    val bodyweight =
+        db.exerciseDao()
+            .insert(
+                exercise("Планка")
+                    .copy(equipmentRequirementState = EquipmentRequirementState.KNOWN),
+            )
+    val pullup =
+        db.exerciseDao()
+            .insert(
+                exercise("Подтягивание")
+                    .copy(equipmentRequirementState = EquipmentRequirementState.KNOWN),
+            )
+    db.exerciseDao().replaceRequirements(pullup, setOf("pullup_bar"))
+    val gym =
+        (repository.saveGymInventory(null, "Зал с турником", setOf("pullup_bar"))
+                as SaveGymResult.Saved)
+            .gymId
+    val localGym = db.gymDao().getGymBySyncId(gym)!!
+    val floorRoutine = db.routineDao().upsertRoutine(RoutineEntity(name = "Пол"))
+    val pullupRoutine = db.routineDao().upsertRoutine(RoutineEntity(name = "Турник"))
+    db.routineDao()
+        .replaceRoutineExercises(
+            floorRoutine,
+            listOf(
+                RoutineExerciseEntity(
+                    routineId = floorRoutine,
+                    exerciseId = bodyweight,
+                    position = 0,
+                )
+            ),
+        )
+    db.routineDao()
+        .replaceRoutineExercises(
+            pullupRoutine,
+            listOf(
+                RoutineExerciseEntity(routineId = pullupRoutine, exerciseId = pullup, position = 0)
+            ),
+        )
+    db.gymDao().replaceRoutineGyms(floorRoutine, listOf(localGym.id))
+    db.gymDao().replaceRoutineGyms(pullupRoutine, listOf(localGym.id))
+
+    val result = repository.saveGymInventory(gym, "Зал с турником", emptySet())
+
+    assertTrue(result is SaveGymResult.Conflict)
+    result as SaveGymResult.Conflict
+    assertEquals(listOf("Турник"), result.details.routines.map { it.name })
+    assertEquals(listOf("Подтягивание"), result.details.exercises.map { it.name })
+    assertEquals(setOf("pullup_bar"), result.details.missingEquipmentIds)
   }
 
   @Test
