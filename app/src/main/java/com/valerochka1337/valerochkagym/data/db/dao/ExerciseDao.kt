@@ -5,6 +5,7 @@ import androidx.room.Insert
 import androidx.room.Query
 import androidx.room.Update
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
+import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEquipmentEntity
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -27,4 +28,25 @@ interface ExerciseDao {
 
   /** Все упражнения одним снимком (для матчинга по имени при импорте). */
   @Query("SELECT * FROM exercises") suspend fun getAllOnce(): List<ExerciseEntity>
+
+  @Query("SELECT equipmentId FROM exercise_equipment WHERE exerciseId = :exerciseId ORDER BY equipmentId")
+  suspend fun getRequirementIds(exerciseId: Long): List<String>
+
+  @Query("SELECT * FROM exercise_equipment WHERE exerciseId IN (:exerciseIds) ORDER BY exerciseId, equipmentId")
+  suspend fun getRequirements(exerciseIds: List<Long>): List<ExerciseEquipmentEntity>
+
+  @Query("SELECT * FROM exercise_equipment ORDER BY exerciseId, equipmentId")
+  fun observeAllRequirements(): Flow<List<ExerciseEquipmentEntity>>
+
+  @Insert suspend fun insertRequirements(requirements: List<ExerciseEquipmentEntity>)
+
+  @Query("DELETE FROM exercise_equipment WHERE exerciseId = :exerciseId")
+  suspend fun deleteRequirements(exerciseId: Long)
+
+  suspend fun replaceRequirements(exerciseId: Long, equipmentIds: Set<String>) {
+    deleteRequirements(exerciseId)
+    if (equipmentIds.isNotEmpty()) {
+      insertRequirements(equipmentIds.sorted().map { ExerciseEquipmentEntity(exerciseId, it) })
+    }
+  }
 }

@@ -7,6 +7,7 @@ import com.valerochka1337.valerochkagym.data.db.dao.ExerciseDao
 import com.valerochka1337.valerochkagym.data.db.dao.RoutineDao
 import com.valerochka1337.valerochkagym.data.db.dao.WorkoutDao
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
+import com.valerochka1337.valerochkagym.data.db.entity.EquipmentRequirementState
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
 import com.valerochka1337.valerochkagym.data.db.entity.GymEntity
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleGroup
@@ -165,6 +166,69 @@ class ActiveWorkoutRepositoryTest : RoomDaoTest() {
     }
 
     assertEquals(0, tableCount("workouts"))
+  }
+
+  @Test
+  fun `startFromRoutine accepts a configured gym covering every requirement`() = runTest {
+    val press =
+        exerciseDao.insert(
+            ExerciseEntity(
+                name = "Жим скамья",
+                muscleGroup = MuscleGroup.CHEST,
+                type = ExerciseType.STRENGTH,
+                isCustom = true,
+                equipmentRequirementState = EquipmentRequirementState.KNOWN,
+            ),
+        )
+    exerciseDao.replaceRequirements(press, setOf("dumbbells", "flat_bench"))
+    val routineId = addRoutine("Грудь")
+    addRoutineExercise(routineId, press, position = 0, plannedSets = listOf(planned(20.0, 10)))
+    val gymId = db.gymDao().insertGym(GymEntity(name = "Альфа", inventoryConfigured = true))
+    db.gymDao().replaceGymEquipment(gymId, setOf("dumbbells", "flat_bench"))
+    db.gymDao().replaceRoutineGyms(routineId, listOf(gymId))
+
+    val workoutId = repository.startFromRoutine(routineId)
+
+    assertEquals(listOf(press), workoutDao.getWorkoutExercises(workoutId).map { it.exerciseId })
+  }
+
+  @Test
+  fun `missing bench rejects configured routine start and workout addition atomically`() = runTest {
+    val press =
+        exerciseDao.insert(
+            ExerciseEntity(
+                name = "Жим скамья",
+                muscleGroup = MuscleGroup.CHEST,
+                type = ExerciseType.STRENGTH,
+                isCustom = true,
+                equipmentRequirementState = EquipmentRequirementState.KNOWN,
+            ),
+        )
+    exerciseDao.replaceRequirements(press, setOf("dumbbells", "flat_bench"))
+    val routineId = addRoutine("Грудь")
+    addRoutineExercise(routineId, press, position = 0, plannedSets = listOf(planned(20.0, 10)))
+    val gymId = db.gymDao().insertGym(GymEntity(name = "Альфа", inventoryConfigured = true))
+    db.gymDao().replaceGymEquipment(gymId, setOf("dumbbells"))
+    db.gymDao().replaceRoutineGyms(routineId, listOf(gymId))
+
+    try {
+      repository.startFromRoutine(routineId)
+      fail("A missing bench must reject the routine")
+    } catch (_: RoutineGymConflictException) {
+      // The transaction must not create a partial workout.
+    }
+    assertEquals(0, tableCount("workouts"))
+
+    val emptyWorkout = repository.startEmpty()
+    db.gymDao().replaceWorkoutGyms(emptyWorkout, listOf(gymId))
+    try {
+      repository.addExercise(emptyWorkout, press)
+      fail("A missing bench must reject adding an exercise")
+    } catch (_: RoutineGymConflictException) {
+      // The transaction must not insert an exercise or its first set.
+    }
+    assertTrue(workoutDao.getWorkoutExercises(emptyWorkout).isEmpty())
+    assertEquals(0, tableCount("workout_sets"))
   }
 
   // endregion

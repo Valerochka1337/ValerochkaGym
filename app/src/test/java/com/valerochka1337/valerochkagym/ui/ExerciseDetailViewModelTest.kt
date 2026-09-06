@@ -6,6 +6,8 @@ import com.valerochka1337.valerochkagym.data.db.dao.ExerciseDao
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseMuscleDao
 import com.valerochka1337.valerochkagym.data.db.dao.WorkoutDao
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
+import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEquipmentEntity
+import com.valerochka1337.valerochkagym.data.db.entity.EquipmentRequirementState
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseMuscleEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
 import com.valerochka1337.valerochkagym.data.db.entity.Muscle
@@ -18,6 +20,15 @@ import com.valerochka1337.valerochkagym.data.db.entity.WorkoutSetEntity
 import com.valerochka1337.valerochkagym.data.db.relation.AnalyticsSetRow
 import com.valerochka1337.valerochkagym.data.db.relation.WorkoutFull
 import com.valerochka1337.valerochkagym.domain.ExerciseStatisticsCalculator
+import com.valerochka1337.valerochkagym.domain.ExerciseEquipmentRequirements
+import com.valerochka1337.valerochkagym.domain.GymConfiguration
+import com.valerochka1337.valerochkagym.domain.GymConfigurationConflict
+import com.valerochka1337.valerochkagym.domain.GymRepository
+import com.valerochka1337.valerochkagym.domain.GymRoutineReference
+import com.valerochka1337.valerochkagym.domain.NewExerciseConfiguration
+import com.valerochka1337.valerochkagym.domain.SaveExerciseConfigurationResult
+import com.valerochka1337.valerochkagym.domain.SaveGymResult
+import com.valerochka1337.valerochkagym.domain.DeleteGymResult
 import com.valerochka1337.valerochkagym.ui.exercise.ExerciseDetailViewModel
 import com.valerochka1337.valerochkagym.ui.navigation.GymRoutes
 import com.valerochka1337.valerochkagym.util.MainDispatcherRule
@@ -38,6 +49,24 @@ import org.junit.Test
 class ExerciseDetailViewModelTest {
 
   @get:Rule val mainDispatcherRule = MainDispatcherRule()
+
+  @Test
+  fun `detail reacts when known custom equipment requirements change`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val exerciseDao = FakeExerciseDao(isCustom = true, knownRequirements = true)
+        val viewModel = viewModel(exerciseDao, FakeExerciseMuscleDao(), FakeWorkoutDao())
+        val collector = backgroundScope.launch(mainDispatcherRule.testDispatcher) { viewModel.uiState.collect {} }
+
+        advanceUntilIdle()
+        exerciseDao.requirements.value = listOf(ExerciseEquipmentEntity(EXERCISE_ID, "dumbbells"))
+        advanceUntilIdle()
+
+        assertEquals(
+            ExerciseEquipmentRequirements.Required(setOf("dumbbells")),
+            viewModel.uiState.value.requirements,
+        )
+        collector.cancel()
+      }
 
   @Test
   fun `exercise detail exposes profile muscles and statistics`() =
@@ -148,11 +177,53 @@ class ExerciseDetailViewModelTest {
         collector.cancel()
       }
 
+  @Test
+  fun `detail save conflict keeps draft and names affected references`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val affected = ExerciseEntity(44L, "Жим гантелей", MuscleGroup.CHEST, ExerciseType.STRENGTH)
+        val repository =
+            ConflictGymRepository(
+                GymConfigurationConflict(
+                    routines = listOf(GymRoutineReference(5L, "Верх тела")),
+                    exercises = listOf(affected),
+                    missingEquipmentIds = setOf("dumbbells"),
+                ),
+            )
+        val viewModel =
+            viewModel(
+                FakeExerciseDao(isCustom = true),
+                FakeExerciseMuscleDao(),
+                FakeWorkoutDao(),
+                gymRepository = repository,
+            )
+        val collector = backgroundScope.launch(mainDispatcherRule.testDispatcher) { viewModel.uiState.collect {} }
+        advanceUntilIdle()
+
+        viewModel.openEditor()
+        advanceUntilIdle()
+        viewModel.saveEditor(
+            name = "Новый жим",
+            type = ExerciseType.STRENGTH,
+            loads = listOf(MuscleLoad(Muscle.UPPER_CHEST, 100)),
+            requirements = ExerciseEquipmentRequirements.ExplicitNone,
+        )
+        advanceUntilIdle()
+
+        assertEquals("Новый жим", viewModel.editor.value?.name)
+        assertFalse(viewModel.editor.value?.isSaving ?: true)
+        assertEquals(ExerciseEquipmentRequirements.ExplicitNone, viewModel.editor.value?.requirements)
+        assertEquals(true, viewModel.editor.value?.saveError?.contains("Гантели"))
+        assertEquals(true, viewModel.editor.value?.saveError?.contains("Жим гантелей"))
+        assertEquals(true, viewModel.editor.value?.saveError?.contains("Верх тела"))
+        collector.cancel()
+      }
+
   private fun viewModel(
       exerciseDao: ExerciseDao,
       muscleDao: ExerciseMuscleDao,
       workoutDao: WorkoutDao,
       legacyExecutionGroup: String? = null,
+      gymRepository: GymRepository = com.valerochka1337.valerochkagym.domain.NoOpGymRepository,
   ) =
       ExerciseDetailViewModel(
           savedStateHandle =
@@ -167,12 +238,39 @@ class ExerciseDetailViewModelTest {
           workoutDao = workoutDao,
           statisticsCalculator = ExerciseStatisticsCalculator(),
           computeDispatcher = mainDispatcherRule.testDispatcher,
+          gymRepository = gymRepository,
       )
+
+  private class ConflictGymRepository(
+      private val conflict: GymConfigurationConflict,
+  ) : GymRepository {
+    override fun observeGyms(): Flow<List<GymConfiguration>> = flowOf(emptyList())
+
+    override fun observeExerciseCatalog(): Flow<List<ExerciseEntity>> = flowOf(emptyList())
+
+    override suspend fun getGym(id: String): GymConfiguration? = null
+
+    override suspend fun saveGym(id: String?, name: String, exerciseIds: Set<Long>): SaveGymResult =
+        SaveGymResult.Failure
+
+    override suspend fun deleteGym(id: String): DeleteGymResult = DeleteGymResult.Failure
+
+    override suspend fun requirementsFor(exercise: ExerciseEntity): ExerciseEquipmentRequirements =
+        ExerciseEquipmentRequirements.ExplicitNone
+
+    override suspend fun saveExerciseConfiguration(
+        configuration: NewExerciseConfiguration,
+        gymIds: Set<String>,
+        workoutId: String?,
+    ): SaveExerciseConfigurationResult = SaveExerciseConfigurationResult.Conflict(conflict)
+  }
 
   private class FakeExerciseDao(
       isCustom: Boolean = false,
       builtIn: Boolean = false,
+      knownRequirements: Boolean = false,
   ) : ExerciseDao {
+    val requirements = MutableStateFlow<List<ExerciseEquipmentEntity>>(emptyList())
     val items =
         MutableStateFlow(
             listOf(
@@ -185,6 +283,9 @@ class ExerciseDetailViewModelTest {
                       muscleGroup = MuscleGroup.CHEST,
                       type = ExerciseType.STRENGTH,
                       isCustom = isCustom,
+                      equipmentRequirementState =
+                          if (knownRequirements) EquipmentRequirementState.KNOWN
+                          else EquipmentRequirementState.UNKNOWN,
                   )
                 },
             ),
@@ -206,6 +307,18 @@ class ExerciseDetailViewModelTest {
         items.value.firstOrNull { it.id == id }
 
     override suspend fun getAllOnce(): List<ExerciseEntity> = items.value
+
+    override fun observeAllRequirements(): Flow<List<ExerciseEquipmentEntity>> = requirements
+
+    override suspend fun getRequirementIds(exerciseId: Long): List<String> =
+        requirements.value.filter { it.exerciseId == exerciseId }.map { it.equipmentId }
+
+    override suspend fun getRequirements(exerciseIds: List<Long>): List<ExerciseEquipmentEntity> =
+        requirements.value.filter { it.exerciseId in exerciseIds }
+
+    override suspend fun insertRequirements(requirements: List<ExerciseEquipmentEntity>) = Unit
+
+    override suspend fun deleteRequirements(exerciseId: Long) = Unit
   }
 
   private class FakeExerciseMuscleDao : ExerciseMuscleDao {

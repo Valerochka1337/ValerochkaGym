@@ -22,10 +22,15 @@ import com.valerochka1337.valerochkagym.worker.RoutineUploadScheduler
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.util.UUID
 import javax.inject.Inject
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -64,6 +69,8 @@ data class RoutineEditorUiState(
     val exercises: List<EditorExercise> = emptyList(),
     val gyms: List<GymConfiguration> = emptyList(),
     val selectedGymIds: Set<String> = emptySet(),
+    /** A changed gym or exercise set awaits the repository's reactive coverage snapshot. */
+    val isCheckingAvailability: Boolean = false,
     val conflictingExercises: List<EditorExercise> = emptyList(),
     val saveError: String? = null,
     val isSaving: Boolean = false,
@@ -71,6 +78,7 @@ data class RoutineEditorUiState(
   val isValid: Boolean
     get() =
         !isSaving &&
+            !isCheckingAvailability &&
             name.trim().isNotEmpty() &&
             exercises.isNotEmpty() &&
             conflictingExercises.isEmpty()
@@ -82,6 +90,7 @@ data class RoutineEditorUiState(
  * индексу) и шлёт событие [saved] для popBackStack.
  */
 @HiltViewModel
+@OptIn(ExperimentalCoroutinesApi::class)
 class RoutineEditorViewModel
 @Inject
 constructor(
@@ -113,6 +122,45 @@ constructor(
     if (routineId != null) {
       viewModelScope.launch { load(routineId) }
     }
+    viewModelScope.launch {
+      uiState
+          .map { state ->
+            RoutineAvailabilityInput(
+                gymIds = state.selectedGymIds,
+                exerciseIds = state.exercises.map { it.exerciseId },
+            )
+          }
+          .distinctUntilChanged()
+          .flatMapLatest { input ->
+            if (input.gymIds.isEmpty()) {
+              flowOf(input to emptySet<Long>())
+            } else {
+              gymRepository.observeAvailableExercises(input.gymIds).map { available ->
+                input to available.mapTo(hashSetOf()) { it.id }
+              }
+            }
+          }
+          .collect { (input, availableIds) ->
+            _uiState.update { state ->
+              if (
+                  state.selectedGymIds != input.gymIds ||
+                      state.exercises.map { it.exerciseId } != input.exerciseIds
+              ) {
+                state
+              } else if (input.gymIds.isEmpty()) {
+                state.copy(isCheckingAvailability = false, conflictingExercises = emptyList())
+              } else {
+                state.copy(
+                    isCheckingAvailability = false,
+                    conflictingExercises =
+                        state.exercises
+                            .filter { it.exerciseId !in availableIds }
+                            .distinctBy(EditorExercise::exerciseId),
+                )
+              }
+            }
+          }
+    }
   }
 
   private suspend fun load(id: Long) {
@@ -143,8 +191,8 @@ constructor(
                       },
               gyms = current.gyms,
               selectedGymIds = full.gyms.mapTo(linkedSetOf()) { it.syncId },
+              isCheckingAvailability = full.gyms.isNotEmpty() && full.exercises.isNotEmpty(),
           )
-          .recalculateConflicts()
     }
   }
 
@@ -157,7 +205,12 @@ constructor(
       if (state.isSaving) return@update state
       val selected = state.selectedGymIds.toMutableSet()
       if (!selected.add(gymId)) selected.remove(gymId)
-      state.copy(selectedGymIds = selected, saveError = null).recalculateConflicts()
+      state.copy(
+          selectedGymIds = selected,
+          isCheckingAvailability = selected.isNotEmpty() && state.exercises.isNotEmpty(),
+          conflictingExercises = emptyList(),
+          saveError = null,
+      )
     }
   }
 
@@ -181,21 +234,24 @@ constructor(
         )
     _uiState.update { state ->
       if (state.isSaving) return@update state
-      state
-          .copy(exercises = state.exercises + editorExercise, saveError = null)
-          .recalculateConflicts()
+      state.copy(
+          exercises = state.exercises + editorExercise,
+          isCheckingAvailability = state.selectedGymIds.isNotEmpty(),
+          conflictingExercises = emptyList(),
+          saveError = null,
+      )
     }
   }
 
   fun removeExercise(index: Int) {
     _uiState.update { state ->
       if (state.isSaving || index !in state.exercises.indices) return@update state
-      state
-          .copy(
-              exercises = state.exercises.toMutableList().apply { removeAt(index) },
-              saveError = null,
-          )
-          .recalculateConflicts()
+      state.copy(
+          exercises = state.exercises.toMutableList().apply { removeAt(index) },
+          isCheckingAvailability = state.selectedGymIds.isNotEmpty(),
+          conflictingExercises = emptyList(),
+          saveError = null,
+      )
     }
   }
 
@@ -346,32 +402,19 @@ constructor(
   }
 }
 
+private data class RoutineAvailabilityInput(
+    val gymIds: Set<String>,
+    val exerciseIds: List<Long>,
+)
+
 private fun RoutineEditorUiState.withGyms(value: List<GymConfiguration>): RoutineEditorUiState {
   val existingIds = value.mapTo(hashSetOf()) { it.id }
+  val selected = selectedGymIds.filterTo(linkedSetOf()) { it in existingIds }
+  if (selected == selectedGymIds) return copy(gyms = value)
   return copy(
           gyms = value,
-          selectedGymIds = selectedGymIds.filterTo(linkedSetOf()) { it in existingIds },
+          selectedGymIds = selected,
+          isCheckingAvailability = selected.isNotEmpty() && exercises.isNotEmpty(),
+          conflictingExercises = emptyList(),
       )
-      .recalculateConflicts()
-}
-
-private fun RoutineEditorUiState.recalculateConflicts(): RoutineEditorUiState {
-  if (selectedGymIds.isEmpty()) return copy(conflictingExercises = emptyList())
-  val selected = gyms.filter { it.id in selectedGymIds }
-  if (selected.size != selectedGymIds.size) return this
-  val unavailableIds =
-      exercises
-          .asSequence()
-          .map { it.exerciseId }
-          .filter { exerciseId ->
-            selected.any { gym -> gym.exercises.none { it.id == exerciseId } }
-          }
-          .toSet()
-  return copy(
-      conflictingExercises =
-          exercises
-              .filter { it.exerciseId in unavailableIds }
-              .distinctBy(EditorExercise::exerciseId),
-      saveError = null,
-  )
 }

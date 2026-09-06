@@ -10,6 +10,11 @@ import com.valerochka1337.valerochkagym.data.backup.DatabaseExporterImpl
 import com.valerochka1337.valerochkagym.data.backup.ExportResult
 import com.valerochka1337.valerochkagym.data.db.GymDatabase
 import com.valerochka1337.valerochkagym.data.db.entity.WorkoutEntity
+import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
+import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
+import com.valerochka1337.valerochkagym.data.db.entity.EquipmentRequirementState
+import com.valerochka1337.valerochkagym.data.db.entity.GymEntity
+import com.valerochka1337.valerochkagym.data.db.entity.MuscleGroup
 import java.io.File
 import kotlinx.coroutines.test.runTest
 import org.junit.After
@@ -64,6 +69,44 @@ class DatabaseExporterTest {
       copy.rawQuery("SELECT COUNT(*) FROM workouts", null).use { cursor ->
         cursor.moveToFirst()
         assertEquals(1, cursor.getInt(0))
+      }
+    }
+  }
+
+  @Test
+  fun `exported copy retains configured inventory and exercise requirements`() = runTest {
+    val exerciseId =
+        db.exerciseDao().insert(
+            ExerciseEntity(
+                name = "Жим с гантелями",
+                muscleGroup = MuscleGroup.CHEST,
+                type = ExerciseType.STRENGTH,
+                isCustom = true,
+                equipmentRequirementState = EquipmentRequirementState.KNOWN,
+            ),
+        )
+    db.exerciseDao().replaceRequirements(exerciseId, setOf("dumbbells", "flat_bench"))
+    val gymId = db.gymDao().insertGym(GymEntity(name = "Зал", inventoryConfigured = true))
+    db.gymDao().replaceGymEquipment(gymId, setOf("dumbbells", "flat_bench"))
+    val target = File(context.cacheDir, "backup-equipment.db")
+
+    assertEquals(ExportResult.Success, exporter.export(Uri.fromFile(target)))
+    SQLiteDatabase.openDatabase(target.path, null, SQLiteDatabase.OPEN_READONLY).use { copy ->
+      copy.rawQuery("SELECT COUNT(*) FROM gym_equipment", null).use { cursor ->
+        cursor.moveToFirst()
+        assertEquals(2, cursor.getInt(0))
+      }
+      copy.rawQuery("SELECT COUNT(*) FROM exercise_equipment", null).use { cursor ->
+        cursor.moveToFirst()
+        assertEquals(2, cursor.getInt(0))
+      }
+      copy.rawQuery("SELECT inventoryConfigured FROM gyms WHERE id = ?", arrayOf(gymId.toString())).use { cursor ->
+        cursor.moveToFirst()
+        assertEquals(1, cursor.getInt(0))
+      }
+      copy.rawQuery("SELECT equipmentRequirementState FROM exercises WHERE id = ?", arrayOf(exerciseId.toString())).use { cursor ->
+        cursor.moveToFirst()
+        assertEquals("KNOWN", cursor.getString(0))
       }
     }
   }

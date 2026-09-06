@@ -413,7 +413,7 @@ class WorkoutImportRepositoryTest : RoomDaoTest() {
                 sheets = mutableListOf("Exercises"),
                 valuesByRange =
                     mapOf(
-                        "Exercises!A:J" to
+                        "Exercises!A:L" to
                             listOf(
                                 listOf(
                                     "exercise_id",

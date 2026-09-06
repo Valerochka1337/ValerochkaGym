@@ -1,6 +1,7 @@
 package com.valerochka1337.valerochkagym.data.db.entity
 
 import androidx.room.Entity
+import androidx.room.ColumnInfo
 import androidx.room.Index
 import androidx.room.PrimaryKey
 import java.nio.charset.StandardCharsets
@@ -19,7 +20,12 @@ data class ExerciseEntity(
     val syncId: String = UUID.randomUUID().toString(),
     val updatedAt: Long = System.currentTimeMillis(),
     val needsMuscleMapReview: Boolean = false,
+    /** UNKNOWN is only for pre-v14 custom exercises; KNOWN with no link means explicitly none. */
+    @ColumnInfo(defaultValue = "'UNKNOWN'")
+    val equipmentRequirementState: EquipmentRequirementState = EquipmentRequirementState.UNKNOWN,
 )
+
+enum class EquipmentRequirementState { UNKNOWN, KNOWN }
 
 /** Stable identity shared by the same built-in catalogue entry on every installation. */
 fun builtInExerciseSyncId(name: String): String = deterministicExerciseSyncId("builtin:$name")

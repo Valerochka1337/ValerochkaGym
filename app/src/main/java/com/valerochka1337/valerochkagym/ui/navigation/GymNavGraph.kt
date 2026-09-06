@@ -61,6 +61,7 @@ object GymRoutes {
   const val EXERCISE_ID_ARG = "exerciseId"
   private const val LEGACY_EXECUTION_GROUP_ARG = "executionGroup"
   const val GYM_ID_ARG = "gymId"
+  const val GYM_COPY_SOURCE_ARG = "copyGymId"
 
   /** Ключ savedStateHandle, через который библиотека-пикер возвращает выбранное упражнение. */
   const val SELECTED_EXERCISE_ID = "selected_exercise_id"
@@ -72,7 +73,8 @@ object GymRoutes {
   const val EXERCISE_DETAIL = "exercise_detail/{$EXERCISE_ID_ARG}"
   const val LEGACY_EXERCISE_DETAIL =
       "exercise_detail/{$EXERCISE_ID_ARG}/{$LEGACY_EXECUTION_GROUP_ARG}"
-  const val GYM_EDITOR = "gym_editor?$GYM_ID_ARG={$GYM_ID_ARG}"
+  const val GYM_EDITOR =
+      "gym_editor?$GYM_ID_ARG={$GYM_ID_ARG}&$GYM_COPY_SOURCE_ARG={$GYM_COPY_SOURCE_ARG}"
 
   fun routineEditor(routineId: String? = null) =
       if (routineId != null) "routine_editor?$ROUTINE_ID_ARG=$routineId" else "routine_editor"
@@ -87,8 +89,13 @@ object GymRoutes {
       if (measurementId == null) "measurement_editor"
       else "measurement_editor?$MEASUREMENT_ID_ARG=$measurementId"
 
-  fun gymEditor(gymId: String? = null) =
-      if (gymId == null) "gym_editor" else "gym_editor?$GYM_ID_ARG=${Uri.encode(gymId)}"
+  fun gymEditor(gymId: String? = null, copySourceGymId: String? = null): String {
+    val arguments = buildList {
+      gymId?.let { add("$GYM_ID_ARG=${Uri.encode(it)}") }
+      copySourceGymId?.let { add("$GYM_COPY_SOURCE_ARG=${Uri.encode(it)}") }
+    }
+    return if (arguments.isEmpty()) "gym_editor" else "gym_editor?${arguments.joinToString("&")}"
+  }
 
   fun library(
       gymIds: Set<String> = emptySet(),
@@ -240,6 +247,7 @@ fun GymNavGraph(
           onBack = { navController.popBackStack() },
           onCreateGym = { navController.navigate(GymRoutes.gymEditor()) },
           onEditGym = { id -> navController.navigate(GymRoutes.gymEditor(id)) },
+          onCopyGym = { id -> navController.navigate(GymRoutes.gymEditor(copySourceGymId = id)) },
       )
     }
 
@@ -248,6 +256,11 @@ fun GymNavGraph(
         arguments =
             listOf(
                 navArgument(GymRoutes.GYM_ID_ARG) {
+                  type = NavType.StringType
+                  nullable = true
+                  defaultValue = null
+                },
+                navArgument(GymRoutes.GYM_COPY_SOURCE_ARG) {
                   type = NavType.StringType
                   nullable = true
                   defaultValue = null

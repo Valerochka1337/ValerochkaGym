@@ -9,6 +9,7 @@ import com.valerochka1337.valerochkagym.data.db.CanonicalExerciseRegistry
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseDao
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseMuscleDao
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
+import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEquipmentEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseMuscleEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
 import com.valerochka1337.valerochkagym.data.db.entity.Muscle
@@ -22,10 +23,14 @@ import com.valerochka1337.valerochkagym.domain.ExerciseCatalogRepositoryState
 import com.valerochka1337.valerochkagym.domain.ExerciseCatalogSnapshot
 import com.valerochka1337.valerochkagym.domain.ExerciseCatalogSort
 import com.valerochka1337.valerochkagym.domain.ExerciseCatalogTypeFilter
+import com.valerochka1337.valerochkagym.domain.ExerciseEquipmentRequirements
 import com.valerochka1337.valerochkagym.domain.GymConfiguration
+import com.valerochka1337.valerochkagym.domain.GymConfigurationConflict
 import com.valerochka1337.valerochkagym.domain.GymRepository
+import com.valerochka1337.valerochkagym.domain.GymRoutineReference
 import com.valerochka1337.valerochkagym.domain.NewExerciseConfiguration
 import com.valerochka1337.valerochkagym.domain.SaveGymResult
+import com.valerochka1337.valerochkagym.domain.SaveExerciseConfigurationResult
 import com.valerochka1337.valerochkagym.ui.library.ExerciseLibraryViewModel
 import com.valerochka1337.valerochkagym.ui.library.SavedExerciseResult
 import com.valerochka1337.valerochkagym.ui.navigation.GymRoutes
@@ -221,6 +226,89 @@ class ExerciseLibraryViewModelTest {
       }
 
   @Test
+  fun `equipment reset keeps picker gym restriction while equipment OR stays combined with query`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val dumbbellPress = catalogue().first().copy(id = 10L, name = "Жим гантелей")
+        val barbellRow = catalogue()[1].copy(id = 11L, name = "Жим штанги")
+        val repository =
+            FakeExerciseCatalogRepository(
+                exercises = listOf(dumbbellPress, barbellRow),
+                requirements =
+                    mapOf(
+                        dumbbellPress.id to ExerciseEquipmentRequirements.Required(setOf("dumbbells")),
+                        barbellRow.id to ExerciseEquipmentRequirements.Required(setOf("barbell")),
+                    ),
+                gymNames = listOf("Домашний"),
+            )
+        val viewModel =
+            ExerciseLibraryViewModel(
+                exerciseDao = FakeExerciseDao(),
+                exerciseMuscleDao = FakeExerciseMuscleDao(),
+                savedStateHandle = SavedStateHandle(mapOf(GymRoutes.GYM_IDS_ARG to "home")),
+                catalogRepository = repository,
+                computeDispatcher = StandardTestDispatcher(testScheduler),
+            )
+        collectUiState(viewModel)
+        advanceUntilIdle()
+
+        viewModel.onQueryChange("жим")
+        viewModel.toggleEquipmentFacet("dumbbells")
+        viewModel.toggleEquipmentFacet("barbell")
+        viewModel.toggleNoEquipmentFacet()
+        advanceUntilIdle()
+        assertEquals(listOf(10L, 11L), viewModel.uiState.value.exercises?.map { it.id }?.sorted())
+
+        viewModel.resetFilters()
+        advanceUntilIdle()
+        assertEquals(listOf("Домашний"), viewModel.uiState.value.gymNames)
+        assertEquals(emptySet<String>(), viewModel.uiState.value.filters.equipment.equipmentIds)
+        assertFalse(viewModel.uiState.value.filters.equipment.includeExplicitNone)
+      }
+
+  @Test
+  fun `no equipment facet restores and excludes unknown legacy rows`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val explicitNone = catalogue().first().copy(id = 31L, name = "Без инвентаря")
+        val unknown = catalogue()[1].copy(id = 32L, name = "Старое")
+        val repository =
+            FakeExerciseCatalogRepository(
+                exercises = listOf(explicitNone, unknown),
+                requirements =
+                    mapOf(
+                        explicitNone.id to ExerciseEquipmentRequirements.ExplicitNone,
+                        unknown.id to ExerciseEquipmentRequirements.UnknownLegacy,
+                    ),
+            )
+        val handle = SavedStateHandle()
+        val viewModel =
+            ExerciseLibraryViewModel(
+                FakeExerciseDao(),
+                FakeExerciseMuscleDao(),
+                savedStateHandle = handle,
+                catalogRepository = repository,
+                computeDispatcher = StandardTestDispatcher(testScheduler),
+            )
+        collectUiState(viewModel)
+        advanceUntilIdle()
+
+        viewModel.toggleNoEquipmentFacet()
+        advanceUntilIdle()
+        assertEquals(listOf(explicitNone.id), viewModel.uiState.value.exercises?.map { it.id })
+
+        val restored =
+            ExerciseLibraryViewModel(
+                FakeExerciseDao(),
+                FakeExerciseMuscleDao(),
+                savedStateHandle = handle,
+                catalogRepository = repository,
+                computeDispatcher = StandardTestDispatcher(testScheduler),
+            )
+        collectUiState(restored)
+        advanceUntilIdle()
+        assertTrue(restored.uiState.value.filters.equipment.includeExplicitNone)
+      }
+
+  @Test
   fun `legacy saved type values restore to their compatible type families`() =
       runTest(mainDispatcherRule.testDispatcher.scheduler) {
         fun restoredType(value: String): ExerciseCatalogTypeFilter {
@@ -406,7 +494,7 @@ class ExerciseLibraryViewModelTest {
       }
 
   @Test
-  fun `saving a new picker exercise assigns it to selected gyms and emits it`() =
+  fun `saving a new picker exercise keeps gym inventory unchanged and emits it`() =
       runTest(mainDispatcherRule.testDispatcher.scheduler) {
         val repository = FakePickerGymRepository()
         val viewModel =
@@ -439,12 +527,57 @@ class ExerciseLibraryViewModelTest {
         assertEquals(setOf("gym-first", "gym-second"), repository.lastAssignedGymIds)
         assertEquals("Тяга сумо", repository.lastCreation?.exercise?.name)
         assertEquals(
+            ExerciseEquipmentRequirements.ExplicitNone,
+            repository.lastCreation?.requirements,
+        )
+        assertEquals(
             mapOf(Muscle.GLUTES to 100, Muscle.LOWER_BACK to 50),
             repository.lastCreation?.muscles?.associate { it.muscle to it.contribution },
         )
         assertEquals(listOf(42L), savedExercises.map { it.exercise.id })
         assertEquals(listOf("Тяга сумо"), savedExercises.map { it.exercise.name })
         assertEquals(listOf(false), savedExercises.map { it.addedToWorkout })
+      }
+
+  @Test
+  fun `save conflict retains custom equipment draft`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val repository =
+            FakePickerGymRepository().apply {
+              nextResult =
+                  SaveExerciseConfigurationResult.Conflict(
+                      GymConfigurationConflict(
+                          routines = listOf(GymRoutineReference(7L, "Верх тела")),
+                          exercises = listOf(catalogue().first().copy(name = "Жим гантелей")),
+                          missingEquipmentIds = setOf("dumbbells"),
+                      ),
+                  )
+            }
+        val viewModel =
+            ExerciseLibraryViewModel(
+                exerciseDao = FakeExerciseDao(),
+                exerciseMuscleDao = FakeExerciseMuscleDao(),
+                gymRepository = repository,
+            )
+
+        viewModel.openManualCreate()
+        viewModel.saveEditor(
+            name = "Тяга гантели",
+            type = ExerciseType.STRENGTH,
+            loads = listOf(MuscleLoad(Muscle.LATS, 100)),
+            requirements = ExerciseEquipmentRequirements.Required(setOf("dumbbells")),
+        )
+        advanceUntilIdle()
+
+        assertEquals("Тяга гантели", viewModel.editor.value?.name)
+        assertEquals(
+            ExerciseEquipmentRequirements.Required(setOf("dumbbells")),
+            viewModel.editor.value?.requirements,
+        )
+        assertFalse(viewModel.editor.value?.isSaving ?: true)
+        assertTrue(viewModel.editor.value?.saveError?.contains("Гантели") == true)
+        assertTrue(viewModel.editor.value?.saveError?.contains("Жим гантелей") == true)
+        assertTrue(viewModel.editor.value?.saveError?.contains("Верх тела") == true)
       }
 
   @Test
@@ -804,6 +937,18 @@ class ExerciseLibraryViewModelTest {
     override suspend fun getById(id: Long): ExerciseEntity? = items.value.find { it.id == id }
 
     override suspend fun getAllOnce(): List<ExerciseEntity> = items.value
+
+    override fun observeAllRequirements(): Flow<List<ExerciseEquipmentEntity>> =
+        MutableStateFlow(emptyList())
+
+    override suspend fun getRequirementIds(exerciseId: Long): List<String> = emptyList()
+
+    override suspend fun getRequirements(exerciseIds: List<Long>): List<ExerciseEquipmentEntity> =
+        emptyList()
+
+    override suspend fun insertRequirements(requirements: List<ExerciseEquipmentEntity>) = Unit
+
+    override suspend fun deleteRequirements(exerciseId: Long) = Unit
   }
 
   /** In-memory [ExerciseMuscleDao]: карта мышц по упражнению, без Room. */
@@ -836,14 +981,18 @@ class ExerciseLibraryViewModelTest {
    * Production catalog path backed by an in-memory source, without falling back to the exercise
    * DAO.
    */
-  private class FakeExerciseCatalogRepository(exercises: List<ExerciseEntity>) :
+  private class FakeExerciseCatalogRepository(
+      exercises: List<ExerciseEntity>,
+      requirements: Map<Long, ExerciseEquipmentRequirements> = emptyMap(),
+      gymNames: List<String> = emptyList(),
+  ) :
       ExerciseCatalogRepository {
 
     private val state =
         MutableStateFlow(
             ExerciseCatalogRepositoryState(
-                snapshot = ExerciseCatalogSnapshot(exercises, emptyList(), emptyList()),
-                gymNames = emptyList(),
+                snapshot = ExerciseCatalogSnapshot(exercises, emptyList(), emptyList(), requirements),
+                gymNames = gymNames,
             ),
         )
 
@@ -883,6 +1032,8 @@ class ExerciseLibraryViewModelTest {
     var lastAssignedGymIds: Set<String>? = null
       private set
 
+    var nextResult: SaveExerciseConfigurationResult? = null
+
     override fun observeGyms(): Flow<List<GymConfiguration>> = MutableStateFlow(emptyList())
 
     override fun observeExerciseCatalog(): Flow<List<ExerciseEntity>> =
@@ -901,13 +1052,14 @@ class ExerciseLibraryViewModelTest {
 
     override suspend fun deleteGym(id: String): DeleteGymResult = DeleteGymResult.NotFound
 
-    override suspend fun createExerciseAndAssign(
+    override suspend fun saveExerciseConfiguration(
         configuration: NewExerciseConfiguration,
         gymIds: Set<String>,
-    ): ExerciseEntity {
+        workoutId: String?,
+    ): SaveExerciseConfigurationResult {
       lastCreation = configuration
       lastAssignedGymIds = gymIds
-      return configuration.exercise.copy(id = 42L)
+      return nextResult ?: SaveExerciseConfigurationResult.Saved(configuration.exercise.copy(id = 42L))
     }
   }
 }

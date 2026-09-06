@@ -1,6 +1,7 @@
 package com.valerochka1337.valerochkagym.domain
 
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
+import com.valerochka1337.valerochkagym.data.db.entity.EquipmentRequirementState
 import com.valerochka1337.valerochkagym.data.db.entity.Muscle
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleGroup
 import java.util.UUID
@@ -20,6 +21,8 @@ sealed interface ExerciseSheetRecord {
       val muscleLoads: Map<Muscle, Int>,
       /** Legacy CHEST was expanded during parsing and needs a human review before next edit. */
       val needsMuscleMapReview: Boolean = false,
+      val equipmentRequirementState: EquipmentRequirementState = EquipmentRequirementState.UNKNOWN,
+      val equipmentIds: Set<String> = emptySet(),
   ) : ExerciseSheetRecord
 
   data class Tombstone(
@@ -31,6 +34,8 @@ sealed interface ExerciseSheetRecord {
 data class ParsedExerciseSheetRows(
     val records: List<ExerciseSheetRecord>,
     val skippedRows: Int,
+    /** A malformed v14 equipment payload makes a configuration snapshot unsafe to apply partially. */
+    val hasInvalidEquipment: Boolean = false,
 )
 
 /** Версионируемая запись app-owned листа `Gyms`; состав зала входит в тот же снимок. */
@@ -43,6 +48,8 @@ sealed interface GymSheetRecord {
       override val updatedAt: Long,
       val name: String,
       val exerciseSyncIds: Set<String>,
+      val inventoryConfigured: Boolean = false,
+      val equipmentIds: Set<String> = emptySet(),
   ) : GymSheetRecord
 
   data class Tombstone(
@@ -54,6 +61,8 @@ sealed interface GymSheetRecord {
 data class ParsedGymSheetRows(
     val records: List<GymSheetRecord>,
     val skippedRows: Int,
+    /** A malformed v14 equipment payload makes a configuration snapshot unsafe to apply partially. */
+    val hasInvalidEquipment: Boolean = false,
 )
 
 /** Версионируемый набор залов одной программы из app-owned листа `RoutineGyms`. */

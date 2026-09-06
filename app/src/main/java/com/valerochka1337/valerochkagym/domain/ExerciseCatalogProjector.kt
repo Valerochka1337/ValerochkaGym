@@ -1,5 +1,6 @@
 package com.valerochka1337.valerochkagym.domain
 
+import com.valerochka1337.valerochkagym.data.db.EquipmentCatalog
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseMuscleEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
@@ -25,16 +26,25 @@ enum class ExerciseCatalogTypeFilter {
   CARDIO_OR_TIMED,
 }
 
+/** A multi-select facet: equipment values and explicit no-equipment are joined with OR. */
+data class ExerciseCatalogEquipmentFilter(
+    val equipmentIds: Set<String> = emptySet(),
+    val includeExplicitNone: Boolean = false,
+)
+
 data class ExerciseCatalogFilters(
     val group: MuscleGroup? = null,
     val type: ExerciseCatalogTypeFilter = ExerciseCatalogTypeFilter.ALL,
     val origin: ExerciseCatalogOrigin = ExerciseCatalogOrigin.ALL,
+    val equipment: ExerciseCatalogEquipmentFilter = ExerciseCatalogEquipmentFilter(),
 )
 
 data class ExerciseCatalogSnapshot(
     val exercises: List<ExerciseEntity>,
     val muscles: List<ExerciseMuscleEntity>,
     val history: List<ExerciseWorkoutHistoryRow>,
+    /** Unknown legacy requirements stay distinct from an intentionally empty requirement set. */
+    val requirementsByExercise: Map<Long, ExerciseEquipmentRequirements> = emptyMap(),
 )
 
 data class ExerciseCatalogHistory(
@@ -49,6 +59,8 @@ data class ExerciseCatalogFacetCounts(
     val origins: Map<ExerciseCatalogOrigin, Int>,
     val groups: Map<MuscleGroup?, Int>,
     val sortCount: Int,
+    val equipment: Map<String, Int> = emptyMap(),
+    val explicitNoneEquipment: Int = 0,
 )
 
 /** Immutable projection. It never assigns an identity or mutates a catalog row. */
@@ -73,6 +85,10 @@ data class ExerciseCatalogProjection(
       query: String,
       filters: ExerciseCatalogFilters,
       sort: ExerciseCatalogSort,
+      equipmentIds: Set<String> =
+          snapshot.requirementsByExercise.values
+              .filterIsInstance<ExerciseEquipmentRequirements.Required>()
+              .flatMapTo(linkedSetOf()) { it.equipmentIds },
   ): ExerciseCatalogFacetCounts {
     fun count(candidate: ExerciseCatalogFilters) = results(query, candidate, sort).exercises.size
     return ExerciseCatalogFacetCounts(
@@ -88,6 +104,16 @@ data class ExerciseCatalogProjection(
             (listOf(null) + MuscleGroup.entries).associateWith { group ->
               count(filters.copy(group = group))
             },
+        equipment =
+            equipmentIds.associateWith { equipmentId ->
+              count(
+                  filters.copy(
+                      equipment = ExerciseCatalogEquipmentFilter(setOf(equipmentId)),
+                  ),
+              )
+            },
+        explicitNoneEquipment =
+            count(filters.copy(equipment = ExerciseCatalogEquipmentFilter(includeExplicitNone = true))),
         sortCount = results(query, filters, sort).exercises.size,
     )
   }
@@ -97,6 +123,25 @@ data class ExerciseCatalogProjection(
     if (!filters.type.matches(exercise.type)) return false
     if (filters.origin == ExerciseCatalogOrigin.BUILT_IN && exercise.isCustom) return false
     if (filters.origin == ExerciseCatalogOrigin.CUSTOM && !exercise.isCustom) return false
+    val equipmentFilter = filters.equipment
+    if (equipmentFilter.equipmentIds.isNotEmpty() || equipmentFilter.includeExplicitNone) {
+      when (val requirements = snapshot.requirementsByExercise[exercise.id]) {
+        ExerciseEquipmentRequirements.ExplicitNone -> {
+          if (!equipmentFilter.includeExplicitNone) return false
+        }
+        is ExerciseEquipmentRequirements.Required -> {
+          if (
+              equipmentFilter.equipmentIds.none { selected ->
+                requirements.equipmentIds.any { required ->
+                  EquipmentCatalog.covers(setOf(selected), required)
+                }
+              }
+          ) return false
+        }
+        ExerciseEquipmentRequirements.UnknownLegacy,
+        null -> return false
+      }
+    }
     return true
   }
 

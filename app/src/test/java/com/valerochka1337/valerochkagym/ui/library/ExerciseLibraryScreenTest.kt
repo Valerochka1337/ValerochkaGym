@@ -14,6 +14,7 @@ import com.valerochka1337.valerochkagym.data.db.CanonicalExerciseRegistry
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseDao
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseMuscleDao
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
+import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEquipmentEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseMuscleEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleGroup
@@ -192,6 +193,17 @@ class ExerciseLibraryScreenTest {
     override suspend fun getById(id: Long): ExerciseEntity? = null
 
     override suspend fun getAllOnce(): List<ExerciseEntity> = emptyList()
+
+    override fun observeAllRequirements(): Flow<List<ExerciseEquipmentEntity>> = flowOf(emptyList())
+
+    override suspend fun getRequirementIds(exerciseId: Long): List<String> = emptyList()
+
+    override suspend fun getRequirements(exerciseIds: List<Long>): List<ExerciseEquipmentEntity> =
+        emptyList()
+
+    override suspend fun insertRequirements(requirements: List<ExerciseEquipmentEntity>) = Unit
+
+    override suspend fun deleteRequirements(exerciseId: Long) = Unit
   }
 
   private object FakeExerciseMuscleDao : ExerciseMuscleDao {

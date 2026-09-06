@@ -17,8 +17,10 @@ import com.valerochka1337.valerochkagym.data.db.dao.WorkoutDao
 import com.valerochka1337.valerochkagym.data.db.entity.BodyMeasurementEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ConfigurationTombstoneEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
+import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEquipmentEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseMuscleEntity
 import com.valerochka1337.valerochkagym.data.db.entity.GymEntity
+import com.valerochka1337.valerochkagym.data.db.entity.GymEquipmentEntity
 import com.valerochka1337.valerochkagym.data.db.entity.GymExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleLoadUpgradeNoticeEntity
 import com.valerochka1337.valerochkagym.data.db.entity.RoutineEntity
@@ -39,9 +41,11 @@ import java.util.UUID
             BodyMeasurementEntity::class,
             ConfigurationTombstoneEntity::class,
             ExerciseEntity::class,
+            ExerciseEquipmentEntity::class,
             ExerciseMuscleEntity::class,
             MuscleLoadUpgradeNoticeEntity::class,
             GymEntity::class,
+            GymEquipmentEntity::class,
             GymExerciseEntity::class,
             RoutineEntity::class,
             RoutineExerciseEntity::class,
@@ -52,7 +56,7 @@ import java.util.UUID
             WorkoutGymEntity::class,
             WorkoutSetEntity::class,
         ],
-    version = 13,
+    version = 14,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -609,6 +613,31 @@ abstract class GymDatabase : RoomDatabase() {
           }
         }
 
+    /** v13 → v14 adds explicit inventory and the three-state exercise requirement model. */
+    val MIGRATION_13_14: Migration =
+        object : Migration(13, 14) {
+          override fun migrate(db: SupportSQLiteDatabase) {
+            db.beginTransaction()
+            try {
+              db.execSQL("ALTER TABLE gyms ADD COLUMN inventoryConfigured INTEGER NOT NULL DEFAULT 0")
+              db.execSQL(
+                  "ALTER TABLE exercises ADD COLUMN equipmentRequirementState TEXT NOT NULL DEFAULT 'UNKNOWN'",
+              )
+              db.execSQL(
+                  "CREATE TABLE IF NOT EXISTS gym_equipment (gymId INTEGER NOT NULL, equipmentId TEXT NOT NULL, PRIMARY KEY(gymId, equipmentId), FOREIGN KEY(gymId) REFERENCES gyms(id) ON UPDATE NO ACTION ON DELETE CASCADE)",
+              )
+              db.execSQL("CREATE INDEX IF NOT EXISTS index_gym_equipment_gymId ON gym_equipment(gymId)")
+              db.execSQL(
+                  "CREATE TABLE IF NOT EXISTS exercise_equipment (exerciseId INTEGER NOT NULL, equipmentId TEXT NOT NULL, PRIMARY KEY(exerciseId, equipmentId), FOREIGN KEY(exerciseId) REFERENCES exercises(id) ON UPDATE NO ACTION ON DELETE CASCADE)",
+              )
+              db.execSQL("CREATE INDEX IF NOT EXISTS index_exercise_equipment_exerciseId ON exercise_equipment(exerciseId)")
+              db.setTransactionSuccessful()
+            } finally {
+              db.endTransaction()
+            }
+          }
+        }
+
     /** Единственный production/test реестр всех поддерживаемых путей до текущей схемы. */
     val ALL_MIGRATIONS: Array<Migration> =
         arrayOf(
@@ -624,6 +653,7 @@ abstract class GymDatabase : RoomDatabase() {
             MIGRATION_10_12,
             MIGRATION_11_12,
             MIGRATION_12_13,
+            MIGRATION_13_14,
         )
   }
 }

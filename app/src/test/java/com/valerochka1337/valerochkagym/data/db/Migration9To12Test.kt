@@ -58,7 +58,7 @@ internal object MigrationRecoveryFixtures {
             SupportSQLiteOpenHelper.Configuration.builder(context)
                 .name(name)
                 .callback(
-                    object : SupportSQLiteOpenHelper.Callback(13) {
+                    object : SupportSQLiteOpenHelper.Callback(14) {
                       override fun onCreate(db: SupportSQLiteDatabase) = Unit
 
                       override fun onUpgrade(
@@ -78,6 +78,10 @@ internal object MigrationRecoveryFixtures {
       version: Int,
       includeV11Additions: Boolean,
   ) {
+    // The fixture starts from Room's current schema, then reconstructs the historical recovery
+    // surface. v13's review column intentionally remains because MIGRATION_12_13 must tolerate
+    // interrupted vendor restores that already carried it; v14's inventory-only objects must not.
+    removeV14EquipmentSchema(db)
     db.execSQL(
         "CREATE TABLE `exercise_variants` (" +
             "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `syncId` TEXT NOT NULL, " +
@@ -155,6 +159,35 @@ internal object MigrationRecoveryFixtures {
     db.execSQL("PRAGMA user_version = $version")
   }
 
+  fun removeV14EquipmentSchema(db: SupportSQLiteDatabase) {
+    db.execSQL("DROP TABLE IF EXISTS exercise_equipment")
+    db.execSQL("DROP TABLE IF EXISTS gym_equipment")
+    db.execSQL("PRAGMA foreign_keys = OFF")
+    db.execSQL(
+        "CREATE TABLE exercises_v13 (" +
+            "id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, name TEXT NOT NULL, " +
+            "muscleGroup TEXT NOT NULL, type TEXT NOT NULL, isCustom INTEGER NOT NULL, " +
+            "syncId TEXT NOT NULL, updatedAt INTEGER NOT NULL, needsMuscleMapReview INTEGER NOT NULL)",
+    )
+    db.execSQL(
+        "INSERT INTO exercises_v13 (id,name,muscleGroup,type,isCustom,syncId,updatedAt,needsMuscleMapReview) " +
+            "SELECT id,name,muscleGroup,type,isCustom,syncId,updatedAt,needsMuscleMapReview FROM exercises",
+    )
+    db.execSQL("DROP TABLE exercises")
+    db.execSQL("ALTER TABLE exercises_v13 RENAME TO exercises")
+    db.execSQL("CREATE UNIQUE INDEX index_exercises_syncId ON exercises (syncId)")
+    db.execSQL(
+        "CREATE TABLE gyms_v13 (" +
+            "id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, syncId TEXT NOT NULL, " +
+            "updatedAt INTEGER NOT NULL, name TEXT NOT NULL)",
+    )
+    db.execSQL("INSERT INTO gyms_v13 (id,syncId,updatedAt,name) SELECT id,syncId,updatedAt,name FROM gyms")
+    db.execSQL("DROP TABLE gyms")
+    db.execSQL("ALTER TABLE gyms_v13 RENAME TO gyms")
+    db.execSQL("CREATE UNIQUE INDEX index_gyms_syncId ON gyms (syncId)")
+    db.execSQL("PRAGMA foreign_keys = ON")
+  }
+
   fun seedVariantData(db: SupportSQLiteDatabase) {
     db.execSQL(
         "INSERT INTO exercises VALUES (1, 'Жим', 'CHEST', 'STRENGTH', 1, 'exercise-sync', 1, 0)"
@@ -187,7 +220,7 @@ internal object MigrationRecoveryFixtures {
   fun assertBaseOnlyRecovery(sql: SupportSQLiteDatabase) {
     sql.query("PRAGMA user_version").use { cursor ->
       assertTrue(cursor.moveToFirst())
-      assertEquals(13, cursor.getInt(0))
+      assertEquals(14, cursor.getInt(0))
     }
     sql.query(
             "SELECT id, routineId, exerciseId, position, restSeconds, plannedSetsJson FROM routine_exercises"

@@ -7,6 +7,7 @@ import androidx.room.Transaction
 import androidx.room.Update
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.GymEntity
+import com.valerochka1337.valerochkagym.data.db.entity.GymEquipmentEntity
 import com.valerochka1337.valerochkagym.data.db.entity.GymExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.RoutineEntity
 import com.valerochka1337.valerochkagym.data.db.entity.RoutineGymEntity
@@ -46,6 +47,22 @@ interface GymDao {
 
   @Query("SELECT exerciseId FROM gym_exercises WHERE gymId = :gymId ORDER BY exerciseId")
   suspend fun getGymExerciseIds(gymId: Long): List<Long>
+
+  @Query("SELECT equipmentId FROM gym_equipment WHERE gymId = :gymId ORDER BY equipmentId")
+  suspend fun getGymEquipmentIds(gymId: Long): List<String>
+
+  @Query("SELECT * FROM gym_equipment WHERE gymId IN (:gymIds) ORDER BY gymId, equipmentId")
+  fun observeGymEquipment(gymIds: List<Long>): Flow<List<GymEquipmentEntity>>
+
+  @Insert suspend fun insertGymEquipment(links: List<GymEquipmentEntity>)
+
+  @Query("DELETE FROM gym_equipment WHERE gymId = :gymId") suspend fun deleteGymEquipment(gymId: Long)
+
+  @Transaction
+  suspend fun replaceGymEquipment(gymId: Long, equipmentIds: Set<String>) {
+    deleteGymEquipment(gymId)
+    if (equipmentIds.isNotEmpty()) insertGymEquipment(equipmentIds.sorted().map { GymEquipmentEntity(gymId, it) })
+  }
 
   @Query(
       "SELECT * FROM gym_exercises " +

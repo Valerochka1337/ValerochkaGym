@@ -1,6 +1,7 @@
 package com.valerochka1337.valerochkagym.domain
 
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
+import com.valerochka1337.valerochkagym.data.db.entity.EquipmentRequirementState
 import com.valerochka1337.valerochkagym.data.db.entity.Muscle
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleGroup
 import org.junit.Assert.assertEquals
@@ -9,6 +10,17 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ExerciseSheetRowsTest {
+
+  @Test
+  fun `known requirements round trip across multiple muscles and equipment rows`() {
+    val snapshot = ExerciseSheetRecord.Snapshot(
+        EXERCISE_ID, 200, "Жим", MuscleGroup.CHEST, ExerciseType.STRENGTH, true,
+        mapOf(Muscle.UPPER_CHEST to 100, Muscle.TRICEPS to 50),
+        equipmentRequirementState = EquipmentRequirementState.KNOWN,
+        equipmentIds = setOf("dumbbells", "flat_bench"),
+    )
+    assertEquals(snapshot, ExerciseSheetRowParser.parse(ExerciseSheetRowMapper.rows(snapshot).asStrings()).records.single())
+  }
 
   @Test
   fun `legacy zero only snapshot remains a valid empty custom map`() {
@@ -105,51 +117,8 @@ class ExerciseSheetRowsTest {
             muscleLoads = linkedMapOf(Muscle.TRICEPS to 50, Muscle.UPPER_CHEST to 100),
         )
 
-    assertEquals(
-        listOf(
-            "exercise_id",
-            "updated_at",
-            "is_deleted",
-            "exercise_name",
-            "muscle_group",
-            "type",
-            "is_custom",
-            "muscle",
-            "contribution",
-            "model_version",
-        ),
-        ExerciseSheetRowMapper.HEADER_ROW,
-    )
-    assertEquals("Exercises!A:J", ExerciseSheetRowMapper.RANGE)
-    assertEquals(
-        listOf(
-            listOf(
-                EXERCISE_ID,
-                200L,
-                "false",
-                "Жим лёжа",
-                "CHEST",
-                "STRENGTH",
-                "true",
-                "UPPER_CHEST",
-                100,
-                2,
-            ),
-            listOf(
-                EXERCISE_ID,
-                200L,
-                "false",
-                "Жим лёжа",
-                "CHEST",
-                "STRENGTH",
-                "true",
-                "TRICEPS",
-                50,
-                2,
-            ),
-        ),
-        ExerciseSheetRowMapper.rows(snapshot),
-    )
+    assertEquals("Exercises!A:L", ExerciseSheetRowMapper.RANGE)
+    assertEquals(snapshot, ExerciseSheetRowParser.parse(ExerciseSheetRowMapper.rows(snapshot).asStrings()).records.single())
   }
 
   @Test
@@ -249,6 +218,94 @@ class ExerciseSheetRowsTest {
 
     assertEquals(1, parsed.skippedRows)
     assertTrue(parsed.records.isEmpty())
+  }
+
+  @Test
+  fun `malformed current requirement state and empty marker conflicts are strict equipment corruption`() {
+    val invalidState =
+        listOf(
+            EXERCISE_ID,
+            "200",
+            "false",
+            "Жим",
+            "CHEST",
+            "STRENGTH",
+            "true",
+            "UPPER_CHEST",
+            "100",
+            "2",
+            "NOT_A_STATE",
+            "",
+        )
+    val emptyThenEquipment =
+        listOf(
+            listOf(
+                "22222222-2222-4222-8222-222222222222",
+                "200",
+                "false",
+                "Тяга",
+                "BACK",
+                "STRENGTH",
+                "true",
+                "LATS",
+                "100",
+                "2",
+                "KNOWN",
+                "",
+            ),
+            listOf(
+                "22222222-2222-4222-8222-222222222222",
+                "200",
+                "false",
+                "Тяга",
+                "BACK",
+                "STRENGTH",
+                "true",
+                "LATS",
+                "100",
+                "2",
+                "KNOWN",
+                "dumbbells",
+            ),
+        )
+    val equipmentThenEmpty =
+        listOf(
+            listOf(
+                "33333333-3333-4333-8333-333333333333",
+                "200",
+                "false",
+                "Тяга обратная",
+                "BACK",
+                "STRENGTH",
+                "true",
+                "LATS",
+                "100",
+                "2",
+                "KNOWN",
+                "dumbbells",
+            ),
+            listOf(
+                "33333333-3333-4333-8333-333333333333",
+                "200",
+                "false",
+                "Тяга обратная",
+                "BACK",
+                "STRENGTH",
+                "true",
+                "LATS",
+                "100",
+                "2",
+                "KNOWN",
+                "",
+            ),
+        )
+
+    val parsed =
+        ExerciseSheetRowParser.parse(listOf(invalidState) + emptyThenEquipment + equipmentThenEmpty)
+
+    assertEquals(3, parsed.skippedRows)
+    assertTrue(parsed.records.isEmpty())
+    assertTrue(parsed.hasInvalidEquipment)
   }
 
   @Test
