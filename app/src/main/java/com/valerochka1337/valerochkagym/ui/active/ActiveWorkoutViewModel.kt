@@ -9,6 +9,7 @@ import com.valerochka1337.valerochkagym.domain.CompleteSetUseCase
 import com.valerochka1337.valerochkagym.domain.PreviousSetsUseCase
 import com.valerochka1337.valerochkagym.domain.RoutineGymConflictException
 import com.valerochka1337.valerochkagym.domain.WorkoutSetMutator
+import com.valerochka1337.valerochkagym.domain.currentFocus
 import com.valerochka1337.valerochkagym.service.RestTimerEngine
 import com.valerochka1337.valerochkagym.service.RestTimerState
 import com.valerochka1337.valerochkagym.service.heartrate.HeartRateConnectionState
@@ -192,6 +193,8 @@ constructor(
   }
 
   fun addSet(workoutExerciseId: Long) {
+    val workout = activeWorkout.value ?: return
+    if (workout.focusedWorkoutExerciseId() != workoutExerciseId) return
     viewModelScope.launch { repository.addSet(workoutExerciseId) }
   }
 
@@ -265,6 +268,15 @@ constructor(
       }
     }
   }
+
+  private fun WorkoutFull.focusedWorkoutExerciseId(): Long? {
+    val focusedSetId = currentFocus()?.set?.id ?: return null
+    return exercises
+        .firstOrNull { exercise -> exercise.sets.any { it.id == focusedSetId } }
+        ?.workoutExercise
+        ?.id
+  }
+
 }
 
 private const val SUBSCRIPTION_TIMEOUT_MS = 5_000L

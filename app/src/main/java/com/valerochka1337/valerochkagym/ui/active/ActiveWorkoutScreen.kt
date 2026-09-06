@@ -377,6 +377,13 @@ internal fun ActiveWorkoutContent(
   // порядок, чтобы фокус немедленно следовал за карточкой ещё до записи перестановки в Room.
   val currentFocus = workout.copy(exercises = exercises).currentFocus()
   val activeSetId = currentFocus?.set?.id
+  val focusedWorkoutExerciseId =
+      activeSetId?.let { setId ->
+        exercises
+            .firstOrNull { exercise -> exercise.sets.any { it.id == setId } }
+            ?.workoutExercise
+            ?.id
+      }
   val currentIndex =
       activeSetId?.let { setId ->
         exercises.indexOfFirst { exercise -> exercise.sets.any { it.id == setId } }
@@ -452,6 +459,9 @@ internal fun ActiveWorkoutContent(
               previous = state.previousByExercise[exercise.exercise.id].orEmpty(),
               actions = setActions,
               activeSetId = activeSetId,
+              showAddSet =
+                  localOrder == roomOrder && exercise.workoutExercise.id == focusedWorkoutExerciseId,
+              onAddSet = { setActions.addSet(exercise.workoutExercise.id) },
               dragHandle = {
                 DragHandle(
                     reorderableItemScope = reorderableItemScope,
@@ -887,6 +897,8 @@ private fun ExerciseSection(
     previous: String,
     actions: SetActions,
     activeSetId: Long?,
+    showAddSet: Boolean,
+    onAddSet: () -> Unit,
     dragHandle: @Composable () -> Unit,
     onDeleteExercise: () -> Unit,
     onExerciseClick: () -> Unit,
@@ -964,10 +976,12 @@ private fun ExerciseSection(
       Spacer(Modifier.height(8.dp))
     }
 
-    TextButton(onClick = { actions.addSet(exercise.workoutExercise.id) }) {
-      Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-      Spacer(Modifier.width(6.dp))
-      Text("Подход")
+    if (showAddSet) {
+      TextButton(onClick = onAddSet) {
+        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.width(6.dp))
+        Text("Подход")
+      }
     }
   }
 }

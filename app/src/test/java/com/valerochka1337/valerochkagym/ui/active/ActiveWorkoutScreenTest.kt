@@ -2,6 +2,7 @@ package com.valerochka1337.valerochkagym.ui.active
 
 import android.app.Application
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
@@ -40,6 +41,7 @@ class ActiveWorkoutScreenTest {
   fun `one completion button follows the focused set`() {
     val workout = mutableStateOf(workoutWithIncompleteExercises())
     val completedSetIds = mutableListOf<Long>()
+    val addedSetTo = mutableListOf<Long>()
     val actions =
         SetActions(
             stepWeight = { _, _ -> },
@@ -57,7 +59,7 @@ class ActiveWorkoutScreenTest {
               workout.value = workout.value.markSetCompleted(setId)
             },
             uncomplete = { _ -> },
-            addSet = { _ -> },
+            addSet = { workoutExerciseId -> addedSetTo += workoutExerciseId },
             deleteSet = { _ -> },
         )
 
@@ -88,15 +90,89 @@ class ActiveWorkoutScreenTest {
       }
     }
 
+    assertAddSetIsAvailable()
     completeFocusedSet()
     assertEquals(listOf(FIRST_SET_ID), completedSetIds)
+    assertAddSetIsAvailable()
 
     completeFocusedSet()
     assertEquals(listOf(FIRST_SET_ID, SECOND_SET_ID), completedSetIds)
+    assertAddSetIsAvailable()
 
     completeFocusedSet()
     assertEquals(listOf(FIRST_SET_ID, SECOND_SET_ID, THIRD_SET_ID), completedSetIds)
     composeRule.onAllNodesWithText("Подход выполнен").assertCountEquals(0)
+    composeRule.onAllNodesWithText("Подход").assertCountEquals(0)
+    assertEquals(emptyList<Long>(), addedSetTo)
+  }
+
+  @Test
+  fun `adding a set stays unavailable until local reorder reaches Room`() {
+    val workout = mutableStateOf(workoutWithIncompleteExercises())
+    val addedSetTo = mutableListOf<Long>()
+    val persistedOrders = mutableListOf<List<Long>>()
+    val actions =
+        SetActions(
+            stepWeight = { _, _ -> },
+            stepReps = { _, _ -> },
+            stepDuration = { _, _ -> },
+            stepSpeed = { _, _ -> },
+            stepIncline = { _, _ -> },
+            setWeight = { _, _ -> },
+            setReps = { _, _ -> },
+            setDuration = { _, _ -> },
+            setSpeed = { _, _ -> },
+            setIncline = { _, _ -> },
+            complete = { _ -> },
+            uncomplete = { _ -> },
+            addSet = { workoutExerciseId -> addedSetTo += workoutExerciseId },
+            deleteSet = { _ -> },
+        )
+
+    composeRule.setContent {
+      GymTheme {
+        ActiveWorkoutContent(
+            state = ActiveWorkoutUiState(loading = false, workout = workout.value),
+            elapsedSeconds = MutableStateFlow(0L),
+            restTimer = MutableStateFlow<RestTimerState?>(null),
+            heartRateState =
+                MutableStateFlow<HeartRateConnectionState>(
+                    HeartRateConnectionState.Idle,
+                ),
+            heartRateReading = MutableStateFlow<HeartRateReading?>(null),
+            setActions = actions,
+            onDeleteExercise = {},
+            onReorderExercises = { persistedOrders += it },
+            onAddExercise = {},
+            onExerciseClick = {},
+            onFinish = {},
+            onDiscard = {},
+            onAddRestSeconds = {},
+            onSkipRest = {},
+            onScanHeartRate = {},
+            onConnectHeartRate = {},
+            onCancelHeartRateSelection = {},
+        )
+      }
+    }
+
+    customActionsFor("Жим лёжа").single { it.label == "Переместить ниже" }.also { action ->
+      composeRule.runOnIdle { action.action() }
+    }
+    composeRule.waitForIdle()
+
+    composeRule.onAllNodesWithText("Подход").assertCountEquals(0)
+    assertEquals(emptyList<Long>(), addedSetTo)
+    assertEquals(listOf(listOf(12L, 11L, 13L)), persistedOrders)
+
+    composeRule.runOnIdle {
+      workout.value = workout.value.reorderExercises(listOf(12L, 11L, 13L))
+    }
+    composeRule.waitForIdle()
+
+    assertAddSetIsAvailable()
+    composeRule.onNodeWithText("Подход").performClick()
+    assertEquals(listOf(12L), addedSetTo)
   }
 
   private fun completeFocusedSet() {
@@ -104,6 +180,17 @@ class ActiveWorkoutScreenTest {
     composeRule.onNodeWithText("Подход выполнен").performClick()
     composeRule.waitForIdle()
   }
+
+  private fun assertAddSetIsAvailable() {
+    composeRule.onAllNodesWithText("Подход").assertCountEquals(1)
+  }
+
+  private fun customActionsFor(name: String) =
+      generateSequence(composeRule.onNodeWithText(name, useUnmergedTree = true).fetchSemanticsNode()) {
+            it.parent
+          }
+          .first { it.config.contains(SemanticsActions.CustomActions) }
+          .config[SemanticsActions.CustomActions]
 
   private fun workoutWithIncompleteExercises(): WorkoutFull =
       WorkoutFull(
@@ -173,6 +260,17 @@ class ActiveWorkoutScreenTest {
                         exercise.sets.map { set ->
                           if (set.id == setId) set.copy(isCompleted = true) else set
                         },
+                )
+              },
+      )
+
+  private fun WorkoutFull.reorderExercises(orderedWorkoutExerciseIds: List<Long>): WorkoutFull =
+      copy(
+          exercises =
+              orderedWorkoutExerciseIds.mapIndexed { position, workoutExerciseId ->
+                val exercise = exercises.first { it.workoutExercise.id == workoutExerciseId }
+                exercise.copy(
+                    workoutExercise = exercise.workoutExercise.copy(position = position),
                 )
               },
       )
