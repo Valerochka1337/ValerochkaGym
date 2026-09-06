@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -34,6 +35,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TriStateCheckbox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -42,21 +44,27 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
+import com.valerochka1337.valerochkagym.data.db.EquipmentCatalog
 import com.valerochka1337.valerochkagym.domain.GymConfigurationConflict
 import com.valerochka1337.valerochkagym.domain.GymRoutineReference
-import com.valerochka1337.valerochkagym.domain.displayName
-import com.valerochka1337.valerochkagym.ui.components.ExerciseAvatar
 import com.valerochka1337.valerochkagym.ui.components.GlowBackground
 import com.valerochka1337.valerochkagym.ui.components.GymCard
 import com.valerochka1337.valerochkagym.ui.components.PillButton
 import com.valerochka1337.valerochkagym.ui.haptics.gymHaptics
+import com.valerochka1337.valerochkagym.ui.theme.GymMotion
 
 /** Полноэкранный редактор имени зала и доступного в нём каталога упражнений. */
 @Composable
@@ -68,7 +76,7 @@ fun GymEditorScreen(
   val state by viewModel.uiState.collectAsStateWithLifecycle()
   val haptics = gymHaptics()
   var showDeleteConfirmation by rememberSaveable { mutableStateOf(false) }
-  BackHandler(enabled = state.isBusy) {}
+  BackHandler { if (!state.isBusy) viewModel.requestExit() }
 
   LaunchedEffect(viewModel) {
     viewModel.finished.collect {
@@ -76,14 +84,23 @@ fun GymEditorScreen(
       onBack()
     }
   }
+  LaunchedEffect(viewModel) { viewModel.exit.collect { onBack() } }
 
   GlowBackground(modifier = modifier) {
     Column(modifier = Modifier.fillMaxSize()) {
       GymEditorHeader(
           title = if (state.isNew) "Новый зал" else "Редактирование зала",
-          onBack = onBack,
+          onBack = viewModel::requestExit,
           backEnabled = !state.isBusy,
       )
+      if (state.copySourceWasLegacy) {
+        Text(
+            "Исходный зал использует старую доступность. Настройте оборудование для новой копии.",
+            modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+      }
 
       val loadError = state.loadError
       when {
@@ -105,11 +122,21 @@ fun GymEditorScreen(
                 onNameChange = viewModel::setName,
                 onQueryChange = viewModel::setQuery,
                 onClearQuery = viewModel::clearQuery,
-                onToggleExercise = { exercise ->
-                  val willBeSelected = exercise.id !in state.selectedExerciseIds
+                onToggleEquipment = { equipment ->
+                  val willBeSelected = equipment.id !in state.selectedEquipmentIds
                   haptics.toggle(willBeSelected)
-                  viewModel.toggleExercise(exercise.id)
+                  viewModel.toggleEquipment(equipment.id)
                 },
+                onMode = viewModel::setMode,
+                onToggleAll = viewModel::toggleAll,
+                onToggleGroup = { group ->
+                  val entries = state.groupedBulkEquipment[group].orEmpty()
+                  haptics.toggle(entries.any { it.id !in state.selectedEquipmentIds })
+                  viewModel.toggleGroup(group)
+                },
+                onToggleGroupExpanded = viewModel::toggleGroupExpanded,
+                onUndo = viewModel::undoBulk,
+                onPreview = { viewModel.setPreview(!state.preview) },
                 onSave = {
                   haptics.confirm()
                   viewModel.save()
@@ -166,6 +193,35 @@ fun GymEditorScreen(
         confirmButton = { TextButton(onClick = viewModel::dismissActionError) { Text("Понятно") } },
     )
   }
+  if (state.discardConfirmationVisible) {
+    AlertDialog(
+        onDismissRequest = viewModel::continueEditing,
+        title = { Text("Не сохранять изменения?") },
+        text = { Text("Черновик оборудования и названия будет потерян.") },
+        confirmButton = { TextButton(onClick = viewModel::discardDraft) { Text("Не сохранять") } },
+        dismissButton = {
+          Row {
+            TextButton(onClick = viewModel::continueEditing) { Text("Продолжить") }
+            TextButton(
+                onClick = {
+                  viewModel.continueEditing()
+                  viewModel.save()
+                },
+                enabled = state.canSave,
+            ) {
+              Text("Сохранить")
+            }
+          }
+        },
+    )
+  }
+  if (state.preview) {
+    GymAvailabilityPreviewDialog(
+        loading = state.previewLoading,
+        exercises = state.previewExercises,
+        onDismiss = { viewModel.setPreview(false) },
+    )
+  }
 }
 
 @Composable
@@ -202,7 +258,13 @@ private fun GymEditorForm(
     onNameChange: (String) -> Unit,
     onQueryChange: (String) -> Unit,
     onClearQuery: () -> Unit,
-    onToggleExercise: (ExerciseEntity) -> Unit,
+    onToggleEquipment: (EquipmentCatalog.Equipment) -> Unit,
+    onMode: (GymEquipmentMode) -> Unit,
+    onToggleAll: () -> Unit,
+    onToggleGroup: (String) -> Unit,
+    onToggleGroupExpanded: (String) -> Unit,
+    onUndo: () -> Unit,
+    onPreview: () -> Unit,
     onSave: () -> Unit,
     onDelete: () -> Unit,
 ) {
@@ -226,7 +288,7 @@ private fun GymEditorForm(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp),
         enabled = !state.isBusy,
         singleLine = true,
-        placeholder = { Text("Поиск упражнения") },
+        placeholder = { Text("Поиск оборудования") },
         leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) },
         trailingIcon = {
           if (state.query.isNotEmpty()) {
@@ -245,29 +307,57 @@ private fun GymEditorForm(
         verticalAlignment = Alignment.CenterVertically,
     ) {
       Text(
-          text = "Упражнения",
+          text = "Оборудование",
           style = MaterialTheme.typography.titleMedium,
           fontWeight = FontWeight.Bold,
           color = MaterialTheme.colorScheme.onBackground,
           modifier = Modifier.weight(1f),
       )
       Text(
-          text = "Выбрано: ${state.selectedExerciseIds.size}",
+          text = "Выбрано: ${state.selectedEquipmentIds.size}",
           style = MaterialTheme.typography.bodyMedium,
           color = MaterialTheme.colorScheme.onSurfaceVariant,
       )
     }
 
-    val exercises = state.exercises
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+      TextButton(onClick = { onMode(GymEquipmentMode.ALL) }, enabled = !state.isBusy) {
+        Text("Все")
+      }
+      TextButton(onClick = { onMode(GymEquipmentMode.SELECTED) }, enabled = !state.isBusy) {
+        Text("Выбранные")
+      }
+      TextButton(onClick = onToggleAll, enabled = !state.isBusy, modifier = Modifier.weight(1f)) {
+        val scope =
+            if (state.query.isBlank()) state.equipment.orEmpty() else state.filteredEquipment
+        Text(
+            when {
+              state.query.isBlank() && scope.all { it.id in state.selectedEquipmentIds } ->
+                  "Снять всё"
+              state.query.isNotBlank() && scope.all { it.id in state.selectedEquipmentIds } ->
+                  "Снять найденное"
+              state.query.isBlank() -> "Выбрать всё"
+              else -> "Выбрать найденное"
+            },
+        )
+      }
+      if (state.bulkUndo != null)
+          TextButton(onClick = onUndo, enabled = !state.isBusy) { Text("Отменить") }
+    }
+
+    val equipment = state.equipment
     when {
-      exercises == null ->
+      equipment == null ->
           Box(
               modifier = Modifier.fillMaxWidth().weight(1f),
               contentAlignment = Alignment.Center,
           ) {
             CircularProgressIndicator()
           }
-      state.filteredExercises.isEmpty() ->
+      state.groupedBulkEquipment.isEmpty() ->
           Box(
               modifier = Modifier.fillMaxWidth().weight(1f).padding(24.dp),
               contentAlignment = Alignment.Center,
@@ -275,7 +365,7 @@ private fun GymEditorForm(
             Text(
                 text =
                     if (state.query.isBlank()) {
-                      "В каталоге пока нет упражнений."
+                      "В каталоге пока нет оборудования."
                     } else {
                       "По этому запросу ничего не найдено."
                     },
@@ -286,19 +376,64 @@ private fun GymEditorForm(
           }
       else ->
           LazyColumn(
-              modifier = Modifier.fillMaxWidth().weight(1f),
+              modifier = Modifier.fillMaxWidth().weight(1f).testTag("gym_equipment_inventory"),
               contentPadding = PaddingValues(start = 24.dp, end = 24.dp, bottom = 12.dp),
               verticalArrangement = Arrangement.spacedBy(10.dp),
           ) {
-            items(state.filteredExercises, key = { it.id }) { exercise ->
-              val selected = exercise.id in state.selectedExerciseIds
-              ExerciseChoiceRow(
-                  exercise = exercise,
-                  selected = selected,
-                  enabled = !state.isBusy,
-                  onToggle = { onToggleExercise(exercise) },
-                  modifier = Modifier.animateItem(),
-              )
+            state.groupedBulkEquipment.forEach { (group, allEntries) ->
+              val entries =
+                  if (state.mode == GymEquipmentMode.ALL) allEntries
+                  else allEntries.filter { it.id in state.selectedEquipmentIds }
+              item(key = "group:$group") {
+                val selectedCount = allEntries.count { it.id in state.selectedEquipmentIds }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                  TextButton(
+                      onClick = { onToggleGroupExpanded(group) },
+                      modifier = Modifier.weight(1f),
+                  ) {
+                    Text("$group · $selectedCount/${allEntries.size}")
+                  }
+                  val groupState =
+                      when (selectedCount) {
+                        0 -> ToggleableState.Off
+                        allEntries.size -> ToggleableState.On
+                        else -> ToggleableState.Indeterminate
+                      }
+                  TriStateCheckbox(
+                      state = groupState,
+                      onClick = { onToggleGroup(group) },
+                      enabled = !state.isBusy && allEntries.isNotEmpty(),
+                      modifier =
+                          Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp).semantics {
+                            contentDescription = "Оборудование группы $group"
+                            stateDescription =
+                                when (groupState) {
+                                  ToggleableState.Off -> "Не выбрано"
+                                  ToggleableState.On -> "Выбрано всё"
+                                  ToggleableState.Indeterminate -> "Выбрано частично"
+                                }
+                          },
+                  )
+                }
+              }
+              if (
+                  (group in state.expandedGroups || state.query.isNotBlank()) &&
+                      entries.isNotEmpty()
+              ) {
+                items(entries, key = { it.id }) { entry ->
+                  val selected = entry.id in state.selectedEquipmentIds
+                  EquipmentChoiceRow(
+                      equipment = entry,
+                      selected = selected,
+                      enabled = !state.isBusy,
+                      onToggle = { onToggleEquipment(entry) },
+                      modifier = Modifier.animateItem(placementSpec = GymMotion.spatialFast()),
+                  )
+                }
+              }
             }
           }
     }
@@ -328,35 +463,74 @@ private fun GymEditorForm(
           )
         }
       }
+
+      TextButton(onClick = onPreview, enabled = !state.isBusy, modifier = Modifier.fillMaxWidth()) {
+        Text(if (state.preview) "Скрыть доступные упражнения" else "Проверить доступные упражнения")
+      }
     }
   }
 }
 
 @Composable
-private fun ExerciseChoiceRow(
-    exercise: ExerciseEntity,
+private fun GymAvailabilityPreviewDialog(
+    loading: Boolean,
+    exercises: List<com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity>?,
+    onDismiss: () -> Unit,
+) {
+  AlertDialog(
+      onDismissRequest = onDismiss,
+      title = { Text("Доступные упражнения") },
+      text = {
+        when {
+          loading ->
+              Box(Modifier.fillMaxWidth().heightIn(min = 120.dp), Alignment.Center) {
+                CircularProgressIndicator()
+              }
+          exercises.isNullOrEmpty() -> Text("С этим оснащением пока нет доступных упражнений.")
+          else ->
+              LazyColumn(modifier = Modifier.heightIn(max = 360.dp)) {
+                items(exercises, key = { it.id }) { exercise ->
+                  Text(
+                      exercise.name,
+                      modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                      style = MaterialTheme.typography.bodyLarge,
+                  )
+                }
+              }
+        }
+      },
+      confirmButton = { TextButton(onClick = onDismiss) { Text("Вернуться к черновику") } },
+  )
+}
+
+@Composable
+private fun EquipmentChoiceRow(
+    equipment: EquipmentCatalog.Equipment,
     selected: Boolean,
     enabled: Boolean,
     onToggle: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
   GymCard(
-      modifier = modifier.fillMaxWidth(),
+      modifier =
+          modifier.fillMaxWidth().semantics {
+            contentDescription = equipment.name
+            role = Role.Checkbox
+            stateDescription = if (selected) "Выбрано" else "Не выбрано"
+          },
       onClick = if (enabled) onToggle else null,
       contentPadding = PaddingValues(horizontal = 18.dp, vertical = 12.dp),
   ) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-      ExerciseAvatar(exercise = exercise)
-      Spacer(Modifier.width(14.dp))
       Column(modifier = Modifier.weight(1f)) {
         Text(
-            text = exercise.name,
+            text = equipment.name,
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.SemiBold,
             color = MaterialTheme.colorScheme.onSurface,
         )
         Text(
-            text = "${exercise.muscleGroup.displayName()} · ${exercise.type.displayName()}",
+            text = equipment.group,
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

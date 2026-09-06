@@ -83,6 +83,8 @@ constructor(
                     type = exercise.type,
                     isCustom = exercise.isCustom,
                     muscleLoads = muscles,
+                    equipmentRequirementState = exercise.equipmentRequirementState,
+                    equipmentIds = exerciseDao.getRequirementIds(exercise.id).toSet(),
                 ),
             ),
     )
@@ -106,6 +108,8 @@ constructor(
                     updatedAt = gym.updatedAt,
                     name = gym.name,
                     exerciseSyncIds = full.exercises.mapTo(linkedSetOf()) { it.syncId },
+                    inventoryConfigured = gym.inventoryConfigured,
+                    equipmentIds = gymDao.getGymEquipmentIds(gym.id).toSet(),
                 ),
             ),
     )
@@ -189,8 +193,20 @@ constructor(
       val existing = api.getValues(bearer, spreadsheetId, range).values.orEmpty()
       val legacyExerciseHeader =
           sheetName == ExerciseSheetRowMapper.SHEET_NAME &&
-              existing.firstOrNull() == ExerciseSheetRowMapper.HEADER_ROW.dropLast(1)
-      if (existing.isNotEmpty() && existing.first() != header && !legacyExerciseHeader) {
+              existing.firstOrNull() in
+                  setOf(
+                      ExerciseSheetRowMapper.HEADER_ROW.take(9),
+                      ExerciseSheetRowMapper.HEADER_ROW.take(10),
+                  )
+      val legacyGymHeader =
+          sheetName == GymSheetRowMapper.SHEET_NAME &&
+              existing.firstOrNull() == GymSheetRowMapper.HEADER_ROW.take(5)
+      if (
+          existing.isNotEmpty() &&
+              existing.first() != header &&
+              !legacyExerciseHeader &&
+              !legacyGymHeader
+      ) {
         return UploadResult.PermanentFailure(
             "Заголовок листа $sheetName изменён вручную — выгрузка остановлена",
         )
@@ -200,7 +216,16 @@ constructor(
         api.updateValues(
             bearer,
             spreadsheetId,
-            "${ExerciseSheetRowMapper.SHEET_NAME}!A1:J1",
+            "${ExerciseSheetRowMapper.SHEET_NAME}!A1:L1",
+            UpdateValuesDto(jsonRows(listOf(header))),
+            "RAW",
+        )
+      }
+      if (legacyGymHeader) {
+        api.updateValues(
+            bearer,
+            spreadsheetId,
+            "${GymSheetRowMapper.SHEET_NAME}!A1:G1",
             UpdateValuesDto(jsonRows(listOf(header))),
             "RAW",
         )

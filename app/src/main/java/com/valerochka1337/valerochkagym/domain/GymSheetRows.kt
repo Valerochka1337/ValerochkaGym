@@ -1,9 +1,11 @@
 package com.valerochka1337.valerochkagym.domain
 
-/** Контракт append-only листа `Gyms` (A:E), где каждая версия содержит полный состав зала. */
+import com.valerochka1337.valerochkagym.data.db.EquipmentCatalog
+
+/** Контракт append-only листа `Gyms` (A:G), где каждая версия содержит полный состав зала. */
 object GymSheetRowMapper {
   const val SHEET_NAME = "Gyms"
-  const val RANGE = "Gyms!A:E"
+  const val RANGE = "Gyms!A:G"
 
   val HEADER_ROW: List<String> =
       listOf(
@@ -12,6 +14,8 @@ object GymSheetRowMapper {
           "is_deleted",
           "gym_name",
           "exercise_id",
+          "inventory_configured",
+          "equipment_id",
       )
 
   fun rows(record: GymSheetRecord): List<List<Any?>> =
@@ -23,20 +27,26 @@ object GymSheetRowMapper {
   fun deletion(syncId: String, updatedAt: Long): List<Any?> {
     val canonicalId = requireCanonicalSheetUuid(syncId, "gym_id")
     requireSheetVersion(updatedAt)
-    return listOf(canonicalId, updatedAt, "true", "", "")
+    return listOf(canonicalId, updatedAt, "true", "", "", "", "")
   }
 
   private fun snapshotRows(snapshot: GymSheetRecord.Snapshot): List<List<Any?>> {
     val canonicalId = requireCanonicalSheetUuid(snapshot.syncId, "gym_id")
     requireSheetVersion(snapshot.updatedAt)
     require(snapshot.name.isNotBlank()) { "gym_name не должен быть пустым" }
-    val exerciseIds =
-        snapshot.exerciseSyncIds.map { requireCanonicalSheetUuid(it, "exercise_id") }.toSortedSet()
     val base = listOf<Any?>(canonicalId, snapshot.updatedAt, "false", snapshot.name)
-    return if (exerciseIds.isEmpty()) {
-      listOf(base + "")
+    return if (snapshot.inventoryConfigured) {
+      snapshot.equipmentIds
+          .sorted()
+          .ifEmpty { listOf("") }
+          .map { equipment -> base + listOf("", "true", equipment) }
     } else {
-      exerciseIds.map { exerciseId -> base + exerciseId }
+      val exerciseIds =
+          snapshot.exerciseSyncIds
+              .map { requireCanonicalSheetUuid(it, "exercise_id") }
+              .toSortedSet()
+      if (exerciseIds.isEmpty()) listOf(base + listOf("", "false", ""))
+      else exerciseIds.map { exerciseId -> base + listOf(exerciseId, "false", "") }
     }
   }
 }
@@ -49,7 +59,10 @@ object GymSheetRowParser {
       var isDeleted: Boolean? = null,
       var name: String? = null,
       var hasEmptyMarker: Boolean = false,
+      var inventoryConfigured: Boolean? = null,
+      val equipmentIds: MutableSet<String> = linkedSetOf(),
       val exerciseSyncIds: MutableSet<String> = linkedSetOf(),
+      var hasInvalidEquipment: Boolean = false,
       var invalid: Boolean = false,
   ) {
     fun accept(row: List<String>): Boolean {
@@ -58,8 +71,13 @@ object GymSheetRowParser {
       isDeleted = deleted
 
       if (deleted) {
-        if (row.sheetCell(GYM_NAME).isNotEmpty() || row.sheetCell(EXERCISE_ID).isNotEmpty())
-            return reject()
+        if (
+            row.sheetCell(GYM_NAME).isNotEmpty() ||
+                row.sheetCell(EXERCISE_ID).isNotEmpty() ||
+                row.sheetCell(INVENTORY_CONFIGURED).isNotEmpty() ||
+                row.sheetCell(EQUIPMENT_ID).isNotEmpty()
+        )
+            return rejectEquipment()
         if (name != null || hasEmptyMarker || exerciseSyncIds.isNotEmpty()) return reject()
         return true
       }
@@ -67,6 +85,23 @@ object GymSheetRowParser {
       val incomingName = row.sheetCell(GYM_NAME).takeIf(String::isNotEmpty) ?: return reject()
       name?.let { previous -> if (previous != incomingName) return reject() }
       name = incomingName
+      val rawConfigured = row.sheetCell(INVENTORY_CONFIGURED)
+      val configured =
+          if (rawConfigured.isEmpty()) false
+          else rawConfigured.toSheetBooleanOrNull() ?: return rejectEquipment()
+      inventoryConfigured?.let { previous -> if (previous != configured) return rejectEquipment() }
+      inventoryConfigured = configured
+      val equipment = row.sheetCell(EQUIPMENT_ID)
+      if (configured) {
+        if (row.sheetCell(EXERCISE_ID).isNotEmpty()) return rejectEquipment()
+        if (equipment.isEmpty()) {
+          if (equipmentIds.isNotEmpty()) return rejectEquipment()
+          hasEmptyMarker = true
+        } else if (hasEmptyMarker || !EquipmentCatalog.isKnown(equipment)) return rejectEquipment()
+        else equipmentIds += equipment
+        return true
+      }
+      if (equipment.isNotEmpty()) return rejectEquipment()
       val exerciseCell = row.sheetCell(EXERCISE_ID)
       if (exerciseCell.isEmpty()) {
         if (exerciseSyncIds.isNotEmpty()) return reject()
@@ -89,6 +124,8 @@ object GymSheetRowParser {
                 updatedAt = updatedAt,
                 name = name ?: return null,
                 exerciseSyncIds = exerciseSyncIds.toSet(),
+                inventoryConfigured = inventoryConfigured ?: false,
+                equipmentIds = equipmentIds.toSet(),
             )
         null -> null
       }
@@ -98,10 +135,16 @@ object GymSheetRowParser {
       invalid = true
       return false
     }
+
+    private fun rejectEquipment(): Boolean {
+      hasInvalidEquipment = true
+      return reject()
+    }
   }
 
   fun parse(rows: List<List<String>>): ParsedGymSheetRows {
     var skippedRows = 0
+    var hasInvalidEquipment = false
     val versions = LinkedHashMap<String, LinkedHashMap<Long, SnapshotBuilder>>()
     rows.forEach { row ->
       if (row.isBlankSheetRow() || row.sheetCell(GYM_ID) == "gym_id") return@forEach
@@ -115,13 +158,25 @@ object GymSheetRowParser {
           versions
               .getOrPut(syncId) { LinkedHashMap() }
               .getOrPut(updatedAt) { SnapshotBuilder(syncId, updatedAt) }
+      val rawConfigured = row.sheetCell(INVENTORY_CONFIGURED)
+      val configured = rawConfigured.toSheetBooleanOrNull()
+      val equipment = row.sheetCell(EQUIPMENT_ID)
+      if (
+          (rawConfigured.isNotEmpty() && configured == null) ||
+              (configured == true && row.sheetCell(EXERCISE_ID).isNotEmpty()) ||
+              (configured != true && equipment.isNotEmpty()) ||
+              (equipment.isNotEmpty() && !EquipmentCatalog.isKnown(equipment))
+      ) {
+        hasInvalidEquipment = true
+      }
       if (!builder.accept(row)) skippedRows++
+      if (builder.hasInvalidEquipment) hasInvalidEquipment = true
     }
     val records =
         versions.values.mapNotNull { snapshots ->
           snapshots.values.maxByOrNull(SnapshotBuilder::updatedAt)?.toRecord()
         }
-    return ParsedGymSheetRows(records, skippedRows)
+    return ParsedGymSheetRows(records, skippedRows, hasInvalidEquipment)
   }
 
   private const val GYM_ID = 0
@@ -129,4 +184,6 @@ object GymSheetRowParser {
   private const val IS_DELETED = 2
   private const val GYM_NAME = 3
   private const val EXERCISE_ID = 4
+  private const val INVENTORY_CONFIGURED = 5
+  private const val EQUIPMENT_ID = 6
 }

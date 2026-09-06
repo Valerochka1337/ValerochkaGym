@@ -16,15 +16,11 @@ class GymSheetRowsTest {
             exerciseSyncIds = linkedSetOf(EXERCISE_ID_B, EXERCISE_ID_A),
         )
 
-    assertEquals(
-        listOf("gym_id", "updated_at", "is_deleted", "gym_name", "exercise_id"),
-        GymSheetRowMapper.HEADER_ROW,
-    )
-    assertEquals("Gyms!A:E", GymSheetRowMapper.RANGE)
+    assertEquals("Gyms!A:G", GymSheetRowMapper.RANGE)
     assertEquals(
         listOf(
-            listOf(GYM_ID, 200L, "false", "Основной зал", EXERCISE_ID_A),
-            listOf(GYM_ID, 200L, "false", "Основной зал", EXERCISE_ID_B),
+            listOf(GYM_ID, 200L, "false", "Основной зал", EXERCISE_ID_A, "false", ""),
+            listOf(GYM_ID, 200L, "false", "Основной зал", EXERCISE_ID_B, "false", ""),
         ),
         GymSheetRowMapper.rows(snapshot),
     )
@@ -122,6 +118,45 @@ class GymSheetRowsTest {
 
     assertEquals(1, parsed.skippedRows)
     assertTrue(parsed.records.isEmpty())
+  }
+
+  @Test
+  fun `current inventory fields reject contradictory payloads as strict equipment corruption`() {
+    val configuredWithExercise =
+        listOf(GYM_ID, "200", "false", "Зал", EXERCISE_ID_A, "true", "dumbbells")
+    val legacyWithEquipment =
+        listOf(OTHER_GYM_ID, "200", "false", "Другой", EXERCISE_ID_A, "false", "dumbbells")
+    val invalidConfiguredFlag =
+        listOf("cccccccc-cccc-4ccc-8ccc-cccccccccccc", "200", "false", "Третий", "", "maybe", "")
+
+    val parsed =
+        GymSheetRowParser.parse(
+            listOf(configuredWithExercise, legacyWithEquipment, invalidConfiguredFlag),
+        )
+
+    assertEquals(3, parsed.skippedRows)
+    assertTrue(parsed.records.isEmpty())
+    assertTrue(parsed.hasInvalidEquipment)
+  }
+
+  @Test
+  fun `configured empty marker cannot be mixed with equipment in either order`() {
+    val emptyThenEquipment =
+        listOf(
+            listOf(GYM_ID, "200", "false", "Зал", "", "true", ""),
+            listOf(GYM_ID, "200", "false", "Зал", "", "true", "dumbbells"),
+        )
+    val equipmentThenEmpty =
+        listOf(
+            listOf(OTHER_GYM_ID, "200", "false", "Другой", "", "true", "dumbbells"),
+            listOf(OTHER_GYM_ID, "200", "false", "Другой", "", "true", ""),
+        )
+
+    val parsed = GymSheetRowParser.parse(emptyThenEquipment + equipmentThenEmpty)
+
+    assertEquals(2, parsed.skippedRows)
+    assertTrue(parsed.records.isEmpty())
+    assertTrue(parsed.hasInvalidEquipment)
   }
 
   private fun List<List<Any?>>.asStrings(): List<List<String>> = map { row ->

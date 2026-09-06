@@ -57,13 +57,37 @@ class ConfigurationSheetsRepositoryTest : RoomDaoTest() {
     db.exerciseMuscleDao().upsertAll(listOf(ExerciseMuscleEntity(id, Muscle.UPPER_CHEST, 100)))
     val api =
         FakeSheetsApi().apply {
-          seed(ExerciseSheetRowMapper.RANGE, listOf(ExerciseSheetRowMapper.HEADER_ROW.dropLast(1)))
+          seed(ExerciseSheetRowMapper.RANGE, listOf(ExerciseSheetRowMapper.HEADER_ROW.take(9)))
         }
 
     assertEquals(UploadResult.Success, repository(api).uploadExercise(EXERCISE_ID))
     assertEquals(1, api.updated.size)
     assertEquals(listOf(ExerciseSheetRowMapper.HEADER_ROW), api.updated.single())
-    assertEquals("2", api.appended.single().single().last())
+    assertEquals("2", api.appended.single().single()[9])
+  }
+
+  @Test
+  fun `canonical role exercise header is extended with equipment columns`() = runTest {
+    val exercise =
+        ExerciseEntity(
+            syncId = EXERCISE_ID,
+            updatedAt = 200,
+            name = "Своё",
+            muscleGroup = MuscleGroup.CHEST,
+            type = ExerciseType.STRENGTH,
+            isCustom = true,
+        )
+    val id = db.exerciseDao().insert(exercise)
+    db.exerciseMuscleDao().upsertAll(listOf(ExerciseMuscleEntity(id, Muscle.UPPER_CHEST, 100)))
+    val api =
+        FakeSheetsApi().apply {
+          seed(ExerciseSheetRowMapper.RANGE, listOf(ExerciseSheetRowMapper.HEADER_ROW.take(10)))
+        }
+
+    assertEquals(UploadResult.Success, repository(api).uploadExercise(EXERCISE_ID))
+    assertEquals(listOf(ExerciseSheetRowMapper.HEADER_ROW), api.updated.single())
+    assertEquals("2", api.appended.single().single()[9])
+    assertEquals("UNKNOWN", api.appended.single().single()[10])
   }
 
   @Test
@@ -117,6 +141,8 @@ class ConfigurationSheetsRepositoryTest : RoomDaoTest() {
                 "UPPER_CHEST",
                 "100",
                 "2",
+                "UNKNOWN",
+                "",
             ),
             listOf(
                 EXERCISE_ID,
@@ -129,6 +155,8 @@ class ConfigurationSheetsRepositoryTest : RoomDaoTest() {
                 "TRICEPS",
                 "50",
                 "2",
+                "UNKNOWN",
+                "",
             ),
         ),
         api.appended.single(),
@@ -175,8 +203,8 @@ class ConfigurationSheetsRepositoryTest : RoomDaoTest() {
     assertEquals(
         listOf(
             GymSheetRowMapper.HEADER_ROW,
-            listOf(GYM_ID, "300", "false", "Основной зал", EXERCISE_ID),
-            listOf(GYM_ID, "300", "false", "Основной зал", SECOND_EXERCISE_ID),
+            listOf(GYM_ID, "300", "false", "Основной зал", EXERCISE_ID, "false", ""),
+            listOf(GYM_ID, "300", "false", "Основной зал", SECOND_EXERCISE_ID, "false", ""),
         ),
         api.appended.single(),
     )

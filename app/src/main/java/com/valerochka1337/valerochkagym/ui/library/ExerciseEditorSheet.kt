@@ -39,10 +39,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.valerochka1337.valerochkagym.data.db.EquipmentCatalog
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
 import com.valerochka1337.valerochkagym.data.db.entity.Muscle
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleLoad
 import com.valerochka1337.valerochkagym.data.db.entity.group
+import com.valerochka1337.valerochkagym.domain.ExerciseEquipmentRequirements
 import com.valerochka1337.valerochkagym.domain.displayName
 import com.valerochka1337.valerochkagym.ui.analysis.body.BodyMapFlip
 import com.valerochka1337.valerochkagym.ui.analysis.body.MuscleSector
@@ -69,19 +71,30 @@ import com.valerochka1337.valerochkagym.ui.components.PillButton
 internal fun ExerciseEditorSheet(
     initial: ExerciseEditorState,
     onDismiss: () -> Unit,
-    onSave: (name: String, type: ExerciseType, loads: List<MuscleLoad>) -> Unit,
+    onSave:
+        (
+            name: String,
+            type: ExerciseType,
+            loads: List<MuscleLoad>,
+            requirements: ExerciseEquipmentRequirements,
+        ) -> Unit,
 ) {
   var name by remember(initial) { mutableStateOf(initial.name) }
   var typeName by remember(initial) { mutableStateOf(initial.type.name) }
   var active by remember(initial) { mutableStateOf<Muscle?>(null) }
   val loads = remember(initial) { mutableStateMapOf<Muscle, Int>().apply { putAll(initial.loads) } }
+  var requirements by remember(initial) { mutableStateOf(initial.requirements) }
   val type = ExerciseType.valueOf(typeName)
   val inactiveColor = MaterialTheme.colorScheme.surfaceContainerHighest
   val primaryColor = MaterialTheme.colorScheme.primaryContainer
   val secondaryColor = primaryColor.copy(alpha = 0.62f)
   val stabilizerColor = primaryColor.copy(alpha = 0.32f)
 
-  val canSave = name.trim().isNotEmpty() && loads.values.any { it == 100 } && !initial.isSaving
+  val canSave =
+      name.trim().isNotEmpty() &&
+          loads.values.any { it == 100 } &&
+          requirements !is ExerciseEquipmentRequirements.UnknownLegacy &&
+          !initial.isSaving
 
   ModalBottomSheet(
       onDismissRequest = { if (!initial.isSaving) onDismiss() },
@@ -116,14 +129,11 @@ internal fun ExerciseEditorSheet(
       if (initial.wasFoundByAi) {
         Spacer(Modifier.height(12.dp))
         FoundExistingExerciseNotice(
-            assignToSelectedGyms = initial.assignToSelectedGyms,
-            selectedGymNames = initial.selectedGymNames,
             selectionTarget = initial.selectionTarget,
         )
       } else if (initial.exerciseId == null && initial.selectionTarget != null) {
         Spacer(Modifier.height(12.dp))
         NewExerciseDestinationNotice(
-            selectedGymNames = initial.selectedGymNames,
             selectionTarget = initial.selectionTarget,
         )
       }
@@ -230,6 +240,43 @@ internal fun ExerciseEditorSheet(
       }
 
       Spacer(Modifier.height(20.dp))
+      SheetLabel("Оборудование")
+      if (requirements is ExerciseEquipmentRequirements.UnknownLegacy) {
+        Text(
+            text =
+                "Для этого старого упражнения оборудование ещё не задано. Выберите вариант перед сохранением.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(8.dp))
+      }
+      val selectedEquipment =
+          (requirements as? ExerciseEquipmentRequirements.Required)?.equipmentIds.orEmpty()
+      FlowRow(
+          horizontalArrangement = Arrangement.spacedBy(8.dp),
+          verticalArrangement = Arrangement.spacedBy(8.dp),
+      ) {
+        FilterChip(
+            selected = requirements is ExerciseEquipmentRequirements.ExplicitNone,
+            onClick = { requirements = ExerciseEquipmentRequirements.ExplicitNone },
+            label = { Text("Без оборудования") },
+        )
+        EquipmentCatalog.entries.forEach { equipment ->
+          FilterChip(
+              selected = equipment.id in selectedEquipment,
+              onClick = {
+                val updated = selectedEquipment.toMutableSet()
+                if (!updated.add(equipment.id)) updated.remove(equipment.id)
+                requirements =
+                    if (updated.isEmpty()) ExerciseEquipmentRequirements.ExplicitNone
+                    else ExerciseEquipmentRequirements.Required(updated)
+              },
+              label = { Text(equipment.name) },
+          )
+        }
+      }
+
+      Spacer(Modifier.height(20.dp))
       initial.saveError?.let { error ->
         Text(
             text = error,
@@ -244,7 +291,6 @@ internal fun ExerciseEditorSheet(
                 when {
                   initial.isSaving -> "Сохраняем…"
                   initial.exerciseId == null -> "Создать"
-                  initial.assignToSelectedGyms -> "Добавить в залы"
                   initial.wasFoundByAi -> "Изменить найденное"
                   else -> if (initial.editableName) "Сохранить" else "Персонализировать"
                 },
@@ -255,6 +301,7 @@ internal fun ExerciseEditorSheet(
                   loads.entries
                       .map { MuscleLoad(it.key, it.value) }
                       .sortedByDescending { it.contribution },
+                  requirements,
               )
             },
             enabled = canSave,
@@ -270,8 +317,6 @@ internal fun ExerciseEditorSheet(
 /** Поясняет, что ИИ открыл существующую запись, а не подготовил новую. */
 @Composable
 private fun FoundExistingExerciseNotice(
-    assignToSelectedGyms: Boolean,
-    selectedGymNames: List<String>,
     selectionTarget: String?,
 ) {
   Surface(
@@ -299,18 +344,8 @@ private fun FoundExistingExerciseNotice(
         Spacer(Modifier.height(2.dp))
         Text(
             text =
-                if (assignToSelectedGyms) {
-                  "ИИ не создал дубликат. После подтверждения существующее упражнение " +
-                      "будет добавлено во все выбранные залы" +
-                      selectedGymNames
-                          .takeIf { it.isNotEmpty() }
-                          ?.joinToString(prefix = " (", postfix = ")")
-                          .orEmpty() +
-                      selectionTarget?.let { " и сразу добавлено в $it." }.orEmpty()
-                } else {
-                  "ИИ не создал новую запись. После сохранения изменится существующее упражнение" +
-                      selectionTarget?.let { " и будет сразу добавлено в $it." }.orEmpty()
-                },
+                "ИИ не создал дубликат. После сохранения изменится существующее упражнение" +
+                    selectionTarget?.let { " и будет сразу добавлено в $it." }.orEmpty(),
             style = MaterialTheme.typography.bodySmall,
         )
       }
@@ -320,7 +355,6 @@ private fun FoundExistingExerciseNotice(
 
 @Composable
 private fun NewExerciseDestinationNotice(
-    selectedGymNames: List<String>,
     selectionTarget: String,
 ) {
   Surface(
@@ -332,12 +366,7 @@ private fun NewExerciseDestinationNotice(
     Text(
         text =
             buildString {
-              append("Новая запись будет добавлена в общий каталог")
-              if (selectedGymNames.isNotEmpty()) {
-                append(" и во все выбранные залы: ")
-                append(selectedGymNames.joinToString())
-              }
-              append(", затем сразу добавлена в ")
+              append("Новая запись будет добавлена в общий каталог, затем сразу добавлена в ")
               append(selectionTarget)
               append('.')
             },

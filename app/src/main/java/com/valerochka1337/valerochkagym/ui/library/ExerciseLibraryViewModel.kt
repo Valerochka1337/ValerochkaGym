@@ -7,6 +7,7 @@ import com.valerochka1337.valerochkagym.data.ai.AiApiConfigurationProvider
 import com.valerochka1337.valerochkagym.data.ai.ExerciseAiGenerationResult
 import com.valerochka1337.valerochkagym.data.ai.ExerciseAiGenerator
 import com.valerochka1337.valerochkagym.data.db.CanonicalExerciseRegistry
+import com.valerochka1337.valerochkagym.data.db.EquipmentCatalog
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseDao
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseMuscleDao
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
@@ -18,6 +19,7 @@ import com.valerochka1337.valerochkagym.data.db.entity.MuscleLoad
 import com.valerochka1337.valerochkagym.data.db.entity.group
 import com.valerochka1337.valerochkagym.data.db.entity.withNextUpdatedAt
 import com.valerochka1337.valerochkagym.di.ComputeDispatcher
+import com.valerochka1337.valerochkagym.domain.ExerciseCatalogEquipmentFilter
 import com.valerochka1337.valerochkagym.domain.ExerciseCatalogFacetCounts
 import com.valerochka1337.valerochkagym.domain.ExerciseCatalogFilters
 import com.valerochka1337.valerochkagym.domain.ExerciseCatalogOrigin
@@ -27,9 +29,12 @@ import com.valerochka1337.valerochkagym.domain.ExerciseCatalogRepositoryState
 import com.valerochka1337.valerochkagym.domain.ExerciseCatalogSnapshot
 import com.valerochka1337.valerochkagym.domain.ExerciseCatalogSort
 import com.valerochka1337.valerochkagym.domain.ExerciseCatalogTypeFilter
+import com.valerochka1337.valerochkagym.domain.ExerciseEquipmentRequirements
+import com.valerochka1337.valerochkagym.domain.GymConfigurationConflict
 import com.valerochka1337.valerochkagym.domain.GymRepository
 import com.valerochka1337.valerochkagym.domain.NewExerciseConfiguration
 import com.valerochka1337.valerochkagym.domain.NoOpGymRepository
+import com.valerochka1337.valerochkagym.domain.SaveExerciseConfigurationResult
 import com.valerochka1337.valerochkagym.ui.navigation.GymRoutes
 import com.valerochka1337.valerochkagym.worker.ConfigurationUploadScheduler
 import com.valerochka1337.valerochkagym.worker.NoOpConfigurationUploadScheduler
@@ -91,12 +96,9 @@ data class ExerciseEditorState(
      * создании.
      */
     val wasFoundByAi: Boolean = false,
-    /** Подтверждённое сохранением действие включит найденную запись во все выбранные залы. */
-    val assignToSelectedGyms: Boolean = false,
     /** Контекст picker-а: после успешного сохранения запись сразу попадёт сюда. */
     val selectionTarget: String? = null,
-    /** Человекочитаемый состав залов для явного предупреждения перед изменением конфигураций. */
-    val selectedGymNames: List<String> = emptyList(),
+    val requirements: ExerciseEquipmentRequirements = ExerciseEquipmentRequirements.ExplicitNone,
     val isSaving: Boolean = false,
     val saveError: String? = null,
 )
@@ -189,6 +191,15 @@ constructor(
                   savedStateHandle.get<String>(CATALOG_ORIGIN)?.let { value ->
                     ExerciseCatalogOrigin.entries.firstOrNull { it.name == value }
                   } ?: ExerciseCatalogOrigin.ALL,
+              equipment =
+                  ExerciseCatalogEquipmentFilter(
+                      savedStateHandle.get<String>(CATALOG_EQUIPMENT).orEmpty().split(',').filterTo(
+                          linkedSetOf()
+                      ) {
+                        EquipmentCatalog.isKnown(it)
+                      },
+                      includeExplicitNone = savedStateHandle[CATALOG_EQUIPMENT_FREE] ?: false,
+                  ),
           ),
       )
   private val sort =
@@ -245,7 +256,13 @@ constructor(
                 gymNames = source.gymNames,
                 filters = currentFilters,
                 sort = currentSort,
-                facetCounts = projection.facetCounts(currentQuery, currentFilters, currentSort),
+                facetCounts =
+                    projection.facetCounts(
+                        currentQuery,
+                        currentFilters,
+                        currentSort,
+                        EquipmentCatalog.entries.mapTo(linkedSetOf()) { it.id },
+                    ),
             )
           }
           .let { flow -> if (catalogRepository != null) flow.flowOn(computeDispatcher) else flow }
@@ -287,6 +304,8 @@ constructor(
     savedStateHandle[CATALOG_GROUP] = null
     savedStateHandle[CATALOG_TYPE] = ExerciseCatalogTypeFilter.ALL.name
     savedStateHandle[CATALOG_ORIGIN] = ExerciseCatalogOrigin.ALL.name
+    savedStateHandle[CATALOG_EQUIPMENT] = ""
+    savedStateHandle[CATALOG_EQUIPMENT_FREE] = false
   }
 
   fun setOrigin(origin: ExerciseCatalogOrigin) {
@@ -311,6 +330,24 @@ constructor(
     savedStateHandle[CATALOG_GROUP] = null
   }
 
+  fun toggleEquipmentFacet(equipmentId: String) {
+    if (!EquipmentCatalog.isKnown(equipmentId)) return
+    val selected = filters.value.equipment.equipmentIds.toMutableSet()
+    if (!selected.add(equipmentId)) selected.remove(equipmentId)
+    filters.value =
+        filters.value.copy(
+            equipment = filters.value.equipment.copy(equipmentIds = selected),
+        )
+    savedStateHandle[CATALOG_EQUIPMENT] = selected.sorted().joinToString(",")
+  }
+
+  fun toggleNoEquipmentFacet() {
+    val equipment = filters.value.equipment
+    val updated = equipment.copy(includeExplicitNone = !equipment.includeExplicitNone)
+    filters.value = filters.value.copy(equipment = updated)
+    savedStateHandle[CATALOG_EQUIPMENT_FREE] = updated.includeExplicitNone
+  }
+
   fun setSort(value: ExerciseCatalogSort) {
     sort.value = value
     savedStateHandle[CATALOG_SORT] = value.name
@@ -321,6 +358,8 @@ constructor(
     const val CATALOG_GROUP = "catalog_group"
     const val CATALOG_TYPE = "catalog_type"
     const val CATALOG_ORIGIN = "catalog_origin"
+    const val CATALOG_EQUIPMENT = "catalog_equipment"
+    const val CATALOG_EQUIPMENT_FREE = "catalog_equipment_free"
     const val CATALOG_SORT = "catalog_sort"
   }
 
@@ -381,7 +420,7 @@ constructor(
                       loads = result.loads.associate { it.muscle to it.contribution },
                       editableName = true,
                       selectionTarget = pickerTarget(),
-                      selectedGymNames = uiState.value.gymNames,
+                      requirements = ExerciseEquipmentRequirements.ExplicitNone,
                   )
             }
 
@@ -406,9 +445,9 @@ constructor(
     }
     val loads =
         exerciseMuscleDao.getForExercise(exercise.id).associate { it.muscle to it.contribution }
-    val needsGymAssignment =
-        selectedGymIds.isNotEmpty() &&
-            gymRepository.unavailableExercises(selectedGymIds, setOf(exercise.id)).isNotEmpty()
+    val requirements =
+        if (gymRepository === NoOpGymRepository) ExerciseEquipmentRequirements.ExplicitNone
+        else gymRepository.requirementsFor(exercise)
     if (generationId != this.generationId) return
     _aiCreation.value = null
     _editor.value =
@@ -419,9 +458,8 @@ constructor(
             loads = loads,
             editableName = !CanonicalExerciseRegistry.isBuiltIn(exercise),
             wasFoundByAi = true,
-            assignToSelectedGyms = needsGymAssignment,
             selectionTarget = pickerTarget(),
-            selectedGymNames = uiState.value.gymNames,
+            requirements = requirements,
         )
   }
 
@@ -448,7 +486,7 @@ constructor(
           loads = emptyMap(),
           editableName = true,
           selectionTarget = pickerTarget(),
-          selectedGymNames = uiState.value.gymNames,
+          requirements = ExerciseEquipmentRequirements.ExplicitNone,
       )
 
   /** Открывает разметку существующего упражнения — текущая карта подгружается из базы. */
@@ -457,6 +495,9 @@ constructor(
     viewModelScope.launch {
       val loads =
           exerciseMuscleDao.getForExercise(exercise.id).associate { it.muscle to it.contribution }
+      val requirements =
+          if (gymRepository === NoOpGymRepository) ExerciseEquipmentRequirements.ExplicitNone
+          else gymRepository.requirementsFor(exercise)
       _editor.value =
           ExerciseEditorState(
               exerciseId = exercise.id,
@@ -465,6 +506,7 @@ constructor(
               loads = loads,
               editableName = !CanonicalExerciseRegistry.isBuiltIn(exercise),
               needsMuscleMapReview = exercise.needsMuscleMapReview,
+              requirements = requirements,
           )
     }
   }
@@ -481,7 +523,12 @@ constructor(
    * переносила бы упражнение в другой фильтр библиотеки и меняла бы колонку `muscle_group` в
    * будущих выгрузках.
    */
-  fun saveEditor(name: String, type: ExerciseType, loads: List<MuscleLoad>) {
+  fun saveEditor(
+      name: String,
+      type: ExerciseType,
+      loads: List<MuscleLoad>,
+      requirements: ExerciseEquipmentRequirements,
+  ) {
     val current = _editor.value ?: return
     if (current.isSaving) return
     val trimmed = name.trim()
@@ -493,12 +540,17 @@ constructor(
       _editor.value = current.copy(saveError = "Используйте только роли мышц.")
       return
     }
+    if (requirements is ExerciseEquipmentRequirements.UnknownLegacy) {
+      _editor.value = current.copy(saveError = "Выберите оборудование или «Без оборудования».")
+      return
+    }
     val submittedLoads = loads.associate { it.muscle to it.contribution }
     _editor.value =
         current.copy(
             name = trimmed,
             type = type,
             loads = submittedLoads,
+            requirements = requirements,
             isSaving = true,
             saveError = null,
         )
@@ -528,17 +580,22 @@ constructor(
                     muscleRows.map { it.copy(exerciseId = exerciseId) },
                 )
                 exercise.copy(id = exerciseId)
-              } else if (workoutId != null) {
-                gymRepository.createExerciseAssignAndAddToWorkout(
-                    NewExerciseConfiguration(exercise, muscleRows),
-                    selectedGymIds,
-                    workoutId,
-                )
               } else {
-                gymRepository.createExerciseAndAssign(
-                    NewExerciseConfiguration(exercise, muscleRows),
-                    selectedGymIds,
-                )
+                when (
+                    val result =
+                        gymRepository.saveExerciseConfiguration(
+                            NewExerciseConfiguration(exercise, muscleRows, requirements),
+                            gymIds = selectedGymIds,
+                            workoutId = workoutId,
+                        )
+                ) {
+                  is SaveExerciseConfigurationResult.Saved -> result.exercise
+                  is SaveExerciseConfigurationResult.Conflict -> {
+                    showSaveConflict(result.details)
+                    return@launch
+                  }
+                  SaveExerciseConfigurationResult.Failure -> null
+                }
               }
             } else {
               val existing =
@@ -562,17 +619,23 @@ constructor(
                 exerciseMuscleDao.replaceForExercise(existing.id, muscleRows)
                 configurationUploadScheduler.scheduleExercise(updated.syncId)
                 updated
-              } else if (workoutId != null && current.wasFoundByAi) {
-                gymRepository.updateExerciseAssignAndAddToWorkout(
-                    configuration = NewExerciseConfiguration(updated, muscleRows),
-                    gymIds = selectedGymIds,
-                    workoutId = workoutId,
-                )
               } else {
-                gymRepository.updateExerciseAndAssign(
-                    configuration = NewExerciseConfiguration(updated, muscleRows),
-                    gymIds = if (current.assignToSelectedGyms) selectedGymIds else emptySet(),
-                )
+                when (
+                    val result =
+                        gymRepository.saveExerciseConfiguration(
+                            configuration =
+                                NewExerciseConfiguration(updated, muscleRows, requirements),
+                            gymIds = selectedGymIds,
+                            workoutId = if (current.wasFoundByAi) workoutId else null,
+                        )
+                ) {
+                  is SaveExerciseConfigurationResult.Saved -> result.exercise
+                  is SaveExerciseConfigurationResult.Conflict -> {
+                    showSaveConflict(result.details)
+                    return@launch
+                  }
+                  SaveExerciseConfigurationResult.Failure -> null
+                }
               }
             }
           } catch (cancelled: CancellationException) {
@@ -596,12 +659,28 @@ constructor(
     }
   }
 
+  /** Source-compatible entry point for callers that have no equipment editor yet. */
+  fun saveEditor(name: String, type: ExerciseType, loads: List<MuscleLoad>) {
+    saveEditor(
+        name,
+        type,
+        loads,
+        _editor.value?.requirements ?: ExerciseEquipmentRequirements.ExplicitNone,
+    )
+  }
+
   private fun showSaveFailure() {
     _editor.update { state ->
       state?.copy(
           isSaving = false,
           saveError = "Не удалось сохранить упражнение. Проверьте выбранные залы и повторите.",
       )
+    }
+  }
+
+  private fun showSaveConflict(conflict: GymConfigurationConflict) {
+    _editor.update { state ->
+      state?.copy(isSaving = false, saveError = formatExerciseSaveConflict(conflict))
     }
   }
 

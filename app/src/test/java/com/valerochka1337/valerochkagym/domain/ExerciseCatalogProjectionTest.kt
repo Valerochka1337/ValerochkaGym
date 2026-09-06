@@ -6,10 +6,153 @@ import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
 import com.valerochka1337.valerochkagym.data.db.entity.Muscle
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleGroup
 import com.valerochka1337.valerochkagym.data.db.relation.ExerciseWorkoutHistoryRow
+import com.valerochka1337.valerochkagym.domain.ExerciseEquipmentRequirements.ExplicitNone
+import com.valerochka1337.valerochkagym.domain.ExerciseEquipmentRequirements.Required
+import com.valerochka1337.valerochkagym.domain.ExerciseEquipmentRequirements.UnknownLegacy
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class ExerciseCatalogProjectionTest {
+
+  @Test
+  fun `equipment facet uses OR while group and origin remain AND`() {
+    val projection =
+        ExerciseCatalogProjector.project(
+            ExerciseCatalogSnapshot(
+                exercises =
+                    listOf(
+                        exercise(1, "Жим гантелей", MuscleGroup.CHEST, custom = true),
+                        exercise(2, "Жим штанги", MuscleGroup.CHEST),
+                        exercise(3, "Присед", MuscleGroup.LEGS),
+                    ),
+                muscles = emptyList(),
+                history = emptyList(),
+                requirementsByExercise =
+                    mapOf(
+                        1L to Required(setOf("dumbbells", "flat_bench")),
+                        2L to Required(setOf("barbell", "flat_bench")),
+                        3L to Required(setOf("barbell")),
+                    ),
+            ),
+        )
+
+    val result =
+        projection.results(
+            query = "жим",
+            filters =
+                ExerciseCatalogFilters(
+                    group = MuscleGroup.CHEST,
+                    origin = ExerciseCatalogOrigin.ALL,
+                    equipment = ExerciseCatalogEquipmentFilter(setOf("dumbbells", "barbell")),
+                ),
+            sort = ExerciseCatalogSort.ALPHABETICAL,
+        )
+
+    assertEquals(listOf(1L, 2L), result.exercises.map { it.id })
+  }
+
+  @Test
+  fun `equipment facet excludes unknown but includes only explicitly declared requirements`() {
+    val projection =
+        ExerciseCatalogProjector.project(
+            ExerciseCatalogSnapshot(
+                exercises =
+                    listOf(
+                        exercise(1, "Старое", MuscleGroup.CHEST),
+                        exercise(2, "Без инвентаря", MuscleGroup.CHEST),
+                        exercise(3, "С гантелями", MuscleGroup.CHEST),
+                    ),
+                muscles = emptyList(),
+                history = emptyList(),
+                requirementsByExercise =
+                    mapOf(
+                        1L to UnknownLegacy,
+                        2L to ExplicitNone,
+                        3L to Required(setOf("dumbbells")),
+                    ),
+            ),
+        )
+
+    assertEquals(
+        listOf(3L),
+        projection
+            .results(
+                "",
+                ExerciseCatalogFilters(
+                    equipment = ExerciseCatalogEquipmentFilter(setOf("dumbbells"))
+                ),
+                ExerciseCatalogSort.ALPHABETICAL,
+            )
+            .exercises
+            .map { it.id },
+    )
+    assertEquals(
+        listOf(2L),
+        projection
+            .results(
+                "",
+                ExerciseCatalogFilters(
+                    equipment = ExerciseCatalogEquipmentFilter(includeExplicitNone = true),
+                ),
+                ExerciseCatalogSort.ALPHABETICAL,
+            )
+            .exercises
+            .map { it.id },
+    )
+  }
+
+  @Test
+  fun `equipment facet uses provided capabilities without treating decline as adjustable`() {
+    val projection =
+        ExerciseCatalogProjector.project(
+            ExerciseCatalogSnapshot(
+                exercises =
+                    listOf(
+                        exercise(1, "Горизонтальный", MuscleGroup.CHEST),
+                        exercise(2, "Наклонный", MuscleGroup.CHEST),
+                        exercise(3, "Отрицательный", MuscleGroup.CHEST),
+                        exercise(4, "Нордический", MuscleGroup.LEGS),
+                    ),
+                muscles = emptyList(),
+                history = emptyList(),
+                requirementsByExercise =
+                    mapOf(
+                        1L to Required(setOf("flat_bench")),
+                        2L to Required(setOf("incline_bench")),
+                        3L to Required(setOf("decline_bench")),
+                        4L to Required(setOf("ankle_anchor")),
+                    ),
+            ),
+        )
+
+    assertEquals(
+        listOf(1L, 2L),
+        projection
+            .results(
+                "",
+                ExerciseCatalogFilters(
+                    equipment = ExerciseCatalogEquipmentFilter(setOf("adjustable_bench")),
+                ),
+                ExerciseCatalogSort.ALPHABETICAL,
+            )
+            .exercises
+            .map { it.id },
+    )
+    assertEquals(
+        listOf(4L),
+        projection
+            .results(
+                "",
+                ExerciseCatalogFilters(
+                    equipment = ExerciseCatalogEquipmentFilter(setOf("nordic_bench")),
+                ),
+                ExerciseCatalogSort.ALPHABETICAL,
+            )
+            .exercises
+            .map { it.id },
+    )
+  }
+
   @Test
   fun `search and filters combine as and without duplicates`() {
     val projection = project()

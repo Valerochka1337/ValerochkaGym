@@ -22,6 +22,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -38,6 +39,7 @@ import com.valerochka1337.valerochkagym.ui.components.GlowBackground
 import com.valerochka1337.valerochkagym.ui.components.GymCard
 import com.valerochka1337.valerochkagym.ui.components.PillButton
 import com.valerochka1337.valerochkagym.ui.haptics.gymHaptics
+import com.valerochka1337.valerochkagym.ui.theme.GymMotion
 
 /** Pushed-раздел настроек со списком конфигураций тренажёрных залов. */
 @Composable
@@ -45,6 +47,7 @@ fun GymsScreen(
     onBack: () -> Unit,
     onCreateGym: () -> Unit,
     onEditGym: (String) -> Unit,
+    onCopyGym: (String) -> Unit,
     modifier: Modifier = Modifier,
     viewModel: GymsViewModel = hiltViewModel(),
 ) {
@@ -63,7 +66,10 @@ fun GymsScreen(
 
       val gyms = state.gyms
       when {
-        gyms == null -> Unit
+        gyms == null ->
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+              androidx.compose.material3.CircularProgressIndicator()
+            }
         state.loadError ->
             FadeInContent(modifier = Modifier.weight(1f)) {
               GymsMessage(
@@ -78,7 +84,7 @@ fun GymsScreen(
               GymsMessage(
                   title = "Добавьте первый зал",
                   description =
-                      "Отметьте упражнения, которые доступны в этом зале. Потом зал можно будет выбрать для программы.",
+                      "Отметьте оборудование в этом зале. Потом зал можно будет выбрать для программы.",
                   action = "Создать зал",
                   onAction = {
                     haptics.tap()
@@ -106,7 +112,11 @@ fun GymsScreen(
                         haptics.tap()
                         onEditGym(gym.id)
                       },
-                      modifier = Modifier.animateItem(),
+                      onCopy = {
+                        haptics.tap()
+                        onCopyGym(gym.id)
+                      },
+                      modifier = Modifier.animateItem(placementSpec = GymMotion.spatialFast()),
                   )
                 }
               }
@@ -153,6 +163,7 @@ private fun GymsHeader(
 private fun GymConfigurationCard(
     gym: GymConfiguration,
     onClick: () -> Unit,
+    onCopy: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
   GymCard(
@@ -176,7 +187,7 @@ private fun GymConfigurationCard(
             color = MaterialTheme.colorScheme.onSurface,
         )
         Text(
-            text = "${gym.exercises.size} ${exerciseCountWord(gym.exercises.size)}",
+            text = "${gym.equipmentIds.size} ${equipmentCountWord(gym.equipmentIds.size)}",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -187,6 +198,7 @@ private fun GymConfigurationCard(
           tint = MaterialTheme.colorScheme.onSurfaceVariant,
       )
     }
+    TextButton(onClick = onCopy) { Text("Копировать") }
   }
 }
 
@@ -228,13 +240,13 @@ private fun GymsMessage(
   }
 }
 
-private fun exerciseCountWord(count: Int): String {
+private fun equipmentCountWord(count: Int): String {
   val lastTwo = count % 100
   val last = count % 10
   return when {
-    lastTwo in 11..14 -> "упражнений"
-    last == 1 -> "упражнение"
-    last in 2..4 -> "упражнения"
-    else -> "упражнений"
+    lastTwo in 11..14 -> "единиц оборудования"
+    last == 1 -> "единица оборудования"
+    last in 2..4 -> "единицы оборудования"
+    else -> "единиц оборудования"
   }
 }

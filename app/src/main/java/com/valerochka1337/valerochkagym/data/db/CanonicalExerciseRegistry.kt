@@ -47,6 +47,7 @@ object CanonicalExerciseRegistry {
       val exercise: ExerciseEntity,
       val movementPattern: MovementPattern,
       val loads: List<MuscleLoad>,
+      val requirements: Set<String>,
       val coverage: Set<String>,
       val legacySyncIds: Set<String> = emptySet(),
       val legacyNames: Set<String> = emptySet(),
@@ -212,9 +213,11 @@ object CanonicalExerciseRegistry {
             isCustom = false,
             syncId = syncId,
             updatedAt = 13,
+            equipmentRequirementState = EquipmentRequirementState.KNOWN,
         ),
         p,
         canonicalLoads(p),
+        CanonicalEquipmentRequirements.byKey.getValue(f[0]),
         setOf(f[4], f[5]),
         legacy?.let { setOf(builtInExerciseSyncId(it)) }.orEmpty(),
         legacy?.let(::setOf).orEmpty(),
@@ -505,4 +508,9 @@ cardio-12-2|Плавание кролем|CARDIO|CARDIO|bodyweight|cardio|CARDIO
   fun isBuiltIn(e: ExerciseEntity) = match(e) != null
 
   fun loadsFor(e: ExerciseEntity) = match(e)?.loads
+
+  /**
+   * Hand-maintained semantic mapping: names are canonical row labels, never legacy coverage tags.
+   */
+  fun requirementsFor(e: ExerciseEntity): Set<String>? = match(e)?.requirements
 }

@@ -1,5 +1,6 @@
 package com.valerochka1337.valerochkagym.data.db.entity
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
@@ -15,6 +16,8 @@ data class GymEntity(
     val syncId: String = UUID.randomUUID().toString(),
     val updatedAt: Long = System.currentTimeMillis(),
     val name: String,
+    /** Legacy rows retain gym_exercises until the user makes an explicit inventory save. */
+    @ColumnInfo(defaultValue = "0") val inventoryConfigured: Boolean = false,
 )
 
 /** Returns a strictly newer gym snapshot version even for saves in the same millisecond. */

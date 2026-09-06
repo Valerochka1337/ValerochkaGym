@@ -5,6 +5,7 @@ import com.valerochka1337.valerochkagym.data.db.PlannedSet
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseDao
 import com.valerochka1337.valerochkagym.data.db.dao.RoutineDao
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
+import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEquipmentEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
 import com.valerochka1337.valerochkagym.data.db.entity.GymEntity
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleGroup
@@ -25,6 +26,7 @@ import com.valerochka1337.valerochkagym.util.MainDispatcherRule
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
@@ -176,6 +178,19 @@ class RoutineEditorViewModelTest {
 
         val added = viewModel.uiState.value.exercises.single()
         assertEquals(List(3) { PlannedSet() }, added.plannedSets)
+      }
+
+  @Test
+  fun `unbound routine keeps exercises free of availability conflicts`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val viewModel =
+            RoutineEditorViewModel(SavedStateHandle(), FakeRoutineDao(), FakeExerciseDao())
+
+        viewModel.addExercise(exercise(id = 1, name = "Приседания"))
+        mainDispatcherRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        assertFalse(viewModel.uiState.value.isCheckingAvailability)
+        assertEquals(emptyList<Any>(), viewModel.uiState.value.conflictingExercises)
       }
 
   @Test
@@ -370,6 +385,78 @@ class RoutineEditorViewModelTest {
         mainDispatcherRule.testDispatcher.scheduler.advanceUntilIdle()
 
         assertNull(repository.lastRoutineDraft)
+      }
+
+  @Test
+  fun `configured gym availability follows inventory requirements instead of empty legacy links`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val dumbbellBenchPress = exercise(id = 17, name = "Жим гантелей лёжа")
+        val unrelated = exercise(id = 18, name = "Приседания")
+        val configuredGym =
+            GymConfiguration(
+                id = "home",
+                name = "Дом",
+                exercises = emptyList(),
+                equipmentIds = setOf("dumbbells", "flat_bench"),
+                inventoryConfigured = true,
+            )
+        val repository = FakeGymRepository(listOf(configuredGym))
+        repository.setAvailable(setOf("home"), listOf(dumbbellBenchPress, unrelated))
+        val viewModel =
+            RoutineEditorViewModel(
+                SavedStateHandle(),
+                FakeRoutineDao(),
+                FakeExerciseDao(),
+                gymRepository = repository,
+            )
+        mainDispatcherRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        viewModel.setName("Домашняя")
+        viewModel.addExercise(dumbbellBenchPress)
+        viewModel.toggleGym("home")
+        mainDispatcherRule.testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(emptyList<Any>(), viewModel.uiState.value.conflictingExercises)
+
+        repository.setAvailable(setOf("home"), listOf(unrelated))
+        mainDispatcherRule.testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(
+            listOf("Жим гантелей лёжа"),
+            viewModel.uiState.value.conflictingExercises.map { it.exerciseName },
+        )
+      }
+
+  @Test
+  fun `gym metadata update preserves the latest availability conflict`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val unavailable = exercise(id = 19, name = "Жим ногами")
+        val original = gym("home", "Дом", emptyList())
+        val repository = FakeGymRepository(listOf(original))
+        val viewModel =
+            RoutineEditorViewModel(
+                SavedStateHandle(),
+                FakeRoutineDao(),
+                FakeExerciseDao(),
+                gymRepository = repository,
+            )
+        mainDispatcherRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        viewModel.setName("Домашняя")
+        viewModel.addExercise(unavailable)
+        viewModel.toggleGym("home")
+        mainDispatcherRule.testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(
+            listOf("Жим ногами"),
+            viewModel.uiState.value.conflictingExercises.map { it.exerciseName },
+        )
+
+        repository.setGyms(listOf(original.copy(name = "Дом у парка")))
+        mainDispatcherRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        assertFalse(viewModel.uiState.value.isCheckingAvailability)
+        assertEquals(
+            listOf("Жим ногами"),
+            viewModel.uiState.value.conflictingExercises.map { it.exerciseName },
+        )
       }
 
   @Test
@@ -596,6 +683,24 @@ class RoutineEditorViewModelTest {
     override suspend fun getById(id: Long): ExerciseEntity? = items.find { it.id == id }
 
     override suspend fun getAllOnce(): List<ExerciseEntity> = items
+
+    private val requirements = MutableStateFlow<List<ExerciseEquipmentEntity>>(emptyList())
+
+    override suspend fun getRequirementIds(exerciseId: Long): List<String> =
+        requirements.value.filter { it.exerciseId == exerciseId }.map { it.equipmentId }
+
+    override suspend fun getRequirements(exerciseIds: List<Long>): List<ExerciseEquipmentEntity> =
+        requirements.value.filter { it.exerciseId in exerciseIds }
+
+    override fun observeAllRequirements(): Flow<List<ExerciseEquipmentEntity>> = requirements
+
+    override suspend fun insertRequirements(requirements: List<ExerciseEquipmentEntity>) {
+      this.requirements.value += requirements
+    }
+
+    override suspend fun deleteRequirements(exerciseId: Long) {
+      requirements.value = requirements.value.filterNot { it.exerciseId == exerciseId }
+    }
   }
 
   private class FakeGymRepository(
@@ -603,6 +708,8 @@ class RoutineEditorViewModelTest {
       private val routineSaveResult: SaveRoutineConfigurationResult? = null,
   ) : GymRepository {
     private val gymsFlow = MutableStateFlow(gyms)
+    private val availableOverrides =
+        MutableStateFlow<Map<Set<String>, List<ExerciseEntity>>>(emptyMap())
 
     var lastRoutineDraft: RoutineConfigurationDraft? = null
       private set
@@ -611,6 +718,28 @@ class RoutineEditorViewModelTest {
 
     override fun observeExerciseCatalog(): Flow<List<ExerciseEntity>> =
         MutableStateFlow(emptyList())
+
+    fun setAvailable(gymIds: Set<String>, exercises: List<ExerciseEntity>) {
+      availableOverrides.value = availableOverrides.value + (gymIds to exercises)
+    }
+
+    fun setGyms(gyms: List<GymConfiguration>) {
+      gymsFlow.value = gyms
+    }
+
+    override fun observeAvailableExercises(gymIds: Set<String>): Flow<List<ExerciseEntity>> =
+        combine(gymsFlow, availableOverrides) { gyms, overrides ->
+          overrides[gymIds]
+              ?: gyms
+                  .filter { it.id in gymIds }
+                  .takeIf { it.size == gymIds.size }
+                  ?.let { selected ->
+                    selected.firstOrNull()?.exercises.orEmpty().filter { exercise ->
+                      selected.all { gym -> gym.exercises.any { it.id == exercise.id } }
+                    }
+                  }
+                  .orEmpty()
+        }
 
     override suspend fun getGym(id: String): GymConfiguration? = gymsFlow.value.find { it.id == id }
 
