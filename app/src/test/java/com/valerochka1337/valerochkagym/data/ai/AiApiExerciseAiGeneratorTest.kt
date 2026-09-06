@@ -481,9 +481,11 @@ class AiApiExerciseAiGeneratorTest {
 
     override suspend fun getRequirementIds(exerciseId: Long): List<String> = emptyList()
 
-    override suspend fun getRequirements(exerciseIds: List<Long>): List<ExerciseEquipmentEntity> = emptyList()
+    override suspend fun getRequirements(exerciseIds: List<Long>): List<ExerciseEquipmentEntity> =
+        emptyList()
 
-    override fun observeAllRequirements(): Flow<List<ExerciseEquipmentEntity>> = MutableStateFlow(emptyList())
+    override fun observeAllRequirements(): Flow<List<ExerciseEquipmentEntity>> =
+        MutableStateFlow(emptyList())
 
     override suspend fun insertRequirements(requirements: List<ExerciseEquipmentEntity>) = Unit
 

@@ -3,8 +3,8 @@ package com.valerochka1337.valerochkagym.data.db
 import androidx.room.withTransaction
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseDao
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseMuscleDao
-import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.EquipmentRequirementState
+import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseMuscleEntity
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleLoad
 
@@ -50,7 +50,9 @@ suspend fun reconcileCanonicalExerciseCatalog(database: GymDatabase) =
         val entry = CanonicalExerciseRegistry.match(exercise) ?: return@forEach
         matchedKeys += entry.key
         if (exercise.equipmentRequirementState != EquipmentRequirementState.KNOWN) {
-          exerciseDao.update(exercise.copy(equipmentRequirementState = EquipmentRequirementState.KNOWN))
+          exerciseDao.update(
+              exercise.copy(equipmentRequirementState = EquipmentRequirementState.KNOWN)
+          )
         }
         muscleDao.replaceForExercise(
             exercise.id,

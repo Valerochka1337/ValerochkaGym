@@ -3,9 +3,9 @@ package com.valerochka1337.valerochkagym.ui.exercise
 import androidx.compose.ui.graphics.Color
 import com.valerochka1337.valerochkagym.data.db.entity.Muscle
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleLoad
+import com.valerochka1337.valerochkagym.domain.ExerciseEquipmentRequirements
 import com.valerochka1337.valerochkagym.ui.analysis.body.BodyView
 import com.valerochka1337.valerochkagym.ui.analysis.body.muscleSectors
-import com.valerochka1337.valerochkagym.domain.ExerciseEquipmentRequirements
 import org.junit.Assert.assertEquals
 import org.junit.Test
 

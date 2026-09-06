@@ -7,16 +7,16 @@ import com.valerochka1337.valerochkagym.data.db.CanonicalExerciseRegistry
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseDao
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseMuscleDao
 import com.valerochka1337.valerochkagym.data.db.dao.WorkoutDao
-import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.EquipmentRequirementState
+import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseMuscleEntity
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleLoad
 import com.valerochka1337.valerochkagym.data.db.entity.withNextUpdatedAt
 import com.valerochka1337.valerochkagym.di.ComputeDispatcher
+import com.valerochka1337.valerochkagym.domain.ExerciseEquipmentRequirements
 import com.valerochka1337.valerochkagym.domain.ExerciseStatistics
 import com.valerochka1337.valerochkagym.domain.ExerciseStatisticsCalculator
 import com.valerochka1337.valerochkagym.domain.GymConfigurationConflict
-import com.valerochka1337.valerochkagym.domain.ExerciseEquipmentRequirements
 import com.valerochka1337.valerochkagym.domain.GymRepository
 import com.valerochka1337.valerochkagym.domain.NewExerciseConfiguration
 import com.valerochka1337.valerochkagym.domain.NoOpGymRepository
@@ -85,7 +85,9 @@ constructor(
                     if (ids.isEmpty()) ExerciseEquipmentRequirements.ExplicitNone
                     else ExerciseEquipmentRequirements.Required(ids)
                   }
-                      ?: if (exercise.equipmentRequirementState == EquipmentRequirementState.UNKNOWN) {
+                      ?: if (
+                          exercise.equipmentRequirementState == EquipmentRequirementState.UNKNOWN
+                      ) {
                         ExerciseEquipmentRequirements.UnknownLegacy
                       } else {
                         val ids =
@@ -130,7 +132,8 @@ constructor(
               editableName = !CanonicalExerciseRegistry.isBuiltIn(exercise),
               needsMuscleMapReview = exercise.needsMuscleMapReview,
               requirements =
-                  if (gymRepository === NoOpGymRepository) ExerciseEquipmentRequirements.ExplicitNone
+                  if (gymRepository === NoOpGymRepository)
+                      ExerciseEquipmentRequirements.ExplicitNone
                   else gymRepository.requirementsFor(exercise),
           )
     }
@@ -202,7 +205,8 @@ constructor(
               when (
                   val result =
                       gymRepository.saveExerciseConfiguration(
-                          configuration = NewExerciseConfiguration(updated, muscleRows, requirements),
+                          configuration =
+                              NewExerciseConfiguration(updated, muscleRows, requirements),
                           gymIds = emptySet(),
                       )
               ) {

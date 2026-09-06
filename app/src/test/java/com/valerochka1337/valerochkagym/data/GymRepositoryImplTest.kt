@@ -1,8 +1,8 @@
 package com.valerochka1337.valerochkagym.data
 
 import com.valerochka1337.valerochkagym.data.db.entity.ConfigurationTombstoneKind
-import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.EquipmentRequirementState
+import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseMuscleEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
 import com.valerochka1337.valerochkagym.data.db.entity.Muscle
@@ -11,11 +11,11 @@ import com.valerochka1337.valerochkagym.data.db.entity.RoutineEntity
 import com.valerochka1337.valerochkagym.data.db.entity.RoutineExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.WorkoutEntity
 import com.valerochka1337.valerochkagym.domain.DeleteGymResult
-import com.valerochka1337.valerochkagym.domain.NewExerciseConfiguration
 import com.valerochka1337.valerochkagym.domain.ExerciseEquipmentRequirements
+import com.valerochka1337.valerochkagym.domain.NewExerciseConfiguration
 import com.valerochka1337.valerochkagym.domain.RoutineConfigurationDraft
-import com.valerochka1337.valerochkagym.domain.SaveGymResult
 import com.valerochka1337.valerochkagym.domain.SaveExerciseConfigurationResult
+import com.valerochka1337.valerochkagym.domain.SaveGymResult
 import com.valerochka1337.valerochkagym.domain.SaveRoutineConfigurationResult
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
@@ -307,7 +307,10 @@ class GymRepositoryImplTest : RoomDaoTest() {
             repository.observeAvailableExercises(setOf(saved.gymId)).first().map { it.id },
         )
         assertTrue(repository.getGym(saved.gymId)!!.inventoryConfigured)
-        assertEquals(setOf("dumbbells", "adjustable_bench"), repository.getGym(saved.gymId)!!.equipmentIds)
+        assertEquals(
+            setOf("dumbbells", "adjustable_bench"),
+            repository.getGym(saved.gymId)!!.equipmentIds,
+        )
       }
 
   @Test
@@ -316,47 +319,59 @@ class GymRepositoryImplTest : RoomDaoTest() {
         val unknown = db.exerciseDao().insert(exercise("Старое упражнение"))
         val legacy = savedGym("Старый зал", setOf(unknown))
         val configured =
-            (repository.saveGymInventory(null, "Новый зал", setOf("dumbbells")) as SaveGymResult.Saved)
+            (repository.saveGymInventory(null, "Новый зал", setOf("dumbbells"))
+                    as SaveGymResult.Saved)
                 .gymId
 
-        assertEquals(listOf(unknown), repository.observeAvailableExercises(setOf(legacy)).first().map { it.id })
+        assertEquals(
+            listOf(unknown),
+            repository.observeAvailableExercises(setOf(legacy)).first().map { it.id },
+        )
         assertTrue(repository.observeAvailableExercises(setOf(configured)).first().isEmpty())
-        assertTrue(repository.observeAvailableExercises(setOf(legacy, configured)).first().isEmpty())
+        assertTrue(
+            repository.observeAvailableExercises(setOf(legacy, configured)).first().isEmpty()
+        )
       }
 
   @Test
   fun `requirement conflict rolls back linked routine active workout and inventory`() = runTest {
     val exerciseId =
-        db.exerciseDao().insert(
-            exercise("Жим с требованиями").copy(equipmentRequirementState = EquipmentRequirementState.KNOWN),
-        )
+        db.exerciseDao()
+            .insert(
+                exercise("Жим с требованиями")
+                    .copy(equipmentRequirementState = EquipmentRequirementState.KNOWN),
+            )
     db.exerciseDao().replaceRequirements(exerciseId, setOf("dumbbells"))
     val gym =
         (repository.saveGymInventory(null, "Зал", setOf("dumbbells")) as SaveGymResult.Saved).gymId
     val localGym = db.gymDao().getGymBySyncId(gym)!!
-    val routineId =
-        db.routineDao().upsertRoutine(RoutineEntity(name = "Грудь"))
-    db.routineDao().replaceRoutineExercises(
-        routineId,
-        listOf(RoutineExerciseEntity(routineId = routineId, exerciseId = exerciseId, position = 0)),
-    )
+    val routineId = db.routineDao().upsertRoutine(RoutineEntity(name = "Грудь"))
+    db.routineDao()
+        .replaceRoutineExercises(
+            routineId,
+            listOf(
+                RoutineExerciseEntity(routineId = routineId, exerciseId = exerciseId, position = 0)
+            ),
+        )
     db.gymDao().replaceRoutineGyms(routineId, listOf(localGym.id))
     db.workoutDao().insertWorkout(WorkoutEntity(id = "active", name = "Активная", startedAt = 1))
     db.gymDao().replaceWorkoutGyms("active", listOf(localGym.id))
     val workoutExercise =
-        db.workoutDao().insertWorkoutExercise(
-            com.valerochka1337.valerochkagym.data.db.entity.WorkoutExerciseEntity(
-                workoutId = "active",
-                exerciseId = exerciseId,
-                position = 0,
+        db.workoutDao()
+            .insertWorkoutExercise(
+                com.valerochka1337.valerochkagym.data.db.entity.WorkoutExerciseEntity(
+                    workoutId = "active",
+                    exerciseId = exerciseId,
+                    position = 0,
+                ),
+            )
+    db.workoutDao()
+        .insertSet(
+            com.valerochka1337.valerochkagym.data.db.entity.WorkoutSetEntity(
+                workoutExerciseId = workoutExercise,
+                setIndex = 0,
             ),
         )
-    db.workoutDao().insertSet(
-        com.valerochka1337.valerochkagym.data.db.entity.WorkoutSetEntity(
-            workoutExerciseId = workoutExercise,
-            setIndex = 0,
-        ),
-    )
     val existing = db.exerciseDao().getById(exerciseId)!!
 
     val result =
@@ -364,7 +379,8 @@ class GymRepositoryImplTest : RoomDaoTest() {
             NewExerciseConfiguration(
                 exercise = existing.copy(name = "Нельзя сохранить"),
                 muscles = emptyList(),
-                requirements = ExerciseEquipmentRequirements.Required(setOf("dumbbells", "flat_bench")),
+                requirements =
+                    ExerciseEquipmentRequirements.Required(setOf("dumbbells", "flat_bench")),
             ),
             gymIds = emptySet(),
         )
@@ -382,28 +398,43 @@ class GymRepositoryImplTest : RoomDaoTest() {
   @Test
   fun `inventory conflict names only routines with equipment that becomes unavailable`() = runTest {
     val bodyweight =
-        db.exerciseDao().insert(
-            exercise("Планка").copy(equipmentRequirementState = EquipmentRequirementState.KNOWN),
-        )
+        db.exerciseDao()
+            .insert(
+                exercise("Планка")
+                    .copy(equipmentRequirementState = EquipmentRequirementState.KNOWN),
+            )
     val pullup =
-        db.exerciseDao().insert(
-            exercise("Подтягивание").copy(equipmentRequirementState = EquipmentRequirementState.KNOWN),
-        )
+        db.exerciseDao()
+            .insert(
+                exercise("Подтягивание")
+                    .copy(equipmentRequirementState = EquipmentRequirementState.KNOWN),
+            )
     db.exerciseDao().replaceRequirements(pullup, setOf("pullup_bar"))
     val gym =
-        (repository.saveGymInventory(null, "Зал с турником", setOf("pullup_bar")) as SaveGymResult.Saved)
+        (repository.saveGymInventory(null, "Зал с турником", setOf("pullup_bar"))
+                as SaveGymResult.Saved)
             .gymId
     val localGym = db.gymDao().getGymBySyncId(gym)!!
     val floorRoutine = db.routineDao().upsertRoutine(RoutineEntity(name = "Пол"))
     val pullupRoutine = db.routineDao().upsertRoutine(RoutineEntity(name = "Турник"))
-    db.routineDao().replaceRoutineExercises(
-        floorRoutine,
-        listOf(RoutineExerciseEntity(routineId = floorRoutine, exerciseId = bodyweight, position = 0)),
-    )
-    db.routineDao().replaceRoutineExercises(
-        pullupRoutine,
-        listOf(RoutineExerciseEntity(routineId = pullupRoutine, exerciseId = pullup, position = 0)),
-    )
+    db.routineDao()
+        .replaceRoutineExercises(
+            floorRoutine,
+            listOf(
+                RoutineExerciseEntity(
+                    routineId = floorRoutine,
+                    exerciseId = bodyweight,
+                    position = 0,
+                )
+            ),
+        )
+    db.routineDao()
+        .replaceRoutineExercises(
+            pullupRoutine,
+            listOf(
+                RoutineExerciseEntity(routineId = pullupRoutine, exerciseId = pullup, position = 0)
+            ),
+        )
     db.gymDao().replaceRoutineGyms(floorRoutine, listOf(localGym.id))
     db.gymDao().replaceRoutineGyms(pullupRoutine, listOf(localGym.id))
 

@@ -509,7 +509,8 @@ cardio-12-2|Плавание кролем|CARDIO|CARDIO|bodyweight|cardio|CARDIO
 
   fun loadsFor(e: ExerciseEntity) = match(e)?.loads
 
-  /** Hand-maintained semantic mapping: names are canonical row labels, never legacy coverage tags. */
+  /**
+   * Hand-maintained semantic mapping: names are canonical row labels, never legacy coverage tags.
+   */
   fun requirementsFor(e: ExerciseEntity): Set<String>? = match(e)?.requirements
-
 }

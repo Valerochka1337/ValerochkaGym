@@ -5,8 +5,8 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.mutablePreferencesOf
 import androidx.datastore.preferences.core.stringPreferencesKey
-import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.EquipmentRequirementState
+import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
 import com.valerochka1337.valerochkagym.data.db.entity.GymEntity
 import com.valerochka1337.valerochkagym.data.db.entity.Muscle
@@ -296,10 +296,12 @@ class ConfigurationImportRepositoryTest : RoomDaoTest() {
                 .map(::stringRow)
         val api =
             FakeSheetsApi(
-                sheets = listOf(ExerciseSheetRowMapper.SHEET_NAME, RoutineGymsSheetRowMapper.SHEET_NAME),
+                sheets =
+                    listOf(ExerciseSheetRowMapper.SHEET_NAME, RoutineGymsSheetRowMapper.SHEET_NAME),
                 valuesByRange =
                     mapOf(
-                        ExerciseSheetRowMapper.RANGE to listOf(ExerciseSheetRowMapper.HEADER_ROW) + exerciseRows,
+                        ExerciseSheetRowMapper.RANGE to
+                            listOf(ExerciseSheetRowMapper.HEADER_ROW) + exerciseRows,
                         RoutineGymsSheetRowMapper.RANGE to
                             listOf(RoutineGymsSheetRowMapper.HEADER_ROW) + routineGymRows,
                     ),
@@ -401,7 +403,8 @@ class ConfigurationImportRepositoryTest : RoomDaoTest() {
             sheets = listOf(ExerciseSheetRowMapper.SHEET_NAME, GymSheetRowMapper.SHEET_NAME),
             valuesByRange =
                 mapOf(
-                    ExerciseSheetRowMapper.RANGE to listOf(ExerciseSheetRowMapper.HEADER_ROW) + exerciseRows,
+                    ExerciseSheetRowMapper.RANGE to
+                        listOf(ExerciseSheetRowMapper.HEADER_ROW) + exerciseRows,
                     GymSheetRowMapper.RANGE to listOf(GymSheetRowMapper.HEADER_ROW) + gymRows,
                 ),
         )
@@ -411,7 +414,10 @@ class ConfigurationImportRepositoryTest : RoomDaoTest() {
     val exercise = db.exerciseDao().getAllOnce().single()
     val gym = db.gymDao().getGyms().single()
     assertEquals(EquipmentRequirementState.KNOWN, exercise.equipmentRequirementState)
-    assertEquals(setOf("dumbbells", "flat_bench"), db.exerciseDao().getRequirementIds(exercise.id).toSet())
+    assertEquals(
+        setOf("dumbbells", "flat_bench"),
+        db.exerciseDao().getRequirementIds(exercise.id).toSet(),
+    )
     assertTrue(gym.inventoryConfigured)
     assertEquals(setOf("dumbbells", "flat_bench"), db.gymDao().getGymEquipmentIds(gym.id).toSet())
     assertEquals(2, tableCount("exercise_equipment"))
@@ -421,17 +427,18 @@ class ConfigurationImportRepositoryTest : RoomDaoTest() {
   @Test
   fun `legacy exercise snapshot never downgrades known local requirements`() = runTest {
     val exerciseId =
-        db.exerciseDao().insert(
-            ExerciseEntity(
-                syncId = EXERCISE_ID,
-                updatedAt = 100,
-                name = "Свой жим",
-                muscleGroup = MuscleGroup.CHEST,
-                type = ExerciseType.STRENGTH,
-                isCustom = true,
-                equipmentRequirementState = EquipmentRequirementState.KNOWN,
-            ),
-        )
+        db.exerciseDao()
+            .insert(
+                ExerciseEntity(
+                    syncId = EXERCISE_ID,
+                    updatedAt = 100,
+                    name = "Свой жим",
+                    muscleGroup = MuscleGroup.CHEST,
+                    type = ExerciseType.STRENGTH,
+                    isCustom = true,
+                    equipmentRequirementState = EquipmentRequirementState.KNOWN,
+                ),
+            )
     db.exerciseDao().replaceRequirements(exerciseId, setOf("dumbbells"))
     val legacyRows =
         ExerciseSheetRowMapper.rows(
@@ -449,7 +456,11 @@ class ConfigurationImportRepositoryTest : RoomDaoTest() {
     val api =
         FakeSheetsApi(
             sheets = listOf(ExerciseSheetRowMapper.SHEET_NAME),
-            valuesByRange = mapOf(ExerciseSheetRowMapper.RANGE to listOf(ExerciseSheetRowMapper.HEADER_ROW) + legacyRows),
+            valuesByRange =
+                mapOf(
+                    ExerciseSheetRowMapper.RANGE to
+                        listOf(ExerciseSheetRowMapper.HEADER_ROW) + legacyRows
+                ),
         )
 
     assertTrue(repository(api).importAll() is ImportResult.Success)
@@ -473,13 +484,15 @@ class ConfigurationImportRepositoryTest : RoomDaoTest() {
                 ),
             )
             .map(::stringRow)
-    val invalidGymRow = listOf(GYM_ID, "200", "false", "Повреждённый зал", "", "true", "not-a-real-equipment")
+    val invalidGymRow =
+        listOf(GYM_ID, "200", "false", "Повреждённый зал", "", "true", "not-a-real-equipment")
     val api =
         FakeSheetsApi(
             sheets = listOf(ExerciseSheetRowMapper.SHEET_NAME, GymSheetRowMapper.SHEET_NAME),
             valuesByRange =
                 mapOf(
-                    ExerciseSheetRowMapper.RANGE to listOf(ExerciseSheetRowMapper.HEADER_ROW) + exerciseRows,
+                    ExerciseSheetRowMapper.RANGE to
+                        listOf(ExerciseSheetRowMapper.HEADER_ROW) + exerciseRows,
                     GymSheetRowMapper.RANGE to listOf(GymSheetRowMapper.HEADER_ROW, invalidGymRow),
                 ),
         )

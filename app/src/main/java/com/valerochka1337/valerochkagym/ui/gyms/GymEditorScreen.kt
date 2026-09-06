@@ -208,7 +208,9 @@ fun GymEditorScreen(
                   viewModel.save()
                 },
                 enabled = state.canSave,
-            ) { Text("Сохранить") }
+            ) {
+              Text("Сохранить")
+            }
           }
         },
     )
@@ -305,7 +307,7 @@ private fun GymEditorForm(
         verticalAlignment = Alignment.CenterVertically,
     ) {
       Text(
-      text = "Оборудование",
+          text = "Оборудование",
           style = MaterialTheme.typography.titleMedium,
           fontWeight = FontWeight.Bold,
           color = MaterialTheme.colorScheme.onBackground,
@@ -318,21 +320,32 @@ private fun GymEditorForm(
       )
     }
 
-    Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-      TextButton(onClick = { onMode(GymEquipmentMode.ALL) }, enabled = !state.isBusy) { Text("Все") }
-      TextButton(onClick = { onMode(GymEquipmentMode.SELECTED) }, enabled = !state.isBusy) { Text("Выбранные") }
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+      TextButton(onClick = { onMode(GymEquipmentMode.ALL) }, enabled = !state.isBusy) {
+        Text("Все")
+      }
+      TextButton(onClick = { onMode(GymEquipmentMode.SELECTED) }, enabled = !state.isBusy) {
+        Text("Выбранные")
+      }
       TextButton(onClick = onToggleAll, enabled = !state.isBusy, modifier = Modifier.weight(1f)) {
-        val scope = if (state.query.isBlank()) state.equipment.orEmpty() else state.filteredEquipment
+        val scope =
+            if (state.query.isBlank()) state.equipment.orEmpty() else state.filteredEquipment
         Text(
             when {
-              state.query.isBlank() && scope.all { it.id in state.selectedEquipmentIds } -> "Снять всё"
-              state.query.isNotBlank() && scope.all { it.id in state.selectedEquipmentIds } -> "Снять найденное"
+              state.query.isBlank() && scope.all { it.id in state.selectedEquipmentIds } ->
+                  "Снять всё"
+              state.query.isNotBlank() && scope.all { it.id in state.selectedEquipmentIds } ->
+                  "Снять найденное"
               state.query.isBlank() -> "Выбрать всё"
               else -> "Выбрать найденное"
             },
         )
       }
-      if (state.bulkUndo != null) TextButton(onClick = onUndo, enabled = !state.isBusy) { Text("Отменить") }
+      if (state.bulkUndo != null)
+          TextButton(onClick = onUndo, enabled = !state.isBusy) { Text("Отменить") }
     }
 
     val equipment = state.equipment
@@ -352,7 +365,7 @@ private fun GymEditorForm(
             Text(
                 text =
                     if (state.query.isBlank()) {
-                        "В каталоге пока нет оборудования."
+                      "В каталоге пока нет оборудования."
                     } else {
                       "По этому запросу ничего не найдено."
                     },
@@ -373,8 +386,14 @@ private fun GymEditorForm(
                   else allEntries.filter { it.id in state.selectedEquipmentIds }
               item(key = "group:$group") {
                 val selectedCount = allEntries.count { it.id in state.selectedEquipmentIds }
-                Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                  TextButton(onClick = { onToggleGroupExpanded(group) }, modifier = Modifier.weight(1f)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                  TextButton(
+                      onClick = { onToggleGroupExpanded(group) },
+                      modifier = Modifier.weight(1f),
+                  ) {
                     Text("$group · $selectedCount/${allEntries.size}")
                   }
                   val groupState =
@@ -400,7 +419,10 @@ private fun GymEditorForm(
                   )
                 }
               }
-              if ((group in state.expandedGroups || state.query.isNotBlank()) && entries.isNotEmpty()) {
+              if (
+                  (group in state.expandedGroups || state.query.isNotBlank()) &&
+                      entries.isNotEmpty()
+              ) {
                 items(entries, key = { it.id }) { entry ->
                   val selected = entry.id in state.selectedEquipmentIds
                   EquipmentChoiceRow(
@@ -442,9 +464,9 @@ private fun GymEditorForm(
         }
       }
 
-    TextButton(onClick = onPreview, enabled = !state.isBusy, modifier = Modifier.fillMaxWidth()) {
-      Text(if (state.preview) "Скрыть доступные упражнения" else "Проверить доступные упражнения")
-    }
+      TextButton(onClick = onPreview, enabled = !state.isBusy, modifier = Modifier.fillMaxWidth()) {
+        Text(if (state.preview) "Скрыть доступные упражнения" else "Проверить доступные упражнения")
+      }
     }
   }
 }
@@ -460,7 +482,10 @@ private fun GymAvailabilityPreviewDialog(
       title = { Text("Доступные упражнения") },
       text = {
         when {
-          loading -> Box(Modifier.fillMaxWidth().heightIn(min = 120.dp), Alignment.Center) { CircularProgressIndicator() }
+          loading ->
+              Box(Modifier.fillMaxWidth().heightIn(min = 120.dp), Alignment.Center) {
+                CircularProgressIndicator()
+              }
           exercises.isNullOrEmpty() -> Text("С этим оснащением пока нет доступных упражнений.")
           else ->
               LazyColumn(modifier = Modifier.heightIn(max = 360.dp)) {

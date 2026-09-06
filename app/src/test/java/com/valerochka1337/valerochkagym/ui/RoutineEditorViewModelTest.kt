@@ -4,8 +4,8 @@ import androidx.lifecycle.SavedStateHandle
 import com.valerochka1337.valerochkagym.data.db.PlannedSet
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseDao
 import com.valerochka1337.valerochkagym.data.db.dao.RoutineDao
-import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEquipmentEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
+import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEquipmentEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
 import com.valerochka1337.valerochkagym.data.db.entity.GymEntity
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleGroup
@@ -444,13 +444,19 @@ class RoutineEditorViewModelTest {
         viewModel.addExercise(unavailable)
         viewModel.toggleGym("home")
         mainDispatcherRule.testDispatcher.scheduler.advanceUntilIdle()
-        assertEquals(listOf("Жим ногами"), viewModel.uiState.value.conflictingExercises.map { it.exerciseName })
+        assertEquals(
+            listOf("Жим ногами"),
+            viewModel.uiState.value.conflictingExercises.map { it.exerciseName },
+        )
 
         repository.setGyms(listOf(original.copy(name = "Дом у парка")))
         mainDispatcherRule.testDispatcher.scheduler.advanceUntilIdle()
 
         assertFalse(viewModel.uiState.value.isCheckingAvailability)
-        assertEquals(listOf("Жим ногами"), viewModel.uiState.value.conflictingExercises.map { it.exerciseName })
+        assertEquals(
+            listOf("Жим ногами"),
+            viewModel.uiState.value.conflictingExercises.map { it.exerciseName },
+        )
       }
 
   @Test
@@ -702,7 +708,8 @@ class RoutineEditorViewModelTest {
       private val routineSaveResult: SaveRoutineConfigurationResult? = null,
   ) : GymRepository {
     private val gymsFlow = MutableStateFlow(gyms)
-    private val availableOverrides = MutableStateFlow<Map<Set<String>, List<ExerciseEntity>>>(emptyMap())
+    private val availableOverrides =
+        MutableStateFlow<Map<Set<String>, List<ExerciseEntity>>>(emptyMap())
 
     var lastRoutineDraft: RoutineConfigurationDraft? = null
       private set

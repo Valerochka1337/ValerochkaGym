@@ -429,18 +429,20 @@ private fun FilterSheet(
             count = counts.explicitNoneEquipment,
         )
       }
-      EquipmentCatalog.entries.groupBy { it.group }.forEach { (group, entries) ->
-        SheetChipRow("Оборудование · $group") {
-          entries.forEach { equipment ->
-            GymFilterChip(
-                selected = equipment.id in state.filters.equipment.equipmentIds,
-                onClick = { onEquipment(equipment.id) },
-                label = equipment.name,
-                count = counts.equipment[equipment.id],
-            )
+      EquipmentCatalog.entries
+          .groupBy { it.group }
+          .forEach { (group, entries) ->
+            SheetChipRow("Оборудование · $group") {
+              entries.forEach { equipment ->
+                GymFilterChip(
+                    selected = equipment.id in state.filters.equipment.equipmentIds,
+                    onClick = { onEquipment(equipment.id) },
+                    label = equipment.name,
+                    count = counts.equipment[equipment.id],
+                )
+              }
+            }
           }
-        }
-      }
       Spacer(Modifier.height(20.dp))
     }
   }

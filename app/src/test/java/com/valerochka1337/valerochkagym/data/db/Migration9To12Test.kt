@@ -181,7 +181,9 @@ internal object MigrationRecoveryFixtures {
             "id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, syncId TEXT NOT NULL, " +
             "updatedAt INTEGER NOT NULL, name TEXT NOT NULL)",
     )
-    db.execSQL("INSERT INTO gyms_v13 (id,syncId,updatedAt,name) SELECT id,syncId,updatedAt,name FROM gyms")
+    db.execSQL(
+        "INSERT INTO gyms_v13 (id,syncId,updatedAt,name) SELECT id,syncId,updatedAt,name FROM gyms"
+    )
     db.execSQL("DROP TABLE gyms")
     db.execSQL("ALTER TABLE gyms_v13 RENAME TO gyms")
     db.execSQL("CREATE UNIQUE INDEX index_gyms_syncId ON gyms (syncId)")

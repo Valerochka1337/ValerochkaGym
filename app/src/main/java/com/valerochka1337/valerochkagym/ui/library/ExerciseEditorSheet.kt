@@ -39,13 +39,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
 import com.valerochka1337.valerochkagym.data.db.EquipmentCatalog
+import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
 import com.valerochka1337.valerochkagym.data.db.entity.Muscle
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleLoad
 import com.valerochka1337.valerochkagym.data.db.entity.group
-import com.valerochka1337.valerochkagym.domain.displayName
 import com.valerochka1337.valerochkagym.domain.ExerciseEquipmentRequirements
+import com.valerochka1337.valerochkagym.domain.displayName
 import com.valerochka1337.valerochkagym.ui.analysis.body.BodyMapFlip
 import com.valerochka1337.valerochkagym.ui.analysis.body.MuscleSector
 import com.valerochka1337.valerochkagym.ui.analysis.body.MuscleSelector
@@ -71,12 +71,13 @@ import com.valerochka1337.valerochkagym.ui.components.PillButton
 internal fun ExerciseEditorSheet(
     initial: ExerciseEditorState,
     onDismiss: () -> Unit,
-    onSave: (
-        name: String,
-        type: ExerciseType,
-        loads: List<MuscleLoad>,
-        requirements: ExerciseEquipmentRequirements,
-    ) -> Unit,
+    onSave:
+        (
+            name: String,
+            type: ExerciseType,
+            loads: List<MuscleLoad>,
+            requirements: ExerciseEquipmentRequirements,
+        ) -> Unit,
 ) {
   var name by remember(initial) { mutableStateOf(initial.name) }
   var typeName by remember(initial) { mutableStateOf(initial.type.name) }
@@ -242,7 +243,8 @@ internal fun ExerciseEditorSheet(
       SheetLabel("Оборудование")
       if (requirements is ExerciseEquipmentRequirements.UnknownLegacy) {
         Text(
-            text = "Для этого старого упражнения оборудование ещё не задано. Выберите вариант перед сохранением.",
+            text =
+                "Для этого старого упражнения оборудование ещё не задано. Выберите вариант перед сохранением.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -297,8 +299,8 @@ internal fun ExerciseEditorSheet(
                   name,
                   type,
                   loads.entries
-                  .map { MuscleLoad(it.key, it.value) }
-                  .sortedByDescending { it.contribution },
+                      .map { MuscleLoad(it.key, it.value) }
+                      .sortedByDescending { it.contribution },
                   requirements,
               )
             },

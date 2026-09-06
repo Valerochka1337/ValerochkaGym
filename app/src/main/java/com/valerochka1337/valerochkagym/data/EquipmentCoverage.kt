@@ -20,7 +20,10 @@ internal suspend fun isEquipmentAvailable(
   val requirements = canonical ?: exerciseDao.getRequirementIds(exercise.id).toSet()
   return gyms.all { gym ->
     if (!gym.inventoryConfigured) exercise.id in gymDao.getGymExerciseIds(gym.id)
-    else if (canonical == null && exercise.equipmentRequirementState == EquipmentRequirementState.UNKNOWN) false
+    else if (
+        canonical == null && exercise.equipmentRequirementState == EquipmentRequirementState.UNKNOWN
+    )
+        false
     else requirements.all { EquipmentCatalog.covers(gymDao.getGymEquipmentIds(gym.id).toSet(), it) }
   }
 }

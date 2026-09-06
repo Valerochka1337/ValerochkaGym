@@ -1,7 +1,7 @@
 package com.valerochka1337.valerochkagym.domain
 
-import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
 import com.valerochka1337.valerochkagym.data.db.entity.EquipmentRequirementState
+import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
 import com.valerochka1337.valerochkagym.data.db.entity.Muscle
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleGroup
 import java.util.UUID
@@ -34,7 +34,9 @@ sealed interface ExerciseSheetRecord {
 data class ParsedExerciseSheetRows(
     val records: List<ExerciseSheetRecord>,
     val skippedRows: Int,
-    /** A malformed v14 equipment payload makes a configuration snapshot unsafe to apply partially. */
+    /**
+     * A malformed v14 equipment payload makes a configuration snapshot unsafe to apply partially.
+     */
     val hasInvalidEquipment: Boolean = false,
 )
 
@@ -61,7 +63,9 @@ sealed interface GymSheetRecord {
 data class ParsedGymSheetRows(
     val records: List<GymSheetRecord>,
     val skippedRows: Int,
-    /** A malformed v14 equipment payload makes a configuration snapshot unsafe to apply partially. */
+    /**
+     * A malformed v14 equipment payload makes a configuration snapshot unsafe to apply partially.
+     */
     val hasInvalidEquipment: Boolean = false,
 )
 

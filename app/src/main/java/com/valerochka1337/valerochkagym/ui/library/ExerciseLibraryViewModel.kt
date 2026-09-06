@@ -19,8 +19,8 @@ import com.valerochka1337.valerochkagym.data.db.entity.MuscleLoad
 import com.valerochka1337.valerochkagym.data.db.entity.group
 import com.valerochka1337.valerochkagym.data.db.entity.withNextUpdatedAt
 import com.valerochka1337.valerochkagym.di.ComputeDispatcher
-import com.valerochka1337.valerochkagym.domain.ExerciseCatalogFacetCounts
 import com.valerochka1337.valerochkagym.domain.ExerciseCatalogEquipmentFilter
+import com.valerochka1337.valerochkagym.domain.ExerciseCatalogFacetCounts
 import com.valerochka1337.valerochkagym.domain.ExerciseCatalogFilters
 import com.valerochka1337.valerochkagym.domain.ExerciseCatalogOrigin
 import com.valerochka1337.valerochkagym.domain.ExerciseCatalogProjector
@@ -193,10 +193,11 @@ constructor(
                   } ?: ExerciseCatalogOrigin.ALL,
               equipment =
                   ExerciseCatalogEquipmentFilter(
-                      savedStateHandle.get<String>(CATALOG_EQUIPMENT)
-                          .orEmpty()
-                          .split(',')
-                          .filterTo(linkedSetOf()) { EquipmentCatalog.isKnown(it) },
+                      savedStateHandle.get<String>(CATALOG_EQUIPMENT).orEmpty().split(',').filterTo(
+                          linkedSetOf()
+                      ) {
+                        EquipmentCatalog.isKnown(it)
+                      },
                       includeExplicitNone = savedStateHandle[CATALOG_EQUIPMENT_FREE] ?: false,
                   ),
           ),
@@ -622,7 +623,8 @@ constructor(
                 when (
                     val result =
                         gymRepository.saveExerciseConfiguration(
-                            configuration = NewExerciseConfiguration(updated, muscleRows, requirements),
+                            configuration =
+                                NewExerciseConfiguration(updated, muscleRows, requirements),
                             gymIds = selectedGymIds,
                             workoutId = if (current.wasFoundByAi) workoutId else null,
                         )

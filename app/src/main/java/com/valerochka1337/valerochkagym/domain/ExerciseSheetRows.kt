@@ -1,8 +1,8 @@
 package com.valerochka1337.valerochkagym.domain
 
-import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
-import com.valerochka1337.valerochkagym.data.db.entity.EquipmentRequirementState
 import com.valerochka1337.valerochkagym.data.db.EquipmentCatalog
+import com.valerochka1337.valerochkagym.data.db.entity.EquipmentRequirementState
+import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
 import com.valerochka1337.valerochkagym.data.db.entity.Muscle
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleGroup
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleRole
@@ -37,7 +37,20 @@ object ExerciseSheetRowMapper {
   fun deletion(syncId: String, updatedAt: Long): List<Any?> {
     val canonicalId = requireCanonicalSheetUuid(syncId, "exercise_id")
     requireSheetVersion(updatedAt)
-    return listOf(canonicalId, updatedAt, "true", "", "", "", "", "", "", MODEL_VERSION.toString(), "", "")
+    return listOf(
+        canonicalId,
+        updatedAt,
+        "true",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        MODEL_VERSION.toString(),
+        "",
+        "",
+    )
   }
 
   private fun snapshotRows(snapshot: ExerciseSheetRecord.Snapshot): List<List<Any?>> {
@@ -59,13 +72,23 @@ object ExerciseSheetRowMapper {
             snapshot.type.name,
             snapshot.isCustom.toString(),
         )
-    val muscleRows = if (snapshot.muscleLoads.isEmpty()) listOf(listOf("", "")) else Muscle.entries.mapNotNull { muscle ->
-      snapshot.muscleLoads[muscle]?.let { contribution ->
-        listOf(muscle.name, contribution)
+    val muscleRows =
+        if (snapshot.muscleLoads.isEmpty()) listOf(listOf("", ""))
+        else
+            Muscle.entries.mapNotNull { muscle ->
+              snapshot.muscleLoads[muscle]?.let { contribution ->
+                listOf(muscle.name, contribution)
+              }
+            }
+    val equipmentRows =
+        if (snapshot.equipmentRequirementState == EquipmentRequirementState.KNOWN)
+            snapshot.equipmentIds.sorted().ifEmpty { listOf("") }
+        else listOf("")
+    return muscleRows.flatMap { muscle ->
+      equipmentRows.map { equipment ->
+        base + muscle + listOf(MODEL_VERSION, snapshot.equipmentRequirementState.name, equipment)
       }
     }
-    val equipmentRows = if (snapshot.equipmentRequirementState == EquipmentRequirementState.KNOWN) snapshot.equipmentIds.sorted().ifEmpty { listOf("") } else listOf("")
-    return muscleRows.flatMap { muscle -> equipmentRows.map { equipment -> base + muscle + listOf(MODEL_VERSION, snapshot.equipmentRequirementState.name, equipment) } }
   }
 
   const val MODEL_VERSION = 2
@@ -110,7 +133,8 @@ object ExerciseSheetRowParser {
                 muscleLoads.isNotEmpty() ||
                 row.sheetCell(EQUIPMENT_REQUIREMENT_STATE).isNotEmpty() ||
                 row.sheetCell(EQUIPMENT_ID).isNotEmpty()
-        ) return rejectEquipment()
+        )
+            return rejectEquipment()
         return true
       }
 
@@ -142,15 +166,14 @@ object ExerciseSheetRowParser {
       equipmentRequirementState?.let { previous -> if (previous != state) return rejectEquipment() }
       equipmentRequirementState = state
       val equipment = row.sheetCell(EQUIPMENT_ID)
-      if (state == EquipmentRequirementState.UNKNOWN && equipment.isNotEmpty()) return rejectEquipment()
+      if (state == EquipmentRequirementState.UNKNOWN && equipment.isNotEmpty())
+          return rejectEquipment()
       if (state == EquipmentRequirementState.KNOWN) {
         if (equipment.isEmpty()) {
           if (equipmentIds.isNotEmpty()) return rejectEquipment()
           hasEmptyEquipmentMarker = true
-        } else if (
-            hasEmptyEquipmentMarker ||
-                !EquipmentCatalog.isKnown(equipment)
-        ) return rejectEquipment()
+        } else if (hasEmptyEquipmentMarker || !EquipmentCatalog.isKnown(equipment))
+            return rejectEquipment()
         else equipmentIds += equipment
       }
 
@@ -201,7 +224,8 @@ object ExerciseSheetRowParser {
               isCustom = value.isCustom,
               muscleLoads = muscleLoads.toMap(),
               needsMuscleMapReview = sawLegacyChest,
-              equipmentRequirementState = equipmentRequirementState ?: EquipmentRequirementState.UNKNOWN,
+              equipmentRequirementState =
+                  equipmentRequirementState ?: EquipmentRequirementState.UNKNOWN,
               equipmentIds = equipmentIds.toSet(),
           )
         }

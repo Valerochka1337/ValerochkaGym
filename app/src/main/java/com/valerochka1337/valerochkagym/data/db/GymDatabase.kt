@@ -619,18 +619,24 @@ abstract class GymDatabase : RoomDatabase() {
           override fun migrate(db: SupportSQLiteDatabase) {
             db.beginTransaction()
             try {
-              db.execSQL("ALTER TABLE gyms ADD COLUMN inventoryConfigured INTEGER NOT NULL DEFAULT 0")
+              db.execSQL(
+                  "ALTER TABLE gyms ADD COLUMN inventoryConfigured INTEGER NOT NULL DEFAULT 0"
+              )
               db.execSQL(
                   "ALTER TABLE exercises ADD COLUMN equipmentRequirementState TEXT NOT NULL DEFAULT 'UNKNOWN'",
               )
               db.execSQL(
                   "CREATE TABLE IF NOT EXISTS gym_equipment (gymId INTEGER NOT NULL, equipmentId TEXT NOT NULL, PRIMARY KEY(gymId, equipmentId), FOREIGN KEY(gymId) REFERENCES gyms(id) ON UPDATE NO ACTION ON DELETE CASCADE)",
               )
-              db.execSQL("CREATE INDEX IF NOT EXISTS index_gym_equipment_gymId ON gym_equipment(gymId)")
+              db.execSQL(
+                  "CREATE INDEX IF NOT EXISTS index_gym_equipment_gymId ON gym_equipment(gymId)"
+              )
               db.execSQL(
                   "CREATE TABLE IF NOT EXISTS exercise_equipment (exerciseId INTEGER NOT NULL, equipmentId TEXT NOT NULL, PRIMARY KEY(exerciseId, equipmentId), FOREIGN KEY(exerciseId) REFERENCES exercises(id) ON UPDATE NO ACTION ON DELETE CASCADE)",
               )
-              db.execSQL("CREATE INDEX IF NOT EXISTS index_exercise_equipment_exerciseId ON exercise_equipment(exerciseId)")
+              db.execSQL(
+                  "CREATE INDEX IF NOT EXISTS index_exercise_equipment_exerciseId ON exercise_equipment(exerciseId)"
+              )
               db.setTransactionSuccessful()
             } finally {
               db.endTransaction()

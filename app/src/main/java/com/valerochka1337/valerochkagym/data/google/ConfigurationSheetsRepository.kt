@@ -193,14 +193,20 @@ constructor(
       val existing = api.getValues(bearer, spreadsheetId, range).values.orEmpty()
       val legacyExerciseHeader =
           sheetName == ExerciseSheetRowMapper.SHEET_NAME &&
-              existing.firstOrNull() in setOf(
-                  ExerciseSheetRowMapper.HEADER_ROW.take(9),
-                  ExerciseSheetRowMapper.HEADER_ROW.take(10),
-              )
+              existing.firstOrNull() in
+                  setOf(
+                      ExerciseSheetRowMapper.HEADER_ROW.take(9),
+                      ExerciseSheetRowMapper.HEADER_ROW.take(10),
+                  )
       val legacyGymHeader =
           sheetName == GymSheetRowMapper.SHEET_NAME &&
               existing.firstOrNull() == GymSheetRowMapper.HEADER_ROW.take(5)
-      if (existing.isNotEmpty() && existing.first() != header && !legacyExerciseHeader && !legacyGymHeader) {
+      if (
+          existing.isNotEmpty() &&
+              existing.first() != header &&
+              !legacyExerciseHeader &&
+              !legacyGymHeader
+      ) {
         return UploadResult.PermanentFailure(
             "Заголовок листа $sheetName изменён вручную — выгрузка остановлена",
         )

@@ -56,12 +56,14 @@ interface GymDao {
 
   @Insert suspend fun insertGymEquipment(links: List<GymEquipmentEntity>)
 
-  @Query("DELETE FROM gym_equipment WHERE gymId = :gymId") suspend fun deleteGymEquipment(gymId: Long)
+  @Query("DELETE FROM gym_equipment WHERE gymId = :gymId")
+  suspend fun deleteGymEquipment(gymId: Long)
 
   @Transaction
   suspend fun replaceGymEquipment(gymId: Long, equipmentIds: Set<String>) {
     deleteGymEquipment(gymId)
-    if (equipmentIds.isNotEmpty()) insertGymEquipment(equipmentIds.sorted().map { GymEquipmentEntity(gymId, it) })
+    if (equipmentIds.isNotEmpty())
+        insertGymEquipment(equipmentIds.sorted().map { GymEquipmentEntity(gymId, it) })
   }
 
   @Query(

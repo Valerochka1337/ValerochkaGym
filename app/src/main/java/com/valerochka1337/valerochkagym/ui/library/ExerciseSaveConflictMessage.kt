@@ -9,11 +9,9 @@ fun formatExerciseSaveConflict(conflict: GymConfigurationConflict): String =
           if (conflict.missingEquipmentIds.isNotEmpty()) {
             add(
                 "Недостающее оборудование: " +
-                    conflict.missingEquipmentIds
-                        .sorted()
-                        .joinToString { id ->
-                          EquipmentCatalog.entries.firstOrNull { it.id == id }?.name ?: id
-                        },
+                    conflict.missingEquipmentIds.sorted().joinToString { id ->
+                      EquipmentCatalog.entries.firstOrNull { it.id == id }?.name ?: id
+                    },
             )
           }
           if (conflict.exercises.isNotEmpty()) {
@@ -21,8 +19,7 @@ fun formatExerciseSaveConflict(conflict: GymConfigurationConflict): String =
           }
           if (conflict.routines.isNotEmpty()) {
             add(
-                "Программы или активные тренировки: " +
-                    conflict.routines.joinToString { it.name },
+                "Программы или активные тренировки: " + conflict.routines.joinToString { it.name },
             )
           }
         }

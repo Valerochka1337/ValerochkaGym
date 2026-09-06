@@ -36,10 +36,17 @@ object GymSheetRowMapper {
     require(snapshot.name.isNotBlank()) { "gym_name не должен быть пустым" }
     val base = listOf<Any?>(canonicalId, snapshot.updatedAt, "false", snapshot.name)
     return if (snapshot.inventoryConfigured) {
-      snapshot.equipmentIds.sorted().ifEmpty { listOf("") }.map { equipment -> base + listOf("", "true", equipment) }
+      snapshot.equipmentIds
+          .sorted()
+          .ifEmpty { listOf("") }
+          .map { equipment -> base + listOf("", "true", equipment) }
     } else {
-      val exerciseIds = snapshot.exerciseSyncIds.map { requireCanonicalSheetUuid(it, "exercise_id") }.toSortedSet()
-      if (exerciseIds.isEmpty()) listOf(base + listOf("", "false", "")) else exerciseIds.map { exerciseId -> base + listOf(exerciseId, "false", "") }
+      val exerciseIds =
+          snapshot.exerciseSyncIds
+              .map { requireCanonicalSheetUuid(it, "exercise_id") }
+              .toSortedSet()
+      if (exerciseIds.isEmpty()) listOf(base + listOf("", "false", ""))
+      else exerciseIds.map { exerciseId -> base + listOf(exerciseId, "false", "") }
     }
   }
 }
@@ -69,7 +76,8 @@ object GymSheetRowParser {
                 row.sheetCell(EXERCISE_ID).isNotEmpty() ||
                 row.sheetCell(INVENTORY_CONFIGURED).isNotEmpty() ||
                 row.sheetCell(EQUIPMENT_ID).isNotEmpty()
-        ) return rejectEquipment()
+        )
+            return rejectEquipment()
         if (name != null || hasEmptyMarker || exerciseSyncIds.isNotEmpty()) return reject()
         return true
       }

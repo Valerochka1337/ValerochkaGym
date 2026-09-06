@@ -1,9 +1,9 @@
 package com.valerochka1337.valerochkagym.data
 
 import androidx.room.withTransaction
-import com.valerochka1337.valerochkagym.data.db.GymDatabase
 import com.valerochka1337.valerochkagym.data.db.CanonicalExerciseRegistry
 import com.valerochka1337.valerochkagym.data.db.EquipmentCatalog
+import com.valerochka1337.valerochkagym.data.db.GymDatabase
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseDao
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseMuscleDao
 import com.valerochka1337.valerochkagym.data.db.dao.GymDao
@@ -11,24 +11,24 @@ import com.valerochka1337.valerochkagym.data.db.dao.RoutineDao
 import com.valerochka1337.valerochkagym.data.db.dao.WorkoutDao
 import com.valerochka1337.valerochkagym.data.db.entity.ConfigurationTombstoneEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ConfigurationTombstoneKind
-import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.EquipmentRequirementState
+import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.GymEntity
 import com.valerochka1337.valerochkagym.data.db.entity.RoutineEntity
 import com.valerochka1337.valerochkagym.data.db.entity.WorkoutExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.WorkoutSetEntity
 import com.valerochka1337.valerochkagym.data.db.entity.withNextUpdatedAt
 import com.valerochka1337.valerochkagym.domain.DeleteGymResult
+import com.valerochka1337.valerochkagym.domain.ExerciseEquipmentRequirements
 import com.valerochka1337.valerochkagym.domain.GymConfiguration
 import com.valerochka1337.valerochkagym.domain.GymConfigurationConflict
-import com.valerochka1337.valerochkagym.domain.ExerciseEquipmentRequirements
 import com.valerochka1337.valerochkagym.domain.GymRepository
 import com.valerochka1337.valerochkagym.domain.GymRoutineReference
 import com.valerochka1337.valerochkagym.domain.NewExerciseConfiguration
 import com.valerochka1337.valerochkagym.domain.RoutineConfigurationDraft
 import com.valerochka1337.valerochkagym.domain.RoutineDeletion
-import com.valerochka1337.valerochkagym.domain.SaveGymResult
 import com.valerochka1337.valerochkagym.domain.SaveExerciseConfigurationResult
+import com.valerochka1337.valerochkagym.domain.SaveGymResult
 import com.valerochka1337.valerochkagym.domain.SaveRoutineConfigurationResult
 import com.valerochka1337.valerochkagym.worker.ConfigurationUploadScheduler
 import com.valerochka1337.valerochkagym.worker.NoOpConfigurationUploadScheduler
@@ -38,8 +38,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -66,7 +66,8 @@ constructor(
         ) { exercises, links, equipment ->
           val exercisesById = exercises.associateBy(ExerciseEntity::id)
           val exerciseIdsByGym = links.groupBy({ it.gymId }, { it.exerciseId })
-          val equipmentIdsByGym = equipment.groupBy({ it.gymId }, { it.equipmentId }).mapValues { it.value.toSet() }
+          val equipmentIdsByGym =
+              equipment.groupBy({ it.gymId }, { it.equipmentId }).mapValues { it.value.toSet() }
           gyms.map { gym ->
             GymConfiguration(
                 id = gym.syncId,
@@ -93,12 +94,22 @@ constructor(
           exerciseDao.observeAllRequirements(),
       ) { exercises, links, equipment, customRequirements ->
         val legacyByGym = links.groupBy({ it.gymId }, { it.exerciseId })
-        val equipmentByGym = equipment.groupBy({ it.gymId }, { it.equipmentId }).mapValues { it.value.toSet() }
-        val customByExercise = customRequirements.groupBy({ it.exerciseId }, { it.equipmentId }).mapValues { it.value.toSet() }
+        val equipmentByGym =
+            equipment.groupBy({ it.gymId }, { it.equipmentId }).mapValues { it.value.toSet() }
+        val customByExercise =
+            customRequirements.groupBy({ it.exerciseId }, { it.equipmentId }).mapValues {
+              it.value.toSet()
+            }
         exercises.filter { exercise ->
           selected.all { gym ->
             if (!gym.inventoryConfigured) exercise.id in legacyByGym[gym.id].orEmpty()
-            else covers(gym.id, exercise, equipmentByGym[gym.id].orEmpty(), customByExercise[exercise.id])
+            else
+                covers(
+                    gym.id,
+                    exercise,
+                    equipmentByGym[gym.id].orEmpty(),
+                    customByExercise[exercise.id],
+                )
           }
         }
       }
@@ -120,30 +131,48 @@ constructor(
   override suspend fun requirementsFor(exercise: ExerciseEntity): ExerciseEquipmentRequirements {
     val builtIn = CanonicalExerciseRegistry.requirementsFor(exercise)
     if (builtIn != null) return builtIn.toRequirements()
-    if (exercise.equipmentRequirementState == EquipmentRequirementState.UNKNOWN) return ExerciseEquipmentRequirements.UnknownLegacy
+    if (exercise.equipmentRequirementState == EquipmentRequirementState.UNKNOWN)
+        return ExerciseEquipmentRequirements.UnknownLegacy
     return exerciseDao.getRequirementIds(exercise.id).toSet().toRequirements()
   }
 
-  override suspend fun saveGymInventory(id: String?, name: String, equipmentIds: Set<String>): SaveGymResult = runMutation {
+  override suspend fun saveGymInventory(
+      id: String?,
+      name: String,
+      equipmentIds: Set<String>,
+  ): SaveGymResult = runMutation {
     if (equipmentIds.any { !EquipmentCatalog.isKnown(it) }) return@runMutation SaveGymResult.Failure
     val normalizedName = name.trim()
     if (normalizedName.isEmpty()) return@runMutation SaveGymResult.Failure
-    val result = database.withTransaction {
-      val gyms = gymDao.getGyms()
-      if (gyms.any { it.syncId != id && it.name.equals(normalizedName, true) }) return@withTransaction SaveGymResult.NameAlreadyExists
-      val existing = id?.let { syncId -> gymDao.getGymBySyncId(syncId) }
-      if (id != null && existing == null) return@withTransaction SaveGymResult.NotFound
-      if (existing != null) {
-        val conflicts = gymInventoryConflicts(existing.id, equipmentIds)
-        if (conflicts.routines.isNotEmpty() || conflicts.exercises.isNotEmpty()) return@withTransaction SaveGymResult.Conflict(conflicts)
-      }
-      val saved = (existing ?: GymEntity(syncId = id ?: UUID.randomUUID().toString(), name = normalizedName)).copy(name = normalizedName, inventoryConfigured = true).withNextUpdatedAt()
-      val localId = if (existing == null) gymDao.insertGym(saved) else existing.id.also { gymDao.updateGym(saved) }
-      gymDao.replaceGymEquipment(localId, equipmentIds)
-      // The old link table is an explicit legacy snapshot and must never coexist as authoritative data.
-      gymDao.deleteGymExercises(localId)
-      SaveGymResult.Saved(saved.syncId)
-    }
+    val result =
+        database.withTransaction {
+          val gyms = gymDao.getGyms()
+          if (gyms.any { it.syncId != id && it.name.equals(normalizedName, true) })
+              return@withTransaction SaveGymResult.NameAlreadyExists
+          val existing = id?.let { syncId -> gymDao.getGymBySyncId(syncId) }
+          if (id != null && existing == null) return@withTransaction SaveGymResult.NotFound
+          if (existing != null) {
+            val conflicts = gymInventoryConflicts(existing.id, equipmentIds)
+            if (conflicts.routines.isNotEmpty() || conflicts.exercises.isNotEmpty())
+                return@withTransaction SaveGymResult.Conflict(conflicts)
+          }
+          val saved =
+              (existing
+                      ?: GymEntity(
+                          syncId = id ?: UUID.randomUUID().toString(),
+                          name = normalizedName,
+                      ))
+                  .copy(name = normalizedName, inventoryConfigured = true)
+                  .withNextUpdatedAt()
+          val localId =
+              if (existing == null) gymDao.insertGym(saved)
+              else existing.id.also { gymDao.updateGym(saved) }
+          gymDao.replaceGymEquipment(localId, equipmentIds)
+          // The old link table is an explicit legacy snapshot and must never coexist as
+          // authoritative data.
+          gymDao.deleteGymExercises(localId)
+          SaveGymResult.Saved(saved.syncId)
+        }
     if (result is SaveGymResult.Saved) configurationUploadScheduler.scheduleGym(result.gymId)
     result
   }
@@ -234,7 +263,9 @@ constructor(
     if (gymIds.isEmpty() || exerciseIds.isEmpty()) return emptyList()
     val selected =
         resolveGyms(gymIds) ?: return exerciseDao.getAllOnce().filter { it.id in exerciseIds }
-    return exerciseDao.getAllOnce().filter { it.id in exerciseIds && !isEquipmentAvailable(it, selected, gymDao, exerciseDao) }
+    return exerciseDao.getAllOnce().filter {
+      it.id in exerciseIds && !isEquipmentAvailable(it, selected, gymDao, exerciseDao)
+    }
   }
 
   override suspend fun saveExerciseConfiguration(
@@ -242,64 +273,122 @@ constructor(
       gymIds: Set<String>,
       workoutId: String?,
   ): SaveExerciseConfigurationResult {
-    val result = try {
-        database.withTransaction {
-          val existing = configuration.exercise.id.takeIf { it != 0L }?.let { exerciseDao.getById(it) }
-          if (configuration.exercise.id != 0L && existing == null) return@withTransaction SaveExerciseConfigurationResult.Failure
-          val requested = configuration.requirements
-          val requirementIds = when (requested) {
-            is ExerciseEquipmentRequirements.Required -> requested.equipmentIds
-            ExerciseEquipmentRequirements.ExplicitNone -> emptySet()
-            ExerciseEquipmentRequirements.UnknownLegacy -> return@withTransaction SaveExerciseConfigurationResult.Failure
-            null -> existing?.let { requirementIds(it, exerciseDao.getRequirementIds(it.id).toSet()) }.orEmpty()
-          }
-          if (requirementIds.any { !EquipmentCatalog.isKnown(it) }) return@withTransaction SaveExerciseConfigurationResult.Failure
-          val canonicalRequirements = CanonicalExerciseRegistry.requirementsFor(existing ?: configuration.exercise)
-          if (canonicalRequirements != null && requested != null && requirementIds != canonicalRequirements) {
-            return@withTransaction SaveExerciseConfigurationResult.Failure
-          }
-          val gyms = resolveGyms(gymIds) ?: return@withTransaction SaveExerciseConfigurationResult.Failure
-          val candidate = configuration.exercise.copy(
-              id = existing?.id ?: 0,
-              syncId = existing?.syncId ?: configuration.exercise.syncId,
-              updatedAt = existing?.updatedAt ?: configuration.exercise.updatedAt,
-              equipmentRequirementState = if (requested == null) existing?.equipmentRequirementState ?: configuration.exercise.equipmentRequirementState else EquipmentRequirementState.KNOWN,
-          )
-          val unavailableGyms = gyms.filter { gym ->
-            if (candidate.equipmentRequirementState == EquipmentRequirementState.UNKNOWN && CanonicalExerciseRegistry.requirementsFor(candidate) == null) true
-            else if (!gym.inventoryConfigured) candidate.id == 0L || candidate.id !in gymDao.getGymExerciseIds(gym.id)
-            else !requirementIds.all { EquipmentCatalog.covers(gymDao.getGymEquipmentIds(gym.id).toSet(), it) }
-          }
-          if (unavailableGyms.isNotEmpty()) {
-            return@withTransaction SaveExerciseConfigurationResult.Conflict(
-                GymConfigurationConflict(
-                    routines = unavailableGyms.map { GymRoutineReference(-1, "Зал «${it.name}»") },
-                    exercises = listOf(candidate),
-                    missingEquipmentIds = requirementIds.filterNot { requirement -> unavailableGyms.all { gym -> EquipmentCatalog.covers(gymDao.getGymEquipmentIds(gym.id).toSet(), requirement) } }.toSet(),
-                ),
-            )
-          }
-          if (existing != null && requested != null) {
-            requirementEditConflict(candidate, requirementIds)?.let {
-              return@withTransaction SaveExerciseConfigurationResult.Conflict(it)
+    val result =
+        try {
+          database.withTransaction {
+            val existing =
+                configuration.exercise.id.takeIf { it != 0L }?.let { exerciseDao.getById(it) }
+            if (configuration.exercise.id != 0L && existing == null)
+                return@withTransaction SaveExerciseConfigurationResult.Failure
+            val requested = configuration.requirements
+            val requirementIds =
+                when (requested) {
+                  is ExerciseEquipmentRequirements.Required -> requested.equipmentIds
+                  ExerciseEquipmentRequirements.ExplicitNone -> emptySet()
+                  ExerciseEquipmentRequirements.UnknownLegacy ->
+                      return@withTransaction SaveExerciseConfigurationResult.Failure
+                  null ->
+                      existing
+                          ?.let { requirementIds(it, exerciseDao.getRequirementIds(it.id).toSet()) }
+                          .orEmpty()
+                }
+            if (requirementIds.any { !EquipmentCatalog.isKnown(it) })
+                return@withTransaction SaveExerciseConfigurationResult.Failure
+            val canonicalRequirements =
+                CanonicalExerciseRegistry.requirementsFor(existing ?: configuration.exercise)
+            if (
+                canonicalRequirements != null &&
+                    requested != null &&
+                    requirementIds != canonicalRequirements
+            ) {
+              return@withTransaction SaveExerciseConfigurationResult.Failure
             }
+            val gyms =
+                resolveGyms(gymIds)
+                    ?: return@withTransaction SaveExerciseConfigurationResult.Failure
+            val candidate =
+                configuration.exercise.copy(
+                    id = existing?.id ?: 0,
+                    syncId = existing?.syncId ?: configuration.exercise.syncId,
+                    updatedAt = existing?.updatedAt ?: configuration.exercise.updatedAt,
+                    equipmentRequirementState =
+                        if (requested == null)
+                            existing?.equipmentRequirementState
+                                ?: configuration.exercise.equipmentRequirementState
+                        else EquipmentRequirementState.KNOWN,
+                )
+            val unavailableGyms =
+                gyms.filter { gym ->
+                  if (
+                      candidate.equipmentRequirementState == EquipmentRequirementState.UNKNOWN &&
+                          CanonicalExerciseRegistry.requirementsFor(candidate) == null
+                  )
+                      true
+                  else if (!gym.inventoryConfigured)
+                      candidate.id == 0L || candidate.id !in gymDao.getGymExerciseIds(gym.id)
+                  else
+                      !requirementIds.all {
+                        EquipmentCatalog.covers(gymDao.getGymEquipmentIds(gym.id).toSet(), it)
+                      }
+                }
+            if (unavailableGyms.isNotEmpty()) {
+              return@withTransaction SaveExerciseConfigurationResult.Conflict(
+                  GymConfigurationConflict(
+                      routines =
+                          unavailableGyms.map { GymRoutineReference(-1, "Зал «${it.name}»") },
+                      exercises = listOf(candidate),
+                      missingEquipmentIds =
+                          requirementIds
+                              .filterNot { requirement ->
+                                unavailableGyms.all { gym ->
+                                  EquipmentCatalog.covers(
+                                      gymDao.getGymEquipmentIds(gym.id).toSet(),
+                                      requirement,
+                                  )
+                                }
+                              }
+                              .toSet(),
+                  ),
+              )
+            }
+            if (existing != null && requested != null) {
+              requirementEditConflict(candidate, requirementIds)?.let {
+                return@withTransaction SaveExerciseConfigurationResult.Conflict(it)
+              }
+            }
+            val saved =
+                if (existing == null) {
+                  val id =
+                      exerciseDao.insert(
+                          candidate.copy(
+                              id = 0,
+                              equipmentRequirementState =
+                                  if (requested == null) EquipmentRequirementState.UNKNOWN
+                                  else EquipmentRequirementState.KNOWN,
+                          )
+                      )
+                  candidate.copy(
+                      id = id,
+                      equipmentRequirementState =
+                          if (requested == null) EquipmentRequirementState.UNKNOWN
+                          else EquipmentRequirementState.KNOWN,
+                  )
+                } else {
+                  candidate.withNextUpdatedAt().also { updated -> exerciseDao.update(updated) }
+                }
+            exerciseMuscleDao.replaceForExercise(
+                saved.id,
+                configuration.muscles.map { it.copy(exerciseId = saved.id) },
+            )
+            if (requested != null) exerciseDao.replaceRequirements(saved.id, requirementIds)
+            if (workoutId != null) addExerciseToActiveWorkout(saved.id, workoutId)
+            SaveExerciseConfigurationResult.Saved(saved)
           }
-          val saved = if (existing == null) {
-            val id = exerciseDao.insert(candidate.copy(id = 0, equipmentRequirementState = if (requested == null) EquipmentRequirementState.UNKNOWN else EquipmentRequirementState.KNOWN))
-            candidate.copy(id = id, equipmentRequirementState = if (requested == null) EquipmentRequirementState.UNKNOWN else EquipmentRequirementState.KNOWN)
-          } else {
-            candidate.withNextUpdatedAt().also { updated -> exerciseDao.update(updated) }
-          }
-          exerciseMuscleDao.replaceForExercise(saved.id, configuration.muscles.map { it.copy(exerciseId = saved.id) })
-          if (requested != null) exerciseDao.replaceRequirements(saved.id, requirementIds)
-          if (workoutId != null) addExerciseToActiveWorkout(saved.id, workoutId)
-          SaveExerciseConfigurationResult.Saved(saved)
+        } catch (cancelled: CancellationException) {
+          throw cancelled
+        } catch (_: Exception) {
+          SaveExerciseConfigurationResult.Failure
         }
-      } catch (cancelled: CancellationException) {
-        throw cancelled
-      } catch (_: Exception) {
-        SaveExerciseConfigurationResult.Failure
-      }
     if (result is SaveExerciseConfigurationResult.Saved) {
       configurationUploadScheduler.scheduleExercise(result.exercise.syncId)
     }
@@ -322,10 +411,10 @@ constructor(
               // Creating an exercise never changes any saved gym inventory.
               exercise
             }
-          saved.let { exercise ->
-              configurationUploadScheduler.scheduleExercise(exercise.syncId)
-              gymIds.forEach(configurationUploadScheduler::scheduleGym)
-          }
+        saved.let { exercise ->
+          configurationUploadScheduler.scheduleExercise(exercise.syncId)
+          gymIds.forEach(configurationUploadScheduler::scheduleGym)
+        }
         saved
       } catch (cancelled: CancellationException) {
         throw cancelled
@@ -523,14 +612,21 @@ constructor(
           if (gyms.isNotEmpty()) {
             val requestedIds = draft.exercises.mapTo(linkedSetOf()) { it.exerciseId }
             val all = exerciseDao.getAllOnce().filter { it.id in requestedIds }
-            val custom = exerciseDao.getRequirements(all.map(ExerciseEntity::id))
-                .groupBy({ it.exerciseId }, { it.equipmentId }).mapValues { it.value.toSet() }
+            val custom =
+                exerciseDao
+                    .getRequirements(all.map(ExerciseEntity::id))
+                    .groupBy({ it.exerciseId }, { it.equipmentId })
+                    .mapValues { it.value.toSet() }
             val inventories = gyms.associate { it.id to gymDao.getGymEquipmentIds(it.id).toSet() }
             val legacy = gyms.associate { it.id to gymDao.getGymExerciseIds(it.id).toSet() }
-            val conflicts = all.filter { exercise -> gyms.any { gym ->
-              if (!gym.inventoryConfigured) exercise.id !in legacy.getValue(gym.id)
-              else !covers(gym.id, exercise, inventories.getValue(gym.id), custom[exercise.id])
-            } }
+            val conflicts =
+                all.filter { exercise ->
+                  gyms.any { gym ->
+                    if (!gym.inventoryConfigured) exercise.id !in legacy.getValue(gym.id)
+                    else
+                        !covers(gym.id, exercise, inventories.getValue(gym.id), custom[exercise.id])
+                  }
+                }
             if (conflicts.isNotEmpty()) {
               return@withTransaction SaveRoutineConfigurationResult.Conflict(conflicts)
             }
@@ -616,17 +712,24 @@ constructor(
   }
 
   private suspend fun addExerciseToActiveWorkout(exerciseId: Long, workoutId: String) {
-    val workout = workoutDao.getWorkoutFull(workoutId)?.workout?.takeIf { it.finishedAt == null }
-        ?: throw IllegalArgumentException("Workout is not active")
+    val workout =
+        workoutDao.getWorkoutFull(workoutId)?.workout?.takeIf { it.finishedAt == null }
+            ?: throw IllegalArgumentException("Workout is not active")
     val exercise = requireNotNull(exerciseDao.getById(exerciseId))
     val gyms = gymDao.getGymsForWorkout(workout.id)
     if (!isEquipmentAvailable(exercise, gyms, gymDao, exerciseDao)) {
       throw IllegalArgumentException("Exercise is unavailable in workout gyms")
     }
-    val position = (workoutDao.getWorkoutExercises(workout.id).maxOfOrNull { it.position } ?: -1) + 1
-    val workoutExerciseId = workoutDao.insertWorkoutExercise(
-        WorkoutExerciseEntity(workoutId = workout.id, exerciseId = exerciseId, position = position),
-    )
+    val position =
+        (workoutDao.getWorkoutExercises(workout.id).maxOfOrNull { it.position } ?: -1) + 1
+    val workoutExerciseId =
+        workoutDao.insertWorkoutExercise(
+            WorkoutExerciseEntity(
+                workoutId = workout.id,
+                exerciseId = exerciseId,
+                position = position,
+            ),
+        )
     workoutDao.insertSet(WorkoutSetEntity(workoutExerciseId = workoutExerciseId, setIndex = 0))
   }
 
@@ -639,33 +742,42 @@ constructor(
     val inventories = mutableListOf<Set<String>>()
     routineDao.observeRoutinesFull().first().forEach { routine ->
       if (routine.exercises.none { it.exercise.id == candidate.id }) return@forEach
-      routine.gyms.filter { it.inventoryConfigured }.forEach { gym ->
-        val equipment = gymDao.getGymEquipmentIds(gym.id).toSet()
-        if (!requirements.all { EquipmentCatalog.covers(equipment, it) }) {
-          blockedExercises += candidate
-          references += GymRoutineReference(routine.routine.id, routine.routine.name)
-          inventories += equipment
-        }
-      }
+      routine.gyms
+          .filter { it.inventoryConfigured }
+          .forEach { gym ->
+            val equipment = gymDao.getGymEquipmentIds(gym.id).toSet()
+            if (!requirements.all { EquipmentCatalog.covers(equipment, it) }) {
+              blockedExercises += candidate
+              references += GymRoutineReference(routine.routine.id, routine.routine.name)
+              inventories += equipment
+            }
+          }
     }
     workoutDao.getActiveWorkoutId()?.let { workoutId ->
       val workout = workoutDao.getWorkoutFull(workoutId) ?: return@let
       if (workout.exercises.any { it.exercise.id == candidate.id }) {
-        gymDao.getGymsForWorkout(workoutId).filter { it.inventoryConfigured }.forEach { gym ->
-          val equipment = gymDao.getGymEquipmentIds(gym.id).toSet()
-          if (!requirements.all { EquipmentCatalog.covers(equipment, it) }) {
-            blockedExercises += candidate
-            references += GymRoutineReference(-1, "Активная тренировка «${workout.workout.name}»")
-            inventories += equipment
-          }
-        }
+        gymDao
+            .getGymsForWorkout(workoutId)
+            .filter { it.inventoryConfigured }
+            .forEach { gym ->
+              val equipment = gymDao.getGymEquipmentIds(gym.id).toSet()
+              if (!requirements.all { EquipmentCatalog.covers(equipment, it) }) {
+                blockedExercises += candidate
+                references +=
+                    GymRoutineReference(-1, "Активная тренировка «${workout.workout.name}»")
+                inventories += equipment
+              }
+            }
       }
     }
     if (blockedExercises.isEmpty()) return null
     return GymConfigurationConflict(
         routines = references.toList(),
         exercises = blockedExercises.distinctBy(ExerciseEntity::id),
-        missingEquipmentIds = requirements.filterNot { required -> inventories.all { EquipmentCatalog.covers(it, required) } }.toSet(),
+        missingEquipmentIds =
+            requirements
+                .filterNot { required -> inventories.all { EquipmentCatalog.covers(it, required) } }
+                .toSet(),
     )
   }
 
@@ -758,15 +870,25 @@ constructor(
       equipmentIds: Set<String>,
       customRequirements: Set<String>?,
   ): Boolean {
-    if (exercise.equipmentRequirementState == EquipmentRequirementState.UNKNOWN && CanonicalExerciseRegistry.requirementsFor(exercise) == null) return false
-    return requirementIds(exercise, customRequirements).all { EquipmentCatalog.covers(equipmentIds, it) }
+    if (
+        exercise.equipmentRequirementState == EquipmentRequirementState.UNKNOWN &&
+            CanonicalExerciseRegistry.requirementsFor(exercise) == null
+    )
+        return false
+    return requirementIds(exercise, customRequirements).all {
+      EquipmentCatalog.covers(equipmentIds, it)
+    }
   }
 
-  private fun requirementIds(exercise: ExerciseEntity, customRequirements: Set<String>?): Set<String> =
+  private fun requirementIds(
+      exercise: ExerciseEntity,
+      customRequirements: Set<String>?,
+  ): Set<String> =
       CanonicalExerciseRegistry.requirementsFor(exercise) ?: customRequirements.orEmpty()
 
   private fun Set<String>.toRequirements(): ExerciseEquipmentRequirements =
-      if (isEmpty()) ExerciseEquipmentRequirements.ExplicitNone else ExerciseEquipmentRequirements.Required(this)
+      if (isEmpty()) ExerciseEquipmentRequirements.ExplicitNone
+      else ExerciseEquipmentRequirements.Required(this)
 
   private suspend fun linkedReferences(gymId: Long): List<GymRoutineReference> =
       gymDao.getLinkedRoutines(gymId).map { GymRoutineReference(it.id, it.name) } +

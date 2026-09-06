@@ -4,10 +4,10 @@ import android.app.Application
 import androidx.activity.ComponentActivity
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assert
-import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasContentDescription
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
@@ -25,9 +25,9 @@ import com.valerochka1337.valerochkagym.domain.SaveGymResult
 import com.valerochka1337.valerochkagym.ui.gyms.GymEditorScreen
 import com.valerochka1337.valerochkagym.ui.gyms.GymEditorViewModel
 import com.valerochka1337.valerochkagym.ui.theme.GymTheme
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.CompletableDeferred
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -62,13 +62,15 @@ class GymEditorScreenTest {
     compose.onNode(freeWeights).performClick()
     val group = compose.onNodeWithContentDescription("Оборудование группы Свободные веса")
     group.performClick()
-    compose.onNodeWithTag("gym_equipment_inventory")
+    compose
+        .onNodeWithTag("gym_equipment_inventory")
         .performScrollToNode(hasContentDescription("Гантели"))
     val dumbbells = compose.onNodeWithContentDescription("Гантели")
     dumbbells.assertIsDisplayed()
     assertTrue(dumbbells.fetchSemanticsNode().boundsInRoot.height >= targetPx)
     dumbbells.performClick()
-    compose.onNodeWithTag("gym_equipment_inventory")
+    compose
+        .onNodeWithTag("gym_equipment_inventory")
         .performScrollToNode(hasContentDescription("Оборудование группы Свободные веса"))
     group.assert(
         androidx.compose.ui.test.SemanticsMatcher.expectValue(
@@ -90,7 +92,9 @@ class GymEditorScreenTest {
     val repository = PendingGymRepository()
     val viewModel = GymEditorViewModel(SavedStateHandle(), repository)
     var backCount = 0
-    compose.setContent { GymTheme { GymEditorScreen(onBack = { backCount++ }, viewModel = viewModel) } }
+    compose.setContent {
+      GymTheme { GymEditorScreen(onBack = { backCount++ }, viewModel = viewModel) }
+    }
 
     viewModel.setName("Дом")
     viewModel.save()
@@ -112,7 +116,9 @@ class GymEditorScreenTest {
         )
     val viewModel = GymEditorViewModel(SavedStateHandle(mapOf("gymId" to "gym")), repository)
     var backCount = 0
-    compose.setContent { GymTheme { GymEditorScreen(onBack = { backCount++ }, viewModel = viewModel) } }
+    compose.setContent {
+      GymTheme { GymEditorScreen(onBack = { backCount++ }, viewModel = viewModel) }
+    }
     compose.waitUntil { !viewModel.uiState.value.isLoading }
 
     viewModel.delete()

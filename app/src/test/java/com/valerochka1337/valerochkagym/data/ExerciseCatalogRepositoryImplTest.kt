@@ -2,10 +2,10 @@ package com.valerochka1337.valerochkagym.data
 
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseMuscleDao
 import com.valerochka1337.valerochkagym.data.db.dao.WorkoutDao
-import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
-import com.valerochka1337.valerochkagym.data.db.entity.ExerciseMuscleEntity
-import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEquipmentEntity
 import com.valerochka1337.valerochkagym.data.db.entity.EquipmentRequirementState
+import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
+import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEquipmentEntity
+import com.valerochka1337.valerochkagym.data.db.entity.ExerciseMuscleEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
 import com.valerochka1337.valerochkagym.data.db.entity.Muscle
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleGroup
@@ -18,9 +18,9 @@ import com.valerochka1337.valerochkagym.data.db.relation.ExerciseWorkoutHistoryR
 import com.valerochka1337.valerochkagym.data.db.relation.WorkoutFull
 import com.valerochka1337.valerochkagym.domain.DeleteGymResult
 import com.valerochka1337.valerochkagym.domain.ExerciseCatalogRepository
+import com.valerochka1337.valerochkagym.domain.ExerciseEquipmentRequirements
 import com.valerochka1337.valerochkagym.domain.GymConfiguration
 import com.valerochka1337.valerochkagym.domain.GymRepository
-import com.valerochka1337.valerochkagym.domain.ExerciseEquipmentRequirements
 import com.valerochka1337.valerochkagym.domain.SaveGymResult
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -52,7 +52,12 @@ class ExerciseCatalogRepositoryImplTest {
                 ),
         )
     val repository =
-        ExerciseCatalogRepositoryImpl(gyms, FakeExerciseDao(), FakeExerciseMuscleDao(), FakeWorkoutDao())
+        ExerciseCatalogRepositoryImpl(
+            gyms,
+            FakeExerciseDao(),
+            FakeExerciseMuscleDao(),
+            FakeWorkoutDao(),
+        )
 
     val state = repository.observeCatalog(linkedSetOf("one", "two")).firstValue()
 
@@ -87,13 +92,17 @@ class ExerciseCatalogRepositoryImplTest {
 
   @Test
   fun `custom requirements reemit as explicit none or declared equipment`() = runTest {
-    val custom = exercise(8, "Своя тяга", custom = true).copy(
-        equipmentRequirementState = EquipmentRequirementState.KNOWN,
-    )
+    val custom =
+        exercise(8, "Своя тяга", custom = true)
+            .copy(
+                equipmentRequirementState = EquipmentRequirementState.KNOWN,
+            )
     val gyms = FakeGymRepository(available = listOf(custom))
     val requirements = FakeExerciseDao()
-    val repository = ExerciseCatalogRepositoryImpl(gyms, requirements, FakeExerciseMuscleDao(), FakeWorkoutDao())
-    val received = mutableListOf<com.valerochka1337.valerochkagym.domain.ExerciseCatalogRepositoryState>()
+    val repository =
+        ExerciseCatalogRepositoryImpl(gyms, requirements, FakeExerciseMuscleDao(), FakeWorkoutDao())
+    val received =
+        mutableListOf<com.valerochka1337.valerochkagym.domain.ExerciseCatalogRepositoryState>()
     collect(repository, received)
 
     assertEquals(
@@ -181,17 +190,27 @@ class ExerciseCatalogRepositoryImplTest {
     override fun observeAllRequirements(): Flow<List<ExerciseEquipmentEntity>> = requirements
 
     override fun getAll(): Flow<List<ExerciseEntity>> = flowOf(emptyList())
+
     override suspend fun insert(exercise: ExerciseEntity): Long = 0
+
     override suspend fun update(exercise: ExerciseEntity) = Unit
+
     override suspend fun insertAll(exercises: List<ExerciseEntity>) = Unit
+
     override suspend fun count(): Int = 0
+
     override suspend fun getById(id: Long): ExerciseEntity? = null
+
     override suspend fun getAllOnce(): List<ExerciseEntity> = emptyList()
+
     override suspend fun getRequirementIds(exerciseId: Long): List<String> =
         requirements.value.filter { it.exerciseId == exerciseId }.map { it.equipmentId }
+
     override suspend fun getRequirements(exerciseIds: List<Long>): List<ExerciseEquipmentEntity> =
         requirements.value.filter { it.exerciseId in exerciseIds }
+
     override suspend fun insertRequirements(requirements: List<ExerciseEquipmentEntity>) = Unit
+
     override suspend fun deleteRequirements(exerciseId: Long) = Unit
   }
 

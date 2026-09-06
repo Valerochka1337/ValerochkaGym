@@ -29,8 +29,8 @@ import com.valerochka1337.valerochkagym.domain.GymConfigurationConflict
 import com.valerochka1337.valerochkagym.domain.GymRepository
 import com.valerochka1337.valerochkagym.domain.GymRoutineReference
 import com.valerochka1337.valerochkagym.domain.NewExerciseConfiguration
-import com.valerochka1337.valerochkagym.domain.SaveGymResult
 import com.valerochka1337.valerochkagym.domain.SaveExerciseConfigurationResult
+import com.valerochka1337.valerochkagym.domain.SaveGymResult
 import com.valerochka1337.valerochkagym.ui.library.ExerciseLibraryViewModel
 import com.valerochka1337.valerochkagym.ui.library.SavedExerciseResult
 import com.valerochka1337.valerochkagym.ui.navigation.GymRoutes
@@ -235,7 +235,8 @@ class ExerciseLibraryViewModelTest {
                 exercises = listOf(dumbbellPress, barbellRow),
                 requirements =
                     mapOf(
-                        dumbbellPress.id to ExerciseEquipmentRequirements.Required(setOf("dumbbells")),
+                        dumbbellPress.id to
+                            ExerciseEquipmentRequirements.Required(setOf("dumbbells")),
                         barbellRow.id to ExerciseEquipmentRequirements.Required(setOf("barbell")),
                     ),
                 gymNames = listOf("Домашний"),
@@ -985,13 +986,13 @@ class ExerciseLibraryViewModelTest {
       exercises: List<ExerciseEntity>,
       requirements: Map<Long, ExerciseEquipmentRequirements> = emptyMap(),
       gymNames: List<String> = emptyList(),
-  ) :
-      ExerciseCatalogRepository {
+  ) : ExerciseCatalogRepository {
 
     private val state =
         MutableStateFlow(
             ExerciseCatalogRepositoryState(
-                snapshot = ExerciseCatalogSnapshot(exercises, emptyList(), emptyList(), requirements),
+                snapshot =
+                    ExerciseCatalogSnapshot(exercises, emptyList(), emptyList(), requirements),
                 gymNames = gymNames,
             ),
         )
@@ -1059,7 +1060,8 @@ class ExerciseLibraryViewModelTest {
     ): SaveExerciseConfigurationResult {
       lastCreation = configuration
       lastAssignedGymIds = gymIds
-      return nextResult ?: SaveExerciseConfigurationResult.Saved(configuration.exercise.copy(id = 42L))
+      return nextResult
+          ?: SaveExerciseConfigurationResult.Saved(configuration.exercise.copy(id = 42L))
     }
   }
 }

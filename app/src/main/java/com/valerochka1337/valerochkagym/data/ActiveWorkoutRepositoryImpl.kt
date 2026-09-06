@@ -44,7 +44,9 @@ constructor(
           val unavailable =
               routine.exercises
                   .map { it.exercise }
-                  .filterNot { isEquipmentAvailable(it, routine.gyms, gymDao, database.exerciseDao()) }
+                  .filterNot {
+                    isEquipmentAvailable(it, routine.gyms, gymDao, database.exerciseDao())
+                  }
                   .distinctBy { it.id }
           if (unavailable.isNotEmpty()) {
             throw RoutineGymConflictException(unavailable.map { it.name })
@@ -146,7 +148,9 @@ constructor(
         val gyms = gymDao.getGymsForWorkout(workoutId)
         if (gyms.isNotEmpty()) {
           val selected = database.exerciseDao().getById(exerciseId)
-          val available = selected != null && isEquipmentAvailable(selected, gyms, gymDao, database.exerciseDao())
+          val available =
+              selected != null &&
+                  isEquipmentAvailable(selected, gyms, gymDao, database.exerciseDao())
           if (!available) {
             val name = database.exerciseDao().getById(exerciseId)?.name ?: "Упражнение"
             throw RoutineGymConflictException(listOf(name))

@@ -3,7 +3,6 @@ package com.valerochka1337.valerochkagym.data.google
 import androidx.room.withTransaction
 import com.valerochka1337.valerochkagym.data.db.CanonicalExerciseRegistry
 import com.valerochka1337.valerochkagym.data.db.EquipmentCatalog
-import com.valerochka1337.valerochkagym.data.isEquipmentAvailable
 import com.valerochka1337.valerochkagym.data.db.GymDatabase
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseDao
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseMuscleDao
@@ -23,6 +22,7 @@ import com.valerochka1337.valerochkagym.data.db.entity.WorkoutExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.WorkoutSetEntity
 import com.valerochka1337.valerochkagym.data.db.muscleRows
 import com.valerochka1337.valerochkagym.data.db.relation.RoutineWithExercises
+import com.valerochka1337.valerochkagym.data.isEquipmentAvailable
 import com.valerochka1337.valerochkagym.data.settings.SettingsRepository
 import com.valerochka1337.valerochkagym.domain.ExerciseSheetRecord
 import com.valerochka1337.valerochkagym.domain.ExerciseSheetRowMapper
@@ -178,8 +178,12 @@ constructor(
       // the new aggregate incomplete and must roll back the whole configuration transaction.
       val hasEquipmentConfiguration =
           exercises.records.filterIsInstance<ExerciseSheetRecord.Snapshot>().any {
-            it.equipmentRequirementState == com.valerochka1337.valerochkagym.data.db.entity.EquipmentRequirementState.KNOWN
-          } || gyms.records.filterIsInstance<GymSheetRecord.Snapshot>().any { it.inventoryConfigured }
+            it.equipmentRequirementState ==
+                com.valerochka1337.valerochkagym.data.db.entity.EquipmentRequirementState.KNOWN
+          } ||
+              gyms.records.filterIsInstance<GymSheetRecord.Snapshot>().any {
+                it.inventoryConfigured
+              }
       var skippedRows =
           workouts.skippedRows +
               measurements.skippedRows +
@@ -229,7 +233,9 @@ constructor(
             ApplyConfigurationResult.Applied -> importedGyms++
             ApplyConfigurationResult.InvalidReference ->
                 if (hasEquipmentConfiguration) {
-                  throw ConfigurationImportConflictException("Импорт содержит неизвестную или несовместимую конфигурацию зала")
+                  throw ConfigurationImportConflictException(
+                      "Импорт содержит неизвестную или несовместимую конфигурацию зала"
+                  )
                 } else {
                   skippedRows++
                 }
@@ -246,7 +252,9 @@ constructor(
             ApplyConfigurationResult.Applied -> importedRoutineGyms++
             ApplyConfigurationResult.InvalidReference ->
                 if (hasEquipmentConfiguration) {
-                  throw ConfigurationImportConflictException("Импорт содержит неизвестную связь программы и зала")
+                  throw ConfigurationImportConflictException(
+                      "Импорт содержит неизвестную связь программы и зала"
+                  )
                 } else {
                   skippedRows++
                 }
@@ -260,7 +268,9 @@ constructor(
             ApplyConfigurationResult.Applied -> importedGyms++
             ApplyConfigurationResult.InvalidReference ->
                 if (hasEquipmentConfiguration) {
-                  throw ConfigurationImportConflictException("Импорт содержит несовместимое удаление зала")
+                  throw ConfigurationImportConflictException(
+                      "Импорт содержит несовместимое удаление зала"
+                  )
                 } else {
                   skippedRows++
                 }
@@ -330,8 +340,16 @@ constructor(
                 isCustom = true,
                 needsMuscleMapReview = record.needsMuscleMapReview,
                 equipmentRequirementState =
-                    if (existing?.equipmentRequirementState == com.valerochka1337.valerochkagym.data.db.entity.EquipmentRequirementState.KNOWN &&
-                        record.equipmentRequirementState == com.valerochka1337.valerochkagym.data.db.entity.EquipmentRequirementState.UNKNOWN) {
+                    if (
+                        existing?.equipmentRequirementState ==
+                            com.valerochka1337.valerochkagym.data.db.entity
+                                .EquipmentRequirementState
+                                .KNOWN &&
+                            record.equipmentRequirementState ==
+                                com.valerochka1337.valerochkagym.data.db.entity
+                                    .EquipmentRequirementState
+                                    .UNKNOWN
+                    ) {
                       existing.equipmentRequirementState
                     } else {
                       record.equipmentRequirementState
@@ -346,7 +364,10 @@ constructor(
               ExerciseMuscleEntity(exerciseId, muscle, contribution)
             },
         )
-        if (record.equipmentRequirementState == com.valerochka1337.valerochkagym.data.db.entity.EquipmentRequirementState.KNOWN) {
+        if (
+            record.equipmentRequirementState ==
+                com.valerochka1337.valerochkagym.data.db.entity.EquipmentRequirementState.KNOWN
+        ) {
           if (record.equipmentIds.any { !EquipmentCatalog.isKnown(it) }) return false
           exerciseDao.replaceRequirements(exerciseId, record.equipmentIds)
         }
@@ -394,8 +415,10 @@ constructor(
       }
       is GymSheetRecord.Snapshot -> {
         // An old exercise-link snapshot may never downgrade a locally configured inventory.
-        if (existing?.inventoryConfigured == true && !record.inventoryConfigured) return ApplyConfigurationResult.Ignored
-        if (record.equipmentIds.any { !EquipmentCatalog.isKnown(it) }) return ApplyConfigurationResult.InvalidReference
+        if (existing?.inventoryConfigured == true && !record.inventoryConfigured)
+            return ApplyConfigurationResult.Ignored
+        if (record.equipmentIds.any { !EquipmentCatalog.isKnown(it) })
+            return ApplyConfigurationResult.InvalidReference
         val exercisesBySyncId = exerciseDao.getAllOnce().associateBy { it.syncId }
         val linkedExercises = record.exerciseSyncIds.mapNotNull(exercisesBySyncId::get)
         if (linkedExercises.size != record.exerciseSyncIds.size) {

@@ -3,8 +3,8 @@ package com.valerochka1337.valerochkagym.ui.library
 import android.app.Application
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -44,7 +44,9 @@ class ExerciseEditorSheetComposeTest {
     }
 
     compose
-        .onNodeWithText("Для этого старого упражнения оборудование ещё не задано. Выберите вариант перед сохранением.")
+        .onNodeWithText(
+            "Для этого старого упражнения оборудование ещё не задано. Выберите вариант перед сохранением."
+        )
         .performScrollTo()
         .assertIsDisplayed()
     compose.onNodeWithText("Сохранить").performScrollTo().assertIsNotEnabled()

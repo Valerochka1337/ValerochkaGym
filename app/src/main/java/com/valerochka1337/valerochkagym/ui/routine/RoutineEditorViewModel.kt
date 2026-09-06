@@ -172,27 +172,27 @@ constructor(
     }
     _uiState.update { current ->
       RoutineEditorUiState(
-              isNew = false,
-              syncId = full.routine.syncId,
-              updatedAt = full.routine.updatedAt,
-              name = full.routine.name,
-              note = full.routine.note,
-              exercises =
-                  full.exercises
-                      .sortedBy { it.routineExercise.position }
-                      .map { item ->
-                        EditorExercise(
-                            exerciseId = item.exercise.id,
-                            exerciseName = item.exercise.name,
-                            exerciseType = item.exercise.type,
-                            restSeconds = item.routineExercise.restSeconds,
-                            plannedSets = item.routineExercise.plannedSets,
-                        )
-                      },
-              gyms = current.gyms,
-              selectedGymIds = full.gyms.mapTo(linkedSetOf()) { it.syncId },
-              isCheckingAvailability = full.gyms.isNotEmpty() && full.exercises.isNotEmpty(),
-          )
+          isNew = false,
+          syncId = full.routine.syncId,
+          updatedAt = full.routine.updatedAt,
+          name = full.routine.name,
+          note = full.routine.note,
+          exercises =
+              full.exercises
+                  .sortedBy { it.routineExercise.position }
+                  .map { item ->
+                    EditorExercise(
+                        exerciseId = item.exercise.id,
+                        exerciseName = item.exercise.name,
+                        exerciseType = item.exercise.type,
+                        restSeconds = item.routineExercise.restSeconds,
+                        plannedSets = item.routineExercise.plannedSets,
+                    )
+                  },
+          gyms = current.gyms,
+          selectedGymIds = full.gyms.mapTo(linkedSetOf()) { it.syncId },
+          isCheckingAvailability = full.gyms.isNotEmpty() && full.exercises.isNotEmpty(),
+      )
     }
   }
 
@@ -412,9 +412,9 @@ private fun RoutineEditorUiState.withGyms(value: List<GymConfiguration>): Routin
   val selected = selectedGymIds.filterTo(linkedSetOf()) { it in existingIds }
   if (selected == selectedGymIds) return copy(gyms = value)
   return copy(
-          gyms = value,
-          selectedGymIds = selected,
-          isCheckingAvailability = selected.isNotEmpty() && exercises.isNotEmpty(),
-          conflictingExercises = emptyList(),
-      )
+      gyms = value,
+      selectedGymIds = selected,
+      isCheckingAvailability = selected.isNotEmpty() && exercises.isNotEmpty(),
+      conflictingExercises = emptyList(),
+  )
 }

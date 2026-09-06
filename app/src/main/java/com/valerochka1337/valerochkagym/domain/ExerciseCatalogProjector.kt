@@ -113,7 +113,9 @@ data class ExerciseCatalogProjection(
               )
             },
         explicitNoneEquipment =
-            count(filters.copy(equipment = ExerciseCatalogEquipmentFilter(includeExplicitNone = true))),
+            count(
+                filters.copy(equipment = ExerciseCatalogEquipmentFilter(includeExplicitNone = true))
+            ),
         sortCount = results(query, filters, sort).exercises.size,
     )
   }
@@ -136,7 +138,8 @@ data class ExerciseCatalogProjection(
                   EquipmentCatalog.covers(setOf(selected), required)
                 }
               }
-          ) return false
+          )
+              return false
         }
         ExerciseEquipmentRequirements.UnknownLegacy,
         null -> return false

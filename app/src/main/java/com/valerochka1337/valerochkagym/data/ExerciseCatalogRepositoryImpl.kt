@@ -35,7 +35,9 @@ constructor(
             exercises.associate { exercise ->
               val value =
                   CanonicalExerciseRegistry.requirementsFor(exercise)?.toRequirements()
-                      ?: if (exercise.equipmentRequirementState == EquipmentRequirementState.UNKNOWN) {
+                      ?: if (
+                          exercise.equipmentRequirementState == EquipmentRequirementState.UNKNOWN
+                      ) {
                         ExerciseEquipmentRequirements.UnknownLegacy
                       } else {
                         rowsByExercise[exercise.id]

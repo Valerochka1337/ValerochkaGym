@@ -1,7 +1,7 @@
 package com.valerochka1337.valerochkagym.domain
 
-import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
 import com.valerochka1337.valerochkagym.data.db.entity.EquipmentRequirementState
+import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
 import com.valerochka1337.valerochkagym.data.db.entity.Muscle
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleGroup
 import org.junit.Assert.assertEquals
@@ -13,13 +13,24 @@ class ExerciseSheetRowsTest {
 
   @Test
   fun `known requirements round trip across multiple muscles and equipment rows`() {
-    val snapshot = ExerciseSheetRecord.Snapshot(
-        EXERCISE_ID, 200, "Жим", MuscleGroup.CHEST, ExerciseType.STRENGTH, true,
-        mapOf(Muscle.UPPER_CHEST to 100, Muscle.TRICEPS to 50),
-        equipmentRequirementState = EquipmentRequirementState.KNOWN,
-        equipmentIds = setOf("dumbbells", "flat_bench"),
+    val snapshot =
+        ExerciseSheetRecord.Snapshot(
+            EXERCISE_ID,
+            200,
+            "Жим",
+            MuscleGroup.CHEST,
+            ExerciseType.STRENGTH,
+            true,
+            mapOf(Muscle.UPPER_CHEST to 100, Muscle.TRICEPS to 50),
+            equipmentRequirementState = EquipmentRequirementState.KNOWN,
+            equipmentIds = setOf("dumbbells", "flat_bench"),
+        )
+    assertEquals(
+        snapshot,
+        ExerciseSheetRowParser.parse(ExerciseSheetRowMapper.rows(snapshot).asStrings())
+            .records
+            .single(),
     )
-    assertEquals(snapshot, ExerciseSheetRowParser.parse(ExerciseSheetRowMapper.rows(snapshot).asStrings()).records.single())
   }
 
   @Test
@@ -118,7 +129,12 @@ class ExerciseSheetRowsTest {
         )
 
     assertEquals("Exercises!A:L", ExerciseSheetRowMapper.RANGE)
-    assertEquals(snapshot, ExerciseSheetRowParser.parse(ExerciseSheetRowMapper.rows(snapshot).asStrings()).records.single())
+    assertEquals(
+        snapshot,
+        ExerciseSheetRowParser.parse(ExerciseSheetRowMapper.rows(snapshot).asStrings())
+            .records
+            .single(),
+    )
   }
 
   @Test

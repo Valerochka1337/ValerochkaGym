@@ -3,8 +3,8 @@ package com.valerochka1337.valerochkagym.ui.gyms
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.EquipmentCatalog
+import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
 import com.valerochka1337.valerochkagym.domain.DeleteGymResult
 import com.valerochka1337.valerochkagym.domain.GymConfigurationConflict
 import com.valerochka1337.valerochkagym.domain.GymRepository
@@ -24,7 +24,10 @@ import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-enum class GymEquipmentMode { ALL, SELECTED }
+enum class GymEquipmentMode {
+  ALL,
+  SELECTED,
+}
 
 /** Редактируемая конфигурация зала и каталог упражнений для мультивыбора. */
 data class GymEditorUiState(
@@ -59,10 +62,11 @@ data class GymEditorUiState(
     get() = !isLoading && !isBusy && loadError == null && equipment != null && name.isNotBlank()
 
   val filteredEquipment: List<EquipmentCatalog.Equipment>
-    get() = EquipmentCatalog.search(query).filter { entry ->
-      entry.id in equipment.orEmpty().map { it.id }.toSet() &&
-          (mode == GymEquipmentMode.ALL || entry.id in selectedEquipmentIds)
-    }
+    get() =
+        EquipmentCatalog.search(query).filter { entry ->
+          entry.id in equipment.orEmpty().map { it.id }.toSet() &&
+              (mode == GymEquipmentMode.ALL || entry.id in selectedEquipmentIds)
+        }
 
   val groupedEquipment: Map<String, List<EquipmentCatalog.Equipment>>
     get() = filteredEquipment.groupBy { it.group }.toSortedMap()
@@ -71,7 +75,9 @@ data class GymEditorUiState(
   val groupedBulkEquipment: Map<String, List<EquipmentCatalog.Equipment>>
     get() =
         (if (query.isBlank()) {
-              EquipmentCatalog.entries.filter { entry -> entry.id in equipment.orEmpty().map { it.id }.toSet() }
+              EquipmentCatalog.entries.filter { entry ->
+                entry.id in equipment.orEmpty().map { it.id }.toSet()
+              }
             } else {
               filteredEquipment
             })
@@ -113,9 +119,14 @@ constructor(
               isLoading = gymId != null || copySourceGymId != null,
               name = savedStateHandle[DRAFT_NAME] ?: "",
               query = savedStateHandle[DRAFT_QUERY] ?: "",
-              selectedEquipmentIds = savedStateHandle.get<ArrayList<String>>(DRAFT_EQUIPMENT)?.toSet().orEmpty(),
-              mode = savedStateHandle.get<String>(DRAFT_MODE)?.let { runCatching { GymEquipmentMode.valueOf(it) }.getOrNull() } ?: if (gymId == null) GymEquipmentMode.ALL else GymEquipmentMode.SELECTED,
-              expandedGroups = savedStateHandle.get<ArrayList<String>>(DRAFT_EXPANDED)?.toSet().orEmpty(),
+              selectedEquipmentIds =
+                  savedStateHandle.get<ArrayList<String>>(DRAFT_EQUIPMENT)?.toSet().orEmpty(),
+              mode =
+                  savedStateHandle.get<String>(DRAFT_MODE)?.let {
+                    runCatching { GymEquipmentMode.valueOf(it) }.getOrNull()
+                  } ?: if (gymId == null) GymEquipmentMode.ALL else GymEquipmentMode.SELECTED,
+              expandedGroups =
+                  savedStateHandle.get<ArrayList<String>>(DRAFT_EXPANDED)?.toSet().orEmpty(),
           ),
       )
   val uiState: StateFlow<GymEditorUiState> = _uiState.asStateFlow()
@@ -129,11 +140,18 @@ constructor(
   init {
     _uiState.update { it.copy(equipment = EquipmentCatalog.entries) }
     viewModelScope.launch {
-      repository.observeExerciseCatalog().catch { emit(emptyList()) }.collect { exercises ->
-        _uiState.update { it.copy(exercises = exercises.sortedBy { exercise -> exercise.name.lowercase() }) }
-      }
+      repository
+          .observeExerciseCatalog()
+          .catch { emit(emptyList()) }
+          .collect { exercises ->
+            _uiState.update {
+              it.copy(exercises = exercises.sortedBy { exercise -> exercise.name.lowercase() })
+            }
+          }
     }
-    (gymId ?: copySourceGymId)?.let { id -> viewModelScope.launch { load(id, copySourceGymId != null) } }
+    (gymId ?: copySourceGymId)?.let { id ->
+      viewModelScope.launch { load(id, copySourceGymId != null) }
+    }
   }
 
   private suspend fun load(id: String, asCopy: Boolean = false) {
@@ -218,8 +236,10 @@ constructor(
               when (val requirements = repository.requirementsFor(exercise)) {
                 is com.valerochka1337.valerochkagym.domain.ExerciseEquipmentRequirements.Required ->
                     requirements.equipmentIds.all { EquipmentCatalog.covers(equipment, it) }
-                com.valerochka1337.valerochkagym.domain.ExerciseEquipmentRequirements.ExplicitNone -> true
-                com.valerochka1337.valerochkagym.domain.ExerciseEquipmentRequirements.UnknownLegacy -> false
+                com.valerochka1337.valerochkagym.domain.ExerciseEquipmentRequirements
+                    .ExplicitNone -> true
+                com.valerochka1337.valerochkagym.domain.ExerciseEquipmentRequirements
+                    .UnknownLegacy -> false
               }
             }
         _uiState.update { it.copy(previewLoading = false, previewExercises = available) }
@@ -273,10 +293,17 @@ constructor(
     savedStateHandle[DRAFT_EQUIPMENT] = ArrayList(_uiState.value.selectedEquipmentIds)
   }
 
-  fun selectAll() = setScope(_uiState.value.equipment.orEmpty().mapTo(linkedSetOf()) { it.id }, true)
-  fun clearAll() = setScope(_uiState.value.equipment.orEmpty().mapTo(linkedSetOf()) { it.id }, false)
-  fun selectFound() = setScope(_uiState.value.filteredEquipment.mapTo(linkedSetOf()) { it.id }, true)
-  fun clearFound() = setScope(_uiState.value.filteredEquipment.mapTo(linkedSetOf()) { it.id }, false)
+  fun selectAll() =
+      setScope(_uiState.value.equipment.orEmpty().mapTo(linkedSetOf()) { it.id }, true)
+
+  fun clearAll() =
+      setScope(_uiState.value.equipment.orEmpty().mapTo(linkedSetOf()) { it.id }, false)
+
+  fun selectFound() =
+      setScope(_uiState.value.filteredEquipment.mapTo(linkedSetOf()) { it.id }, true)
+
+  fun clearFound() =
+      setScope(_uiState.value.filteredEquipment.mapTo(linkedSetOf()) { it.id }, false)
 
   /** Bulk scope is the complete pool when there is no query, otherwise current visible results. */
   fun toggleAll() {
@@ -287,9 +314,7 @@ constructor(
 
   fun toggleGroup(group: String) =
       toggleScope(
-          _uiState.value.groupedBulkEquipment[group]
-              .orEmpty()
-              .mapTo(linkedSetOf()) { it.id },
+          _uiState.value.groupedBulkEquipment[group].orEmpty().mapTo(linkedSetOf()) { it.id },
       )
 
   fun undoBulk() {
@@ -327,7 +352,8 @@ constructor(
 
   private fun setScope(scope: Set<String>, selected: Boolean) {
     _uiState.update { state ->
-      if (state.isBusy) state else {
+      if (state.isBusy) state
+      else {
         val values = state.selectedEquipmentIds.toMutableSet()
         if (selected) values.addAll(scope) else values.removeAll(scope)
         state.copy(

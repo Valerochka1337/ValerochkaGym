@@ -29,10 +29,14 @@ interface ExerciseDao {
   /** Все упражнения одним снимком (для матчинга по имени при импорте). */
   @Query("SELECT * FROM exercises") suspend fun getAllOnce(): List<ExerciseEntity>
 
-  @Query("SELECT equipmentId FROM exercise_equipment WHERE exerciseId = :exerciseId ORDER BY equipmentId")
+  @Query(
+      "SELECT equipmentId FROM exercise_equipment WHERE exerciseId = :exerciseId ORDER BY equipmentId"
+  )
   suspend fun getRequirementIds(exerciseId: Long): List<String>
 
-  @Query("SELECT * FROM exercise_equipment WHERE exerciseId IN (:exerciseIds) ORDER BY exerciseId, equipmentId")
+  @Query(
+      "SELECT * FROM exercise_equipment WHERE exerciseId IN (:exerciseIds) ORDER BY exerciseId, equipmentId"
+  )
   suspend fun getRequirements(exerciseIds: List<Long>): List<ExerciseEquipmentEntity>
 
   @Query("SELECT * FROM exercise_equipment ORDER BY exerciseId, equipmentId")

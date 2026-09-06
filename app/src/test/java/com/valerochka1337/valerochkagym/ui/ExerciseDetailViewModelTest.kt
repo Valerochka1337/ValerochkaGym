@@ -5,9 +5,9 @@ import com.valerochka1337.valerochkagym.data.db.CanonicalExerciseRegistry
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseDao
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseMuscleDao
 import com.valerochka1337.valerochkagym.data.db.dao.WorkoutDao
+import com.valerochka1337.valerochkagym.data.db.entity.EquipmentRequirementState
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEquipmentEntity
-import com.valerochka1337.valerochkagym.data.db.entity.EquipmentRequirementState
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseMuscleEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
 import com.valerochka1337.valerochkagym.data.db.entity.Muscle
@@ -19,8 +19,9 @@ import com.valerochka1337.valerochkagym.data.db.entity.WorkoutExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.WorkoutSetEntity
 import com.valerochka1337.valerochkagym.data.db.relation.AnalyticsSetRow
 import com.valerochka1337.valerochkagym.data.db.relation.WorkoutFull
-import com.valerochka1337.valerochkagym.domain.ExerciseStatisticsCalculator
+import com.valerochka1337.valerochkagym.domain.DeleteGymResult
 import com.valerochka1337.valerochkagym.domain.ExerciseEquipmentRequirements
+import com.valerochka1337.valerochkagym.domain.ExerciseStatisticsCalculator
 import com.valerochka1337.valerochkagym.domain.GymConfiguration
 import com.valerochka1337.valerochkagym.domain.GymConfigurationConflict
 import com.valerochka1337.valerochkagym.domain.GymRepository
@@ -28,7 +29,6 @@ import com.valerochka1337.valerochkagym.domain.GymRoutineReference
 import com.valerochka1337.valerochkagym.domain.NewExerciseConfiguration
 import com.valerochka1337.valerochkagym.domain.SaveExerciseConfigurationResult
 import com.valerochka1337.valerochkagym.domain.SaveGymResult
-import com.valerochka1337.valerochkagym.domain.DeleteGymResult
 import com.valerochka1337.valerochkagym.ui.exercise.ExerciseDetailViewModel
 import com.valerochka1337.valerochkagym.ui.navigation.GymRoutes
 import com.valerochka1337.valerochkagym.util.MainDispatcherRule
@@ -55,7 +55,10 @@ class ExerciseDetailViewModelTest {
       runTest(mainDispatcherRule.testDispatcher.scheduler) {
         val exerciseDao = FakeExerciseDao(isCustom = true, knownRequirements = true)
         val viewModel = viewModel(exerciseDao, FakeExerciseMuscleDao(), FakeWorkoutDao())
-        val collector = backgroundScope.launch(mainDispatcherRule.testDispatcher) { viewModel.uiState.collect {} }
+        val collector =
+            backgroundScope.launch(mainDispatcherRule.testDispatcher) {
+              viewModel.uiState.collect {}
+            }
 
         advanceUntilIdle()
         exerciseDao.requirements.value = listOf(ExerciseEquipmentEntity(EXERCISE_ID, "dumbbells"))
@@ -196,7 +199,10 @@ class ExerciseDetailViewModelTest {
                 FakeWorkoutDao(),
                 gymRepository = repository,
             )
-        val collector = backgroundScope.launch(mainDispatcherRule.testDispatcher) { viewModel.uiState.collect {} }
+        val collector =
+            backgroundScope.launch(mainDispatcherRule.testDispatcher) {
+              viewModel.uiState.collect {}
+            }
         advanceUntilIdle()
 
         viewModel.openEditor()
@@ -211,7 +217,10 @@ class ExerciseDetailViewModelTest {
 
         assertEquals("Новый жим", viewModel.editor.value?.name)
         assertFalse(viewModel.editor.value?.isSaving ?: true)
-        assertEquals(ExerciseEquipmentRequirements.ExplicitNone, viewModel.editor.value?.requirements)
+        assertEquals(
+            ExerciseEquipmentRequirements.ExplicitNone,
+            viewModel.editor.value?.requirements,
+        )
         assertEquals(true, viewModel.editor.value?.saveError?.contains("Гантели"))
         assertEquals(true, viewModel.editor.value?.saveError?.contains("Жим гантелей"))
         assertEquals(true, viewModel.editor.value?.saveError?.contains("Верх тела"))

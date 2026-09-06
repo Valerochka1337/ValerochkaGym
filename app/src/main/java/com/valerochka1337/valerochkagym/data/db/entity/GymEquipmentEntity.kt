@@ -8,14 +8,15 @@ import androidx.room.Index
 @Entity(
     tableName = "gym_equipment",
     primaryKeys = ["gymId", "equipmentId"],
-    foreignKeys = [
-        ForeignKey(
-            entity = GymEntity::class,
-            parentColumns = ["id"],
-            childColumns = ["gymId"],
-            onDelete = ForeignKey.CASCADE,
-        ),
-    ],
+    foreignKeys =
+        [
+            ForeignKey(
+                entity = GymEntity::class,
+                parentColumns = ["id"],
+                childColumns = ["gymId"],
+                onDelete = ForeignKey.CASCADE,
+            ),
+        ],
     indices = [Index("gymId")],
 )
 data class GymEquipmentEntity(

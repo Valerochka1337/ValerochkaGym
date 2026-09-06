@@ -1,7 +1,7 @@
 package com.valerochka1337.valerochkagym.domain
 
-import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.EquipmentRequirementState
+import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseMuscleEntity
 import com.valerochka1337.valerochkagym.data.db.entity.RoutineEntity
 import com.valerochka1337.valerochkagym.data.db.entity.RoutineExerciseEntity
@@ -21,7 +21,9 @@ data class GymConfiguration(
 
 sealed interface ExerciseEquipmentRequirements {
   data object UnknownLegacy : ExerciseEquipmentRequirements
+
   data object ExplicitNone : ExerciseEquipmentRequirements
+
   data class Required(val equipmentIds: Set<String>) : ExerciseEquipmentRequirements
 }
 

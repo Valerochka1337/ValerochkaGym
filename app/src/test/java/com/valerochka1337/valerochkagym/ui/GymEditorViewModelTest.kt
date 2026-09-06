@@ -6,11 +6,11 @@ import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleGroup
 import com.valerochka1337.valerochkagym.domain.DeleteGymResult
+import com.valerochka1337.valerochkagym.domain.ExerciseEquipmentRequirements
 import com.valerochka1337.valerochkagym.domain.GymConfiguration
 import com.valerochka1337.valerochkagym.domain.GymConfigurationConflict
 import com.valerochka1337.valerochkagym.domain.GymRepository
 import com.valerochka1337.valerochkagym.domain.GymRoutineReference
-import com.valerochka1337.valerochkagym.domain.ExerciseEquipmentRequirements
 import com.valerochka1337.valerochkagym.domain.SaveGymResult
 import com.valerochka1337.valerochkagym.ui.gyms.GymEditorViewModel
 import com.valerochka1337.valerochkagym.ui.gyms.GymsViewModel
@@ -93,7 +93,10 @@ class GymEditorViewModelTest {
         viewModel.save()
         advanceUntilIdle()
 
-        assertEquals(SaveRequest(null, "Зал у дома", setOf("dumbbells")), repository.lastSaveRequest)
+        assertEquals(
+            SaveRequest(null, "Зал у дома", setOf("dumbbells")),
+            repository.lastSaveRequest,
+        )
         assertFalse(viewModel.uiState.value.isSaving)
       }
 
@@ -190,7 +193,10 @@ class GymEditorViewModelTest {
 
         val restored = GymEditorViewModel(handle, FakeGymRepository())
         assertEquals("Дом", restored.uiState.value.name)
-        assertEquals(viewModel.uiState.value.selectedEquipmentIds, restored.uiState.value.selectedEquipmentIds)
+        assertEquals(
+            viewModel.uiState.value.selectedEquipmentIds,
+            restored.uiState.value.selectedEquipmentIds,
+        )
       }
 
   @Test
@@ -252,8 +258,10 @@ class GymEditorViewModelTest {
                 requirements =
                     mapOf(
                         flat.id to ExerciseEquipmentRequirements.Required(setOf("flat_bench")),
-                        incline.id to ExerciseEquipmentRequirements.Required(setOf("incline_bench")),
-                        decline.id to ExerciseEquipmentRequirements.Required(setOf("decline_bench")),
+                        incline.id to
+                            ExerciseEquipmentRequirements.Required(setOf("incline_bench")),
+                        decline.id to
+                            ExerciseEquipmentRequirements.Required(setOf("decline_bench")),
                         free.id to ExerciseEquipmentRequirements.ExplicitNone,
                         unknown.id to ExerciseEquipmentRequirements.UnknownLegacy,
                     ),

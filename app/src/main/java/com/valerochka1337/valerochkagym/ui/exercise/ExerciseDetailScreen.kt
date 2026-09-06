@@ -40,8 +40,8 @@ import com.valerochka1337.valerochkagym.data.db.CanonicalExerciseRegistry
 import com.valerochka1337.valerochkagym.data.db.EquipmentCatalog
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleLoad
-import com.valerochka1337.valerochkagym.domain.ExerciseStatistics
 import com.valerochka1337.valerochkagym.domain.ExerciseEquipmentRequirements
+import com.valerochka1337.valerochkagym.domain.ExerciseStatistics
 import com.valerochka1337.valerochkagym.domain.displayName
 import com.valerochka1337.valerochkagym.ui.analysis.body.BodyMapFlip
 import com.valerochka1337.valerochkagym.ui.analysis.body.MuscleSector
@@ -141,12 +141,12 @@ private fun ExerciseHeader(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
             )
-          Text(
-              text = equipmentLine(requirements),
-              style = MaterialTheme.typography.bodySmall,
-              color = MaterialTheme.colorScheme.onSurfaceVariant,
-              maxLines = 1,
-          )
+            Text(
+                text = equipmentLine(requirements),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+            )
           }
         }
       },
@@ -196,9 +196,9 @@ internal fun equipmentLine(requirements: ExerciseEquipmentRequirements): String 
       ExerciseEquipmentRequirements.UnknownLegacy -> "Оборудование не указано"
       ExerciseEquipmentRequirements.ExplicitNone -> "Без оборудования"
       is ExerciseEquipmentRequirements.Required ->
-          requirements.equipmentIds
-              .sorted()
-              .joinToString(prefix = "Оборудование: ") { id -> EquipmentCatalog.require(id).name }
+          requirements.equipmentIds.sorted().joinToString(prefix = "Оборудование: ") { id ->
+            EquipmentCatalog.require(id).name
+          }
     }
 
 @Composable

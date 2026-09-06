@@ -6,11 +6,11 @@ import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
 import com.valerochka1337.valerochkagym.data.db.entity.Muscle
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleGroup
 import com.valerochka1337.valerochkagym.data.db.relation.ExerciseWorkoutHistoryRow
-import org.junit.Assert.assertEquals
-import org.junit.Test
 import com.valerochka1337.valerochkagym.domain.ExerciseEquipmentRequirements.ExplicitNone
 import com.valerochka1337.valerochkagym.domain.ExerciseEquipmentRequirements.Required
 import com.valerochka1337.valerochkagym.domain.ExerciseEquipmentRequirements.UnknownLegacy
+import org.junit.Assert.assertEquals
+import org.junit.Test
 
 class ExerciseCatalogProjectionTest {
 
@@ -65,7 +65,11 @@ class ExerciseCatalogProjectionTest {
                 muscles = emptyList(),
                 history = emptyList(),
                 requirementsByExercise =
-                    mapOf(1L to UnknownLegacy, 2L to ExplicitNone, 3L to Required(setOf("dumbbells"))),
+                    mapOf(
+                        1L to UnknownLegacy,
+                        2L to ExplicitNone,
+                        3L to Required(setOf("dumbbells")),
+                    ),
             ),
         )
 
@@ -74,7 +78,9 @@ class ExerciseCatalogProjectionTest {
         projection
             .results(
                 "",
-                ExerciseCatalogFilters(equipment = ExerciseCatalogEquipmentFilter(setOf("dumbbells"))),
+                ExerciseCatalogFilters(
+                    equipment = ExerciseCatalogEquipmentFilter(setOf("dumbbells"))
+                ),
                 ExerciseCatalogSort.ALPHABETICAL,
             )
             .exercises
@@ -146,6 +152,7 @@ class ExerciseCatalogProjectionTest {
             .map { it.id },
     )
   }
+
   @Test
   fun `search and filters combine as and without duplicates`() {
     val projection = project()
