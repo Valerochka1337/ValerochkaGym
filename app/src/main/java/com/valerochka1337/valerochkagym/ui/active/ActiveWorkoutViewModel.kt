@@ -276,7 +276,6 @@ constructor(
         ?.workoutExercise
         ?.id
   }
-
 }
 
 private const val SUBSCRIPTION_TIMEOUT_MS = 5_000L

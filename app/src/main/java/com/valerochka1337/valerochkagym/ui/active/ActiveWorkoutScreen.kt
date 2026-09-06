@@ -460,7 +460,8 @@ internal fun ActiveWorkoutContent(
               actions = setActions,
               activeSetId = activeSetId,
               showAddSet =
-                  localOrder == roomOrder && exercise.workoutExercise.id == focusedWorkoutExerciseId,
+                  localOrder == roomOrder &&
+                      exercise.workoutExercise.id == focusedWorkoutExerciseId,
               onAddSet = { setActions.addSet(exercise.workoutExercise.id) },
               dragHandle = {
                 DragHandle(

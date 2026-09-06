@@ -156,18 +156,16 @@ class ActiveWorkoutScreenTest {
       }
     }
 
-    customActionsFor("Жим лёжа").single { it.label == "Переместить ниже" }.also { action ->
-      composeRule.runOnIdle { action.action() }
-    }
+    customActionsFor("Жим лёжа")
+        .single { it.label == "Переместить ниже" }
+        .also { action -> composeRule.runOnIdle { action.action() } }
     composeRule.waitForIdle()
 
     composeRule.onAllNodesWithText("Подход").assertCountEquals(0)
     assertEquals(emptyList<Long>(), addedSetTo)
     assertEquals(listOf(listOf(12L, 11L, 13L)), persistedOrders)
 
-    composeRule.runOnIdle {
-      workout.value = workout.value.reorderExercises(listOf(12L, 11L, 13L))
-    }
+    composeRule.runOnIdle { workout.value = workout.value.reorderExercises(listOf(12L, 11L, 13L)) }
     composeRule.waitForIdle()
 
     assertAddSetIsAvailable()
@@ -186,7 +184,9 @@ class ActiveWorkoutScreenTest {
   }
 
   private fun customActionsFor(name: String) =
-      generateSequence(composeRule.onNodeWithText(name, useUnmergedTree = true).fetchSemanticsNode()) {
+      generateSequence(
+              composeRule.onNodeWithText(name, useUnmergedTree = true).fetchSemanticsNode()
+          ) {
             it.parent
           }
           .first { it.config.contains(SemanticsActions.CustomActions) }
