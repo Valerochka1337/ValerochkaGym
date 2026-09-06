@@ -39,7 +39,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.valerochka1337.valerochkagym.data.db.EquipmentCatalog
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
 import com.valerochka1337.valerochkagym.data.db.entity.Muscle
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleLoad
@@ -250,31 +249,11 @@ internal fun ExerciseEditorSheet(
         )
         Spacer(Modifier.height(8.dp))
       }
-      val selectedEquipment =
-          (requirements as? ExerciseEquipmentRequirements.Required)?.equipmentIds.orEmpty()
-      FlowRow(
-          horizontalArrangement = Arrangement.spacedBy(8.dp),
-          verticalArrangement = Arrangement.spacedBy(8.dp),
-      ) {
-        FilterChip(
-            selected = requirements is ExerciseEquipmentRequirements.ExplicitNone,
-            onClick = { requirements = ExerciseEquipmentRequirements.ExplicitNone },
-            label = { Text("Без оборудования") },
-        )
-        EquipmentCatalog.entries.forEach { equipment ->
-          FilterChip(
-              selected = equipment.id in selectedEquipment,
-              onClick = {
-                val updated = selectedEquipment.toMutableSet()
-                if (!updated.add(equipment.id)) updated.remove(equipment.id)
-                requirements =
-                    if (updated.isEmpty()) ExerciseEquipmentRequirements.ExplicitNone
-                    else ExerciseEquipmentRequirements.Required(updated)
-              },
-              label = { Text(equipment.name) },
-          )
-        }
-      }
+      EquipmentPicker(
+          requirements = requirements,
+          onRequirementsChange = { requirements = it },
+          enabled = !initial.isSaving,
+      )
 
       Spacer(Modifier.height(20.dp))
       initial.saveError?.let { error ->

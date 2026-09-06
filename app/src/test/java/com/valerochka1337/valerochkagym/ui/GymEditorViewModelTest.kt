@@ -36,6 +36,18 @@ class GymEditorViewModelTest {
   @get:Rule val mainDispatcherRule = MainDispatcherRule()
 
   @Test
+  fun `equipment search accepts transposed letters without changing the selection`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val viewModel = GymEditorViewModel(SavedStateHandle(), FakeGymRepository())
+        advanceUntilIdle()
+        viewModel.toggleEquipment("barbell")
+        viewModel.setQuery("ГАНЕТЛИ")
+
+        assertEquals(listOf("dumbbells"), viewModel.uiState.value.filteredEquipment.map { it.id })
+        assertEquals(setOf("barbell"), viewModel.uiState.value.selectedEquipmentIds)
+      }
+
+  @Test
   fun `gyms are sorted by name after the repository emits`() =
       runTest(mainDispatcherRule.testDispatcher.scheduler) {
         val repository =

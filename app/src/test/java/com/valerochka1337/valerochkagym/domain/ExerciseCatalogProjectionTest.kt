@@ -15,6 +15,28 @@ import org.junit.Test
 class ExerciseCatalogProjectionTest {
 
   @Test
+  fun `catalog and facet counts share typo tolerant unordered search`() {
+    val projection =
+        ExerciseCatalogProjector.project(
+            ExerciseCatalogSnapshot(
+                exercises =
+                    listOf(
+                        exercise(1, "Подъём гантелей", MuscleGroup.SHOULDERS),
+                        exercise(2, "Жим штанги", MuscleGroup.CHEST),
+                    ),
+                muscles = emptyList(),
+                history = emptyList(),
+            )
+        )
+    val query = "ГАНТЕЛЕЙ ПОДЬЕМ"
+    val filters = ExerciseCatalogFilters()
+    val sort = ExerciseCatalogSort.ALPHABETICAL
+    assertEquals(listOf(1L), projection.results(query, filters, sort).exercises.map { it.id })
+    assertEquals(1, projection.facetCounts(query, filters, sort).sortCount)
+    assertEquals(listOf(1L), projection.results("гантелй", filters, sort).exercises.map { it.id })
+  }
+
+  @Test
   fun `equipment facet uses OR while group and origin remain AND`() {
     val projection =
         ExerciseCatalogProjector.project(
