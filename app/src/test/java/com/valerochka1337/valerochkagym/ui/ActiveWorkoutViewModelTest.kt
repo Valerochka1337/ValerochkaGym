@@ -196,17 +196,47 @@ class ActiveWorkoutViewModelTest {
   // region structure edits
 
   @Test
-  fun `structure edits are forwarded to the repository`() =
+  fun `adding a set forwards only the focus exercise`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val harness = harness(active = workoutWithTwoIncompleteExercises())
+        collectUiState(harness.viewModel)
+
+        harness.viewModel.addSet(WORKOUT_EXERCISE_ID)
+
+        assertEquals(listOf(WORKOUT_EXERCISE_ID), harness.repository.addedSetTo)
+      }
+
+  @Test
+  fun `adding a set ignores nonfocus missing and completed workouts`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val nonfocusHarness = harness(active = workoutWithTwoIncompleteExercises())
+        collectUiState(nonfocusHarness.viewModel)
+
+        nonfocusHarness.viewModel.addSet(SECOND_WORKOUT_EXERCISE_ID)
+
+        val missingHarness = harness(active = null)
+        collectUiState(missingHarness.viewModel)
+        missingHarness.viewModel.addSet(WORKOUT_EXERCISE_ID)
+
+        val completedHarness = harness(active = workoutFull(setId = 10L).markSetCompleted(10L))
+        collectUiState(completedHarness.viewModel)
+        completedHarness.viewModel.addSet(WORKOUT_EXERCISE_ID)
+
+        assertTrue(nonfocusHarness.repository.addedSetTo.isEmpty())
+        assertTrue(missingHarness.repository.addedSetTo.isEmpty())
+        assertTrue(completedHarness.repository.addedSetTo.isEmpty())
+      }
+
+  @Test
+  fun `other structure edits are forwarded to the repository`() =
       runTest(mainDispatcherRule.testDispatcher.scheduler) {
         val harness = harness(active = workoutFull(setId = 10L))
         collectUiState(harness.viewModel)
 
-        harness.viewModel.addSet(WORKOUT_EXERCISE_ID)
         harness.viewModel.deleteSet(10L)
         harness.viewModel.deleteExercise(WORKOUT_EXERCISE_ID)
         harness.viewModel.addExerciseById(7L)
 
-        assertEquals(listOf(WORKOUT_EXERCISE_ID), harness.repository.addedSetTo)
         assertEquals(listOf(10L), harness.repository.deletedSets)
         assertEquals(listOf(WORKOUT_EXERCISE_ID), harness.repository.deletedExercises)
         assertEquals(listOf("w1" to 7L), harness.repository.addedExercises)
@@ -413,6 +443,53 @@ class ActiveWorkoutViewModelTest {
                           ),
                   ),
               ),
+      )
+
+  private fun workoutWithTwoIncompleteExercises(): WorkoutFull {
+    val workout = workoutFull(setId = 10L)
+    return workout.copy(
+        exercises =
+            workout.exercises +
+                WorkoutExerciseWithSets(
+                    workoutExercise =
+                        WorkoutExerciseEntity(
+                            id = SECOND_WORKOUT_EXERCISE_ID,
+                            workoutId = "w1",
+                            exerciseId = SECOND_EXERCISE_ID,
+                            position = 1,
+                        ),
+                    exercise =
+                        ExerciseEntity(
+                            id = SECOND_EXERCISE_ID,
+                            name = "Тяга",
+                            muscleGroup = MuscleGroup.BACK,
+                            type = ExerciseType.STRENGTH,
+                        ),
+                    sets =
+                        listOf(
+                            WorkoutSetEntity(
+                                id = SECOND_SET_ID,
+                                workoutExerciseId = SECOND_WORKOUT_EXERCISE_ID,
+                                setIndex = 0,
+                                weightKg = 50.0,
+                                reps = 8,
+                            ),
+                        ),
+                ),
+    )
+  }
+
+  private fun WorkoutFull.markSetCompleted(setId: Long): WorkoutFull =
+      copy(
+          exercises =
+              exercises.map { exercise ->
+                exercise.copy(
+                    sets =
+                        exercise.sets.map { set ->
+                          if (set.id == setId) set.copy(isCompleted = true) else set
+                        },
+                )
+              },
       )
 
   private fun completedSet(id: Long, weightKg: Double, reps: Int): WorkoutSetEntity =
@@ -670,6 +747,9 @@ class ActiveWorkoutViewModelTest {
   private companion object {
     const val EXERCISE_ID = 5L
     const val WORKOUT_EXERCISE_ID = 20L
+    const val SECOND_EXERCISE_ID = 6L
+    const val SECOND_WORKOUT_EXERCISE_ID = 21L
+    const val SECOND_SET_ID = 11L
     const val DEFAULT_REST_SECONDS = 90
   }
 }
