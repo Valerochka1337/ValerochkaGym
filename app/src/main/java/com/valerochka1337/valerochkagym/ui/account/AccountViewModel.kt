@@ -4,31 +4,29 @@ import android.app.Activity
 import android.os.Build
 import androidx.credentials.CredentialManager
 import androidx.credentials.GetCredentialRequest
+import androidx.credentials.exceptions.GetCredentialCancellationException
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.google.android.libraries.identity.googleid.GetGoogleIdOption
+import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.valerochka1337.valerochkagym.R
 import com.valerochka1337.valerochkagym.data.backend.*
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.*
 
 @HiltViewModel
 class AccountViewModel
 @Inject
 constructor(
-    private val api: BackendApi,
-    private val tokens: BackendTokenStore,
+    private val api: BackendTransport,
+    private val tokens: BackendSessionStore,
     private val sync: BackendSync,
     private val scheduler: BackendSyncScheduler,
-    private val exporter: com.valerochka1337.valerochkagym.data.backup.DatabaseExporter,
 ) : ViewModel() {
+  val mode = MutableStateFlow("login")
   val session = tokens.session
   val status = sync.status
   val conflict = sync.conflict
@@ -45,6 +43,7 @@ constructor(
         block()
       } catch (e: Exception) {
         if (e is kotlinx.coroutines.CancellationException) throw e
+        if (e is GetCredentialCancellationException) return@launch
         message.value =
             if (e is BackendException) e.message
             else "Не удалось выполнить действие. Проверьте подключение и повторите"
@@ -56,11 +55,14 @@ constructor(
 
   private suspend fun accept(value: JsonElement) {
     val session = api.json.decodeFromJsonElement<BackendTokens>(value)
-    sync.mutex.withLock {
-      sync.claim(session.userId)
-      withContext(Dispatchers.IO) { tokens.save(session) }
-    }
+    sync.signIn(session)
     scheduler.enqueue()
+  }
+
+  fun showMode(value: String) {
+    if (busy.value) return
+    mode.value = value
+    message.value = null
   }
 
   fun submit(mode: String, email: String, password: String, code: String) = task {
@@ -77,7 +79,21 @@ constructor(
           "resend" -> "/auth/verify/request"
           else -> "/auth/$mode"
         }
-    val result = api.public("POST", path, body)
+    val result =
+        try {
+          api.public("POST", path, body)
+        } catch (e: BackendException) {
+          if (e.code == "email_unverified") this.mode.value = "verify"
+          throw e
+        }
+    this.mode.value =
+        when (mode) {
+          "register" -> "verify"
+          "request-reset" -> "reset"
+          "verify",
+          "reset" -> "login"
+          else -> this.mode.value
+        }
     if (mode == "login") accept(result)
     else
         message.value =
@@ -90,13 +106,11 @@ constructor(
             }
   }
 
-  fun google(activity: Activity, link: Boolean = false) = task {
+  fun google(activity: Activity) = task {
     val nonce =
         api.public("POST", "/auth/google/nonce").jsonObject.getValue("nonce").jsonPrimitive.content
     val option =
-        GetGoogleIdOption.Builder()
-            .setServerClientId(activity.getString(R.string.google_web_client_id))
-            .setFilterByAuthorizedAccounts(false)
+        GetSignInWithGoogleOption.Builder(activity.getString(R.string.google_web_client_id))
             .setNonce(nonce)
             .build()
     val response =
@@ -106,27 +120,25 @@ constructor(
                 GetCredentialRequest.Builder().addCredentialOption(option).build(),
             )
     val credential = GoogleIdTokenCredential.createFrom(response.credential.data)
-    val body = buildJsonObject {
-      put("idToken", credential.idToken)
-      put("nonce", nonce)
-      put("deviceName", "${Build.MANUFACTURER} ${Build.MODEL}".take(100))
-    }
     accept(
-        if (link) api.authorized("POST", "/me/google", body)
-        else api.public("POST", "/auth/google", body)
+        api.public(
+            "POST",
+            "/auth/google",
+            buildJsonObject {
+              put("idToken", credential.idToken)
+              put("nonce", nonce)
+              put("deviceName", "${Build.MANUFACTURER} ${Build.MODEL}".take(100))
+            },
+        )
     )
   }
 
   fun synchronize(choice: String? = null) = task { sync.run(choice) }
 
   fun logout(all: Boolean = false) = task {
-    if (sync.hasActiveWorkout())
-        throw BackendException(409, "workout_active", "Сначала завершите тренировку")
-    sync.mutex.withLock {
-      api.authorized("POST", if (all) "/logout-all" else "/logout")
-      withContext(Dispatchers.IO) { tokens.save(null) }
-      sessions.value = emptyList()
-    }
+    sync.signOut(all)
+    sessions.value = emptyList()
+    mode.value = "login"
   }
 
   fun loadSessions() = task {
@@ -143,22 +155,10 @@ constructor(
     message.value = "Введите код из письма, чтобы удалить аккаунт"
   }
 
-  fun exportLocal(uri: android.net.Uri) = task {
-    message.value =
-        when (val result = exporter.export(uri)) {
-          com.valerochka1337.valerochkagym.data.backup.ExportResult.Success ->
-              "Локальная копия сохранена"
-          is com.valerochka1337.valerochkagym.data.backup.ExportResult.Failure -> result.reason
-        }
-  }
-
   fun delete(code: String) = task {
-    if (sync.hasActiveWorkout())
-        throw BackendException(409, "workout_active", "Сначала завершите тренировку")
-    sync.mutex.withLock {
-      api.authorized("DELETE", "/me", buildJsonObject { put("code", code) })
-      withContext(Dispatchers.IO) { tokens.save(null) }
-      message.value = "Аккаунт удалён. Локальная копия сохранена для экспорта"
-    }
+    sync.deleteAccount(code)
+    sessions.value = emptyList()
+    mode.value = "login"
+    message.value = "Аккаунт удалён"
   }
 }

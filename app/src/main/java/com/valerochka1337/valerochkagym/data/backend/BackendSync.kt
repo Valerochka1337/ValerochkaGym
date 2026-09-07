@@ -11,7 +11,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.*
 
 @Singleton
@@ -56,14 +55,77 @@ constructor(
       withContext(Dispatchers.IO) {
         database.withTransaction {
           val previous = owner()
-          if (previous != null && previous != user)
-              throw BackendException(
-                  409,
-                  "local_owner",
-                  "На устройстве данные другого аккаунта. Войдите в прежний аккаунт; для смены сначала экспортируйте и очистите его данные",
-              )
+          if (previous != user) {
+            if (previous != null && active())
+                throw BackendException(409, "workout_active", "Сначала завершите тренировку")
+            clearAccountData()
+          }
           db.execSQL("INSERT OR IGNORE INTO backend_state(id,owner,generation) VALUES (1,NULL,0)")
           db.execSQL("UPDATE backend_state SET owner=? WHERE id=1", arrayOf(user))
+        }
+      }
+
+  // Called in the same Room transaction as the owner change. Cascades remove child rows;
+  // the old outbox and baseline must never be reused with another account's credentials.
+  private fun clearAccountData() {
+    listOf(
+            "scheduled_workouts",
+            "workouts",
+            "routines",
+            "gyms",
+            "exercises",
+            "body_measurements",
+            "configuration_tombstones",
+            "muscle_load_upgrade_notice",
+            "backend_outbox",
+            "backend_baseline",
+            "backend_state",
+        )
+        .forEach { db.execSQL("DELETE FROM $it") }
+  }
+
+  suspend fun signIn(session: BackendTokens) =
+      withContext(Dispatchers.IO) {
+        mutex.withLock {
+          // Persist the new token only after its account owns a clean cache. If interrupted,
+          // assertOwner prevents the previous session from accessing the new cache.
+          claim(session.userId)
+          com.valerochka1337.valerochkagym.data.db.reconcileCanonicalExerciseCatalog(database)
+          tokens.save(session)
+          mutableConflict.value = false
+          mutableStatus.value = "Загружаем ваши тренировки…"
+        }
+      }
+
+  suspend fun signOut(all: Boolean = false) =
+      withContext(Dispatchers.IO) {
+        mutex.withLock {
+          if (active())
+              throw BackendException(409, "workout_active", "Сначала завершите тренировку")
+          try {
+            api.authorized("POST", if (all) "/logout-all" else "/logout")
+          } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            // Local logout must work offline and with an expired session. Logging out every
+            // device needs a server acknowledgement, except when this session is already gone.
+            if (all && !(e is BackendException && e.status == 401)) throw e
+          }
+          tokens.save(null)
+          mutableConflict.value = false
+          mutableStatus.value = "Войдите в аккаунт"
+        }
+      }
+
+  suspend fun deleteAccount(code: String) =
+      withContext(Dispatchers.IO) {
+        mutex.withLock {
+          if (active())
+              throw BackendException(409, "workout_active", "Сначала завершите тренировку")
+          api.authorized("DELETE", "/me", buildJsonObject { put("code", code) })
+          database.withTransaction { clearAccountData() }
+          tokens.save(null)
+          mutableConflict.value = false
+          mutableStatus.value = "Войдите в аккаунт"
         }
       }
 
@@ -207,7 +269,8 @@ constructor(
             if (e is kotlinx.coroutines.CancellationException) throw e
             if (e is BackendException && e.code == "revision_conflict") mutableConflict.value = true
             mutableStatus.value =
-                e.message ?: "Не удалось синхронизировать. Повторим при подключении"
+                if (e is BackendException) e.message
+                else "Нет подключения. Повторим сохранение позже"
             throw e
           }
         }

@@ -20,7 +20,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.*
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -42,7 +41,7 @@ interface BackendSessionStore {
 }
 
 @Singleton
-class BackendTokenStore @Inject constructor(@param:ApplicationContext context: Context) :
+class BackendTokenStore @Inject constructor(@ApplicationContext context: Context) :
     BackendSessionStore {
   private val file = AtomicFile(File(context.noBackupFilesDir, "backend-session.bin"))
   private val json = Json { ignoreUnknownKeys = true }
@@ -77,6 +76,13 @@ class BackendTokenStore @Inject constructor(@param:ApplicationContext context: C
       } catch (_: Exception) {
         null
       }
+
+  @Synchronized
+  fun replaceIfCurrent(expectedRefreshToken: String, replacement: BackendTokens?): Boolean {
+    if (state.value?.refreshToken != expectedRefreshToken) return false
+    save(replacement)
+    return true
+  }
 
   @Synchronized
   override fun save(tokens: BackendTokens?) {
@@ -189,10 +195,9 @@ class BackendApi @Inject constructor(private val tokens: BackendTokenStore) : Ba
                     )
                 // Never restore a session which the user logged out of while the request was in
                 // flight.
-                if (tokens.session.value?.refreshToken != current.refreshToken) throw e
-                tokens.save(updated)
+                if (!tokens.replaceIfCurrent(current.refreshToken, updated)) throw e
               } catch (failure: BackendException) {
-                if (failure.status == 401) tokens.save(null)
+                if (failure.status == 401) tokens.replaceIfCurrent(current.refreshToken, null)
                 throw failure
               }
             }
