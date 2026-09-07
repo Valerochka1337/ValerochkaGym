@@ -38,6 +38,9 @@ import java.util.UUID
 @Database(
     entities =
         [
+            com.valerochka1337.valerochkagym.data.backend.BackendStateEntity::class,
+            com.valerochka1337.valerochkagym.data.backend.BackendBaselineEntity::class,
+            com.valerochka1337.valerochkagym.data.backend.BackendOutboxEntity::class,
             BodyMeasurementEntity::class,
             ConfigurationTombstoneEntity::class,
             ExerciseEntity::class,
@@ -56,7 +59,7 @@ import java.util.UUID
             WorkoutGymEntity::class,
             WorkoutSetEntity::class,
         ],
-    version = 14,
+    version = 15,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -644,6 +647,13 @@ abstract class GymDatabase : RoomDatabase() {
           }
         }
 
+    val MIGRATION_14_15: Migration =
+        object : Migration(14, 15) {
+          override fun migrate(db: SupportSQLiteDatabase) {
+            com.valerochka1337.valerochkagym.data.backend.SyncSchema.create(db)
+          }
+        }
+
     /** Единственный production/test реестр всех поддерживаемых путей до текущей схемы. */
     val ALL_MIGRATIONS: Array<Migration> =
         arrayOf(
@@ -660,6 +670,7 @@ abstract class GymDatabase : RoomDatabase() {
             MIGRATION_11_12,
             MIGRATION_12_13,
             MIGRATION_13_14,
+            MIGRATION_14_15,
         )
   }
 }

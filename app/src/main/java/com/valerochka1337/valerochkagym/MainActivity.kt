@@ -51,10 +51,12 @@ class MainActivity : ComponentActivity() {
                       enabled = currentSettings.hapticsEnabled,
                   ),
           ) {
-            MainScaffold(
-                requestedRoute = route,
-                onRequestedRouteHandled = { requestedRoute.value = null },
-            )
+            com.valerochka1337.valerochkagym.ui.account.AccountGate {
+              MainScaffold(
+                  requestedRoute = route,
+                  onRequestedRouteHandled = { requestedRoute.value = null },
+              )
+            }
           }
         }
       }

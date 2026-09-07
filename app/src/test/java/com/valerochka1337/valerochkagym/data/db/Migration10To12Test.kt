@@ -31,7 +31,7 @@ class Migration10To12Test {
     try {
       db.openHelper.writableDatabase.query("PRAGMA user_version").use { cursor ->
         assertEquals(
-            14,
+            15,
             cursor.run {
               moveToFirst()
               getInt(0)
