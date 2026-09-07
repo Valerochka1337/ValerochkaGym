@@ -4,13 +4,10 @@ import com.valerochka1337.valerochkagym.data.google.AccountBoundGoogleAuth
 import com.valerochka1337.valerochkagym.data.google.CalendarRepository
 import com.valerochka1337.valerochkagym.data.google.CalendarRepositoryImpl
 import com.valerochka1337.valerochkagym.data.google.ConfigurationSheetsRepository
-import com.valerochka1337.valerochkagym.data.google.ConfigurationSheetsRepositoryImpl
 import com.valerochka1337.valerochkagym.data.google.GoogleAuth
 import com.valerochka1337.valerochkagym.data.google.GoogleAuthManager
 import com.valerochka1337.valerochkagym.data.google.SheetsRepository
-import com.valerochka1337.valerochkagym.data.google.SheetsRepositoryImpl
 import com.valerochka1337.valerochkagym.data.google.WorkoutImportRepository
-import com.valerochka1337.valerochkagym.data.google.WorkoutImportRepositoryImpl
 import com.valerochka1337.valerochkagym.data.schedule.WeeklyScheduleRepository
 import com.valerochka1337.valerochkagym.data.schedule.WeeklyScheduleRepositoryImpl
 import com.valerochka1337.valerochkagym.worker.WeeklyScheduleRecoveryScheduler
@@ -32,12 +29,16 @@ abstract class GoogleModule {
   @Singleton
   abstract fun bindAccountBoundGoogleAuth(impl: GoogleAuthManager): AccountBoundGoogleAuth
 
-  @Binds @Singleton abstract fun bindSheetsRepository(impl: SheetsRepositoryImpl): SheetsRepository
+  @Binds
+  @Singleton
+  abstract fun bindSheetsRepository(
+      impl: com.valerochka1337.valerochkagym.data.backend.BackendUploadAdapter
+  ): SheetsRepository
 
   @Binds
   @Singleton
   abstract fun bindConfigurationSheetsRepository(
-      impl: ConfigurationSheetsRepositoryImpl,
+      impl: com.valerochka1337.valerochkagym.data.backend.BackendUploadAdapter,
   ): ConfigurationSheetsRepository
 
   @Binds
@@ -47,7 +48,7 @@ abstract class GoogleModule {
   @Binds
   @Singleton
   abstract fun bindWorkoutImportRepository(
-      impl: WorkoutImportRepositoryImpl
+      impl: com.valerochka1337.valerochkagym.data.backend.BackendUploadAdapter
   ): WorkoutImportRepository
 
   @Binds

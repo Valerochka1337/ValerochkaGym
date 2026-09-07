@@ -2,7 +2,6 @@ package com.valerochka1337.valerochkagym.di
 
 import com.valerochka1337.valerochkagym.data.ai.AiApi
 import com.valerochka1337.valerochkagym.data.google.CalendarApi
-import com.valerochka1337.valerochkagym.data.google.SheetsApi
 import com.valerochka1337.valerochkagym.data.update.GitHubReleaseApi
 import dagger.Module
 import dagger.Provides
@@ -28,7 +27,6 @@ import retrofit2.converter.kotlinx.serialization.asConverterFactory
 @InstallIn(SingletonComponent::class)
 object NetworkModule {
 
-  private const val SHEETS_BASE_URL = "https://sheets.googleapis.com/"
   private const val CALENDAR_BASE_URL = "https://www.googleapis.com/"
   private const val GITHUB_BASE_URL = "https://api.github.com/"
   /** Retrofit требует base URL, но каждый запрос к модели передаёт полный пользовательский @Url. */
@@ -62,19 +60,6 @@ object NetworkModule {
           .readTimeout(AI_READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
           .callTimeout(AI_CALL_TIMEOUT_SECONDS, TimeUnit.SECONDS)
           .build()
-
-  @Provides
-  @Singleton
-  fun provideRetrofit(client: OkHttpClient, json: Json): Retrofit =
-      Retrofit.Builder()
-          .baseUrl(SHEETS_BASE_URL)
-          .client(client)
-          .addConverterFactory(json.asConverterFactory("application/json".toMediaType()))
-          .build()
-
-  @Provides
-  @Singleton
-  fun provideSheetsApi(retrofit: Retrofit): SheetsApi = retrofit.create(SheetsApi::class.java)
 
   @Provides
   @Singleton

@@ -31,7 +31,6 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 /** OAuth scopes, необходимые приложению: запись в Google Sheets и создание событий календаря. */
 private val REQUIRED_SCOPES =
     listOf(
-        Scope("https://www.googleapis.com/auth/spreadsheets"),
         Scope("https://www.googleapis.com/auth/calendar.events"),
     )
 

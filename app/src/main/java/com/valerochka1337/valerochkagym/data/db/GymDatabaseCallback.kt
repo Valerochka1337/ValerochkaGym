@@ -27,6 +27,7 @@ constructor(
 
   override fun onOpen(db: SupportSQLiteDatabase) {
     super.onOpen(db)
+    com.valerochka1337.valerochkagym.data.backend.SyncSchema.install(db)
     scope.launch {
       val database = database.get()
       // The canonical catalogue is the local authority. This is idempotent and deliberately

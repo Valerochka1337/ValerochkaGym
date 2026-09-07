@@ -286,7 +286,7 @@ constructor(
       is AuthorizeOutcome.Failed -> authError.value = AUTH_ERROR_MESSAGE
       AuthorizeOutcome.Granted -> {
         weeklyScheduleRecoveryScheduler.wake()
-        importHistoryIfConfigured()
+        // Training data is synchronized by BackendSync; this OAuth grant is Calendar-only.
       }
     }
   }
@@ -526,8 +526,13 @@ constructor(
   /** Стирает историю тренировок (каталог пересевается); настройки не трогаются. */
   fun clearAllData() {
     viewModelScope.launch {
-      clearDataUseCase()
-      _messages.send("Данные очищены")
+      try {
+        clearDataUseCase()
+        _messages.send("Данные очищены")
+      } catch (e: Exception) {
+        if (e is kotlinx.coroutines.CancellationException) throw e
+        _messages.send(e.message ?: "Не удалось очистить данные")
+      }
     }
   }
 

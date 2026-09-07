@@ -102,7 +102,7 @@ private enum class SettingsCategory(
     val supportingText: String,
 ) {
   WORKOUT("Тренировка", "Отдых, пульс, звук и уведомления"),
-  CONNECTIONS("Подключения", "Google, Sheets и распознавание InBody"),
+  CONNECTIONS("Подключения", "Аккаунт, Calendar и распознавание InBody"),
   APPEARANCE("Вид и отклик", "Тема, палитра и виброотклик"),
   DATA_APP("Данные и приложение", "Экспорт, обновления, версия и очистка"),
 }
@@ -198,12 +198,7 @@ fun SettingsScreen(
                     onSignIn = { activity?.let(viewModel::signIn) },
                     onSignOut = viewModel::signOut,
                 )
-                SpreadsheetCard(
-                    currentId = settings.spreadsheetId,
-                    error = state.spreadsheetError,
-                    onSave = viewModel::setSpreadsheetInput,
-                    onExportAll = viewModel::exportAll,
-                )
+                com.valerochka1337.valerochkagym.ui.account.AccountCard()
                 AiSettingsCard(
                     baseUrl = settings.aiBaseUrl,
                     baseUrlError = state.aiBaseUrlError,
@@ -359,10 +354,10 @@ private fun GoogleAccountCard(
     onSignIn: () -> Unit,
     onSignOut: () -> Unit,
 ) {
-  SectionCard(title = "Google-аккаунт", icon = Icons.Rounded.AccountCircle) {
+  SectionCard(title = "Google Calendar", icon = Icons.Rounded.AccountCircle) {
     if (email == null) {
       Text(
-          text = "Войдите, чтобы выгружать тренировки в Google Sheets и Calendar.",
+          text = "Подключите Google Calendar, чтобы планировать тренировки в календаре.",
           style = MaterialTheme.typography.bodyMedium,
           color = MaterialTheme.colorScheme.onSurfaceVariant,
       )
@@ -978,8 +973,8 @@ private fun DataCard(
         title = { Text("Очистить данные?") },
         text = {
           Text(
-              "История тренировок, программы и свои упражнения будут удалены без " +
-                  "возможности восстановления. Встроенный каталог упражнений и настройки останутся.",
+              "История, замеры, залы, программы и свои упражнения будут удалены на устройстве и после синхронизации — в аккаунте. " +
+                  "Сначала экспортируйте нужные данные. Встроенный каталог и настройки останутся.",
           )
         },
         confirmButton = {

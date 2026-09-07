@@ -22,6 +22,10 @@ import kotlinx.coroutines.launch
 @HiltAndroidApp
 class GymApplication : Application(), Configuration.Provider {
 
+  @Inject
+  lateinit var backendSyncScheduler:
+      javax.inject.Provider<com.valerochka1337.valerochkagym.data.backend.BackendSyncScheduler>
+
   @Inject lateinit var workerFactory: HiltWorkerFactory
 
   @Inject lateinit var appIconManager: AppIconManager
@@ -37,6 +41,7 @@ class GymApplication : Application(), Configuration.Provider {
     // Иконка лаунчера — часть настройки акцента, а не разовое действие экрана: подписываемся
     // на неё на весь процесс, чтобы состояние alias'ов совпадало с сохранённым выбором.
     appIconManager.startSync()
+    applicationScope.launch { backendSyncScheduler.get().start() }
     weeklyScheduleRecoveryScheduler.get().enqueue()
     applicationScope.launch { postUpdateRelaunchCoordinator.reconcilePending() }
   }

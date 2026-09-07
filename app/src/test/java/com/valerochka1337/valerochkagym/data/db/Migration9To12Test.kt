@@ -58,7 +58,7 @@ internal object MigrationRecoveryFixtures {
             SupportSQLiteOpenHelper.Configuration.builder(context)
                 .name(name)
                 .callback(
-                    object : SupportSQLiteOpenHelper.Callback(14) {
+                    object : SupportSQLiteOpenHelper.Callback(15) {
                       override fun onCreate(db: SupportSQLiteDatabase) = Unit
 
                       override fun onUpgrade(
@@ -222,7 +222,7 @@ internal object MigrationRecoveryFixtures {
   fun assertBaseOnlyRecovery(sql: SupportSQLiteDatabase) {
     sql.query("PRAGMA user_version").use { cursor ->
       assertTrue(cursor.moveToFirst())
-      assertEquals(14, cursor.getInt(0))
+      assertEquals(15, cursor.getInt(0))
     }
     sql.query(
             "SELECT id, routineId, exerciseId, position, restSeconds, plannedSetsJson FROM routine_exercises"
