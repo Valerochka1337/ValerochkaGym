@@ -73,9 +73,10 @@ data class ExerciseCatalogProjection(
       filters: ExerciseCatalogFilters,
       sort: ExerciseCatalogSort,
   ): ExerciseCatalogResults {
+    val search = TextSearch(query)
     val candidates =
         snapshot.exercises.filter { exercise ->
-          matchesQuery(exercise, query) && matchesFilters(exercise, filters)
+          matchesQuery(exercise, search) && matchesFilters(exercise, filters)
         }
     return ExerciseCatalogResults(sort(candidates, sort))
   }
@@ -90,7 +91,9 @@ data class ExerciseCatalogProjection(
               .filterIsInstance<ExerciseEquipmentRequirements.Required>()
               .flatMapTo(linkedSetOf()) { it.equipmentIds },
   ): ExerciseCatalogFacetCounts {
-    fun count(candidate: ExerciseCatalogFilters) = results(query, candidate, sort).exercises.size
+    val search = TextSearch(query)
+    val matching = snapshot.exercises.filter { matchesQuery(it, search) }
+    fun count(candidate: ExerciseCatalogFilters) = matching.count { matchesFilters(it, candidate) }
     return ExerciseCatalogFacetCounts(
         types =
             ExerciseCatalogTypeFilter.entries.associateWith { type ->
@@ -116,7 +119,7 @@ data class ExerciseCatalogProjection(
             count(
                 filters.copy(equipment = ExerciseCatalogEquipmentFilter(includeExplicitNone = true))
             ),
-        sortCount = results(query, filters, sort).exercises.size,
+        sortCount = count(filters),
     )
   }
 
@@ -148,9 +151,7 @@ data class ExerciseCatalogProjection(
     return true
   }
 
-  private fun matchesQuery(exercise: ExerciseEntity, query: String): Boolean {
-    val needle = query.trim()
-    if (needle.isEmpty()) return true
+  private fun matchesQuery(exercise: ExerciseEntity, search: TextSearch): Boolean {
     val labels = buildList {
       add(exercise.name)
       add(exercise.muscleGroup.displayName())
@@ -163,7 +164,7 @@ data class ExerciseCatalogProjection(
           }
           .forEach { add(it.muscle.displayName()) }
     }
-    return labels.any { it.contains(needle, ignoreCase = true) }
+    return search.matches(labels)
   }
 
   private fun sort(

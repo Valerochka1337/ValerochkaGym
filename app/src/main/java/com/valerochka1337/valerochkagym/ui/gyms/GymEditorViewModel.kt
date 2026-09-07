@@ -10,6 +10,7 @@ import com.valerochka1337.valerochkagym.domain.GymConfigurationConflict
 import com.valerochka1337.valerochkagym.domain.GymRepository
 import com.valerochka1337.valerochkagym.domain.GymRoutineReference
 import com.valerochka1337.valerochkagym.domain.SaveGymResult
+import com.valerochka1337.valerochkagym.domain.TextSearch
 import com.valerochka1337.valerochkagym.domain.displayName
 import com.valerochka1337.valerochkagym.ui.navigation.GymRoutes
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -86,12 +87,11 @@ data class GymEditorUiState(
 
   val filteredExercises: List<ExerciseEntity>
     get() {
-      val needle = query.trim()
-      if (needle.isEmpty()) return exercises.orEmpty()
+      val search = TextSearch(query)
       return exercises.orEmpty().filter { exercise ->
-        exercise.name.contains(needle, ignoreCase = true) ||
-            exercise.muscleGroup.displayName().contains(needle, ignoreCase = true) ||
-            exercise.type.displayName().contains(needle, ignoreCase = true)
+        search.matches(
+            listOf(exercise.name, exercise.muscleGroup.displayName(), exercise.type.displayName())
+        )
       }
     }
 }

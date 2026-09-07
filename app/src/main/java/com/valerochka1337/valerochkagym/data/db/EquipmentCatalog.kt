@@ -1,5 +1,7 @@
 package com.valerochka1337.valerochkagym.data.db
 
+import com.valerochka1337.valerochkagym.domain.TextSearch
+
 /** Stable built-in equipment vocabulary. IDs are part of local storage and Sheet snapshots. */
 object EquipmentCatalog {
   data class Equipment(
@@ -92,18 +94,16 @@ object EquipmentCatalog {
 
   private val byId = entries.associateBy(Equipment::id)
 
+  val alphabeticalEntries: List<Equipment> =
+      entries.sortedWith(compareBy<Equipment> { TextSearch.normalize(it.name) }.thenBy { it.id })
+
   fun require(id: String): Equipment = requireNotNull(byId[id]) { "Unknown equipment id: $id" }
 
   fun isKnown(id: String): Boolean = id in byId
 
   fun search(query: String): List<Equipment> {
-    val needle = query.trim()
-    return entries.filter {
-      needle.isBlank() ||
-          sequenceOf(it.name, it.group).plus(it.synonyms.asSequence()).any { label ->
-            label.contains(needle, true)
-          }
-    }
+    val search = TextSearch(query)
+    return alphabeticalEntries.filter { search.matches(listOf(it.name, it.group) + it.synonyms) }
   }
 
   fun covers(selected: Set<String>, required: String): Boolean =

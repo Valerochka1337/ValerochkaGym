@@ -31,4 +31,20 @@ class EquipmentCatalogTest {
     )
     assertTrue(EquipmentCatalog.search("кроссовер").any { it.id == "crossover" })
   }
+
+  @Test
+  fun `catalog search combines spelling folds typos synonyms and unordered words`() {
+    assertTrue(EquipmentCatalog.search("КОЛЕНЕЙ ПОДЬЕМ").any { it.id == "captains_chair" })
+    assertEquals(listOf("dumbbells"), EquipmentCatalog.search("ганетли").map { it.id })
+    assertEquals(listOf("elliptical"), EquipmentCatalog.search("орбитерк").map { it.id })
+    assertTrue(EquipmentCatalog.search("ТРЕНАЖЕР гребной").any { it.id == "rowing_machine" })
+  }
+
+  @Test
+  fun `equipment search returns alphabetical names with and without a query`() {
+    listOf("", "тренажер").forEach { query ->
+      val names = EquipmentCatalog.search(query).map { it.name.lowercase().replace('ё', 'е') }
+      assertEquals(names.sorted(), names)
+    }
+  }
 }
