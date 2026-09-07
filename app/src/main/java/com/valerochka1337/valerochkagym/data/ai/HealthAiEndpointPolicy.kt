@@ -20,3 +20,17 @@ fun healthAiEndpointDecision(baseUrl: String, loopbackHttpConsent: Boolean): Hea
     return if (loopbackHttpConsent) HealthAiEndpointDecision.Allowed
     else HealthAiEndpointDecision.LoopbackConsentRequired
 }
+
+/**
+ * Temporary, report-reader-only HTTP exception for explicitly disclosed document uploads.
+ *
+ * TODO(health-report-http): remove this wrapper and restore [healthAiEndpointDecision] at the
+ * report reader checkpoints when the temporary HTTP study support is rolled back.
+ */
+fun healthReportAiEndpointDecision(
+    baseUrl: String,
+    loopbackHttpConsent: Boolean,
+): HealthAiEndpointDecision = when (val shared = healthAiEndpointDecision(baseUrl, loopbackHttpConsent)) {
+    HealthAiEndpointDecision.PublicHttpRejected -> HealthAiEndpointDecision.Allowed
+    else -> shared
+}

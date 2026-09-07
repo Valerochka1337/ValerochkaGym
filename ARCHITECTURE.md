@@ -265,8 +265,12 @@ read 5 минут и общий call timeout 6 минут. Google API сохра
 
 Health readers принимают только строгий JSON и создают редактируемый UI-черновик; Room, архив и
 Sheets меняются только после явного сохранения. Перед каждой отправкой UI показывает domain и
-model; public HTTP для medical data отклоняется, loopback HTTP требует отдельного видимого
-подтверждения. PDF render/parse bounded и cancellation-aware на compute dispatcher, OCR нет.
+model; loopback HTTP требует отдельного видимого подтверждения. Для PDF/photo исследований
+временно разрешён также public HTTP через report-only policy; диалог отправки явно сообщает
+об отсутствии шифрования документа и API key. TODO(health-report-http): удалить временное
+исключение в `healthReportAiEndpointDecision`, вернув общую HTTPS/loopback policy. InBody и
+интерпретация ограничений по-прежнему отклоняют public HTTP. PDF render/parse bounded и
+cancellation-aware на compute dispatcher, OCR нет.
 `AiResponseLogger` — no-op и в debug: document, request, full response и error body не попадают
 в Logcat.
 

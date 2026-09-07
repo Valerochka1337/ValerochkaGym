@@ -9,7 +9,7 @@ import com.valerochka1337.valerochkagym.data.ai.AiApiRequestConfiguration
 import com.valerochka1337.valerochkagym.data.ai.HealthAiEndpointDecision
 import com.valerochka1337.valerochkagym.data.ai.HealthReportAiReader
 import com.valerochka1337.valerochkagym.data.ai.HealthReportAiResult
-import com.valerochka1337.valerochkagym.data.ai.healthAiEndpointDecision
+import com.valerochka1337.valerochkagym.data.ai.healthReportAiEndpointDecision
 import com.valerochka1337.valerochkagym.data.health.HealthDocumentInput
 import com.valerochka1337.valerochkagym.data.health.HealthDocumentRepository
 import com.valerochka1337.valerochkagym.data.health.HealthDocumentStoreResult
@@ -29,6 +29,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import java.util.UUID
 import javax.inject.Inject
 
@@ -39,7 +40,13 @@ data class HealthObservationInput(
     val canonicalKeyAccepted: Boolean = false,
     val observationSyncId: String? = null,
 )
-data class AiDisclosure(val uri: Uri, val host: String, val model: String, val loopbackWarning: Boolean)
+data class AiDisclosure(
+    val uri: Uri,
+    val host: String,
+    val model: String,
+    val loopbackWarning: Boolean,
+    val httpWarning: Boolean,
+)
 data class HealthEditorUiState(
     val title: String = "", val provenance: String = "", val reportedAt: Long = System.currentTimeMillis(), val note: String = "",
     val observations: List<HealthObservationInput> = listOf(HealthObservationInput()), val correctsSyncId: String? = null,
@@ -76,29 +83,98 @@ class HealthEditorViewModel @Inject constructor(
             if (savedStateHandle.get<String>(CORRECTION_OPERATION_ID) == null) {
                 savedStateHandle[CORRECTION_OPERATION_ID] = UUID.randomUUID().toString()
             }
-            mutableState.update { it.copy(title = target.draft.title, provenance = target.draft.provenance, reportedAt = target.draft.reportedAt, note = target.draft.note.orEmpty(), observations = target.draft.observations.map { row -> row.toInput() }) }
+            mutableState.update {
+                it.copy(
+                    title = target.draft.title,
+                    provenance = target.draft.provenance,
+                    reportedAt = target.draft.reportedAt,
+                    note = target.draft.note.orEmpty(),
+                    observations = target.draft.observations.map { row -> row.toInput() },
+                    retainOriginal = target.draft.originalExpected,
+                )
+            }
         } ?: mutableState.update { it.copy(error = "Исследование для исправления недоступно") }
     }
     fun selectDocument(uri: Uri) = viewModelScope.launch {
+        if (mutableState.value.saving || mutableState.value.reading || mutableState.value.disclosure != null) return@launch
         val configuration = configurationProvider.requestConfiguration() ?: run {
             mutableState.update { it.copy(error = "Настройте нейросеть в настройках") }; return@launch
         }
-        when (val decision = healthAiEndpointDecision(configuration.connection.baseUrl, false)) {
-            HealthAiEndpointDecision.PublicHttpRejected -> mutableState.update { it.copy(error = "Медицинский документ нельзя отправить через публичный HTTP") }
+        if (mutableState.value.saving || mutableState.value.reading || mutableState.value.disclosure != null) return@launch
+        val endpoint = configuration.connection.baseUrl.toHttpUrlOrNull()
+        when (val decision = healthReportAiEndpointDecision(configuration.connection.baseUrl, false)) {
+            HealthAiEndpointDecision.PublicHttpRejected -> mutableState.update {
+                it.copy(error = "Медицинский документ нельзя отправить через публичный HTTP")
+            }
             HealthAiEndpointDecision.Invalid -> mutableState.update { it.copy(error = "Некорректный адрес нейросети") }
             HealthAiEndpointDecision.Allowed, HealthAiEndpointDecision.LoopbackConsentRequired -> {
                 disclosedConfiguration = configuration
-                mutableState.update { it.copy(pendingUri = uri, disclosure = AiDisclosure(uri, Uri.parse(configuration.connection.baseUrl).host.orEmpty(), configuration.modelId, decision == HealthAiEndpointDecision.LoopbackConsentRequired), error = null) }
+                mutableState.update {
+                    it.copy(
+                        disclosure = AiDisclosure(
+                            uri = uri,
+                            host = endpoint?.host.orEmpty(),
+                            model = configuration.modelId,
+                            loopbackWarning = decision == HealthAiEndpointDecision.LoopbackConsentRequired,
+                            httpWarning = endpoint?.scheme == "http",
+                        ),
+                        error = null,
+                    )
+                }
             }
         }
     }
-    fun cancelDisclosure() { disclosedConfiguration = null; mutableState.update { state -> state.copy(disclosure = null, pendingUri = if (state.disclosure != null) null else state.pendingUri) } }
+    fun cancelDisclosure() {
+        disclosedConfiguration = null
+        mutableState.update { it.copy(disclosure = null) }
+    }
     fun retainOriginal(value: Boolean) = mutableState.update { it.copy(retainOriginal = value) }
-    fun confirmDisclosure() { val disclosure = mutableState.value.disclosure ?: return; val configuration = disclosedConfiguration ?: return; disclosedConfiguration = null; mutableState.update { it.copy(disclosure = null) }; readDocument(disclosure.uri, configuration, disclosure.loopbackWarning) }
-    fun readDocument(uri: Uri, allowLoopbackHttp: Boolean) = viewModelScope.launch { mutableState.update { it.copy(reading = true, error = null, pendingUri = uri) }; when (val result = reader.read(uri, allowLoopbackHttp)) { is HealthReportAiResult.Success -> mutableState.update { state -> state.copy(title = result.draft.report.title, provenance = result.draft.report.provenance, reportedAt = result.draft.report.reportedAt, note = result.draft.report.note.orEmpty(), reading = false, observations = result.draft.report.observations.mapIndexed { index, row -> row.toInput(result.draft.sourcePages.getOrNull(index)) }) }; is HealthReportAiResult.Failure -> mutableState.update { it.copy(reading = false, error = result.message) } } }
-    private fun readDocument(uri: Uri, configuration: AiApiRequestConfiguration, allowLoopbackHttp: Boolean) = viewModelScope.launch { mutableState.update { it.copy(reading = true, error = null, pendingUri = uri) }; when (val result = reader.read(uri, configuration, allowLoopbackHttp)) { is HealthReportAiResult.Success -> mutableState.update { state -> state.copy(title = result.draft.report.title, provenance = result.draft.report.provenance, reportedAt = result.draft.report.reportedAt, note = result.draft.report.note.orEmpty(), reading = false, observations = result.draft.report.observations.mapIndexed { index, row -> row.toInput(result.draft.sourcePages.getOrNull(index)) }) }; is HealthReportAiResult.Failure -> mutableState.update { it.copy(reading = false, error = result.message) } } }
+    fun confirmDisclosure() {
+        val disclosure = mutableState.value.disclosure ?: return
+        val configuration = disclosedConfiguration ?: return
+        disclosedConfiguration = null
+        mutableState.update { it.copy(disclosure = null) }
+        readDocument(disclosure.uri, configuration, disclosure.loopbackWarning)
+    }
+
+    fun readDocument(uri: Uri, allowLoopbackHttp: Boolean) = readDocument(uri) {
+        reader.read(uri, allowLoopbackHttp)
+    }
+
+    private fun readDocument(
+        uri: Uri,
+        configuration: AiApiRequestConfiguration,
+        allowLoopbackHttp: Boolean,
+    ) = readDocument(uri) {
+        reader.read(uri, configuration, allowLoopbackHttp)
+    }
+
+    private fun readDocument(uri: Uri, read: suspend () -> HealthReportAiResult) = viewModelScope.launch {
+        if (mutableState.value.reading || mutableState.value.saving) return@launch
+        mutableState.update { it.copy(reading = true, error = null) }
+        try {
+            when (val result = read()) {
+                is HealthReportAiResult.Success -> mutableState.update { state ->
+                    state.copy(
+                        title = result.draft.report.title,
+                        provenance = result.draft.report.provenance,
+                        reportedAt = result.draft.report.reportedAt,
+                        note = result.draft.report.note.orEmpty(),
+                        observations = result.draft.report.observations.mapIndexed { index, row ->
+                            row.toInput(result.draft.sourcePages.getOrNull(index))
+                        },
+                        pendingUri = uri,
+                    )
+                }
+                is HealthReportAiResult.Failure -> mutableState.update { it.copy(error = result.message) }
+            }
+        } finally {
+            mutableState.update { it.copy(reading = false) }
+        }
+    }
     fun save() = viewModelScope.launch {
         val state = mutableState.value
+        if (state.saving || state.reading || state.disclosure != null) return@launch
         val observations = state.observations.filter { it.included }.map { it.toDraft() }
         if (state.title.isBlank() || state.provenance.isBlank() || observations.isEmpty() || observations.any { it == null }) {
             mutableState.update { it.copy(error = "Заполните исследование; у каждого результата выберите корректный тип и значение") }; return@launch

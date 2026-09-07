@@ -156,4 +156,6 @@ internal val AiApiError.httpCode: Int?
     get() = (code as? JsonPrimitive)?.takeUnless { it is JsonNull }?.intOrNull
 
 internal val AiApiError.normalizedType: String?
-    get() = type ?: metadata?.errorType
+    get() = type ?: metadata?.errorType ?: (code as? JsonPrimitive)
+        ?.takeIf { it.isString }
+        ?.content

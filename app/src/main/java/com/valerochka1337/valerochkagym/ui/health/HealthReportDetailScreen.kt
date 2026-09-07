@@ -76,7 +76,7 @@ fun HealthReportDetailScreen(
             GymCard(Modifier.fillMaxWidth()) {
                 if (!report.isTombstone) TextButton(onClick = { haptics.tap(); onEdit(report.syncId) }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Исправить") }
                 Text(report.title, style = MaterialTheme.typography.headlineSmall)
-                ValueRow("Статус", report.status)
+                ValueRow("Статус", report.status.healthReportStatusLabel())
                 ValueRow("Дата", formatDate(report.reportedAt, zone))
                 ValueRow("Источник", report.provenance)
             }
@@ -157,7 +157,7 @@ private fun VersionHistory(
                     text = if (index == 0) "Текущая версия v${snapshot.version}" else "Версия v${snapshot.version}",
                     style = MaterialTheme.typography.titleMedium,
                 )
-                ValueRow("Статус", report.status)
+                ValueRow("Статус", report.status.healthReportStatusLabel())
                 ValueRow("Дата", formatDate(report.reportedAt, zone))
                 report.supersedesVersion?.let { ValueRow("Исправляет", "v$it") }
                 if (report.isTombstone) Text("Эта версия отзывает исследование", color = MaterialTheme.colorScheme.error)
@@ -170,6 +170,14 @@ private fun VersionHistory(
             }
         }
     }
+}
+
+private fun String.healthReportStatusLabel(): String = when (this) {
+    "FINAL" -> "Подтверждено"
+    "CORRECTED" -> "Исправлено"
+    "PRELIMINARY" -> "Черновик"
+    "REVOKED" -> "Отозвано"
+    else -> this
 }
 
 @Composable

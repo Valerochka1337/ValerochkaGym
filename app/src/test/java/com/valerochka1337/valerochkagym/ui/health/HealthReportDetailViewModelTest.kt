@@ -116,12 +116,23 @@ class HealthReportDetailViewModelTest : RoomDaoTest() {
         vm.uiState.first { it.structuredDeleted && it.pendingOriginalDeletionIds.isEmpty() }
         assertTrue(dao.report("retry")!!.isTombstone); assertEquals(listOf("linked", "linked"), docs.deleted); c.cancel()
     }
-    @Test fun `DOCUMENT provenance reports missing original until linked READY document exists`() = runTest(mainDispatcherRule.testDispatcher.scheduler) {
-        val dao=db.healthDao(); dao.upsertReport(HealthReportEntity("document",1,1,false,"CONFIRMED","DOCUMENT",1,"CBC")); dao.insertObservations(listOf(observation("o","document",1,"120","hb")))
+    @Test fun `LAB report expected to retain original reports missing copy until linked READY document exists`() = runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val dao=db.healthDao(); dao.upsertReport(HealthReportEntity("document",1,1,false,"CONFIRMED","LAB",1,"CBC", originalExpected = true)); dao.insertObservations(listOf(observation("o","document",1,"120","hb")))
         val vm=HealthReportDetailViewModel(SavedStateHandle(mapOf(GymRoutes.HEALTH_REPORT_ID_ARG to "document")),dao,HealthRepository(db),FakeDocuments()); val c=launch { vm.uiState.collect() }
         assertTrue(vm.uiState.first { it.report?.syncId=="document" }.missingOriginal)
         dao.upsertDocument(HealthDocumentEntity("ready","document","a","READY","a.pdf","application/pdf",1,null,1))
         assertFalse(vm.uiState.first { it.hasReadyOriginal }.missingOriginal); c.cancel()
+    }
+
+    @Test fun `manual report that never expected an original does not report a missing copy`() = runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val dao = db.healthDao()
+        dao.upsertReport(HealthReportEntity("manual", 1, 1, false, "CONFIRMED", "MANUAL", 1, "CBC"))
+        val vm = HealthReportDetailViewModel(SavedStateHandle(mapOf(GymRoutes.HEALTH_REPORT_ID_ARG to "manual")), dao, HealthRepository(db), FakeDocuments())
+        val collector = launch { vm.uiState.collect() }
+
+        assertFalse(vm.uiState.first { it.report?.syncId == "manual" }.missingOriginal)
+
+        collector.cancel()
     }
 
     @Test fun `detail exposes immutable versions under the same stable report identity`() = runTest(mainDispatcherRule.testDispatcher.scheduler) {

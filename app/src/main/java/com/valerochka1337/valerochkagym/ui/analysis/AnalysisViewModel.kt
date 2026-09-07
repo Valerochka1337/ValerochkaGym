@@ -152,8 +152,16 @@ class AnalysisViewModel @Inject constructor(
         healthDao.observeReportsForHistory(),
         healthDao.observeRestrictionsForHistory(),
         healthDao.observeConflicts(),
-    ) { measurements, reports, restrictions, conflicts ->
-        HealthAnalysisState(measurements, reports, restrictions, conflicts)
+        reportFlow,
+    ) { measurements, reports, restrictions, conflicts, report ->
+        val start = report.range.start.atStartOfDay(zone).toInstant().toEpochMilli()
+        val end = report.range.endInclusive.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli() - 1
+        HealthAnalysisState(
+            measurements = measurements,
+            reports = reports.filter { it.reportedAt in start..end },
+            restrictions = restrictions,
+            conflicts = conflicts,
+        )
     }
 
     val uiState: StateFlow<AnalysisUiState> =

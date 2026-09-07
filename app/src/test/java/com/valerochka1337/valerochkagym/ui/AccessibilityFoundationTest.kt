@@ -9,19 +9,21 @@ import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.testTag
 import com.valerochka1337.valerochkagym.ui.analysis.charts.LinePoint
 import com.valerochka1337.valerochkagym.ui.analysis.charts.TrendLineChart
 import com.valerochka1337.valerochkagym.ui.components.CircleIconButton
@@ -133,10 +135,10 @@ class AccessibilityFoundationTest {
     }
 
     @Test
-    fun `all four analysis sections stay selectable at two hundred percent text`() {
+    fun `all four analysis sections support health selection at two hundred percent text`() {
         var minimumTargetPx = 0f
+        var selected by mutableStateOf(AnalysisSection.OVERVIEW)
         composeRule.setContent {
-            var selected by remember { mutableStateOf(AnalysisSection.OVERVIEW) }
             val density = LocalDensity.current
             minimumTargetPx = with(density) { 48.dp.toPx() }
             CompositionLocalProvider(LocalDensity provides Density(density.density, fontScale = 2f)) {
@@ -144,6 +146,7 @@ class AccessibilityFoundationTest {
                     AnalysisSectionSelector(
                         selected = selected,
                         onSectionSelected = { selected = it },
+                        modifier = Modifier.testTag("analysis_section_selector"),
                     )
                 }
             }
@@ -153,10 +156,37 @@ class AccessibilityFoundationTest {
         AnalysisSection.entries.forEach { section ->
             composeRule.onNodeWithText(section.label).assertExists()
         }
-        composeRule.onNodeWithText("Здоровье").performClick()
+        composeRule.onNodeWithText("Здоровье").performScrollTo().performClick()
+        composeRule.waitForIdle()
+        composeRule.runOnIdle { assertEquals(AnalysisSection.HEALTH, selected) }
         composeRule.onNodeWithText("Здоровье").assertIsSelected()
         val health = composeRule.onNodeWithText("Здоровье").fetchSemanticsNode().boundsInRoot
+        val viewport = composeRule.onNodeWithTag("analysis_section_selector").fetchSemanticsNode().boundsInRoot
         assertTrue(health.height >= minimumTargetPx)
+        assertTrue(health.left >= viewport.left && health.right <= viewport.right)
+    }
+
+    @Test
+    fun `external health selection reveals its complete chip at two hundred percent text`() {
+        var selected by mutableStateOf(AnalysisSection.OVERVIEW)
+        composeRule.setContent {
+            val density = LocalDensity.current
+            CompositionLocalProvider(LocalDensity provides Density(density.density, fontScale = 2f)) {
+                GymTheme {
+                    AnalysisSectionSelector(
+                        selected = selected,
+                        onSectionSelected = { selected = it },
+                        modifier = Modifier.width(240.dp).testTag("analysis_section_selector"),
+                    )
+                }
+            }
+        }
+
+        composeRule.runOnIdle { selected = AnalysisSection.HEALTH }
+        composeRule.waitForIdle()
+        val health = composeRule.onNodeWithText("Здоровье").fetchSemanticsNode().boundsInRoot
+        val viewport = composeRule.onNodeWithTag("analysis_section_selector").fetchSemanticsNode().boundsInRoot
+        assertTrue(health.left >= viewport.left && health.right <= viewport.right)
     }
 
     @Test fun `disabled filter chip removes its click semantics`() {

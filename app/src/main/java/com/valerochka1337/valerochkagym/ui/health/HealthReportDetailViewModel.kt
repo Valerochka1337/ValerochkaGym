@@ -43,7 +43,7 @@ data class HealthReportDetailState(
     val deletionError: String? = null,
 ) {
     val hasReadyOriginal: Boolean get() = documents.any { it.state == "READY" }
-    val missingOriginal: Boolean get() = report?.provenance == "DOCUMENT" && !hasReadyOriginal
+    val missingOriginal: Boolean get() = report?.originalExpected == true && !hasReadyOriginal
 }
 
 /** Same canonical key is not a trend when its measurement context differs. */

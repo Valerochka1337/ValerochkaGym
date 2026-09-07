@@ -63,8 +63,26 @@ fun HealthEditorScreen(onBack: () -> Unit, viewModel: HealthEditorViewModel = hi
 
     state.disclosure?.let { disclosure -> AlertDialog(
         onDismissRequest = { haptics.reject(); viewModel.cancelDisclosure() },
-        title = { Text(if (disclosure.loopbackWarning) "Подтвердите локальный HTTP" else "Отправить медицинский документ?") },
-        text = { Text("Получатель: ${disclosure.host}\nМодель: ${disclosure.model}\nБудут переданы выбранный документ и поля исследования. Документ не сохраняется в Google Sheets.") },
+        title = {
+            Text(
+                when {
+                    disclosure.loopbackWarning -> "Подтвердите локальный HTTP"
+                    disclosure.httpWarning -> "Подтвердите отправку по HTTP"
+                    else -> "Отправить медицинский документ?"
+                },
+            )
+        },
+        text = {
+            Text(
+                buildString {
+                    append("Получатель: ${disclosure.host}\nМодель: ${disclosure.model}\n")
+                    append("Будут переданы выбранный документ и поля исследования. Документ не сохраняется в Google Sheets.")
+                    if (disclosure.httpWarning) {
+                        append("\nДокумент и API key будут переданы по незашифрованному HTTP.")
+                    }
+                },
+            )
+        },
         confirmButton = { TextButton(onClick = { haptics.confirm(); viewModel.confirmDisclosure() }) { Text(if (disclosure.loopbackWarning) "Подтвердить локальную отправку" else "Отправить") } },
         dismissButton = { TextButton(onClick = { haptics.reject(); viewModel.cancelDisclosure() }) { Text("Отмена") } },
     ) }
@@ -106,7 +124,7 @@ fun HealthEditorScreen(onBack: () -> Unit, viewModel: HealthEditorViewModel = hi
                 GymCard(Modifier.fillMaxWidth()) {
                     OutlinedButton(
                         onClick = { haptics.tap(); documentPicker.launch(arrayOf("image/*", "application/pdf")) },
-                        enabled = !state.reading,
+                        enabled = !state.reading && !state.saving && state.disclosure == null,
                         modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
                     ) { Text(if (state.reading) "Подготавливаем документ…" else "Выбрать PDF или фото для распознавания") }
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -146,7 +164,7 @@ fun HealthEditorScreen(onBack: () -> Unit, viewModel: HealthEditorViewModel = hi
                 PillButton(
                     text = if (state.saving) "Сохраняем…" else "Подтвердить и сохранить",
                     onClick = { haptics.confirm(); viewModel.save() },
-                    enabled = !state.saving,
+                    enabled = !state.saving && !state.reading && state.disclosure == null,
                     modifier = Modifier.fillMaxWidth(),
                 )
             }

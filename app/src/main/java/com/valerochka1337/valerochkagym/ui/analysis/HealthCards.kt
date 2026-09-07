@@ -13,6 +13,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.valerochka1337.valerochkagym.data.db.entity.HealthSyncConflictEntity
+import java.time.ZoneId
 
 /** Read-only health overview; body composition stays the same Measurements projection. */
 @Composable
@@ -26,6 +27,7 @@ internal fun HealthOverviewCard(
     onOpenRestriction: (String) -> Unit = {},
     onOpenArchive: () -> Unit = {},
     onOpenConflict: (HealthSyncConflictEntity) -> Unit = {},
+    zone: ZoneId = ZoneId.systemDefault(),
 ) {
     AnalysisCard("Здоровье", subtitle = "Первичные замеры, подтверждённые исследования и ограничения") {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -50,7 +52,12 @@ internal fun HealthOverviewCard(
                 onClick = { measurement?.let { onOpenMeasurement(it.id) } ?: onOpenMeasurements() },
                 modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
             ) { Text(if (measurement == null) "Открыть замеры" else "Открыть последний замер") }
-            TextButton(onClick = onOpenMeasurements, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("Все замеры") }
+            if (measurement != null) {
+                TextButton(
+                    onClick = onOpenMeasurements,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                ) { Text("Все замеры") }
+            }
             TextButton(onClick = onCreateReport, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("Добавить исследование") }
             TextButton(onClick = onCreateRestriction, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("Добавить ограничение") }
             TextButton(onClick = onOpenArchive, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("Архив здоровья") }
@@ -62,19 +69,27 @@ internal fun HealthOverviewCard(
                 ) { Text("Открыть исследование") }
             }
             if (state.reports.isNotEmpty()) {
-                Text("История исследований", style = MaterialTheme.typography.titleMedium)
+                Text("Исследования в этом периоде", style = MaterialTheme.typography.titleMedium)
                 state.reports.sortedByDescending { it.reportedAt }.forEach { historical ->
                     TextButton(onClick = { onOpenReport(historical.syncId) }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
-                        Text("${historical.title} · ${historical.status}")
+                        Text(
+                            "${formatDate(historical.reportedAt, zone)} · ${historical.title} · " +
+                                healthReportStatusLabel(historical.status),
+                        )
                     }
                 }
+            } else {
+                Text(
+                    "В этом периоде подтверждённых исследований не найдено",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
-            Text("Актуальные ограничения: ${if (restrictions.isEmpty()) "нет" else restrictions.joinToString { it.description }}")
+            Text("Актуальные ограничения: ${if (restrictions.isEmpty()) "нет" else restrictions.joinToString { "${it.description} · ${healthRestrictionStatusLabel(it.status)}" }}")
             if (state.restrictions.isNotEmpty()) {
                 Text("История ограничений", style = MaterialTheme.typography.titleMedium)
                 state.restrictions.sortedByDescending { it.confirmedAt }.forEach { restriction ->
                     TextButton(onClick = { onOpenRestriction(restriction.syncId) }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
-                        Text("${restriction.description} · ${restriction.status}")
+                        Text("${restriction.description} · ${healthRestrictionStatusLabel(restriction.status)}")
                     }
                 }
             }
@@ -99,6 +114,21 @@ internal fun HealthOverviewCard(
             }
         }
     }
+}
+
+private fun healthReportStatusLabel(status: String): String = when (status) {
+    "FINAL" -> "Подтверждено"
+    "CORRECTED" -> "Исправлено"
+    "PRELIMINARY" -> "Черновик"
+    "REVOKED" -> "Отозвано"
+    else -> status
+}
+
+private fun healthRestrictionStatusLabel(status: String): String = when (status) {
+    "ACTIVE" -> "активно"
+    "TEMPORARY" -> "временно"
+    "LIFTED" -> "снято"
+    else -> status
 }
 
 private fun HealthAnalysisState.previousMeasurementWithDifferentConditions() = measurements

@@ -9,8 +9,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.MonitorWeight
 import androidx.compose.material3.Icon
@@ -52,8 +55,13 @@ internal fun AnalysisSectionSelector(
     onSectionSelected: (AnalysisSection) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val listState = rememberLazyListState()
+    LaunchedEffect(selected) {
+        listState.revealItem(AnalysisSection.entries.indexOf(selected))
+    }
     LazyRow(
-        modifier = modifier,
+        modifier = modifier.fillMaxWidth(),
+        state = listState,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         items(AnalysisSection.entries.size) { index ->
@@ -65,6 +73,25 @@ internal fun AnalysisSectionSelector(
             )
         }
     }
+}
+
+/** Scrolls only as far as needed to keep the selected selector chip wholly in its viewport. */
+private suspend fun LazyListState.revealItem(index: Int) {
+    var item = layoutInfo.visibleItemsInfo.firstOrNull { it.index == index }
+    if (item == null) {
+        scrollToItem(index)
+        item = layoutInfo.visibleItemsInfo.firstOrNull { it.index == index }
+    }
+    item ?: return
+
+    val viewportStart = layoutInfo.viewportStartOffset
+    val viewportEnd = layoutInfo.viewportEndOffset
+    val offset = when {
+        item.offset < viewportStart -> item.offset - viewportStart
+        item.offset + item.size > viewportEnd -> item.offset + item.size - viewportEnd
+        else -> 0
+    }
+    if (offset != 0) scrollBy(offset.toFloat())
 }
 
 /**
@@ -164,10 +191,11 @@ fun AnalysisScreen(
                 if (section == AnalysisSection.HEALTH) {
                     item {
                         HealthOverviewCard(
-                            state = state.health,
-                            onOpenMeasurements = onOpenMeasurements,
-                            onOpenMeasurement = onOpenMeasurement,
-                            onCreateReport = onCreateHealthReport,
+                        state = state.health,
+                        zone = state.zone,
+                        onOpenMeasurements = onOpenMeasurements,
+                        onOpenMeasurement = onOpenMeasurement,
+                        onCreateReport = onCreateHealthReport,
                             onCreateRestriction = onCreateRestriction,
                             onOpenReport = { id ->
                                 val start = state.report.range.start.atStartOfDay(state.zone).toInstant().toEpochMilli()

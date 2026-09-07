@@ -126,6 +126,7 @@ class AnalysisRenderTest {
 
         composeRule.onNodeWithText("Добавьте замер, исследование или ограничение, чтобы увидеть данные здоровья.")
             .assertIsDisplayed()
+        composeRule.onNodeWithText("Все замеры").assertDoesNotExist()
         composeRule.onNodeWithText("Открыть замеры").performClick()
         composeRule.onNodeWithText("Добавить исследование").performClick()
         composeRule.onNodeWithText("Добавить ограничение").performClick()
@@ -162,7 +163,7 @@ class AnalysisRenderTest {
         }
 
         composeRule.onNodeWithText("Последний замер: 72.5 кг").assertIsDisplayed()
-        composeRule.onNodeWithText("Актуальные ограничения: Без тяжёлых приседаний").assertIsDisplayed()
+        composeRule.onNodeWithText("Актуальные ограничения: Без тяжёлых приседаний · активно").assertIsDisplayed()
     }
 
     @Test

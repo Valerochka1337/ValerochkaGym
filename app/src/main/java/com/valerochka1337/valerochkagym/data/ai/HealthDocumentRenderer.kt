@@ -31,10 +31,10 @@ class AndroidHealthDocumentRenderer @Inject constructor(
     @param:ComputeDispatcher private val dispatcher: CoroutineDispatcher,
 ) : HealthDocumentRenderer {
     override suspend fun render(uri: Uri): HealthDocumentRenderResult = withContext(dispatcher) {
-        val size = resolver.openAssetFileDescriptor(uri, "r")?.use { it.length }
-        if (size != null && size > MAX_SOURCE_BYTES) return@withContext HealthDocumentRenderResult.Failure("Документ больше 20 МиБ — введите результаты вручную")
-        val type = resolver.getType(uri).orEmpty()
         try {
+            val size = resolver.openAssetFileDescriptor(uri, "r")?.use { it.length }
+            if (size != null && size > MAX_SOURCE_BYTES) return@withContext HealthDocumentRenderResult.Failure("Документ больше 20 МиБ — введите результаты вручную")
+            val type = resolver.getType(uri).orEmpty()
             if (type == "application/pdf" || uri.toString().endsWith(".pdf", true)) renderPdf(uri) else renderImage(uri)
         } catch (e: CancellationException) { throw e }
         catch (_: SecurityException) { HealthDocumentRenderResult.Failure("Нет доступа к документу — введите результаты вручную") }
