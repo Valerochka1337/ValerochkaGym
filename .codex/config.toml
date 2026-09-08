@@ -7,3 +7,7 @@ max_concurrent_threads_per_session = 4
 [[skills.config]]
 path = "skills/android-feature-implementation"
 enabled = true
+
+[[skills.config]]
+path = "skills/yarumo-telegram-copywriter"
+enabled = true

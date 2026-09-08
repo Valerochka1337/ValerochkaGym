@@ -1,0 +1,4 @@
+interface:
+  display_name: "Yarumo · редактор Telegram"
+  short_description: "Живые посты и продажи без давления для Yarumo"
+  default_prompt: "Используй $yarumo-telegram-copywriter, чтобы написать пост для Yarumo Coach с понятной пользой, естественной подачей и уместным юмором."
