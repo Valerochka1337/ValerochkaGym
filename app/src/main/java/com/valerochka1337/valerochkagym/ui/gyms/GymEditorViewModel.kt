@@ -4,6 +4,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.valerochka1337.valerochkagym.data.db.EquipmentCatalog
+import com.valerochka1337.valerochkagym.data.db.LocalEquipmentCatalog
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
 import com.valerochka1337.valerochkagym.domain.DeleteGymResult
 import com.valerochka1337.valerochkagym.domain.GymConfigurationConflict
@@ -33,6 +34,7 @@ enum class GymEquipmentMode {
 /** Редактируемая конфигурация зала и каталог упражнений для мультивыбора. */
 data class GymEditorUiState(
     val isNew: Boolean = true,
+    val origin: String = "PERSONAL",
     val isCopy: Boolean = false,
     val copySourceWasLegacy: Boolean = false,
     val isLoading: Boolean = false,
@@ -60,11 +62,17 @@ data class GymEditorUiState(
     get() = isSaving || isDeleting
 
   val canSave: Boolean
-    get() = !isLoading && !isBusy && loadError == null && equipment != null && name.isNotBlank()
+    get() =
+        origin != "STANDARD" &&
+            !isLoading &&
+            !isBusy &&
+            loadError == null &&
+            equipment != null &&
+            name.isNotBlank()
 
   val filteredEquipment: List<EquipmentCatalog.Equipment>
     get() =
-        EquipmentCatalog.search(query).filter { entry ->
+        LocalEquipmentCatalog.search(query).filter { entry ->
           entry.id in equipment.orEmpty().map { it.id }.toSet() &&
               (mode == GymEquipmentMode.ALL || entry.id in selectedEquipmentIds)
         }
@@ -76,7 +84,7 @@ data class GymEditorUiState(
   val groupedBulkEquipment: Map<String, List<EquipmentCatalog.Equipment>>
     get() =
         (if (query.isBlank()) {
-              EquipmentCatalog.entries.filter { entry ->
+              LocalEquipmentCatalog.entries.filter { entry ->
                 entry.id in equipment.orEmpty().map { it.id }.toSet()
               }
             } else {
@@ -138,7 +146,11 @@ constructor(
   val exit = _exit.receiveAsFlow()
 
   init {
-    _uiState.update { it.copy(equipment = EquipmentCatalog.entries) }
+    viewModelScope.launch {
+      LocalEquipmentCatalog.state.collect {
+        _uiState.update { it.copy(equipment = LocalEquipmentCatalog.entries) }
+      }
+    }
     viewModelScope.launch {
       repository
           .observeExerciseCatalog()
@@ -172,6 +184,7 @@ constructor(
               selectedExerciseIds = gym.exercises.mapTo(linkedSetOf()) { it.id },
               mode = if (asCopy) GymEquipmentMode.ALL else GymEquipmentMode.SELECTED,
               copySourceWasLegacy = asCopy && !gym.inventoryConfigured,
+              origin = if (asCopy) "PERSONAL" else gym.origin,
           )
         }
       }
@@ -235,7 +248,7 @@ constructor(
             exercises.filter { exercise ->
               when (val requirements = repository.requirementsFor(exercise)) {
                 is com.valerochka1337.valerochkagym.domain.ExerciseEquipmentRequirements.Required ->
-                    requirements.equipmentIds.all { EquipmentCatalog.covers(equipment, it) }
+                    requirements.equipmentIds.all { LocalEquipmentCatalog.covers(equipment, it) }
                 com.valerochka1337.valerochkagym.domain.ExerciseEquipmentRequirements
                     .ExplicitNone -> true
                 com.valerochka1337.valerochkagym.domain.ExerciseEquipmentRequirements

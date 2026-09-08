@@ -108,7 +108,8 @@ class ExerciseLibraryScreenTest {
   @Test
   fun `browse mode leaves built-in rows inert while custom rows stay editable`() {
     val computeDispatcher = StandardTestDispatcher()
-    val builtIn = CanonicalExerciseRegistry.entries.first().exercise.copy(id = 201L)
+    val builtIn =
+        CanonicalExerciseRegistry.entries.first().exercise.copy(origin = "STANDARD", id = 201L)
     val custom =
         ExerciseEntity(
             id = 202L,
@@ -150,7 +151,8 @@ class ExerciseLibraryScreenTest {
   @Test
   fun `picker mode keeps built-in row selection available`() {
     val computeDispatcher = StandardTestDispatcher()
-    val builtIn = CanonicalExerciseRegistry.entries.first().exercise.copy(id = 203L)
+    val builtIn =
+        CanonicalExerciseRegistry.entries.first().exercise.copy(origin = "STANDARD", id = 203L)
     val viewModel =
         ExerciseLibraryViewModel(
             exerciseDao = FakeExerciseDao,

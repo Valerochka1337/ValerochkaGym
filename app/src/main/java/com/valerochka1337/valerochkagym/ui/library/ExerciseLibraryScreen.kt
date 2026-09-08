@@ -56,8 +56,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.valerochka1337.valerochkagym.data.db.CanonicalExerciseRegistry
-import com.valerochka1337.valerochkagym.data.db.EquipmentCatalog
+import com.valerochka1337.valerochkagym.data.db.LocalEquipmentCatalog
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleGroup
 import com.valerochka1337.valerochkagym.domain.ExerciseCatalogFilters
@@ -187,7 +186,7 @@ fun ExerciseLibraryScreen(
                         exercise = exercise,
                         onClick =
                             onExerciseSelected?.let { callback -> { callback(exercise) } }
-                                ?: if (CanonicalExerciseRegistry.isBuiltIn(exercise)) {
+                                ?: if ((exercise.origin == "STANDARD")) {
                                   null
                                 } else {
                                   { viewModel.openEdit(exercise) }
@@ -429,7 +428,7 @@ private fun FilterSheet(
             count = counts.explicitNoneEquipment,
         )
       }
-      EquipmentCatalog.entries
+      LocalEquipmentCatalog.entries
           .groupBy { it.group }
           .forEach { (group, entries) ->
             SheetChipRow("Оборудование · $group") {
@@ -515,8 +514,8 @@ private fun ExerciseCatalogTypeFilter.typeLabel() =
 private fun ExerciseCatalogOrigin.originLabel() =
     when (this) {
       ExerciseCatalogOrigin.ALL -> "Все"
-      ExerciseCatalogOrigin.CUSTOM -> "Свои"
-      ExerciseCatalogOrigin.BUILT_IN -> "Встроенные"
+      ExerciseCatalogOrigin.CUSTOM -> "Личное"
+      ExerciseCatalogOrigin.BUILT_IN -> "Стандартное"
     }
 
 private fun ExerciseCatalogSort.sortLabel() =
@@ -555,7 +554,7 @@ private fun ExerciseRow(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
       }
-      if (exercise.isCustom) {
+      if (exercise.origin == "PERSONAL") {
         Spacer(Modifier.width(12.dp))
         CustomBadge()
       }

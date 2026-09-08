@@ -44,15 +44,26 @@ class BackendSyncTest : RoomDaoTest() {
     val operations = mutableMapOf<String, Pair<CloudPush, CloudAck>>()
     var revision = 0L
     var loseNextResponse = false
+    var failBeforeCommit = false
+    var catalog = StandardSnapshot(false, 0, emptyList(), emptyList())
+    var catalogReads = 0
     var afterCommit: (suspend () -> Unit)? = null
 
     override suspend fun public(method: String, path: String, body: JsonElement?): JsonElement =
-        error("unexpected")
+        json.encodeToJsonElement(catalog).also {
+          check(path == "/catalog")
+          catalogReads++
+        }
 
     override suspend fun authorized(method: String, path: String, body: JsonElement?): JsonElement {
       if (method == "GET")
           return json.encodeToJsonElement(CloudSnapshot(revision, records.values.toList()))
+      if (failBeforeCommit) {
+        failBeforeCommit = false
+        throw IOException("Offline before commit")
+      }
       val push = json.decodeFromJsonElement<CloudPush>(body!!)
+      check(push.changes.none { c -> catalog.records.any { it.id == c.id } })
       val old = operations[push.operationId]
       if (old != null) {
         check(old.first == push)
@@ -80,6 +91,174 @@ class BackendSyncTest : RoomDaoTest() {
       return json.encodeToJsonElement(ack)
     }
   }
+
+  @Test
+  fun `clean restore removes unused bootstrap placeholders while keeping downloaded UUIDs`() =
+      runTest {
+        SyncSchema.install(raw)
+        val placeholder = exercise().copy(isCustom = false)
+        db.exerciseDao().insert(placeholder)
+        raw.execSQL(
+            "UPDATE catalog_state SET bootstrapSnapshot=? WHERE id=1",
+            arrayOf(JsonObject(PortableData(raw).snapshot()).toString()),
+        )
+        val originalPayload = PortableData(raw).snapshot().values.single()
+        val server = Server()
+        val restoredId = UUID.randomUUID().toString()
+        server.catalog =
+            StandardSnapshot(
+                true,
+                1,
+                listOf(StandardRecord("exercise", restoredId, 1, false, originalPayload)),
+                emptyList(),
+            )
+        val sync = BackendSync(db, server, Store())
+        sync.claim("user-a")
+        sync.run()
+        assertEquals(listOf(restoredId), db.exerciseDao().getAllOnce().map { it.syncId })
+        assertTrue(server.records.isEmpty())
+      }
+
+  @Test
+  fun `catalog reclassifies stable IDs without changing history and never uploads standard rows`() =
+      runTest {
+        SyncSchema.install(raw)
+        val ex = exercise()
+        val localId = db.exerciseDao().insert(ex)
+        insertWorkout("history", finishedAt = 2000)
+        val section = insertWorkoutExercise("history", localId)
+        insertSet(section, 0, weightKg = 80.0, reps = 5, isCompleted = true)
+        val server = Server()
+        val sync = BackendSync(db, server, Store())
+        sync.claim("user-a")
+        sync.run()
+        val before = PortableData(raw).snapshot()["workout:history"]
+        val standard = server.records.remove("exercise:${ex.syncId}")!!
+        server.catalog =
+            StandardSnapshot(
+                true,
+                1,
+                listOf(StandardRecord("exercise", ex.syncId, 1, false, standard.payload!!)),
+                emptyList(),
+            )
+        sync.run()
+        sync.run()
+        assertEquals(localId, db.exerciseDao().getAllOnce().single().id)
+        assertEquals("STANDARD", db.exerciseDao().getById(localId)!!.origin)
+        assertEquals(before, PortableData(raw).snapshot()["workout:history"])
+        assertEquals(section, workoutFull("history").exercises.single().workoutExercise.id)
+        assertFalse(PortableData(raw).snapshot().containsKey(standard.key))
+        assertTrue(server.records.values.none { it.kind == "exercise" })
+      }
+
+  @Test
+  fun `transition retains exact outbox until restart choice and copies edits without relinking history`() =
+      runTest {
+        SyncSchema.install(raw)
+        val ex = exercise()
+        val localId = db.exerciseDao().insert(ex)
+        insertWorkout("history", finishedAt = 2000)
+        insertWorkoutExercise("history", localId)
+        val server = Server()
+        val store = Store()
+        val sync = BackendSync(db, server, store)
+        sync.claim("user-a")
+        sync.run()
+        val standard = server.records.getValue("exercise:${ex.syncId}")
+        db.exerciseDao()
+            .update(db.exerciseDao().getById(localId)!!.copy(name = "Моя правка", updatedAt = 2))
+        server.failBeforeCommit = true
+        try {
+          sync.run()
+          fail()
+        } catch (_: IOException) {}
+        val pending =
+            raw.query("SELECT requestJson FROM backend_outbox").use {
+              it.moveToFirst()
+              it.getString(0)
+            }
+        server.records.remove(standard.key)
+        server.catalog =
+            StandardSnapshot(
+                true,
+                1,
+                listOf(StandardRecord("exercise", ex.syncId, 1, false, standard.payload!!)),
+                emptyList(),
+            )
+        try {
+          sync.run()
+          fail()
+        } catch (e: BackendException) {
+          assertEquals("catalog_transition_required", e.code)
+        }
+        assertEquals(
+            pending,
+            raw.query("SELECT requestJson FROM backend_outbox").use {
+              it.moveToFirst()
+              it.getString(0)
+            },
+        )
+        assertEquals("Моя правка", db.exerciseDao().getById(localId)!!.name)
+        BackendSync(db, server, store).run("local")
+        val rows = db.exerciseDao().getAllOnce()
+        assertEquals(2, rows.size)
+        assertEquals("STANDARD", rows.single { it.id == localId }.origin)
+        val copy = rows.single { it.id != localId }
+        assertEquals("PERSONAL", copy.origin)
+        assertTrue(copy.name.startsWith("Моя правка"))
+        assertNotEquals(ex.syncId, copy.syncId)
+        assertEquals(localId, workoutFull("history").exercises.single().exercise.id)
+        assertEquals(0, tableCount("backend_outbox"))
+        assertEquals(
+            pending,
+            raw.query("SELECT originalOutbox FROM catalog_state").use {
+              it.moveToFirst()
+              it.getString(0)
+            },
+        )
+      }
+
+  @Test
+  fun `public catalog updates equipment without account and active workout defers its application`() =
+      runTest {
+        val server = Server()
+        val store = Store().also { it.save(null) }
+        val payload = buildJsonObject {
+          put("name", "Новая скамья")
+          put("group", "Скамьи")
+          put("synonyms", JsonArray(listOf(JsonPrimitive("лавка"))))
+          put(
+              "provides",
+              JsonArray(listOf(JsonPrimitive("flat_bench"), JsonPrimitive("new_bench"))),
+          )
+        }
+        server.catalog =
+            StandardSnapshot(
+                true,
+                2,
+                emptyList(),
+                listOf(StandardRecord("equipment", "new_bench", 2, false, payload)),
+            )
+        val sync = BackendSync(db, server, store)
+        insertWorkout("active")
+        sync.run()
+        assertEquals(0, server.catalogReads)
+        raw.execSQL("UPDATE workouts SET finishedAt=2000 WHERE id='active'")
+        sync.run()
+        assertTrue(
+            com.valerochka1337.valerochkagym.data.db.LocalEquipmentCatalog.covers(
+                setOf("new_bench"),
+                "flat_bench",
+            )
+        )
+        CatalogSchema.install(raw)
+        CatalogSchema.publishEquipment(raw)
+        assertEquals(
+            "Новая скамья",
+            com.valerochka1337.valerochkagym.data.db.LocalEquipmentCatalog.require("new_bench")
+                .name,
+        )
+      }
 
   @Test
   fun `lost response retries the same durable operation without a duplicate`() = runTest {

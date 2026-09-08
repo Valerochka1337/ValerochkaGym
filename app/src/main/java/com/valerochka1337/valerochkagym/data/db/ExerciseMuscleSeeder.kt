@@ -54,6 +54,7 @@ suspend fun reconcileCanonicalExerciseCatalog(database: GymDatabase) =
               exercise.copy(equipmentRequirementState = EquipmentRequirementState.KNOWN)
           )
         }
+        exerciseDao.replaceRequirements(exercise.id, entry.requirements)
         muscleDao.replaceForExercise(
             exercise.id,
             entry.loads.map { ExerciseMuscleEntity(exercise.id, it.muscle, it.contribution) },
@@ -63,6 +64,7 @@ suspend fun reconcileCanonicalExerciseCatalog(database: GymDatabase) =
           .filterNot { it.key in matchedKeys }
           .forEach { entry ->
             val id = exerciseDao.insert(entry.exercise)
+            exerciseDao.replaceRequirements(id, entry.requirements)
             muscleDao.replaceForExercise(
                 id,
                 entry.loads.map { ExerciseMuscleEntity(id, it.muscle, it.contribution) },

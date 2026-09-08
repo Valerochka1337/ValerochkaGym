@@ -47,6 +47,14 @@ import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class ExerciseDetailViewModelTest {
+  @org.junit.Before
+  fun localEquipmentFixture() {
+    com.valerochka1337.valerochkagym.data.db.LocalEquipmentCatalog.publish(
+        com.valerochka1337.valerochkagym.data.db.EquipmentCatalog.entries.map {
+          com.valerochka1337.valerochkagym.data.db.LocalEquipmentCatalog.Entry(it, false)
+        }
+    )
+  }
 
   @get:Rule val mainDispatcherRule = MainDispatcherRule()
 
@@ -284,7 +292,10 @@ class ExerciseDetailViewModelTest {
         MutableStateFlow(
             listOf(
                 if (builtIn) {
-                  CanonicalExerciseRegistry.entries.first().exercise.copy(id = EXERCISE_ID)
+                  CanonicalExerciseRegistry.entries
+                      .first()
+                      .exercise
+                      .copy(origin = "STANDARD", id = EXERCISE_ID)
                 } else {
                   ExerciseEntity(
                       id = EXERCISE_ID,

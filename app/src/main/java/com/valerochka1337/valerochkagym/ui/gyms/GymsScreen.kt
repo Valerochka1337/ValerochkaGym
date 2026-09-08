@@ -110,7 +110,7 @@ fun GymsScreen(
                       gym = gym,
                       onClick = {
                         haptics.tap()
-                        onEditGym(gym.id)
+                        if (gym.origin == "STANDARD") onCopyGym(gym.id) else onEditGym(gym.id)
                       },
                       onCopy = {
                         haptics.tap()
@@ -181,7 +181,7 @@ private fun GymConfigurationCard(
       Spacer(Modifier.width(14.dp))
       Column(modifier = Modifier.weight(1f)) {
         Text(
-            text = gym.name,
+            text = gym.name + if (gym.origin == "STANDARD") " · Стандартное" else " · Личное",
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.SemiBold,
             color = MaterialTheme.colorScheme.onSurface,
@@ -198,7 +198,7 @@ private fun GymConfigurationCard(
           tint = MaterialTheme.colorScheme.onSurfaceVariant,
       )
     }
-    TextButton(onClick = onCopy) { Text("Копировать") }
+    TextButton(onClick = onCopy) { Text("Создать личную копию") }
   }
 }
 

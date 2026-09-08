@@ -32,6 +32,7 @@ constructor(
   val session = tokens.session
   val status = sync.status
   val conflict = sync.conflict
+  val catalogConflict = sync.catalogConflict
   val busy = MutableStateFlow(false)
   val message = MutableStateFlow<String?>(null)
   val sessions = MutableStateFlow<List<BackendSession>>(emptyList())

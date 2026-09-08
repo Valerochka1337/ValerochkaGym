@@ -64,6 +64,14 @@ import org.junit.Test
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class ExerciseLibraryViewModelTest {
+  @org.junit.Before
+  fun localEquipmentFixture() {
+    com.valerochka1337.valerochkagym.data.db.LocalEquipmentCatalog.publish(
+        com.valerochka1337.valerochkagym.data.db.EquipmentCatalog.entries.map {
+          com.valerochka1337.valerochkagym.data.db.LocalEquipmentCatalog.Entry(it, false)
+        }
+    )
+  }
 
   @get:Rule val mainDispatcherRule = MainDispatcherRule()
 
@@ -665,7 +673,12 @@ class ExerciseLibraryViewModelTest {
         viewModel.openEdit(custom)
         mainDispatcherRule.testDispatcher.scheduler.advanceUntilIdle()
         dao.items.value =
-            listOf(CanonicalExerciseRegistry.entries.first().exercise.copy(id = custom.id))
+            listOf(
+                CanonicalExerciseRegistry.entries
+                    .first()
+                    .exercise
+                    .copy(origin = "STANDARD", id = custom.id)
+            )
         viewModel.saveEditor(
             name = "Не должно сохраниться",
             type = ExerciseType.TIMED,
@@ -874,24 +887,28 @@ class ExerciseLibraryViewModelTest {
   private fun catalogue(): List<ExerciseEntity> =
       listOf(
           ExerciseEntity(
+              origin = "STANDARD",
               id = 1,
               name = "Жим штанги лёжа",
               muscleGroup = MuscleGroup.CHEST,
               type = ExerciseType.STRENGTH,
           ),
           ExerciseEntity(
+              origin = "STANDARD",
               id = 2,
               name = "Жим ногами",
               muscleGroup = MuscleGroup.LEGS,
               type = ExerciseType.STRENGTH,
           ),
           ExerciseEntity(
+              origin = "STANDARD",
               id = 3,
               name = "Приседания",
               muscleGroup = MuscleGroup.LEGS,
               type = ExerciseType.STRENGTH,
           ),
           ExerciseEntity(
+              origin = "STANDARD",
               id = 4,
               name = "Подтягивания",
               muscleGroup = MuscleGroup.BACK,

@@ -117,12 +117,17 @@ fun RoutineEditorScreen(
         return@Column
       }
 
+      com.valerochka1337.valerochkagym.ui.components.CatalogOriginRow(
+          state.origin,
+          "routine",
+          state.syncId,
+      )
       OutlinedTextField(
           value = state.name,
           onValueChange = viewModel::setName,
           modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp),
           singleLine = true,
-          enabled = !state.isSaving,
+          enabled = !state.isSaving && state.origin != "STANDARD",
           label = { Text("Название программы") },
           shape = MaterialTheme.shapes.medium,
       )
@@ -212,7 +217,7 @@ fun RoutineEditorScreen(
         item {
           TextButton(
               onClick = onAddExercise,
-              enabled = !state.isSaving,
+              enabled = !state.isSaving && state.origin != "STANDARD",
               modifier = Modifier.fillMaxWidth(),
           ) {
             Icon(Icons.Default.Add, contentDescription = null)

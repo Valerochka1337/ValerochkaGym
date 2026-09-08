@@ -1,6 +1,7 @@
 package com.valerochka1337.valerochkagym.data.db
 
 import androidx.room.RoomDatabase
+import androidx.room.withTransaction
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.valerochka1337.valerochkagym.di.ApplicationScope
 import javax.inject.Inject
@@ -28,11 +29,36 @@ constructor(
   override fun onOpen(db: SupportSQLiteDatabase) {
     super.onOpen(db)
     com.valerochka1337.valerochkagym.data.backend.SyncSchema.install(db)
+    com.valerochka1337.valerochkagym.data.backend.CatalogSchema.install(db)
+    com.valerochka1337.valerochkagym.data.backend.CatalogSchema.publishEquipment(db)
     scope.launch {
       val database = database.get()
       // The canonical catalogue is the local authority. This is idempotent and deliberately
       // never writes gym links or fallback maps for arbitrary custom/imported exercises.
-      reconcileCanonicalExerciseCatalog(database)
+      database.withTransaction {
+        val initialized =
+            db.query("SELECT bootstrapped FROM catalog_state WHERE id=1").use {
+              it.moveToFirst() && it.getInt(0) != 0
+            }
+        if (!initialized) {
+          val fresh = database.exerciseDao().count() == 0
+          reconcileCanonicalExerciseCatalog(database)
+          if (fresh)
+              db.execSQL(
+                  "UPDATE catalog_state SET bootstrapSnapshot=? WHERE id=1",
+                  arrayOf(
+                      kotlinx.serialization.json
+                          .JsonObject(
+                              com.valerochka1337.valerochkagym.data.backend
+                                  .PortableData(db)
+                                  .snapshot()
+                          )
+                          .toString()
+                  ),
+              )
+          db.execSQL("UPDATE catalog_state SET bootstrapped=1 WHERE id=1")
+        }
+      }
     }
   }
 }

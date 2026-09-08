@@ -1,6 +1,6 @@
 package com.valerochka1337.valerochkagym.domain
 
-import com.valerochka1337.valerochkagym.data.db.EquipmentCatalog
+import com.valerochka1337.valerochkagym.data.db.LocalEquipmentCatalog
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseMuscleEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
@@ -45,6 +45,7 @@ data class ExerciseCatalogSnapshot(
     val history: List<ExerciseWorkoutHistoryRow>,
     /** Unknown legacy requirements stay distinct from an intentionally empty requirement set. */
     val requirementsByExercise: Map<Long, ExerciseEquipmentRequirements> = emptyMap(),
+    val equipmentRevision: Int = 0,
 )
 
 data class ExerciseCatalogHistory(
@@ -76,7 +77,7 @@ data class ExerciseCatalogProjection(
     val search = TextSearch(query)
     val candidates =
         snapshot.exercises.filter { exercise ->
-          matchesQuery(exercise, search) && matchesFilters(exercise, filters)
+          !exercise.archived && matchesQuery(exercise, search) && matchesFilters(exercise, filters)
         }
     return ExerciseCatalogResults(sort(candidates, sort))
   }
@@ -92,7 +93,7 @@ data class ExerciseCatalogProjection(
               .flatMapTo(linkedSetOf()) { it.equipmentIds },
   ): ExerciseCatalogFacetCounts {
     val search = TextSearch(query)
-    val matching = snapshot.exercises.filter { matchesQuery(it, search) }
+    val matching = snapshot.exercises.filter { !it.archived && matchesQuery(it, search) }
     fun count(candidate: ExerciseCatalogFilters) = matching.count { matchesFilters(it, candidate) }
     return ExerciseCatalogFacetCounts(
         types =
@@ -126,8 +127,10 @@ data class ExerciseCatalogProjection(
   private fun matchesFilters(exercise: ExerciseEntity, filters: ExerciseCatalogFilters): Boolean {
     if (filters.group != null && exercise.muscleGroup != filters.group) return false
     if (!filters.type.matches(exercise.type)) return false
-    if (filters.origin == ExerciseCatalogOrigin.BUILT_IN && exercise.isCustom) return false
-    if (filters.origin == ExerciseCatalogOrigin.CUSTOM && !exercise.isCustom) return false
+    if (filters.origin == ExerciseCatalogOrigin.BUILT_IN && exercise.origin != "STANDARD")
+        return false
+    if (filters.origin == ExerciseCatalogOrigin.CUSTOM && exercise.origin != "PERSONAL")
+        return false
     val equipmentFilter = filters.equipment
     if (equipmentFilter.equipmentIds.isNotEmpty() || equipmentFilter.includeExplicitNone) {
       when (val requirements = snapshot.requirementsByExercise[exercise.id]) {
@@ -138,7 +141,7 @@ data class ExerciseCatalogProjection(
           if (
               equipmentFilter.equipmentIds.none { selected ->
                 requirements.equipmentIds.any { required ->
-                  EquipmentCatalog.covers(setOf(selected), required)
+                  LocalEquipmentCatalog.covers(setOf(selected), required)
                 }
               }
           )

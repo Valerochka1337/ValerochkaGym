@@ -18,6 +18,8 @@ data class GymEntity(
     val name: String,
     /** Legacy rows retain gym_exercises until the user makes an explicit inventory save. */
     @ColumnInfo(defaultValue = "0") val inventoryConfigured: Boolean = false,
+    @androidx.room.ColumnInfo(defaultValue = "'PERSONAL'") val origin: String = "PERSONAL",
+    @androidx.room.ColumnInfo(defaultValue = "0") val archived: Boolean = false,
 )
 
 /** Returns a strictly newer gym snapshot version even for saves in the same millisecond. */

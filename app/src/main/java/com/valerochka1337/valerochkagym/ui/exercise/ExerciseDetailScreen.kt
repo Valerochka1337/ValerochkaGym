@@ -36,8 +36,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.valerochka1337.valerochkagym.data.db.CanonicalExerciseRegistry
-import com.valerochka1337.valerochkagym.data.db.EquipmentCatalog
+import com.valerochka1337.valerochkagym.data.db.LocalEquipmentCatalog
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleLoad
 import com.valerochka1337.valerochkagym.domain.ExerciseEquipmentRequirements
@@ -80,6 +79,13 @@ fun ExerciseDetailScreen(
             viewModel.openEditor()
           },
       )
+      state.exercise?.let {
+        com.valerochka1337.valerochkagym.ui.components.CatalogOriginRow(
+            it.origin,
+            "exercise",
+            it.syncId,
+        )
+      }
       when {
         state.loading ->
             Column(
@@ -151,7 +157,7 @@ private fun ExerciseHeader(
         }
       },
       actions = {
-        if (exercise != null && !CanonicalExerciseRegistry.isBuiltIn(exercise)) {
+        if (exercise != null && !(exercise.origin == "STANDARD")) {
           CircleIconButton(
               icon = Icons.Rounded.Edit,
               contentDescription = "Редактировать упражнение",
@@ -197,7 +203,7 @@ internal fun equipmentLine(requirements: ExerciseEquipmentRequirements): String 
       ExerciseEquipmentRequirements.ExplicitNone -> "Без оборудования"
       is ExerciseEquipmentRequirements.Required ->
           requirements.equipmentIds.sorted().joinToString(prefix = "Оборудование: ") { id ->
-            EquipmentCatalog.require(id).name
+            LocalEquipmentCatalog.require(id).name
           }
     }
 

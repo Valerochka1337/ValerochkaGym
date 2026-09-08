@@ -15,7 +15,8 @@ class PortableData(private val db: SupportSQLiteDatabase) {
   }
   private val booleans =
       setOf("isCustom", "needsMuscleMapReview", "inventoryConfigured", "isCompleted")
-  private val localFields = setOf("id", "syncId", "uploadStatus", "uploadError")
+  private val localFields =
+      setOf("id", "syncId", "uploadStatus", "uploadError", "origin", "archived")
 
   private fun rows(
       table: String,
@@ -51,7 +52,7 @@ class PortableData(private val db: SupportSQLiteDatabase) {
 
   private fun array(values: List<JsonElement>) = JsonArray(values)
 
-  fun snapshot(): Map<String, JsonObject> {
+  fun snapshot(includeStandard: Boolean = false): Map<String, JsonObject> {
     val result = linkedMapOf<String, JsonObject>()
     val exercises = rows("exercises")
     val gyms = rows("gyms")
@@ -167,6 +168,12 @@ class PortableData(private val db: SupportSQLiteDatabase) {
           UUID.nameUUIDFromBytes("ValerochkaGym.schedule:${s.s("calendarEventId")}".toByteArray())
               .toString()
       result["schedule:$id"] = JsonObject(n)
+    }
+    if (!includeStandard) {
+      for ((kind, items) in
+          listOf("exercise" to exercises, "gym" to gyms, "routine" to routines)) items
+          .filter { it["origin"]?.jsonPrimitive?.content == "STANDARD" }
+          .forEach { result.remove("$kind:${it.s("syncId")}") }
     }
     return result
   }

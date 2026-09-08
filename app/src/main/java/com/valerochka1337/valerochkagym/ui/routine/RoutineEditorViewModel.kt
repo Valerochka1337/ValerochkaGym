@@ -55,6 +55,7 @@ data class EditorExercise(
  */
 data class RoutineEditorUiState(
     val isNew: Boolean = true,
+    val origin: String = "PERSONAL",
     // Пока true, тело редактора не рисуется: иначе для существующей программы кадр показывает
     // пустую «готовую» форму, которую тут же подменяет загруженная — это и есть моргание.
     val isLoading: Boolean = false,
@@ -77,7 +78,8 @@ data class RoutineEditorUiState(
 ) {
   val isValid: Boolean
     get() =
-        !isSaving &&
+        origin != "STANDARD" &&
+            !isSaving &&
             !isCheckingAvailability &&
             name.trim().isNotEmpty() &&
             exercises.isNotEmpty() &&
@@ -174,6 +176,7 @@ constructor(
       RoutineEditorUiState(
           isNew = false,
           syncId = full.routine.syncId,
+          origin = full.routine.origin,
           updatedAt = full.routine.updatedAt,
           name = full.routine.name,
           note = full.routine.note,

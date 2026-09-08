@@ -20,6 +20,8 @@ data class RoutineEntity(
     val updatedAt: Long = System.currentTimeMillis(),
     val name: String,
     val note: String = "",
+    @androidx.room.ColumnInfo(defaultValue = "'PERSONAL'") val origin: String = "PERSONAL",
+    @androidx.room.ColumnInfo(defaultValue = "0") val archived: Boolean = false,
 )
 
 /** Возвращает следующую версию программы, даже если два сохранения попали в одну миллисекунду. */

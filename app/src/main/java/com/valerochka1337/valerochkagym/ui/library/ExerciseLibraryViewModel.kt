@@ -6,8 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.valerochka1337.valerochkagym.data.ai.AiApiConfigurationProvider
 import com.valerochka1337.valerochkagym.data.ai.ExerciseAiGenerationResult
 import com.valerochka1337.valerochkagym.data.ai.ExerciseAiGenerator
-import com.valerochka1337.valerochkagym.data.db.CanonicalExerciseRegistry
-import com.valerochka1337.valerochkagym.data.db.EquipmentCatalog
+import com.valerochka1337.valerochkagym.data.db.LocalEquipmentCatalog
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseDao
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseMuscleDao
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
@@ -196,7 +195,7 @@ constructor(
                       savedStateHandle.get<String>(CATALOG_EQUIPMENT).orEmpty().split(',').filterTo(
                           linkedSetOf()
                       ) {
-                        EquipmentCatalog.isKnown(it)
+                        LocalEquipmentCatalog.isKnown(it)
                       },
                       includeExplicitNone = savedStateHandle[CATALOG_EQUIPMENT_FREE] ?: false,
                   ),
@@ -261,7 +260,7 @@ constructor(
                         currentQuery,
                         currentFilters,
                         currentSort,
-                        EquipmentCatalog.entries.mapTo(linkedSetOf()) { it.id },
+                        LocalEquipmentCatalog.entries.mapTo(linkedSetOf()) { it.id },
                     ),
             )
           }
@@ -331,7 +330,7 @@ constructor(
   }
 
   fun toggleEquipmentFacet(equipmentId: String) {
-    if (!EquipmentCatalog.isKnown(equipmentId)) return
+    if (!LocalEquipmentCatalog.isKnown(equipmentId)) return
     val selected = filters.value.equipment.equipmentIds.toMutableSet()
     if (!selected.add(equipmentId)) selected.remove(equipmentId)
     filters.value =
@@ -439,7 +438,7 @@ constructor(
       showGenerationFailure(generationId, "Упражнение больше не найдено")
       return
     }
-    if (CanonicalExerciseRegistry.isBuiltIn(exercise)) {
+    if ((exercise.origin == "STANDARD")) {
       showGenerationFailure(generationId, "Стандартное упражнение нельзя редактировать")
       return
     }
@@ -456,7 +455,7 @@ constructor(
             name = exercise.name,
             type = exercise.type,
             loads = loads,
-            editableName = !CanonicalExerciseRegistry.isBuiltIn(exercise),
+            editableName = !(exercise.origin == "STANDARD"),
             wasFoundByAi = true,
             selectionTarget = pickerTarget(),
             requirements = requirements,
@@ -491,7 +490,7 @@ constructor(
 
   /** Открывает разметку существующего упражнения — текущая карта подгружается из базы. */
   fun openEdit(exercise: ExerciseEntity) {
-    if (CanonicalExerciseRegistry.isBuiltIn(exercise)) return
+    if ((exercise.origin == "STANDARD")) return
     viewModelScope.launch {
       val loads =
           exerciseMuscleDao.getForExercise(exercise.id).associate { it.muscle to it.contribution }
@@ -504,7 +503,7 @@ constructor(
               name = exercise.name,
               type = exercise.type,
               loads = loads,
-              editableName = !CanonicalExerciseRegistry.isBuiltIn(exercise),
+              editableName = !(exercise.origin == "STANDARD"),
               needsMuscleMapReview = exercise.needsMuscleMapReview,
               requirements = requirements,
           )
@@ -600,7 +599,7 @@ constructor(
             } else {
               val existing =
                   exerciseDao.getById(current.exerciseId) ?: return@launch showSaveFailure()
-              if (CanonicalExerciseRegistry.isBuiltIn(existing)) {
+              if ((existing.origin == "STANDARD")) {
                 _editor.value = null
                 return@launch
               }

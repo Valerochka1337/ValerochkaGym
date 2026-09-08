@@ -201,6 +201,7 @@ fun AccountCard(vm: AccountViewModel = hiltViewModel()) {
   val session by vm.session.collectAsStateWithLifecycle()
   val status by vm.status.collectAsStateWithLifecycle()
   val conflict by vm.conflict.collectAsStateWithLifecycle()
+  val catalogConflict by vm.catalogConflict.collectAsStateWithLifecycle()
   val busy by vm.busy.collectAsStateWithLifecycle()
   val message by vm.message.collectAsStateWithLifecycle()
   val sessions by vm.sessions.collectAsStateWithLifecycle()
@@ -218,13 +219,19 @@ fun AccountCard(vm: AccountViewModel = hiltViewModel()) {
       Button(onClick = { vm.synchronize() }, enabled = !busy) { Text("Синхронизировать") }
       if (conflict) {
         Text(
-            "Одни и те же данные изменились на двух устройствах. Выбранная версия заменит конфликтующие записи."
+            if (catalogConflict)
+                "Упражнения и залы стали стандартными. Ваши локальные правки и исходный пакет сохранены до выбора."
+            else
+                "Одни и те же данные изменились на двух устройствах. Выбранная версия заменит конфликтующие записи."
         )
         OutlinedButton(onClick = { confirm = "local" }, enabled = !busy) {
-          Text("Оставить изменения этого устройства")
+          Text(
+              if (catalogConflict) "Сохранить правки личными копиями"
+              else "Оставить изменения этого устройства"
+          )
         }
         OutlinedButton(onClick = { confirm = "server" }, enabled = !busy) {
-          Text("Принять изменения с сервера")
+          Text(if (catalogConflict) "Принять стандартные версии" else "Принять изменения с сервера")
         }
       }
       TextButton(onClick = { activity?.let { vm.google(it, true) } }, enabled = !busy) {
@@ -270,9 +277,15 @@ fun AccountCard(vm: AccountViewModel = hiltViewModel()) {
           Text(
               when (action) {
                 "local" ->
-                    "Конфликтующие записи на сервере будут заменены изменениями этого устройства."
+                    if (catalogConflict)
+                        "Будут созданы личные копии ваших правок с новыми UUID. История останется связана со стандартными объектами."
+                    else
+                        "Конфликтующие записи на сервере будут заменены изменениями этого устройства."
                 "server" ->
-                    "Конфликтующие локальные записи будут заменены серверными. При необходимости сначала экспортируйте локальную базу."
+                    if (catalogConflict)
+                        "Локальные правки перенесённых объектов будут заменены стандартными версиями. Личные тренировки сохранятся."
+                    else
+                        "Конфликтующие локальные записи будут заменены серверными. При необходимости сначала экспортируйте локальную базу."
                 "delete" -> "Восстановить серверные данные после удаления будет невозможно."
                 else ->
                     "Локальные данные останутся привязаны к этому аккаунту. Для продолжения потребуется снова войти."

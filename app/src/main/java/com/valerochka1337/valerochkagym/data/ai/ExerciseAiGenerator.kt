@@ -2,11 +2,11 @@ package com.valerochka1337.valerochkagym.data.ai
 
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseDao
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseMuscleDao
+import com.valerochka1337.valerochkagym.data.db.defaultMuscleLoads
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
 import com.valerochka1337.valerochkagym.data.db.entity.Muscle
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleLoad
-import com.valerochka1337.valerochkagym.data.db.muscleLoadsFor
 import com.valerochka1337.valerochkagym.di.ComputeDispatcher
 import java.io.IOException
 import java.io.InterruptedIOException
@@ -204,7 +204,7 @@ constructor(
           val loads =
               persistedLoads[exercise.id]
                   ?.map { MuscleLoad(it.muscle, it.contribution) }
-                  ?.takeIf { it.isNotEmpty() } ?: muscleLoadsFor(exercise)
+                  ?.takeIf { it.isNotEmpty() } ?: exercise.muscleGroup.defaultMuscleLoads()
           PromptExercise(
               id = exercise.id,
               name = exercise.name,

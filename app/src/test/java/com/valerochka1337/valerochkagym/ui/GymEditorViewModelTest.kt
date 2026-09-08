@@ -32,6 +32,14 @@ import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class GymEditorViewModelTest {
+  @org.junit.Before
+  fun localEquipmentFixture() {
+    com.valerochka1337.valerochkagym.data.db.LocalEquipmentCatalog.publish(
+        com.valerochka1337.valerochkagym.data.db.EquipmentCatalog.entries.map {
+          com.valerochka1337.valerochkagym.data.db.LocalEquipmentCatalog.Entry(it, false)
+        }
+    )
+  }
 
   @get:Rule val mainDispatcherRule = MainDispatcherRule()
 

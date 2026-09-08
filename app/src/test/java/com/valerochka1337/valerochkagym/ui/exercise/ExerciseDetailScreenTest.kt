@@ -10,6 +10,14 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class ExerciseDetailScreenTest {
+  @org.junit.Before
+  fun localEquipmentFixture() {
+    com.valerochka1337.valerochkagym.data.db.LocalEquipmentCatalog.publish(
+        com.valerochka1337.valerochkagym.data.db.EquipmentCatalog.entries.map {
+          com.valerochka1337.valerochkagym.data.db.LocalEquipmentCatalog.Entry(it, false)
+        }
+    )
+  }
 
   @Test
   fun `equipment line names known requirements and distinguishes no equipment`() {

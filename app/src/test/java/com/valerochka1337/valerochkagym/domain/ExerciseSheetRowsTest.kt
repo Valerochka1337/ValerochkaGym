@@ -10,6 +10,14 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ExerciseSheetRowsTest {
+  @org.junit.Before
+  fun localEquipmentFixture() {
+    com.valerochka1337.valerochkagym.data.db.LocalEquipmentCatalog.publish(
+        com.valerochka1337.valerochkagym.data.db.EquipmentCatalog.entries.map {
+          com.valerochka1337.valerochkagym.data.db.LocalEquipmentCatalog.Entry(it, false)
+        }
+    )
+  }
 
   @Test
   fun `known requirements round trip across multiple muscles and equipment rows`() {

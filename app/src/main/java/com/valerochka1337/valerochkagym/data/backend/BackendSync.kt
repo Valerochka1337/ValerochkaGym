@@ -23,6 +23,21 @@ constructor(
     private val tokens: BackendSessionStore,
 ) {
   val mutex = Mutex()
+  private val catalog = CatalogSync(database, api)
+  private val mutableCatalogConflict = MutableStateFlow(false)
+  val catalogConflict = mutableCatalogConflict.asStateFlow()
+
+  suspend fun personalCopy(kind: String, id: String): String =
+      withContext(Dispatchers.IO) {
+        mutex.withLock {
+          database.withTransaction {
+            check(!active()) { "Завершите тренировку перед созданием копии" }
+            val payload = PortableData(db).snapshot(includeStandard = true).getValue("$kind:$id")
+            catalog.personalCopy(kind, payload)
+          }
+        }
+      }
+
   private val mutableStatus = MutableStateFlow("Ожидает синхронизации")
   val status = mutableStatus.asStateFlow()
   private val mutableConflict = MutableStateFlow(false)
@@ -80,8 +95,20 @@ constructor(
   suspend fun run(resolve: String? = null) =
       withContext(Dispatchers.IO) {
         mutex.withLock {
-          val user = tokens.session.value?.userId ?: return@withLock
           try {
+            if (active()) {
+              mutableStatus.value = "Синхронизация продолжится после тренировки"
+              return@withLock
+            }
+            val wasCatalogConflict =
+                mutableCatalogConflict.value ||
+                    db.query("SELECT pendingSnapshot FROM catalog_state WHERE id=1").use {
+                      it.moveToFirst() && !it.isNull(0)
+                    }
+            catalog.refresh(resolve)
+            val personalResolve = if (wasCatalogConflict) null else resolve
+            mutableCatalogConflict.value = false
+            val user = tokens.session.value?.userId ?: return@withLock
             assertOwner(user)
             mutableStatus.value = "Синхронизация…"
             // No network response is allowed to mutate the set IDs currently used by the foreground
@@ -90,7 +117,7 @@ constructor(
               mutableStatus.value = "Синхронизация продолжится после тренировки"
               return@withLock
             }
-            if (resolve != null) db.execSQL("DELETE FROM backend_outbox")
+            if (resolve != null && !wasCatalogConflict) db.execSQL("DELETE FROM backend_outbox")
             val pending =
                 db.query("SELECT owner,requestJson FROM backend_outbox WHERE id=1").use { c ->
                   if (c.moveToFirst()) {
@@ -112,7 +139,7 @@ constructor(
               val local = PortableData(db).snapshot()
               val base = baseline()
               val conflicts = CloudMerge.conflicts(local, base, remote.records)
-              if (conflicts.isNotEmpty() && resolve == null) {
+              if (conflicts.isNotEmpty() && personalResolve == null) {
                 mutableConflict.value = true
                 throw BackendException(
                     409,
@@ -127,7 +154,7 @@ constructor(
                     changed &&
                         (!localChanged ||
                             local[r.key] == r.payload ||
-                            resolve == "server" && r.key in conflicts ||
+                            personalResolve == "server" && r.key in conflicts ||
                             base[r.key] == null &&
                                 r.kind == "exercise" &&
                                 local[r.key]?.get("isCustom")?.toString() == "false")
@@ -168,7 +195,7 @@ constructor(
                             .take(1000)
                     if (changes.isEmpty()) null
                     else
-                        CloudPush(UUID.randomUUID().toString(), changes).also {
+                        CloudPush(UUID.randomUUID().toString(), changes, catalog.revision()).also {
                           db.execSQL(
                               "INSERT OR REPLACE INTO backend_outbox(id,owner,requestJson) VALUES (1,?,?)",
                               arrayOf(user, api.json.encodeToString(it)),
@@ -205,6 +232,10 @@ constructor(
             mutableStatus.value = "Синхронизация продолжится в фоне"
           } catch (e: Exception) {
             if (e is kotlinx.coroutines.CancellationException) throw e
+            if (e is BackendException && e.code == "catalog_transition_required") {
+              mutableCatalogConflict.value = true
+              mutableConflict.value = true
+            }
             if (e is BackendException && e.code == "revision_conflict") mutableConflict.value = true
             mutableStatus.value =
                 e.message ?: "Не удалось синхронизировать. Повторим при подключении"
@@ -215,13 +246,40 @@ constructor(
 
   private suspend fun send(user: String, push: CloudPush) {
     assertOwner(user)
-    val ack =
+    var sent = push
+    suspend fun post(value: CloudPush) =
         api.json.decodeFromJsonElement<CloudAck>(
-            api.authorized("POST", "/sync", api.json.encodeToJsonElement(push))
+            api.authorized("POST", "/sync", api.json.encodeToJsonElement(value))
         )
+    val ack =
+        try {
+          post(sent)
+        } catch (e: BackendException) {
+          if (e.code != "catalog_stale") throw e
+          catalog.refresh()
+          sent =
+              push.copy(
+                  operationId = UUID.randomUUID().toString(),
+                  catalogRevision = catalog.revision(),
+              )
+          database.withTransaction {
+            assertOwner(user)
+            if (active())
+                throw BackendException(
+                    409,
+                    "workout_active",
+                    "Завершите тренировку перед синхронизацией",
+                )
+            db.execSQL(
+                "UPDATE backend_outbox SET requestJson=? WHERE id=1",
+                arrayOf(api.json.encodeToString(sent)),
+            )
+          }
+          post(sent)
+        }
     database.withTransaction {
       assertOwner(user)
-      push.changes.forEach {
+      sent.changes.forEach {
         saveBaseline(CloudRecord(it.kind, it.id, ack.revision, it.deleted, it.payload))
       }
       db.execSQL("DELETE FROM backend_outbox WHERE id=1")
