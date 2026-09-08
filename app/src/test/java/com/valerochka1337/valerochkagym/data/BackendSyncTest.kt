@@ -354,6 +354,10 @@ class BackendSyncTest : RoomDaoTest() {
         sync.claim("user-a")
         val ex = exercise()
         val localId = db.exerciseDao().insert(ex)
+        raw.execSQL(
+            "INSERT INTO exercise_equipment(exerciseId,equipmentId) VALUES (?, 'dumbbells')",
+            arrayOf(localId),
+        )
         val payload = PortableData(raw).snapshot().getValue("exercise:${ex.syncId}")
         raw.execSQL("UPDATE catalog_state SET applying=1 WHERE id=1")
         raw.execSQL("UPDATE exercises SET origin='STANDARD' WHERE id=?", arrayOf(localId))
@@ -366,6 +370,8 @@ class BackendSyncTest : RoomDaoTest() {
                 emptyList(),
             )
         sync.run()
+        sync.signOut()
+        assertNull(store.session.value)
         sync.signIn(BackendTokens("user-b", "b@example.com", "access-b", "refresh-b"))
         sync.run()
         val retained = db.exerciseDao().getAllOnce().single()
@@ -373,6 +379,11 @@ class BackendSyncTest : RoomDaoTest() {
         assertEquals("STANDARD", retained.origin)
         assertEquals(ex.name, retained.name)
         assertTrue(server.records.isEmpty())
+        assertEquals(1, tableCount("exercise_equipment"))
+        assertEquals(
+            payload,
+            PortableData(raw).snapshot(includeStandard = true).getValue("exercise:${ex.syncId}"),
+        )
         assertEquals(1, tableCount("catalog_records"))
         assertEquals("user-b", sync.owner())
       }
