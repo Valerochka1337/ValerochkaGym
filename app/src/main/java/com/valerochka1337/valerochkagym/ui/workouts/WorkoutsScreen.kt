@@ -53,12 +53,16 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.valerochka1337.valerochkagym.service.WorkoutSessionService
 import com.valerochka1337.valerochkagym.ui.components.CircleIconButton
+import com.valerochka1337.valerochkagym.ui.components.ConfigurationCloneDialog
+import com.valerochka1337.valerochkagym.ui.components.ConfigurationCloneTarget
+import com.valerochka1337.valerochkagym.ui.components.ConfigurationCloneViewModel
 import com.valerochka1337.valerochkagym.ui.components.FadeInContent
 import com.valerochka1337.valerochkagym.ui.components.GlowBackground
 import com.valerochka1337.valerochkagym.ui.components.GymCard
 import com.valerochka1337.valerochkagym.ui.components.GymCardShape
 import com.valerochka1337.valerochkagym.ui.components.GymTopBar
 import com.valerochka1337.valerochkagym.ui.components.PillButton
+import com.valerochka1337.valerochkagym.ui.components.TemplatesSectionHeader
 import com.valerochka1337.valerochkagym.ui.haptics.gymHaptics
 import com.valerochka1337.valerochkagym.ui.theme.GymMotion
 
@@ -72,14 +76,17 @@ import com.valerochka1337.valerochkagym.ui.theme.GymMotion
 @Composable
 fun WorkoutsScreen(
     onCreateRoutine: () -> Unit,
-    onEditRoutine: (Long) -> Unit,
+    onOpenRoutine: (Long) -> Unit,
     onStartWorkout: () -> Unit,
     onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier,
     viewModel: WorkoutsViewModel = hiltViewModel(),
 ) {
   val state by viewModel.uiState.collectAsStateWithLifecycle()
+  val cloneViewModel: ConfigurationCloneViewModel = hiltViewModel()
+  val cloneState by cloneViewModel.uiState.collectAsStateWithLifecycle()
   var pendingDeleteId by rememberSaveable { mutableStateOf<Long?>(null) }
+  var templatesExpanded by rememberSaveable { mutableStateOf(false) }
   val snackbarHostState = remember { SnackbarHostState() }
   var showNotificationRationale by rememberSaveable { mutableStateOf(false) }
 
@@ -109,6 +116,7 @@ fun WorkoutsScreen(
     }
   }
   LaunchedEffect(Unit) { viewModel.messages.collect(snackbarHostState::showSnackbar) }
+  LaunchedEffect(Unit) { cloneViewModel.messages.collect(snackbarHostState::showSnackbar) }
 
   GlowBackground(modifier = modifier) {
     Box(modifier = Modifier.fillMaxSize()) {
@@ -144,33 +152,24 @@ fun WorkoutsScreen(
               }
           else ->
               FadeInContent(modifier = Modifier.weight(1f)) {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding =
-                        PaddingValues(
-                            start = 24.dp,
-                            end = 24.dp,
-                            top = 4.dp,
-                            bottom = 16.dp,
-                        ),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                  items(routines, key = { it.id }) { routine ->
-                    val haptics = gymHaptics()
-                    RoutineCard(
-                        routine = routine,
-                        selected = routine.id == state.selectedRoutineId,
-                        onClick = {
-                          haptics.tap()
-                          viewModel.onRoutineSelected(routine.id)
-                        },
-                        onEdit = { onEditRoutine(routine.id) },
-                        onDuplicate = { viewModel.duplicate(routine.id) },
-                        onDelete = { pendingDeleteId = routine.id },
-                        modifier = Modifier.animateItem(),
-                    )
-                  }
-                }
+                WorkoutRoutinesList(
+                    routines = routines,
+                    selectedRoutineId = state.selectedRoutineId,
+                    templatesExpanded = templatesExpanded,
+                    onTemplatesExpandedChange = { templatesExpanded = it },
+                    onRoutineSelected = viewModel::onRoutineSelected,
+                    onOpenRoutine = onOpenRoutine,
+                    onDuplicateRoutine = { id ->
+                      state.routines
+                          ?.firstOrNull { it.id == id }
+                          ?.let { routine ->
+                            cloneViewModel.open(
+                                ConfigurationCloneTarget.Routine(routine.id, routine.name)
+                            )
+                          }
+                    },
+                    onDeleteRoutine = { pendingDeleteId = it },
+                )
               }
         }
 
@@ -237,6 +236,84 @@ fun WorkoutsScreen(
         },
     )
   }
+
+  ConfigurationCloneDialog(
+      state = cloneState,
+      onNameChange = cloneViewModel::setName,
+      onSave = cloneViewModel::save,
+      onDismiss = cloneViewModel::dismiss,
+  )
+}
+
+@Composable
+internal fun WorkoutRoutinesList(
+    routines: List<RoutineCardUi>,
+    selectedRoutineId: Long?,
+    templatesExpanded: Boolean,
+    onTemplatesExpandedChange: (Boolean) -> Unit,
+    onRoutineSelected: (Long) -> Unit,
+    onOpenRoutine: (Long) -> Unit,
+    onDuplicateRoutine: (Long) -> Unit,
+    onDeleteRoutine: (Long) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+  val standard = routines.filter { it.origin == "STANDARD" }
+  val personal = routines.filterNot { it.origin == "STANDARD" }
+  val haptics = gymHaptics()
+  LazyColumn(
+      modifier = modifier.fillMaxSize(),
+      contentPadding =
+          PaddingValues(
+              start = 24.dp,
+              end = 24.dp,
+              top = 4.dp,
+              bottom = 16.dp,
+          ),
+      verticalArrangement = Arrangement.spacedBy(10.dp),
+  ) {
+    if (standard.isNotEmpty()) {
+      item(key = "routine_templates_header") {
+        TemplatesSectionHeader(
+            count = standard.size,
+            expanded = templatesExpanded,
+            onClick = {
+              haptics.tap()
+              onTemplatesExpandedChange(!templatesExpanded)
+            },
+        )
+      }
+      if (templatesExpanded) {
+        items(standard, key = { it.id }) { routine ->
+          RoutineCard(
+              routine = routine,
+              selected = routine.id == selectedRoutineId,
+              onClick = {
+                haptics.tap()
+                onRoutineSelected(routine.id)
+              },
+              onOpen = { onOpenRoutine(routine.id) },
+              onDuplicate = { onDuplicateRoutine(routine.id) },
+              onDelete = { onDeleteRoutine(routine.id) },
+              modifier = Modifier.animateItem(),
+          )
+        }
+      }
+    }
+    items(personal, key = { it.id }) { routine ->
+      RoutineCard(
+          routine = routine,
+          selected = routine.id == selectedRoutineId,
+          onClick = {
+            haptics.tap()
+            onRoutineSelected(routine.id)
+          },
+          onOpen = { onOpenRoutine(routine.id) },
+          onDuplicate = { onDuplicateRoutine(routine.id) },
+          onDelete = { onDeleteRoutine(routine.id) },
+          modifier = Modifier.animateItem(),
+      )
+    }
+  }
 }
 
 @Composable
@@ -244,7 +321,7 @@ private fun RoutineCard(
     routine: RoutineCardUi,
     selected: Boolean,
     onClick: () -> Unit,
-    onEdit: () -> Unit,
+    onOpen: () -> Unit,
     onDuplicate: () -> Unit,
     onDelete: () -> Unit,
     modifier: Modifier = Modifier,
@@ -267,8 +344,7 @@ private fun RoutineCard(
     Row(verticalAlignment = Alignment.Top) {
       Column(modifier = Modifier.weight(1f).padding(top = 4.dp)) {
         Text(
-            text =
-                routine.name + if (routine.origin == "STANDARD") " · Стандартное" else " · Личное",
+            text = routine.name,
             style = MaterialTheme.typography.titleLarge,
             fontWeight = FontWeight.SemiBold,
             color = MaterialTheme.colorScheme.onSurface,
@@ -294,7 +370,7 @@ private fun RoutineCard(
       }
       RoutineCardMenu(
           standard = routine.origin == "STANDARD",
-          onEdit = onEdit,
+          onOpen = onOpen,
           onDuplicate = onDuplicate,
           onDelete = onDelete,
       )
@@ -326,7 +402,7 @@ private fun StartBar(
 @Composable
 private fun RoutineCardMenu(
     standard: Boolean = false,
-    onEdit: () -> Unit,
+    onOpen: () -> Unit,
     onDuplicate: () -> Unit,
     onDelete: () -> Unit,
 ) {
@@ -341,14 +417,14 @@ private fun RoutineCardMenu(
     }
     DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
       DropdownMenuItem(
-          text = { Text(if (standard) "Просмотреть" else "Редактировать") },
+          text = { Text("Открыть") },
           onClick = {
             expanded = false
-            onEdit()
+            onOpen()
           },
       )
       DropdownMenuItem(
-          text = { Text("Создать личную копию") },
+          text = { Text("Клонировать") },
           onClick = {
             expanded = false
             onDuplicate()

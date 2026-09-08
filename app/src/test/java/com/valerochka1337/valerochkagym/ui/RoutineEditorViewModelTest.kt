@@ -164,6 +164,51 @@ class RoutineEditorViewModelTest {
         assertEquals(listOf(1L), repository.lastRoutineDraft?.exercises?.map { it.exerciseId })
       }
 
+  @Test
+  fun `standard editor ignores every draft mutation and save`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val squat = exercise(id = 1, name = "Приседания")
+        val replacement = exercise(id = 2, name = "Выпады")
+        val routine =
+            RoutineWithExercises(
+                routine = RoutineEntity(id = 5, name = "Стандарт", origin = "STANDARD"),
+                exercises =
+                    listOf(
+                        routineExercise(
+                            squat,
+                            position = 0,
+                            restSeconds = 90,
+                            plannedSets = listOf(PlannedSet(reps = 5)),
+                        )
+                    ),
+            )
+        val routineDao = FakeRoutineDao(listOf(routine))
+        val viewModel =
+            RoutineEditorViewModel(
+                savedStateHandleFor(5),
+                routineDao,
+                FakeExerciseDao(listOf(replacement)),
+            )
+        val before = viewModel.uiState.value
+
+        viewModel.setName("Изменено")
+        viewModel.toggleGym("gym")
+        viewModel.addExercise(replacement)
+        viewModel.addExerciseById(replacement.id)
+        viewModel.removeExercise(0)
+        viewModel.moveExercise(0, 0)
+        viewModel.setRest(0, 30)
+        viewModel.addPlannedSet(0)
+        viewModel.removePlannedSet(0, 0)
+        viewModel.updatePlannedSet(0, 0, PlannedSet(reps = 12))
+        viewModel.save()
+        mainDispatcherRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(before, viewModel.uiState.value)
+        assertEquals(0, routineDao.upsertCount)
+        assertNull(routineDao.lastReplacedRoutineId)
+      }
+
   // endregion
 
   // region editing exercises

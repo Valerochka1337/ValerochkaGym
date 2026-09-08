@@ -22,9 +22,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -38,7 +39,9 @@ import com.valerochka1337.valerochkagym.ui.components.FadeInContent
 import com.valerochka1337.valerochkagym.ui.components.GlowBackground
 import com.valerochka1337.valerochkagym.ui.components.GymCard
 import com.valerochka1337.valerochkagym.ui.components.PillButton
+import com.valerochka1337.valerochkagym.ui.components.TemplatesSectionHeader
 import com.valerochka1337.valerochkagym.ui.haptics.gymHaptics
+import com.valerochka1337.valerochkagym.ui.navigation.GymWindowWidthClass
 import com.valerochka1337.valerochkagym.ui.theme.GymMotion
 
 /** Pushed-раздел настроек со списком конфигураций тренажёрных залов. */
@@ -46,13 +49,15 @@ import com.valerochka1337.valerochkagym.ui.theme.GymMotion
 fun GymsScreen(
     onBack: () -> Unit,
     onCreateGym: () -> Unit,
-    onEditGym: (String) -> Unit,
-    onCopyGym: (String) -> Unit,
+    onOpenGym: (String) -> Unit,
+    windowWidthClass: GymWindowWidthClass = GymWindowWidthClass.Compact,
     modifier: Modifier = Modifier,
     viewModel: GymsViewModel = hiltViewModel(),
 ) {
   val state by viewModel.uiState.collectAsStateWithLifecycle()
   val haptics = gymHaptics()
+  var templatesExpanded by
+      androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
 
   GlowBackground(modifier = modifier) {
     Column(modifier = Modifier.fillMaxSize()) {
@@ -94,34 +99,76 @@ fun GymsScreen(
             }
         else ->
             FadeInContent(modifier = Modifier.weight(1f)) {
-              LazyColumn(
-                  modifier = Modifier.fillMaxSize(),
-                  contentPadding =
-                      PaddingValues(
-                          start = 24.dp,
-                          end = 24.dp,
-                          top = 4.dp,
-                          bottom = 32.dp,
-                      ),
-                  verticalArrangement = Arrangement.spacedBy(10.dp),
-              ) {
-                items(gyms, key = { it.id }) { gym ->
-                  GymConfigurationCard(
-                      gym = gym,
-                      onClick = {
-                        haptics.tap()
-                        if (gym.origin == "STANDARD") onCopyGym(gym.id) else onEditGym(gym.id)
-                      },
-                      onCopy = {
-                        haptics.tap()
-                        onCopyGym(gym.id)
-                      },
-                      modifier = Modifier.animateItem(placementSpec = GymMotion.spatialFast()),
-                  )
-                }
-              }
+              GymsList(
+                  gyms = gyms,
+                  templatesExpanded = templatesExpanded,
+                  onTemplatesExpandedChange = { templatesExpanded = it },
+                  onOpenGym = onOpenGym,
+                  windowWidthClass = windowWidthClass,
+              )
             }
       }
+    }
+  }
+}
+
+@Composable
+internal fun GymsList(
+    gyms: List<GymConfiguration>,
+    templatesExpanded: Boolean,
+    onTemplatesExpandedChange: (Boolean) -> Unit,
+    onOpenGym: (String) -> Unit,
+    windowWidthClass: GymWindowWidthClass,
+    modifier: Modifier = Modifier,
+) {
+  val standard = gyms.filter { it.origin == "STANDARD" }
+  val personal = gyms.filterNot { it.origin == "STANDARD" }
+  val haptics = gymHaptics()
+  val horizontalPadding = if (windowWidthClass == GymWindowWidthClass.Compact) 16.dp else 24.dp
+  LazyColumn(
+      modifier = modifier.fillMaxSize(),
+      contentPadding =
+          PaddingValues(
+              start = horizontalPadding,
+              end = horizontalPadding,
+              top = 4.dp,
+              bottom = 32.dp,
+          ),
+      verticalArrangement = Arrangement.spacedBy(10.dp),
+  ) {
+    if (standard.isNotEmpty()) {
+      item(key = "gym_templates_header") {
+        TemplatesSectionHeader(
+            count = standard.size,
+            expanded = templatesExpanded,
+            onClick = {
+              haptics.tap()
+              onTemplatesExpandedChange(!templatesExpanded)
+            },
+        )
+      }
+      if (templatesExpanded) {
+        items(standard, key = { it.id }) { gym ->
+          GymConfigurationCard(
+              gym = gym,
+              onClick = {
+                haptics.tap()
+                onOpenGym(gym.id)
+              },
+              modifier = Modifier.animateItem(placementSpec = GymMotion.spatialFast()),
+          )
+        }
+      }
+    }
+    items(personal, key = { it.id }) { gym ->
+      GymConfigurationCard(
+          gym = gym,
+          onClick = {
+            haptics.tap()
+            onOpenGym(gym.id)
+          },
+          modifier = Modifier.animateItem(placementSpec = GymMotion.spatialFast()),
+      )
     }
   }
 }
@@ -163,7 +210,6 @@ private fun GymsHeader(
 private fun GymConfigurationCard(
     gym: GymConfiguration,
     onClick: () -> Unit,
-    onCopy: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
   GymCard(
@@ -181,7 +227,7 @@ private fun GymConfigurationCard(
       Spacer(Modifier.width(14.dp))
       Column(modifier = Modifier.weight(1f)) {
         Text(
-            text = gym.name + if (gym.origin == "STANDARD") " · Стандартное" else " · Личное",
+            text = gym.name,
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.SemiBold,
             color = MaterialTheme.colorScheme.onSurface,
@@ -198,7 +244,6 @@ private fun GymConfigurationCard(
           tint = MaterialTheme.colorScheme.onSurfaceVariant,
       )
     }
-    TextButton(onClick = onCopy) { Text("Создать личную копию") }
   }
 }
 

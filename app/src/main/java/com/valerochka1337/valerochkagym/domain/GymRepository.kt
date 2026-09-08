@@ -193,7 +193,10 @@ interface GymRepository {
   ): SaveRoutineConfigurationResult = SaveRoutineConfigurationResult.Failure
 
   /** Создаёт полную копию программы, упражнений и залов одной транзакцией. */
-  suspend fun duplicateRoutine(sourceRoutineId: Long): RoutineEntity? = null
+  suspend fun duplicateRoutine(sourceRoutineId: Long, name: String? = null): RoutineEntity? = null
+
+  /** Клонирует зал с его инвентарём и legacy-связями без изменения исходного зала. */
+  suspend fun cloneGym(sourceGymId: String, name: String): SaveGymResult = SaveGymResult.Failure
 
   /** Удаляет программу и фиксирует durable tombstone одной транзакцией. */
   suspend fun deleteRoutine(routineId: Long): RoutineDeletion? = null

@@ -171,8 +171,8 @@ fun SettingsScreen(
               null -> {
                 SettingsCategoryList(
                     onSelect = { selectedCategory = it },
+                    onOpenGyms = onOpenGyms,
                 )
-                GymsSettingsCard(onOpen = onOpenGyms)
               }
 
               SettingsCategory.WORKOUT ->
@@ -278,7 +278,7 @@ private fun SettingsHeader(title: String, onBack: () -> Unit) {
 }
 
 @Composable
-private fun SettingsCategoryList(onSelect: (SettingsCategory) -> Unit) {
+private fun SettingsCategoryList(onSelect: (SettingsCategory) -> Unit, onOpenGyms: () -> Unit) {
   SettingsCategory.entries.forEach { category ->
     SettingsNavigationCard(
         label = category.label,
@@ -293,6 +293,9 @@ private fun SettingsCategoryList(onSelect: (SettingsCategory) -> Unit) {
             },
         onClick = { onSelect(category) },
     )
+    if (category == SettingsCategory.WORKOUT) {
+      GymsSettingsCard(onOpen = onOpenGyms)
+    }
   }
 }
 

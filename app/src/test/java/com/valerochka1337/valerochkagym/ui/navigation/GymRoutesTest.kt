@@ -43,6 +43,36 @@ class GymRoutesTest {
     )
   }
 
+  @Test
+  fun `gym detail route encodes and restores the stable gym id`() {
+    val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+    val navController = controller(context).apply { graph = detailGraph() }
+
+    navController.navigate(GymRoutes.gymDetail("gym/id with space"))
+
+    assertEquals("gym_detail/gym%2Fid%20with%20space", GymRoutes.gymDetail("gym/id with space"))
+    assertEquals(GymRoutes.GYM_DETAIL, navController.currentDestination?.route)
+    assertEquals(
+        "gym/id with space",
+        navController.currentBackStackEntry?.arguments?.getString(GymRoutes.GYM_ID_ARG),
+    )
+  }
+
+  @Test
+  fun `routine detail route restores the stable routine id`() {
+    val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+    val navController = controller(context).apply { graph = detailGraph() }
+
+    navController.navigate(GymRoutes.routineDetail(42))
+
+    assertEquals("routine_detail/42", GymRoutes.routineDetail(42))
+    assertEquals(GymRoutes.ROUTINE_DETAIL, navController.currentDestination?.route)
+    assertEquals(
+        42L,
+        navController.currentBackStackEntry?.arguments?.getLong(GymRoutes.ROUTINE_ID_ARG),
+    )
+  }
+
   private fun controller(context: android.content.Context): NavHostController =
       NavHostController(context).also { it.navigatorProvider.addNavigator(ComposeNavigator()) }
 
@@ -60,6 +90,14 @@ class GymRoutesTest {
                     navArgument(GymRoutes.EXERCISE_ID_ARG) { type = NavType.LongType },
                     navArgument("executionGroup") { type = NavType.StringType },
                 ),
+        ) {}
+        composable(
+            GymRoutes.GYM_DETAIL,
+            arguments = listOf(navArgument(GymRoutes.GYM_ID_ARG) { type = NavType.StringType }),
+        ) {}
+        composable(
+            GymRoutes.ROUTINE_DETAIL,
+            arguments = listOf(navArgument(GymRoutes.ROUTINE_ID_ARG) { type = NavType.LongType }),
         ) {}
       }
 }

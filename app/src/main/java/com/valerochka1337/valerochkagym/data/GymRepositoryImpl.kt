@@ -641,14 +641,16 @@ constructor(
         SaveRoutineConfigurationResult.Failure
       }
 
-  override suspend fun duplicateRoutine(sourceRoutineId: Long): RoutineEntity? =
+  override suspend fun duplicateRoutine(sourceRoutineId: Long, name: String?): RoutineEntity? =
       try {
         database.withTransaction {
+          val normalizedName = name?.trim()
+          if (normalizedName != null && normalizedName.isEmpty()) return@withTransaction null
           val source =
               routineDao.getRoutineWithExercises(sourceRoutineId) ?: return@withTransaction null
           val copy =
               RoutineEntity(
-                  name = "${source.routine.name} (копия)",
+                  name = normalizedName ?: "${source.routine.name} (копия)",
                   note = source.routine.note,
               )
           val newId = routineDao.upsertRoutine(copy)
@@ -672,6 +674,36 @@ constructor(
       } catch (_: Exception) {
         null
       }
+
+  override suspend fun cloneGym(sourceGymId: String, name: String): SaveGymResult = runMutation {
+    val normalizedName = name.trim()
+    if (normalizedName.isEmpty()) return@runMutation SaveGymResult.Failure
+    val result =
+        database.withTransaction {
+          val source =
+              gymDao.getGymBySyncId(sourceGymId) ?: return@withTransaction SaveGymResult.NotFound
+          if (gymDao.getGyms().any { it.name.equals(normalizedName, ignoreCase = true) }) {
+            return@withTransaction SaveGymResult.NameAlreadyExists
+          }
+          val copy =
+              GymEntity(name = normalizedName, inventoryConfigured = source.inventoryConfigured)
+          val localId = gymDao.insertGym(copy)
+          gymDao.replaceGymEquipment(localId, gymDao.getGymEquipmentIds(source.id).toSet())
+          gymDao.replaceGymExercises(localId, gymDao.getGymExerciseIds(source.id))
+          SaveGymResult.Saved(copy.syncId)
+        }
+    if (result is SaveGymResult.Saved) {
+      try {
+        configurationUploadScheduler.scheduleGym(result.gymId)
+      } catch (cancelled: CancellationException) {
+        throw cancelled
+      } catch (_: Exception) {
+        // Копия уже сохранена. Повтор клонирования из-за ошибки очереди создаст дубликат;
+        // следующая общая синхронизация подберёт локальную запись.
+      }
+    }
+    result
+  }
 
   override suspend fun deleteRoutine(routineId: Long): RoutineDeletion? =
       try {

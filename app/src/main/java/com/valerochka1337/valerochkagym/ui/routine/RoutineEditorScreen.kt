@@ -106,6 +106,8 @@ fun RoutineEditorScreen(
     Column(modifier = Modifier.fillMaxSize()) {
       EditorHeader(
           isNew = state.isNew,
+          isReadOnly = state.origin == "STANDARD",
+          routineName = state.name,
           canSave = state.isValid,
           isSaving = state.isSaving,
           onBack = onBack,
@@ -114,6 +116,17 @@ fun RoutineEditorScreen(
 
       if (state.isLoading) {
         LoadingState(label = "Загружаем программу…", modifier = Modifier.weight(1f))
+        return@Column
+      }
+
+      if (state.origin == "STANDARD") {
+        RoutineDetailContent(
+            routine = state.toDetailRoutine(),
+            onExerciseClick = null,
+            windowWidthClass =
+                com.valerochka1337.valerochkagym.ui.navigation.GymWindowWidthClass.Compact,
+            modifier = Modifier.weight(1f),
+        )
         return@Column
       }
 
@@ -305,6 +318,8 @@ private fun GymSelectionCard(
 @Composable
 private fun EditorHeader(
     isNew: Boolean,
+    isReadOnly: Boolean,
+    routineName: String,
     canSave: Boolean,
     isSaving: Boolean,
     onBack: () -> Unit,
@@ -324,13 +339,15 @@ private fun EditorHeader(
     }
     Spacer(Modifier.width(4.dp))
     Text(
-        text = if (isNew) "Новая программа" else "Редактирование",
+        text = if (isNew) "Новая программа" else if (isReadOnly) routineName else "Редактирование",
         style = MaterialTheme.typography.headlineSmall,
         color = MaterialTheme.colorScheme.onBackground,
         modifier = Modifier.weight(1f),
     )
-    TextButton(onClick = onSave, enabled = canSave) {
-      Text(if (isSaving) "Сохраняем…" else "Сохранить")
+    if (!isReadOnly) {
+      TextButton(onClick = onSave, enabled = canSave) {
+        Text(if (isSaving) "Сохраняем…" else "Сохранить")
+      }
     }
   }
 }
@@ -452,7 +469,7 @@ internal fun List<EditorExercise>.indexOfReorderKey(key: Any): Int = indexOfFirs
   exercise.editorId == key
 }
 
-private fun setsWord(count: Int): String {
+internal fun setsWord(count: Int): String {
   val mod100 = count % 100
   val mod10 = count % 10
   return when {

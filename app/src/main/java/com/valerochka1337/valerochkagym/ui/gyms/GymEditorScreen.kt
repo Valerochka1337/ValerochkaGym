@@ -4,37 +4,38 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.sizeIn
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.TriStateCheckbox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -54,6 +55,8 @@ import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -62,15 +65,18 @@ import com.valerochka1337.valerochkagym.domain.GymConfigurationConflict
 import com.valerochka1337.valerochkagym.domain.GymRoutineReference
 import com.valerochka1337.valerochkagym.ui.components.GlowBackground
 import com.valerochka1337.valerochkagym.ui.components.GymCard
+import com.valerochka1337.valerochkagym.ui.components.GymFilterChip
 import com.valerochka1337.valerochkagym.ui.components.PillButton
 import com.valerochka1337.valerochkagym.ui.haptics.gymHaptics
+import com.valerochka1337.valerochkagym.ui.navigation.GymWindowWidthClass
 import com.valerochka1337.valerochkagym.ui.theme.GymMotion
 
-/** Полноэкранный редактор имени зала и доступного в нём каталога упражнений. */
+/** Full-screen inventory editor. A standard gym is rendered as an immutable source snapshot. */
 @Composable
 fun GymEditorScreen(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
+    windowWidthClass: GymWindowWidthClass = GymWindowWidthClass.Compact,
     viewModel: GymEditorViewModel = hiltViewModel(),
 ) {
   val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -88,43 +94,23 @@ fun GymEditorScreen(
 
   GlowBackground(modifier = modifier) {
     Column(modifier = Modifier.fillMaxSize()) {
-      GymEditorHeader(
-          title = if (state.isNew) "Новый зал" else "Редактирование зала",
+      GymEditorTopBar(
+          state = state,
           onBack = viewModel::requestExit,
-          backEnabled = !state.isBusy,
+          onDelete = { showDeleteConfirmation = true },
       )
-      if (state.copySourceWasLegacy) {
-        Text(
-            "Исходный зал использует старую доступность. Настройте оборудование для новой копии.",
-            modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-      }
-
-      val loadError = state.loadError
       when {
-        state.isLoading ->
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center,
-            ) {
-              CircularProgressIndicator()
-            }
-        loadError != null ->
-            GymEditorLoadError(
-                message = loadError,
-                onBack = onBack,
-            )
+        state.isLoading -> LoadingContent()
+        state.loadError != null -> GymEditorLoadError(message = state.loadError!!, onBack = onBack)
         else ->
             GymEditorForm(
                 state = state,
+                compact = windowWidthClass == GymWindowWidthClass.Compact,
                 onNameChange = viewModel::setName,
                 onQueryChange = viewModel::setQuery,
                 onClearQuery = viewModel::clearQuery,
                 onToggleEquipment = { equipment ->
-                  val willBeSelected = equipment.id !in state.selectedEquipmentIds
-                  haptics.toggle(willBeSelected)
+                  haptics.toggle(equipment.id !in state.selectedEquipmentIds)
                   viewModel.toggleEquipment(equipment.id)
                 },
                 onMode = viewModel::setMode,
@@ -141,13 +127,12 @@ fun GymEditorScreen(
                   haptics.confirm()
                   viewModel.save()
                 },
-                onDelete = { showDeleteConfirmation = true },
             )
       }
     }
   }
 
-  if (showDeleteConfirmation) {
+  if (showDeleteConfirmation && state.origin != "STANDARD") {
     AlertDialog(
         onDismissRequest = { if (!state.isBusy) showDeleteConfirmation = false },
         title = { Text("Удалить зал?") },
@@ -161,30 +146,25 @@ fun GymEditorScreen(
                 showDeleteConfirmation = false
                 viewModel.delete()
               },
-              enabled = !state.isBusy && state.origin != "STANDARD",
+              enabled = !state.isBusy,
           ) {
             Text("Удалить", color = MaterialTheme.colorScheme.error)
           }
         },
         dismissButton = {
-          TextButton(
-              onClick = { showDeleteConfirmation = false },
-              enabled = !state.isBusy && state.origin != "STANDARD",
-          ) {
+          TextButton(onClick = { showDeleteConfirmation = false }, enabled = !state.isBusy) {
             Text("Отмена")
           }
         },
     )
   }
 
-  state.saveConflict?.let { conflict ->
-    SaveConflictDialog(conflict = conflict, onDismiss = viewModel::dismissSaveConflict)
+  state.saveConflict?.let {
+    SaveConflictDialog(conflict = it, onDismiss = viewModel::dismissSaveConflict)
   }
-
-  state.deleteConflict?.let { routines ->
-    DeleteConflictDialog(routines = routines, onDismiss = viewModel::dismissDeleteConflict)
+  state.deleteConflict?.let {
+    DeleteConflictDialog(routines = it, onDismiss = viewModel::dismissDeleteConflict)
   }
-
   state.actionError?.let { message ->
     AlertDialog(
         onDismissRequest = viewModel::dismissActionError,
@@ -224,37 +204,67 @@ fun GymEditorScreen(
   }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun GymEditorHeader(
-    title: String,
+private fun GymEditorTopBar(
+    state: GymEditorUiState,
     onBack: () -> Unit,
-    backEnabled: Boolean,
+    onDelete: () -> Unit,
 ) {
-  Row(
-      modifier =
-          Modifier.fillMaxWidth().padding(start = 8.dp, end = 16.dp, top = 12.dp, bottom = 8.dp),
-      verticalAlignment = Alignment.CenterVertically,
-  ) {
-    IconButton(onClick = onBack, enabled = backEnabled) {
-      Icon(
-          imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
-          contentDescription = "Назад",
-          tint = MaterialTheme.colorScheme.onBackground,
-      )
-    }
-    Spacer(Modifier.width(4.dp))
-    Text(
-        text = title,
-        style = MaterialTheme.typography.headlineSmall,
-        fontWeight = FontWeight.SemiBold,
-        color = MaterialTheme.colorScheme.onBackground,
-    )
-  }
+  var overflowOpen by rememberSaveable { mutableStateOf(false) }
+  val personalExistingGym = !state.isLoading && !state.isNew && state.origin != "STANDARD"
+  TopAppBar(
+      title = {
+        Text(
+            text =
+                when {
+                  state.origin == "STANDARD" -> "Встроенный зал"
+                  state.isNew -> "Новый зал"
+                  else -> "Редактирование зала"
+                },
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+      },
+      navigationIcon = {
+        IconButton(onClick = onBack, enabled = !state.isBusy) {
+          Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Назад")
+        }
+      },
+      actions = {
+        if (personalExistingGym) {
+          Box {
+            IconButton(onClick = { overflowOpen = true }, enabled = !state.isBusy) {
+              Icon(Icons.Rounded.MoreVert, contentDescription = "Дополнительные действия")
+            }
+            DropdownMenu(expanded = overflowOpen, onDismissRequest = { overflowOpen = false }) {
+              DropdownMenuItem(
+                  text = { Text("Удалить зал", color = MaterialTheme.colorScheme.error) },
+                  leadingIcon = {
+                    Icon(
+                        Icons.Rounded.Delete,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.error,
+                    )
+                  },
+                  onClick = {
+                    overflowOpen = false
+                    onDelete()
+                  },
+              )
+            }
+          }
+        }
+      },
+      colors =
+          TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
+  )
 }
 
 @Composable
 private fun GymEditorForm(
     state: GymEditorUiState,
+    compact: Boolean,
     onNameChange: (String) -> Unit,
     onQueryChange: (String) -> Unit,
     onClearQuery: () -> Unit,
@@ -266,216 +276,333 @@ private fun GymEditorForm(
     onUndo: () -> Unit,
     onPreview: () -> Unit,
     onSave: () -> Unit,
-    onDelete: () -> Unit,
 ) {
-  Column(modifier = Modifier.fillMaxSize()) {
-    OutlinedTextField(
-        value = state.name,
-        onValueChange = onNameChange,
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp),
-        enabled = !state.isBusy && state.origin != "STANDARD",
-        singleLine = true,
-        label = { Text("Название зала") },
-        placeholder = { Text("Например, Зал у дома") },
-        shape = RoundedCornerShape(16.dp),
-    )
-
-    Spacer(Modifier.height(16.dp))
-
-    OutlinedTextField(
-        value = state.query,
-        onValueChange = onQueryChange,
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp),
-        enabled = !state.isBusy && state.origin != "STANDARD",
-        singleLine = true,
-        placeholder = { Text("Поиск оборудования") },
-        leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) },
-        trailingIcon = {
-          if (state.query.isNotEmpty()) {
-            IconButton(onClick = onClearQuery) {
-              Icon(Icons.Rounded.Close, contentDescription = "Очистить поиск")
-            }
-          }
-        },
-        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-        keyboardActions = KeyboardActions(),
-        shape = RoundedCornerShape(16.dp),
-    )
-
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-      Text(
-          text = "Оборудование",
-          style = MaterialTheme.typography.titleMedium,
-          fontWeight = FontWeight.Bold,
-          color = MaterialTheme.colorScheme.onBackground,
-          modifier = Modifier.weight(1f),
-      )
-      Text(
-          text = "Выбрано: ${state.selectedEquipmentIds.size}",
-          style = MaterialTheme.typography.bodyMedium,
-          color = MaterialTheme.colorScheme.onSurfaceVariant,
-      )
-    }
-
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-      TextButton(onClick = { onMode(GymEquipmentMode.ALL) }, enabled = !state.isBusy) {
-        Text("Все")
-      }
-      TextButton(onClick = { onMode(GymEquipmentMode.SELECTED) }, enabled = !state.isBusy) {
-        Text("Выбранные")
-      }
-      TextButton(
-          onClick = onToggleAll,
-          enabled = !state.isBusy && state.origin != "STANDARD",
-          modifier = Modifier.weight(1f),
-      ) {
-        val scope =
-            if (state.query.isBlank()) state.equipment.orEmpty() else state.filteredEquipment
-        Text(
-            when {
-              state.query.isBlank() && scope.all { it.id in state.selectedEquipmentIds } ->
-                  "Снять всё"
-              state.query.isNotBlank() && scope.all { it.id in state.selectedEquipmentIds } ->
-                  "Снять найденное"
-              state.query.isBlank() -> "Выбрать всё"
-              else -> "Выбрать найденное"
-            },
-        )
-      }
-      if (state.bulkUndo != null)
-          TextButton(onClick = onUndo, enabled = !state.isBusy) { Text("Отменить") }
-    }
-
-    val equipment = state.equipment
-    when {
-      equipment == null ->
-          Box(
-              modifier = Modifier.fillMaxWidth().weight(1f),
-              contentAlignment = Alignment.Center,
-          ) {
-            CircularProgressIndicator()
-          }
-      state.groupedBulkEquipment.isEmpty() ->
-          Box(
-              modifier = Modifier.fillMaxWidth().weight(1f).padding(24.dp),
-              contentAlignment = Alignment.Center,
-          ) {
-            Text(
-                text =
-                    if (state.query.isBlank()) {
-                      "В каталоге пока нет оборудования."
-                    } else {
-                      "По этому запросу ничего не найдено."
-                    },
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-            )
-          }
-      else ->
-          LazyColumn(
-              modifier = Modifier.fillMaxWidth().weight(1f).testTag("gym_equipment_inventory"),
-              contentPadding = PaddingValues(start = 24.dp, end = 24.dp, bottom = 12.dp),
-              verticalArrangement = Arrangement.spacedBy(10.dp),
-          ) {
-            state.groupedBulkEquipment.forEach { (group, allEntries) ->
-              val entries =
-                  if (state.mode == GymEquipmentMode.ALL) allEntries
-                  else allEntries.filter { it.id in state.selectedEquipmentIds }
-              item(key = "group:$group") {
-                val selectedCount = allEntries.count { it.id in state.selectedEquipmentIds }
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                  TextButton(
-                      onClick = { onToggleGroupExpanded(group) },
-                      modifier = Modifier.weight(1f),
-                  ) {
-                    Text("$group · $selectedCount/${allEntries.size}")
-                  }
-                  val groupState =
-                      when (selectedCount) {
-                        0 -> ToggleableState.Off
-                        allEntries.size -> ToggleableState.On
-                        else -> ToggleableState.Indeterminate
-                      }
-                  TriStateCheckbox(
-                      state = groupState,
-                      onClick = { onToggleGroup(group) },
-                      enabled = !state.isBusy && allEntries.isNotEmpty(),
-                      modifier =
-                          Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp).semantics {
-                            contentDescription = "Оборудование группы $group"
-                            stateDescription =
-                                when (groupState) {
-                                  ToggleableState.Off -> "Не выбрано"
-                                  ToggleableState.On -> "Выбрано всё"
-                                  ToggleableState.Indeterminate -> "Выбрано частично"
-                                }
-                          },
-                  )
-                }
-              }
-              if (
-                  (group in state.expandedGroups || state.query.isNotBlank()) &&
-                      entries.isNotEmpty()
-              ) {
-                items(entries, key = { it.id }) { entry ->
-                  val selected = entry.id in state.selectedEquipmentIds
-                  EquipmentChoiceRow(
-                      equipment = entry,
-                      selected = selected,
-                      enabled = !state.isBusy && state.origin != "STANDARD",
-                      onToggle = { onToggleEquipment(entry) },
-                      modifier = Modifier.animateItem(placementSpec = GymMotion.spatialFast()),
-                  )
-                }
-              }
-            }
-          }
-    }
-
-    Column(
-        modifier =
-            Modifier.fillMaxWidth().padding(start = 24.dp, end = 24.dp, top = 8.dp, bottom = 20.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-      PillButton(
-          text = if (state.isSaving) "Сохраняем…" else "Сохранить",
-          onClick = onSave,
-          enabled = state.canSave,
-          modifier = Modifier.fillMaxWidth(),
-      )
-      if (!state.isNew && state.origin != "STANDARD") {
-        TextButton(
-            onClick = onDelete,
-            enabled = !state.isBusy && state.origin != "STANDARD",
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-          Icon(Icons.Rounded.Delete, contentDescription = null)
-          Spacer(Modifier.width(8.dp))
+  val isPersonal = state.origin != "STANDARD"
+  val controlsEnabled = isPersonal && !state.isBusy
+  val horizontalPadding = if (compact) 16.dp else 24.dp
+  LazyColumn(
+      modifier = Modifier.fillMaxSize().testTag("gym_editor_content"),
+      contentPadding = PaddingValues(horizontal = horizontalPadding, vertical = 12.dp),
+      verticalArrangement = Arrangement.spacedBy(12.dp),
+  ) {
+    if (state.copySourceWasLegacy) {
+      item("legacy-copy") {
+        EditorCard {
           Text(
-              text = if (state.isDeleting) "Удаляем…" else "Удалить зал",
-              color = MaterialTheme.colorScheme.error,
+              "Исходный зал использует старую доступность. Настройте оборудование для новой копии.",
+              style = MaterialTheme.typography.bodyMedium,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
           )
         }
       }
-
-      TextButton(
-          onClick = onPreview,
-          enabled = !state.isBusy && state.origin != "STANDARD",
-          modifier = Modifier.fillMaxWidth(),
-      ) {
-        Text(if (state.preview) "Скрыть доступные упражнения" else "Проверить доступные упражнения")
+    }
+    item("name") {
+      EditorCard {
+        Text("Название", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        if (isPersonal) {
+          OutlinedTextField(
+              value = state.name,
+              onValueChange = onNameChange,
+              modifier = Modifier.fillMaxWidth(),
+              enabled = controlsEnabled,
+              singleLine = true,
+              label = { Text("Название зала") },
+              placeholder = { Text("Например, Зал у дома") },
+              shape = MaterialTheme.shapes.large,
+          )
+        } else {
+          Text(state.name, style = MaterialTheme.typography.bodyLarge)
+          Text(
+              "Встроенный зал доступен только для просмотра. Создайте личную копию, чтобы изменить оснащение.",
+              style = MaterialTheme.typography.bodyMedium,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
+          )
+        }
       }
     }
+    item("equipment-header") {
+      EditorCard {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+          Text(
+              "Оборудование",
+              style = MaterialTheme.typography.titleMedium,
+              fontWeight = FontWeight.Bold,
+              modifier = Modifier.weight(1f),
+          )
+          Text(
+              "${state.selectedEquipmentIds.size} выбрано",
+              style = MaterialTheme.typography.bodyMedium,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
+          )
+        }
+        if (isPersonal) {
+          OutlinedTextField(
+              value = state.query,
+              onValueChange = onQueryChange,
+              modifier = Modifier.fillMaxWidth(),
+              enabled = controlsEnabled,
+              singleLine = true,
+              placeholder = { Text("Поиск оборудования") },
+              leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) },
+              trailingIcon = {
+                if (state.query.isNotEmpty()) {
+                  IconButton(onClick = onClearQuery, enabled = controlsEnabled) {
+                    Icon(Icons.Rounded.Close, contentDescription = "Очистить поиск")
+                  }
+                }
+              },
+              keyboardOptions =
+                  androidx.compose.foundation.text.KeyboardOptions(imeAction = ImeAction.Search),
+              shape = MaterialTheme.shapes.large,
+          )
+          FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            EditorModeChip(
+                selected = state.mode == GymEquipmentMode.ALL,
+                onClick = { onMode(GymEquipmentMode.ALL) },
+                label = "Все",
+                enabled = controlsEnabled,
+            )
+            EditorModeChip(
+                selected = state.mode == GymEquipmentMode.SELECTED,
+                onClick = { onMode(GymEquipmentMode.SELECTED) },
+                label = "Выбранные",
+                count = state.selectedEquipmentIds.size,
+                enabled = controlsEnabled,
+            )
+            TextButton(onClick = onToggleAll, enabled = controlsEnabled) {
+              val scope =
+                  if (state.query.isBlank()) state.equipment.orEmpty() else state.filteredEquipment
+              Text(
+                  if (scope.all { it.id in state.selectedEquipmentIds }) {
+                    if (state.query.isBlank()) "Снять всё" else "Снять найденное"
+                  } else if (state.query.isBlank()) {
+                    "Выбрать всё"
+                  } else {
+                    "Выбрать найденное"
+                  },
+              )
+            }
+            state.bulkUndo?.let {
+              TextButton(onClick = onUndo, enabled = controlsEnabled) { Text("Отменить") }
+            }
+          }
+        }
+      }
+    }
+    val equipment = state.equipment
+    when {
+      equipment == null -> item("equipment-loading") { LoadingContent(minHeight = 160.dp) }
+      state.groupedBulkEquipment.isEmpty() ->
+          item("equipment-empty") {
+            EditorCard {
+              Text(
+                  if (state.query.isBlank()) {
+                    "В каталоге пока нет оборудования."
+                  } else {
+                    "По этому запросу ничего не найдено."
+                  },
+                  color = MaterialTheme.colorScheme.onSurfaceVariant,
+              )
+            }
+          }
+      else -> {
+        state.groupedBulkEquipment.forEach { (group, allEntries) ->
+          val entries =
+              if (state.mode == GymEquipmentMode.ALL) allEntries
+              else allEntries.filter { it.id in state.selectedEquipmentIds }
+          val groupExpanded =
+              group in state.expandedGroups ||
+                  state.query.isNotBlank() ||
+                  (!isPersonal && entries.isNotEmpty())
+          item("group:$group") {
+            EquipmentGroupHeader(
+                group = group,
+                entries = allEntries,
+                selectedIds = state.selectedEquipmentIds,
+                isPersonal = isPersonal,
+                controlsEnabled = controlsEnabled,
+                expanded = groupExpanded,
+                onToggleExpanded = { onToggleGroupExpanded(group) },
+                onToggleGroup = { onToggleGroup(group) },
+            )
+          }
+          if (groupExpanded && entries.isNotEmpty()) {
+            items(entries, key = { "equipment:${it.id}" }) { entry ->
+              EquipmentChoiceRow(
+                  equipment = entry,
+                  selected = entry.id in state.selectedEquipmentIds,
+                  enabled = controlsEnabled,
+                  onToggle = { onToggleEquipment(entry) },
+                  modifier = Modifier.animateItem(placementSpec = GymMotion.spatialFast()),
+              )
+            }
+          }
+        }
+      }
+    }
+    if (isPersonal) {
+      item("actions") {
+        EditorCard {
+          PillButton(
+              text = if (state.isSaving) "Сохраняем…" else "Сохранить",
+              onClick = onSave,
+              enabled = state.canSave,
+              modifier = Modifier.fillMaxWidth(),
+          )
+          TextButton(
+              onClick = onPreview,
+              enabled = controlsEnabled,
+              modifier = Modifier.fillMaxWidth(),
+          ) {
+            Text(
+                if (state.preview) "Скрыть доступные упражнения"
+                else "Проверить доступные упражнения"
+            )
+          }
+        }
+      }
+    }
+  }
+}
+
+@Composable
+private fun EditorModeChip(
+    selected: Boolean,
+    onClick: () -> Unit,
+    label: String,
+    enabled: Boolean,
+    count: Int? = null,
+) {
+  if (enabled) {
+    GymFilterChip(selected = selected, onClick = onClick, label = label, count = count)
+  } else {
+    FilterChip(
+        selected = selected,
+        onClick = onClick,
+        enabled = false,
+        label = { Text(if (count == null) label else "$label $count") },
+    )
+  }
+}
+
+@Composable
+private fun EditorCard(content: @Composable () -> Unit) {
+  Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
+    GymCard(modifier = Modifier.widthIn(max = 840.dp).fillMaxWidth()) {
+      Column(verticalArrangement = Arrangement.spacedBy(12.dp), content = { content() })
+    }
+  }
+}
+
+@Composable
+private fun EquipmentGroupHeader(
+    group: String,
+    entries: List<EquipmentCatalog.Equipment>,
+    selectedIds: Set<String>,
+    isPersonal: Boolean,
+    controlsEnabled: Boolean,
+    expanded: Boolean,
+    onToggleExpanded: () -> Unit,
+    onToggleGroup: () -> Unit,
+) {
+  val selectedCount = entries.count { it.id in selectedIds }
+  val groupState =
+      when (selectedCount) {
+        0 -> ToggleableState.Off
+        entries.size -> ToggleableState.On
+        else -> ToggleableState.Indeterminate
+      }
+  Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
+    GymCard(
+        modifier = Modifier.widthIn(max = 840.dp).fillMaxWidth(),
+        contentPadding = PaddingValues(12.dp),
+    ) {
+      Row(verticalAlignment = Alignment.CenterVertically) {
+        if (isPersonal) {
+          TextButton(
+              onClick = onToggleExpanded,
+              enabled = controlsEnabled,
+              modifier = Modifier.weight(1f),
+          ) {
+            Text("$group · $selectedCount/${entries.size}")
+          }
+          TriStateCheckbox(
+              state = groupState,
+              onClick = onToggleGroup,
+              enabled = controlsEnabled,
+              modifier =
+                  Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp).semantics {
+                    contentDescription = "Оборудование группы $group"
+                    stateDescription =
+                        when (groupState) {
+                          ToggleableState.Off -> "Не выбрано"
+                          ToggleableState.On -> "Выбрано всё"
+                          ToggleableState.Indeterminate -> "Выбрано частично"
+                        }
+                  },
+          )
+        } else {
+          Text("$group · $selectedCount/${entries.size}", modifier = Modifier.weight(1f))
+          if (expanded) {
+            Text(
+                "Выбрано",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+          }
+        }
+      }
+    }
+  }
+}
+
+@Composable
+private fun EquipmentChoiceRow(
+    equipment: EquipmentCatalog.Equipment,
+    selected: Boolean,
+    enabled: Boolean,
+    onToggle: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+  Box(modifier = modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
+    GymCard(
+        modifier =
+            Modifier.widthIn(max = 840.dp).fillMaxWidth().semantics {
+              contentDescription = equipment.name
+              role = Role.Checkbox
+              stateDescription = if (selected) "Выбрано" else "Не выбрано"
+            },
+        onClick = if (enabled) onToggle else null,
+        contentPadding = PaddingValues(horizontal = 18.dp, vertical = 12.dp),
+    ) {
+      Row(verticalAlignment = Alignment.CenterVertically) {
+        Column(modifier = Modifier.weight(1f)) {
+          Text(
+              equipment.name,
+              style = MaterialTheme.typography.titleMedium,
+              fontWeight = FontWeight.SemiBold,
+          )
+          Text(
+              equipment.group,
+              style = MaterialTheme.typography.bodyMedium,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
+          )
+        }
+        Checkbox(checked = selected, onCheckedChange = if (enabled) ({ onToggle() }) else null)
+      }
+    }
+  }
+}
+
+@Composable
+private fun LoadingContent(minHeight: Dp = 0.dp) {
+  Box(
+      modifier =
+          if (minHeight == 0.dp) Modifier.fillMaxSize()
+          else Modifier.fillMaxWidth().heightIn(min = minHeight),
+      contentAlignment = Alignment.Center,
+  ) {
+    CircularProgressIndicator()
   }
 }
 
@@ -490,19 +617,12 @@ private fun GymAvailabilityPreviewDialog(
       title = { Text("Доступные упражнения") },
       text = {
         when {
-          loading ->
-              Box(Modifier.fillMaxWidth().heightIn(min = 120.dp), Alignment.Center) {
-                CircularProgressIndicator()
-              }
+          loading -> LoadingContent(minHeight = 120.dp)
           exercises.isNullOrEmpty() -> Text("С этим оснащением пока нет доступных упражнений.")
           else ->
               LazyColumn(modifier = Modifier.heightIn(max = 360.dp)) {
                 items(exercises, key = { it.id }) { exercise ->
-                  Text(
-                      exercise.name,
-                      modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                      style = MaterialTheme.typography.bodyLarge,
-                  )
+                  Text(exercise.name, modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp))
                 }
               }
         }
@@ -512,65 +632,18 @@ private fun GymAvailabilityPreviewDialog(
 }
 
 @Composable
-private fun EquipmentChoiceRow(
-    equipment: EquipmentCatalog.Equipment,
-    selected: Boolean,
-    enabled: Boolean,
-    onToggle: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-  GymCard(
-      modifier =
-          modifier.fillMaxWidth().semantics {
-            contentDescription = equipment.name
-            role = Role.Checkbox
-            stateDescription = if (selected) "Выбрано" else "Не выбрано"
-          },
-      onClick = if (enabled) onToggle else null,
-      contentPadding = PaddingValues(horizontal = 18.dp, vertical = 12.dp),
-  ) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-      Column(modifier = Modifier.weight(1f)) {
-        Text(
-            text = equipment.name,
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
-        Text(
-            text = equipment.group,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-      }
-      Checkbox(
-          checked = selected,
-          onCheckedChange = if (enabled) ({ onToggle() }) else null,
-      )
-    }
-  }
-}
-
-@Composable
-private fun GymEditorLoadError(
-    message: String,
-    onBack: () -> Unit,
-) {
-  Box(
-      modifier = Modifier.fillMaxSize().padding(32.dp),
-      contentAlignment = Alignment.Center,
-  ) {
+private fun GymEditorLoadError(message: String, onBack: () -> Unit) {
+  Box(modifier = Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
       Text(
-          text = message,
+          message,
           style = MaterialTheme.typography.titleLarge,
           fontWeight = FontWeight.Bold,
           color = MaterialTheme.colorScheme.onBackground,
           textAlign = TextAlign.Center,
       )
       Text(
-          text = "Вернитесь к списку и попробуйте снова.",
-          style = MaterialTheme.typography.bodyMedium,
+          "Вернитесь к списку и попробуйте снова.",
           color = MaterialTheme.colorScheme.onSurfaceVariant,
           textAlign = TextAlign.Center,
           modifier = Modifier.padding(top = 8.dp, bottom = 20.dp),
@@ -581,38 +654,19 @@ private fun GymEditorLoadError(
 }
 
 @Composable
-private fun SaveConflictDialog(
-    conflict: GymConfigurationConflict,
-    onDismiss: () -> Unit,
-) {
+private fun SaveConflictDialog(conflict: GymConfigurationConflict, onDismiss: () -> Unit) {
   AlertDialog(
       onDismissRequest = onDismiss,
       title = { Text("Состав зала нельзя изменить") },
       text = {
-        Column(
-            modifier = Modifier.heightIn(max = 320.dp).verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
           Text(
-              "Изменение сделает упражнения недоступными в связанных программах " +
-                  "или активной тренировке.",
+              "Изменение сделает упражнения недоступными в связанных программах или активной тренировке."
           )
-          if (conflict.routines.isNotEmpty()) {
-            ConflictSection(
-                title = "Затронутые связи",
-                values = conflict.routines.map { it.name },
-            )
-          }
-          if (conflict.exercises.isNotEmpty()) {
-            ConflictSection(
-                title = "Упражнения",
-                values = conflict.exercises.map { it.name },
-            )
-          }
-          Text(
-              "Оставьте упражнения в зале, измените программы либо завершите " +
-                  "активную тренировку.",
-          )
+          if (conflict.routines.isNotEmpty())
+              ConflictSection("Затронутые связи", conflict.routines.map { it.name })
+          if (conflict.exercises.isNotEmpty())
+              ConflictSection("Упражнения", conflict.exercises.map { it.name })
         }
       },
       confirmButton = { TextButton(onClick = onDismiss) { Text("Понятно") } },
@@ -620,24 +674,16 @@ private fun SaveConflictDialog(
 }
 
 @Composable
-private fun DeleteConflictDialog(
-    routines: List<GymRoutineReference>,
-    onDismiss: () -> Unit,
-) {
+private fun DeleteConflictDialog(routines: List<GymRoutineReference>, onDismiss: () -> Unit) {
   AlertDialog(
       onDismissRequest = onDismiss,
       title = { Text("Зал сейчас используется") },
       text = {
-        Column(
-            modifier = Modifier.heightIn(max = 320.dp).verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
           Text(
-              "Удаление заблокировано, пока зал выбран в программе или сохранён " +
-                  "в снимке активной тренировки.",
+              "Удаление заблокировано, пока зал выбран в программе или сохранён в активной тренировке."
           )
-          ConflictSection(title = "Затронутые связи", values = routines.map { it.name })
-          Text("Отвяжите зал от программ либо завершите активную тренировку.")
+          ConflictSection("Затронутые связи", routines.map { it.name })
         }
       },
       confirmButton = { TextButton(onClick = onDismiss) { Text("Понятно") } },
@@ -645,16 +691,7 @@ private fun DeleteConflictDialog(
 }
 
 @Composable
-private fun ConflictSection(
-    title: String,
-    values: List<String>,
-) {
-  Text(
-      text = title,
-      style = MaterialTheme.typography.titleSmall,
-      fontWeight = FontWeight.Bold,
-  )
-  values.distinct().forEach { value ->
-    Text(text = "• $value", style = MaterialTheme.typography.bodyMedium)
-  }
+private fun ConflictSection(title: String, values: List<String>) {
+  Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+  values.distinct().forEach { Text("• $it", style = MaterialTheme.typography.bodyMedium) }
 }
