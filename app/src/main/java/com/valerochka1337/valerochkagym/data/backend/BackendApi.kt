@@ -128,6 +128,7 @@ class BackendApi @Inject constructor(private val tokens: BackendTokenStore) : Ba
     val request =
         Request.Builder()
             .url("https://api.valerochkagym.tech/v1$path")
+            .header("X-Gym-Sync-Version", "2")
             .method(
                 method,
                 if (method in setOf("GET", "HEAD")) null

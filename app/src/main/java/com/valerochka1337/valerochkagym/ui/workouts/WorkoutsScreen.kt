@@ -267,7 +267,8 @@ private fun RoutineCard(
     Row(verticalAlignment = Alignment.Top) {
       Column(modifier = Modifier.weight(1f).padding(top = 4.dp)) {
         Text(
-            text = routine.name,
+            text =
+                routine.name + if (routine.origin == "STANDARD") " · Стандартное" else " · Личное",
             style = MaterialTheme.typography.titleLarge,
             fontWeight = FontWeight.SemiBold,
             color = MaterialTheme.colorScheme.onSurface,
@@ -292,6 +293,7 @@ private fun RoutineCard(
         )
       }
       RoutineCardMenu(
+          standard = routine.origin == "STANDARD",
           onEdit = onEdit,
           onDuplicate = onDuplicate,
           onDelete = onDelete,
@@ -323,6 +325,7 @@ private fun StartBar(
 
 @Composable
 private fun RoutineCardMenu(
+    standard: Boolean = false,
     onEdit: () -> Unit,
     onDuplicate: () -> Unit,
     onDelete: () -> Unit,
@@ -338,26 +341,27 @@ private fun RoutineCardMenu(
     }
     DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
       DropdownMenuItem(
-          text = { Text("Редактировать") },
+          text = { Text(if (standard) "Просмотреть" else "Редактировать") },
           onClick = {
             expanded = false
             onEdit()
           },
       )
       DropdownMenuItem(
-          text = { Text("Дублировать") },
+          text = { Text("Создать личную копию") },
           onClick = {
             expanded = false
             onDuplicate()
           },
       )
-      DropdownMenuItem(
-          text = { Text("Удалить") },
-          onClick = {
-            expanded = false
-            onDelete()
-          },
-      )
+      if (!standard)
+          DropdownMenuItem(
+              text = { Text("Удалить") },
+              onClick = {
+                expanded = false
+                onDelete()
+              },
+          )
     }
   }
 }

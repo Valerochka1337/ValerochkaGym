@@ -1,6 +1,6 @@
 package com.valerochka1337.valerochkagym.domain
 
-import com.valerochka1337.valerochkagym.data.db.EquipmentCatalog
+import com.valerochka1337.valerochkagym.data.db.LocalEquipmentCatalog
 import com.valerochka1337.valerochkagym.data.db.entity.EquipmentRequirementState
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
 import com.valerochka1337.valerochkagym.data.db.entity.Muscle
@@ -172,7 +172,7 @@ object ExerciseSheetRowParser {
         if (equipment.isEmpty()) {
           if (equipmentIds.isNotEmpty()) return rejectEquipment()
           hasEmptyEquipmentMarker = true
-        } else if (hasEmptyEquipmentMarker || !EquipmentCatalog.isKnown(equipment))
+        } else if (hasEmptyEquipmentMarker || !LocalEquipmentCatalog.isKnown(equipment))
             return rejectEquipment()
         else equipmentIds += equipment
       }
@@ -290,7 +290,7 @@ object ExerciseSheetRowParser {
       val equipment = row.sheetCell(EQUIPMENT_ID)
       if (
           (rawState.isNotEmpty() && state == null) ||
-              (equipment.isNotEmpty() && !EquipmentCatalog.isKnown(equipment)) ||
+              (equipment.isNotEmpty() && !LocalEquipmentCatalog.isKnown(equipment)) ||
               (state == EquipmentRequirementState.UNKNOWN && equipment.isNotEmpty())
       ) {
         hasInvalidEquipment = true

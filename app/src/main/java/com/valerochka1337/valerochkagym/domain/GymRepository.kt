@@ -17,6 +17,8 @@ data class GymConfiguration(
     val exercises: List<ExerciseEntity>,
     val equipmentIds: Set<String> = emptySet(),
     val inventoryConfigured: Boolean = false,
+    val origin: String = "PERSONAL",
+    val archived: Boolean = false,
 )
 
 sealed interface ExerciseEquipmentRequirements {

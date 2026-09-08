@@ -161,7 +161,7 @@ fun GymEditorScreen(
                 showDeleteConfirmation = false
                 viewModel.delete()
               },
-              enabled = !state.isBusy,
+              enabled = !state.isBusy && state.origin != "STANDARD",
           ) {
             Text("Удалить", color = MaterialTheme.colorScheme.error)
           }
@@ -169,7 +169,7 @@ fun GymEditorScreen(
         dismissButton = {
           TextButton(
               onClick = { showDeleteConfirmation = false },
-              enabled = !state.isBusy,
+              enabled = !state.isBusy && state.origin != "STANDARD",
           ) {
             Text("Отмена")
           }
@@ -273,7 +273,7 @@ private fun GymEditorForm(
         value = state.name,
         onValueChange = onNameChange,
         modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp),
-        enabled = !state.isBusy,
+        enabled = !state.isBusy && state.origin != "STANDARD",
         singleLine = true,
         label = { Text("Название зала") },
         placeholder = { Text("Например, Зал у дома") },
@@ -286,7 +286,7 @@ private fun GymEditorForm(
         value = state.query,
         onValueChange = onQueryChange,
         modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp),
-        enabled = !state.isBusy,
+        enabled = !state.isBusy && state.origin != "STANDARD",
         singleLine = true,
         placeholder = { Text("Поиск оборудования") },
         leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) },
@@ -330,7 +330,11 @@ private fun GymEditorForm(
       TextButton(onClick = { onMode(GymEquipmentMode.SELECTED) }, enabled = !state.isBusy) {
         Text("Выбранные")
       }
-      TextButton(onClick = onToggleAll, enabled = !state.isBusy, modifier = Modifier.weight(1f)) {
+      TextButton(
+          onClick = onToggleAll,
+          enabled = !state.isBusy && state.origin != "STANDARD",
+          modifier = Modifier.weight(1f),
+      ) {
         val scope =
             if (state.query.isBlank()) state.equipment.orEmpty() else state.filteredEquipment
         Text(
@@ -428,7 +432,7 @@ private fun GymEditorForm(
                   EquipmentChoiceRow(
                       equipment = entry,
                       selected = selected,
-                      enabled = !state.isBusy,
+                      enabled = !state.isBusy && state.origin != "STANDARD",
                       onToggle = { onToggleEquipment(entry) },
                       modifier = Modifier.animateItem(placementSpec = GymMotion.spatialFast()),
                   )
@@ -449,10 +453,10 @@ private fun GymEditorForm(
           enabled = state.canSave,
           modifier = Modifier.fillMaxWidth(),
       )
-      if (!state.isNew) {
+      if (!state.isNew && state.origin != "STANDARD") {
         TextButton(
             onClick = onDelete,
-            enabled = !state.isBusy,
+            enabled = !state.isBusy && state.origin != "STANDARD",
             modifier = Modifier.fillMaxWidth(),
         ) {
           Icon(Icons.Rounded.Delete, contentDescription = null)
@@ -464,7 +468,11 @@ private fun GymEditorForm(
         }
       }
 
-      TextButton(onClick = onPreview, enabled = !state.isBusy, modifier = Modifier.fillMaxWidth()) {
+      TextButton(
+          onClick = onPreview,
+          enabled = !state.isBusy && state.origin != "STANDARD",
+          modifier = Modifier.fillMaxWidth(),
+      ) {
         Text(if (state.preview) "Скрыть доступные упражнения" else "Проверить доступные упражнения")
       }
     }

@@ -1,6 +1,5 @@
 package com.valerochka1337.valerochkagym.data
 
-import com.valerochka1337.valerochkagym.data.db.CanonicalExerciseRegistry
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseDao
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseMuscleDao
 import com.valerochka1337.valerochkagym.data.db.dao.WorkoutDao
@@ -24,20 +23,17 @@ constructor(
 ) : ExerciseCatalogRepository {
   override fun observeCatalog(gymIds: Set<String>): Flow<ExerciseCatalogRepositoryState> =
       combine(
-          gymRepository.observeAvailableExercises(gymIds),
-          exerciseMuscleDao.observeAll(),
-          workoutDao.observeFinishedExerciseHistory(),
-          gymRepository.observeGyms(),
-          exerciseDao.observeAllRequirements(),
-      ) { exercises, muscles, history, gyms, requirementRows ->
-        val rowsByExercise = requirementRows.groupBy { it.exerciseId }
-        val requirements =
-            exercises.associate { exercise ->
-              val value =
-                  CanonicalExerciseRegistry.requirementsFor(exercise)?.toRequirements()
-                      ?: if (
-                          exercise.equipmentRequirementState == EquipmentRequirementState.UNKNOWN
-                      ) {
+              gymRepository.observeAvailableExercises(gymIds),
+              exerciseMuscleDao.observeAll(),
+              workoutDao.observeFinishedExerciseHistory(),
+              gymRepository.observeGyms(),
+              exerciseDao.observeAllRequirements(),
+          ) { exercises, muscles, history, gyms, requirementRows ->
+            val rowsByExercise = requirementRows.groupBy { it.exerciseId }
+            val requirements =
+                exercises.associate { exercise ->
+                  val value =
+                      if (exercise.equipmentRequirementState == EquipmentRequirementState.UNKNOWN) {
                         ExerciseEquipmentRequirements.UnknownLegacy
                       } else {
                         rowsByExercise[exercise.id]
@@ -45,13 +41,18 @@ constructor(
                             .mapTo(linkedSetOf()) { it.equipmentId }
                             .toRequirements()
                       }
-              exercise.id to value
-            }
-        ExerciseCatalogRepositoryState(
-            snapshot = ExerciseCatalogSnapshot(exercises, muscles, history, requirements),
-            gymNames = gyms.filter { it.id in gymIds }.map { it.name },
-        )
-      }
+                  exercise.id to value
+                }
+            ExerciseCatalogRepositoryState(
+                snapshot = ExerciseCatalogSnapshot(exercises, muscles, history, requirements),
+                gymNames = gyms.filter { it.id in gymIds }.map { it.name },
+            )
+          }
+          .combine(com.valerochka1337.valerochkagym.data.db.LocalEquipmentCatalog.state) {
+              value,
+              equipment ->
+            value.copy(snapshot = value.snapshot.copy(equipmentRevision = equipment.hashCode()))
+          }
 
   private fun Set<String>.toRequirements(): ExerciseEquipmentRequirements =
       if (isEmpty()) ExerciseEquipmentRequirements.ExplicitNone

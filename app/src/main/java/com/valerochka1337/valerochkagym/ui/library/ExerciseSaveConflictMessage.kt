@@ -1,6 +1,6 @@
 package com.valerochka1337.valerochkagym.ui.library
 
-import com.valerochka1337.valerochkagym.data.db.EquipmentCatalog
+import com.valerochka1337.valerochkagym.data.db.LocalEquipmentCatalog
 import com.valerochka1337.valerochkagym.domain.GymConfigurationConflict
 
 /** Readable transaction-conflict detail shared by the library and exercise detail editors. */
@@ -10,7 +10,7 @@ fun formatExerciseSaveConflict(conflict: GymConfigurationConflict): String =
             add(
                 "Недостающее оборудование: " +
                     conflict.missingEquipmentIds.sorted().joinToString { id ->
-                      EquipmentCatalog.entries.firstOrNull { it.id == id }?.name ?: id
+                      LocalEquipmentCatalog.entries.firstOrNull { it.id == id }?.name ?: id
                     },
             )
           }

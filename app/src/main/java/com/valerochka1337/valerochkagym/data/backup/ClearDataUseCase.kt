@@ -3,8 +3,6 @@ package com.valerochka1337.valerochkagym.data.backup
 import androidx.room.withTransaction
 import androidx.work.WorkManager
 import com.valerochka1337.valerochkagym.data.db.GymDatabase
-import com.valerochka1337.valerochkagym.data.db.seedExercises
-import com.valerochka1337.valerochkagym.data.db.seedMissingExerciseMuscles
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.Dispatchers
@@ -56,10 +54,14 @@ constructor(
                     "configuration_tombstones",
                     "muscle_load_upgrade_notice",
                 )
-                .forEach { sql.execSQL("DELETE FROM $it") }
-            val exerciseDao = database.exerciseDao()
-            exerciseDao.insertAll(seedExercises)
-            seedMissingExerciseMuscles(exerciseDao, database.exerciseMuscleDao())
+                .forEach { table ->
+                  sql.execSQL(
+                      "DELETE FROM $table" +
+                          if (table in setOf("routines", "gyms", "exercises"))
+                              " WHERE origin='PERSONAL'"
+                          else ""
+                  )
+                }
           }
         }
         scheduler.enqueue()

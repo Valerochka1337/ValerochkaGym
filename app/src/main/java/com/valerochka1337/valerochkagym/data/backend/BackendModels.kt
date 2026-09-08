@@ -35,7 +35,12 @@ data class CloudChange(
     val payload: JsonObject? = null,
 )
 
-@Serializable data class CloudPush(val operationId: String, val changes: List<CloudChange>)
+@Serializable
+data class CloudPush(
+    val operationId: String,
+    val changes: List<CloudChange>,
+    val catalogRevision: Long? = null,
+)
 
 @Serializable data class CloudAck(val revision: Long)
 

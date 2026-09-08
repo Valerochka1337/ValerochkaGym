@@ -1,9 +1,8 @@
 package com.valerochka1337.valerochkagym.data
 
 import androidx.room.withTransaction
-import com.valerochka1337.valerochkagym.data.db.CanonicalExerciseRegistry
-import com.valerochka1337.valerochkagym.data.db.EquipmentCatalog
 import com.valerochka1337.valerochkagym.data.db.GymDatabase
+import com.valerochka1337.valerochkagym.data.db.LocalEquipmentCatalog
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseDao
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseMuscleDao
 import com.valerochka1337.valerochkagym.data.db.dao.GymDao
@@ -75,6 +74,8 @@ constructor(
                 exercises = exerciseIdsByGym[gym.id].orEmpty().mapNotNull(exercisesById::get),
                 equipmentIds = equipmentIdsByGym[gym.id].orEmpty(),
                 inventoryConfigured = gym.inventoryConfigured,
+                origin = gym.origin,
+                archived = gym.archived,
             )
           }
         }
@@ -92,7 +93,8 @@ constructor(
           gymDao.observeGymExerciseIds(selected.map(GymEntity::id)),
           gymDao.observeGymEquipment(selected.map(GymEntity::id)),
           exerciseDao.observeAllRequirements(),
-      ) { exercises, links, equipment, customRequirements ->
+          LocalEquipmentCatalog.state,
+      ) { exercises, links, equipment, customRequirements, _ ->
         val legacyByGym = links.groupBy({ it.gymId }, { it.exerciseId })
         val equipmentByGym =
             equipment.groupBy({ it.gymId }, { it.equipmentId }).mapValues { it.value.toSet() }
@@ -125,12 +127,12 @@ constructor(
         full.exercises.sortedBy { it.name.lowercase() },
         gymDao.getGymEquipmentIds(gym.id).toSet(),
         gym.inventoryConfigured,
+        gym.origin,
+        gym.archived,
     )
   }
 
   override suspend fun requirementsFor(exercise: ExerciseEntity): ExerciseEquipmentRequirements {
-    val builtIn = CanonicalExerciseRegistry.requirementsFor(exercise)
-    if (builtIn != null) return builtIn.toRequirements()
     if (exercise.equipmentRequirementState == EquipmentRequirementState.UNKNOWN)
         return ExerciseEquipmentRequirements.UnknownLegacy
     return exerciseDao.getRequirementIds(exercise.id).toSet().toRequirements()
@@ -141,7 +143,8 @@ constructor(
       name: String,
       equipmentIds: Set<String>,
   ): SaveGymResult = runMutation {
-    if (equipmentIds.any { !EquipmentCatalog.isKnown(it) }) return@runMutation SaveGymResult.Failure
+    if (equipmentIds.any { !LocalEquipmentCatalog.isKnown(it) })
+        return@runMutation SaveGymResult.Failure
     val normalizedName = name.trim()
     if (normalizedName.isEmpty()) return@runMutation SaveGymResult.Failure
     val result =
@@ -292,17 +295,10 @@ constructor(
                           ?.let { requirementIds(it, exerciseDao.getRequirementIds(it.id).toSet()) }
                           .orEmpty()
                 }
-            if (requirementIds.any { !EquipmentCatalog.isKnown(it) })
+            if (requirementIds.any { !LocalEquipmentCatalog.isKnown(it) })
                 return@withTransaction SaveExerciseConfigurationResult.Failure
-            val canonicalRequirements =
-                CanonicalExerciseRegistry.requirementsFor(existing ?: configuration.exercise)
-            if (
-                canonicalRequirements != null &&
-                    requested != null &&
-                    requirementIds != canonicalRequirements
-            ) {
-              return@withTransaction SaveExerciseConfigurationResult.Failure
-            }
+            if (existing?.origin == "STANDARD")
+                return@withTransaction SaveExerciseConfigurationResult.Failure
             val gyms =
                 resolveGyms(gymIds)
                     ?: return@withTransaction SaveExerciseConfigurationResult.Failure
@@ -319,16 +315,12 @@ constructor(
                 )
             val unavailableGyms =
                 gyms.filter { gym ->
-                  if (
-                      candidate.equipmentRequirementState == EquipmentRequirementState.UNKNOWN &&
-                          CanonicalExerciseRegistry.requirementsFor(candidate) == null
-                  )
-                      true
+                  if (candidate.equipmentRequirementState == EquipmentRequirementState.UNKNOWN) true
                   else if (!gym.inventoryConfigured)
                       candidate.id == 0L || candidate.id !in gymDao.getGymExerciseIds(gym.id)
                   else
                       !requirementIds.all {
-                        EquipmentCatalog.covers(gymDao.getGymEquipmentIds(gym.id).toSet(), it)
+                        LocalEquipmentCatalog.covers(gymDao.getGymEquipmentIds(gym.id).toSet(), it)
                       }
                 }
             if (unavailableGyms.isNotEmpty()) {
@@ -341,7 +333,7 @@ constructor(
                           requirementIds
                               .filterNot { requirement ->
                                 unavailableGyms.all { gym ->
-                                  EquipmentCatalog.covers(
+                                  LocalEquipmentCatalog.covers(
                                       gymDao.getGymEquipmentIds(gym.id).toSet(),
                                       requirement,
                                   )
@@ -746,7 +738,7 @@ constructor(
           .filter { it.inventoryConfigured }
           .forEach { gym ->
             val equipment = gymDao.getGymEquipmentIds(gym.id).toSet()
-            if (!requirements.all { EquipmentCatalog.covers(equipment, it) }) {
+            if (!requirements.all { LocalEquipmentCatalog.covers(equipment, it) }) {
               blockedExercises += candidate
               references += GymRoutineReference(routine.routine.id, routine.routine.name)
               inventories += equipment
@@ -761,7 +753,7 @@ constructor(
             .filter { it.inventoryConfigured }
             .forEach { gym ->
               val equipment = gymDao.getGymEquipmentIds(gym.id).toSet()
-              if (!requirements.all { EquipmentCatalog.covers(equipment, it) }) {
+              if (!requirements.all { LocalEquipmentCatalog.covers(equipment, it) }) {
                 blockedExercises += candidate
                 references +=
                     GymRoutineReference(-1, "Активная тренировка «${workout.workout.name}»")
@@ -776,7 +768,9 @@ constructor(
         exercises = blockedExercises.distinctBy(ExerciseEntity::id),
         missingEquipmentIds =
             requirements
-                .filterNot { required -> inventories.all { EquipmentCatalog.covers(it, required) } }
+                .filterNot { required ->
+                  inventories.all { LocalEquipmentCatalog.covers(it, required) }
+                }
                 .toSet(),
     )
   }
@@ -855,7 +849,7 @@ constructor(
     val missing =
         unavailable
             .flatMap { requirementIds(it, custom[it.id]) }
-            .filterNot { EquipmentCatalog.covers(proposedEquipmentIds, it) }
+            .filterNot { LocalEquipmentCatalog.covers(proposedEquipmentIds, it) }
             .toSet()
     return GymConfigurationConflict(
         routines = references.toList(),
@@ -870,21 +864,16 @@ constructor(
       equipmentIds: Set<String>,
       customRequirements: Set<String>?,
   ): Boolean {
-    if (
-        exercise.equipmentRequirementState == EquipmentRequirementState.UNKNOWN &&
-            CanonicalExerciseRegistry.requirementsFor(exercise) == null
-    )
-        return false
+    if (exercise.equipmentRequirementState == EquipmentRequirementState.UNKNOWN) return false
     return requirementIds(exercise, customRequirements).all {
-      EquipmentCatalog.covers(equipmentIds, it)
+      LocalEquipmentCatalog.covers(equipmentIds, it)
     }
   }
 
   private fun requirementIds(
       exercise: ExerciseEntity,
       customRequirements: Set<String>?,
-  ): Set<String> =
-      CanonicalExerciseRegistry.requirementsFor(exercise) ?: customRequirements.orEmpty()
+  ): Set<String> = customRequirements.orEmpty()
 
   private fun Set<String>.toRequirements(): ExerciseEquipmentRequirements =
       if (isEmpty()) ExerciseEquipmentRequirements.ExplicitNone

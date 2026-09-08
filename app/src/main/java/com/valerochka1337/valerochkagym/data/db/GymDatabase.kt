@@ -41,6 +41,9 @@ import java.util.UUID
             com.valerochka1337.valerochkagym.data.backend.BackendStateEntity::class,
             com.valerochka1337.valerochkagym.data.backend.BackendBaselineEntity::class,
             com.valerochka1337.valerochkagym.data.backend.BackendOutboxEntity::class,
+            com.valerochka1337.valerochkagym.data.backend.CatalogStateEntity::class,
+            com.valerochka1337.valerochkagym.data.backend.CatalogRecordEntity::class,
+            com.valerochka1337.valerochkagym.data.backend.CatalogEquipmentEntity::class,
             BodyMeasurementEntity::class,
             ConfigurationTombstoneEntity::class,
             ExerciseEntity::class,
@@ -59,7 +62,7 @@ import java.util.UUID
             WorkoutGymEntity::class,
             WorkoutSetEntity::class,
         ],
-    version = 15,
+    version = 16,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -647,6 +650,17 @@ abstract class GymDatabase : RoomDatabase() {
           }
         }
 
+    val MIGRATION_15_16: Migration =
+        object : Migration(15, 16) {
+          override fun migrate(db: SupportSQLiteDatabase) {
+            for (table in listOf("exercises", "gyms", "routines")) {
+              db.execSQL("ALTER TABLE $table ADD COLUMN origin TEXT NOT NULL DEFAULT 'PERSONAL'")
+              db.execSQL("ALTER TABLE $table ADD COLUMN archived INTEGER NOT NULL DEFAULT 0")
+            }
+            com.valerochka1337.valerochkagym.data.backend.CatalogSchema.create(db)
+          }
+        }
+
     val MIGRATION_14_15: Migration =
         object : Migration(14, 15) {
           override fun migrate(db: SupportSQLiteDatabase) {
@@ -671,6 +685,7 @@ abstract class GymDatabase : RoomDatabase() {
             MIGRATION_12_13,
             MIGRATION_13_14,
             MIGRATION_14_15,
+            MIGRATION_15_16,
         )
   }
 }

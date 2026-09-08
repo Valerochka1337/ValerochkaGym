@@ -1,6 +1,6 @@
 package com.valerochka1337.valerochkagym.domain
 
-import com.valerochka1337.valerochkagym.data.db.EquipmentCatalog
+import com.valerochka1337.valerochkagym.data.db.LocalEquipmentCatalog
 
 /** Контракт append-only листа `Gyms` (A:G), где каждая версия содержит полный состав зала. */
 object GymSheetRowMapper {
@@ -97,7 +97,8 @@ object GymSheetRowParser {
         if (equipment.isEmpty()) {
           if (equipmentIds.isNotEmpty()) return rejectEquipment()
           hasEmptyMarker = true
-        } else if (hasEmptyMarker || !EquipmentCatalog.isKnown(equipment)) return rejectEquipment()
+        } else if (hasEmptyMarker || !LocalEquipmentCatalog.isKnown(equipment))
+            return rejectEquipment()
         else equipmentIds += equipment
         return true
       }
@@ -165,7 +166,7 @@ object GymSheetRowParser {
           (rawConfigured.isNotEmpty() && configured == null) ||
               (configured == true && row.sheetCell(EXERCISE_ID).isNotEmpty()) ||
               (configured != true && equipment.isNotEmpty()) ||
-              (equipment.isNotEmpty() && !EquipmentCatalog.isKnown(equipment))
+              (equipment.isNotEmpty() && !LocalEquipmentCatalog.isKnown(equipment))
       ) {
         hasInvalidEquipment = true
       }

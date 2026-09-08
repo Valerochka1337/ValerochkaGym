@@ -33,6 +33,12 @@ abstract class RoomDaoTest {
         Room.inMemoryDatabaseBuilder(context, GymDatabase::class.java)
             .allowMainThreadQueries()
             .build()
+    com.valerochka1337.valerochkagym.data.backend.CatalogSchema.install(
+        db.openHelper.writableDatabase
+    )
+    com.valerochka1337.valerochkagym.data.backend.CatalogSchema.publishEquipment(
+        db.openHelper.writableDatabase
+    )
   }
 
   @After

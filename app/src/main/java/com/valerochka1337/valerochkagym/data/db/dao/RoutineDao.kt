@@ -30,7 +30,7 @@ interface RoutineDao {
    * хранятся как JSON.
    */
   @Transaction
-  @Query("SELECT * FROM routines ORDER BY name COLLATE NOCASE ASC")
+  @Query("SELECT * FROM routines WHERE archived=0 ORDER BY name COLLATE NOCASE ASC")
   fun observeRoutinesFull(): Flow<List<RoutineWithExercises>>
 
   @Transaction

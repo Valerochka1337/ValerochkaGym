@@ -58,7 +58,7 @@ internal object MigrationRecoveryFixtures {
             SupportSQLiteOpenHelper.Configuration.builder(context)
                 .name(name)
                 .callback(
-                    object : SupportSQLiteOpenHelper.Callback(15) {
+                    object : SupportSQLiteOpenHelper.Callback(16) {
                       override fun onCreate(db: SupportSQLiteDatabase) = Unit
 
                       override fun onUpgrade(
@@ -160,6 +160,13 @@ internal object MigrationRecoveryFixtures {
   }
 
   fun removeV14EquipmentSchema(db: SupportSQLiteDatabase) {
+    for (table in listOf("exercises", "gyms", "routines")) {
+      db.execSQL("ALTER TABLE $table DROP COLUMN origin")
+      db.execSQL("ALTER TABLE $table DROP COLUMN archived")
+    }
+    for (table in listOf("catalog_state", "catalog_records", "catalog_equipment")) db.execSQL(
+        "DROP TABLE IF EXISTS $table"
+    )
     db.execSQL("DROP TABLE IF EXISTS exercise_equipment")
     db.execSQL("DROP TABLE IF EXISTS gym_equipment")
     db.execSQL("PRAGMA foreign_keys = OFF")
@@ -222,7 +229,7 @@ internal object MigrationRecoveryFixtures {
   fun assertBaseOnlyRecovery(sql: SupportSQLiteDatabase) {
     sql.query("PRAGMA user_version").use { cursor ->
       assertTrue(cursor.moveToFirst())
-      assertEquals(15, cursor.getInt(0))
+      assertEquals(16, cursor.getInt(0))
     }
     sql.query(
             "SELECT id, routineId, exerciseId, position, restSeconds, plannedSetsJson FROM routine_exercises"

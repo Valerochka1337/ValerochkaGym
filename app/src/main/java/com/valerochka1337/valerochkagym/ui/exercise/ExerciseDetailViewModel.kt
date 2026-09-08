@@ -3,7 +3,6 @@ package com.valerochka1337.valerochkagym.ui.exercise
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.valerochka1337.valerochkagym.data.db.CanonicalExerciseRegistry
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseDao
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseMuscleDao
 import com.valerochka1337.valerochkagym.data.db.dao.WorkoutDao
@@ -81,23 +80,17 @@ constructor(
                       .map { MuscleLoad(it.muscle, it.contribution) }
                       .toList()
               val requirements =
-                  CanonicalExerciseRegistry.requirementsFor(exercise)?.let { ids ->
+                  if (exercise.equipmentRequirementState == EquipmentRequirementState.UNKNOWN) {
+                    ExerciseEquipmentRequirements.UnknownLegacy
+                  } else {
+                    val ids =
+                        requirementRows
+                            .asSequence()
+                            .filter { it.exerciseId == exercise.id }
+                            .mapTo(linkedSetOf()) { it.equipmentId }
                     if (ids.isEmpty()) ExerciseEquipmentRequirements.ExplicitNone
                     else ExerciseEquipmentRequirements.Required(ids)
                   }
-                      ?: if (
-                          exercise.equipmentRequirementState == EquipmentRequirementState.UNKNOWN
-                      ) {
-                        ExerciseEquipmentRequirements.UnknownLegacy
-                      } else {
-                        val ids =
-                            requirementRows
-                                .asSequence()
-                                .filter { it.exerciseId == exercise.id }
-                                .mapTo(linkedSetOf()) { it.equipmentId }
-                        if (ids.isEmpty()) ExerciseEquipmentRequirements.ExplicitNone
-                        else ExerciseEquipmentRequirements.Required(ids)
-                      }
               ExerciseDetailUiState(
                   loading = false,
                   exercise = exercise,
@@ -121,7 +114,7 @@ constructor(
   fun openEditor() {
     val state = uiState.value
     val exercise = state.exercise ?: return
-    if (CanonicalExerciseRegistry.isBuiltIn(exercise)) return
+    if ((exercise.origin == "STANDARD")) return
     viewModelScope.launch {
       _editor.value =
           ExerciseEditorState(
@@ -129,7 +122,7 @@ constructor(
               name = exercise.name,
               type = exercise.type,
               loads = state.loads.associate { it.muscle to it.contribution },
-              editableName = !CanonicalExerciseRegistry.isBuiltIn(exercise),
+              editableName = !(exercise.origin == "STANDARD"),
               needsMuscleMapReview = exercise.needsMuscleMapReview,
               requirements =
                   if (gymRepository === NoOpGymRepository)
@@ -180,7 +173,7 @@ constructor(
         showSaveFailure()
         return@launch
       }
-      if (CanonicalExerciseRegistry.isBuiltIn(existing)) {
+      if ((existing.origin == "STANDARD")) {
         _editor.value = null
         return@launch
       }

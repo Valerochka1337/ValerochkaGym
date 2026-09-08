@@ -37,6 +37,7 @@ data class RoutineCardUi(
     val exerciseCount: Int,
     val estimatedMinutes: Int,
     val gymNames: List<String> = emptyList(),
+    val origin: String = "PERSONAL",
 )
 
 /**
@@ -204,6 +205,7 @@ private fun RoutineWithExercises.toCardUi(defaultRestSeconds: Int): RoutineCardU
   return RoutineCardUi(
       id = routine.id,
       name = routine.name,
+      origin = routine.origin,
       exerciseCount = exercises.size,
       estimatedMinutes = (totalSeconds / 60.0).roundToInt(),
       gymNames = gyms.map { it.name }.sortedWith(String.CASE_INSENSITIVE_ORDER),

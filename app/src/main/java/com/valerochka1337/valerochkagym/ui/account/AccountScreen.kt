@@ -297,6 +297,7 @@ fun AccountCard(vm: AccountViewModel = hiltViewModel()) {
   val session by vm.session.collectAsStateWithLifecycle()
   val status by vm.status.collectAsStateWithLifecycle()
   val conflict by vm.conflict.collectAsStateWithLifecycle()
+  val catalogConflict by vm.catalogConflict.collectAsStateWithLifecycle()
   val busy by vm.busy.collectAsStateWithLifecycle()
   val message by vm.message.collectAsStateWithLifecycle()
   val sessions by vm.sessions.collectAsStateWithLifecycle()
@@ -323,20 +324,24 @@ fun AccountCard(vm: AccountViewModel = hiltViewModel()) {
         message?.let { AccountMessage(it) }
         if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
         if (conflict) {
-          Text("Тренировки изменились на другом устройстве. Какой вариант оставить?")
+          Text(
+              if (catalogConflict)
+                  "Упражнения и залы стали стандартными. Ваши локальные правки сохранены до выбора."
+              else "Тренировки изменились на другом устройстве. Какой вариант оставить?"
+          )
           OutlinedButton(
               onClick = { confirm = "local" },
               enabled = !busy,
               modifier = Modifier.fillMaxWidth(),
           ) {
-            Text("С этого устройства")
+            Text(if (catalogConflict) "Сохранить правки личными копиями" else "С этого устройства")
           }
           OutlinedButton(
               onClick = { confirm = "server" },
               enabled = !busy,
               modifier = Modifier.fillMaxWidth(),
           ) {
-            Text("С другого устройства")
+            Text(if (catalogConflict) "Принять стандартные версии" else "С другого устройства")
           }
         } else
             TextButton(onClick = { vm.synchronize() }, enabled = !busy) {
@@ -428,9 +433,14 @@ fun AccountCard(vm: AccountViewModel = hiltViewModel()) {
           Text(
               when (action) {
                 "local" ->
-                    "Для совпадающих тренировок будут сохранены изменения с этого устройства."
+                    if (catalogConflict)
+                        "Будут созданы личные копии ваших правок. История останется связана со стандартными объектами."
+                    else "Для совпадающих тренировок будут сохранены изменения с этого устройства."
                 "server" ->
-                    "Для совпадающих тренировок будут сохранены изменения с другого устройства."
+                    if (catalogConflict)
+                        "Локальные правки перенесённых объектов будут заменены стандартными версиями. Личные тренировки сохранятся."
+                    else
+                        "Для совпадающих тренировок будут сохранены изменения с другого устройства."
                 "delete" -> "Восстановить тренировки и замеры после удаления будет невозможно."
                 else ->
                     "Сохранённые в аккаунте тренировки останутся. Изменения без подключения могут потеряться при входе в другой аккаунт."

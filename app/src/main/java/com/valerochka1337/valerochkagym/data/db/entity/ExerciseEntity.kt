@@ -23,6 +23,8 @@ data class ExerciseEntity(
     /** UNKNOWN is only for pre-v14 custom exercises; KNOWN with no link means explicitly none. */
     @ColumnInfo(defaultValue = "'UNKNOWN'")
     val equipmentRequirementState: EquipmentRequirementState = EquipmentRequirementState.UNKNOWN,
+    @androidx.room.ColumnInfo(defaultValue = "'PERSONAL'") val origin: String = "PERSONAL",
+    @androidx.room.ColumnInfo(defaultValue = "0") val archived: Boolean = false,
 )
 
 enum class EquipmentRequirementState {

@@ -19,14 +19,14 @@ import kotlinx.coroutines.flow.Flow
 @Dao
 interface GymDao {
 
-  @Query("SELECT * FROM gyms ORDER BY name COLLATE NOCASE ASC")
+  @Query("SELECT * FROM gyms WHERE archived=0 ORDER BY name COLLATE NOCASE ASC")
   fun observeGyms(): Flow<List<GymEntity>>
 
   @Transaction
   @Query("SELECT * FROM gyms WHERE id = :id")
   fun observeGymWithExercises(id: Long): Flow<GymWithExercises?>
 
-  @Query("SELECT * FROM gyms ORDER BY name COLLATE NOCASE ASC")
+  @Query("SELECT * FROM gyms WHERE archived=0 ORDER BY name COLLATE NOCASE ASC")
   suspend fun getGyms(): List<GymEntity>
 
   @Query("SELECT * FROM gyms WHERE id = :id") suspend fun getGym(id: Long): GymEntity?

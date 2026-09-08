@@ -13,6 +13,14 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class ExerciseCatalogProjectionTest {
+  @org.junit.Before
+  fun localEquipmentFixture() {
+    com.valerochka1337.valerochkagym.data.db.LocalEquipmentCatalog.publish(
+        com.valerochka1337.valerochkagym.data.db.EquipmentCatalog.entries.map {
+          com.valerochka1337.valerochkagym.data.db.LocalEquipmentCatalog.Entry(it, false)
+        }
+    )
+  }
 
   @Test
   fun `catalog and facet counts share typo tolerant unordered search`() {
@@ -340,5 +348,13 @@ class ExerciseCatalogProjectionTest {
       group: MuscleGroup,
       type: ExerciseType = ExerciseType.STRENGTH,
       custom: Boolean = false,
-  ) = ExerciseEntity(id = id, name = name, muscleGroup = group, type = type, isCustom = custom)
+  ) =
+      ExerciseEntity(
+          id = id,
+          name = name,
+          muscleGroup = group,
+          type = type,
+          isCustom = custom,
+          origin = if (custom) "PERSONAL" else "STANDARD",
+      )
 }
