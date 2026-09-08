@@ -38,7 +38,6 @@ import androidx.compose.material.icons.rounded.Key
 import androidx.compose.material.icons.rounded.Link
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.PlayCircle
-import androidx.compose.material.icons.rounded.Storage
 import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material.icons.rounded.TableChart
 import androidx.compose.material.icons.rounded.Timer
@@ -82,7 +81,6 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.valerochka1337.valerochkagym.data.ai.AiModel
-import com.valerochka1337.valerochkagym.data.backup.DatabaseExporter
 import com.valerochka1337.valerochkagym.data.settings.GymSettings
 import com.valerochka1337.valerochkagym.ui.components.GlowBackground
 import com.valerochka1337.valerochkagym.ui.components.GymCard
@@ -94,17 +92,16 @@ import com.valerochka1337.valerochkagym.ui.update.AppUpdateRetry
 import com.valerochka1337.valerochkagym.ui.update.AppUpdateStatus
 import com.valerochka1337.valerochkagym.ui.update.AppUpdateUiState
 import com.valerochka1337.valerochkagym.ui.update.formatUpdateBytes
-import java.time.LocalDate
-import java.time.format.DateTimeFormatter
 
 private enum class SettingsCategory(
     val label: String,
     val supportingText: String,
 ) {
+  ACCOUNT("Аккаунт", "Email, устройства и выход из аккаунта"),
   WORKOUT("Тренировка", "Отдых, пульс, звук и уведомления"),
-  CONNECTIONS("Подключения", "Аккаунт, Calendar и распознавание InBody"),
   APPEARANCE("Вид и отклик", "Тема, палитра и виброотклик"),
-  DATA_APP("Данные и приложение", "Экспорт, обновления, версия и очистка"),
+  CONNECTIONS("Подключения", "Календарь и распознавание InBody"),
+  DATA_APP("О приложении", "Обновления и версия"),
 }
 
 /** Шаг степпера отдыха по умолчанию (секунды) — совпадает с шагом внутри [SettingsViewModel]. */
@@ -113,9 +110,9 @@ private const val HEART_RATE_REST_THRESHOLD_STEP_BPM = 5
 private const val HEART_RATE_REST_HOLD_STEP_SECONDS = 5
 
 /**
- * Экран «Настройки»: аккаунт Google, целевая таблица Google Sheets и параметры таймера отдыха. Вход
- * и запрос доступа требуют Activity (берём из [LocalActivity]); согласие на OAuth-доступ
- * запускается через launcher, а результат возвращается во ViewModel для повторной авторизации.
+ * Настройки аккаунта, тренировок, внешнего вида и подключений. Вход в Calendar и запрос доступа
+ * требуют Activity (берём из [LocalActivity]); согласие на OAuth-доступ запускается через launcher,
+ * а результат возвращается во ViewModel для повторной авторизации.
  */
 @Composable
 fun SettingsScreen(
@@ -190,6 +187,8 @@ fun SettingsScreen(
                       onToggleVibration = viewModel::toggleVibration,
                   )
 
+              SettingsCategory.ACCOUNT -> com.valerochka1337.valerochkagym.ui.account.AccountCard()
+
               SettingsCategory.CONNECTIONS -> {
                 GoogleAccountCard(
                     email = settings.googleEmail,
@@ -198,7 +197,6 @@ fun SettingsScreen(
                     onSignIn = { activity?.let(viewModel::signIn) },
                     onSignOut = viewModel::signOut,
                 )
-                com.valerochka1337.valerochkagym.ui.account.AccountCard()
                 AiSettingsCard(
                     baseUrl = settings.aiBaseUrl,
                     baseUrlError = state.aiBaseUrlError,
@@ -231,10 +229,6 @@ fun SettingsScreen(
                     onDownload = onDownloadUpdate,
                     onInstall = onInstallUpdate,
                     onRetry = onRetryUpdate,
-                )
-                DataCard(
-                    onExport = viewModel::exportDatabase,
-                    onClear = viewModel::clearAllData,
                 )
               }
             }
@@ -292,9 +286,10 @@ private fun SettingsCategoryList(onSelect: (SettingsCategory) -> Unit) {
         icon =
             when (category) {
               SettingsCategory.WORKOUT -> Icons.Rounded.Timer
+              SettingsCategory.ACCOUNT -> Icons.Rounded.AccountCircle
               SettingsCategory.CONNECTIONS -> Icons.Rounded.Link
               SettingsCategory.APPEARANCE -> Icons.Rounded.Palette
-              SettingsCategory.DATA_APP -> Icons.Rounded.Storage
+              SettingsCategory.DATA_APP -> Icons.Rounded.SystemUpdate
             },
         onClick = { onSelect(category) },
     )
@@ -921,79 +916,6 @@ private fun AppearanceCard(
 }
 
 @Composable
-private fun DataCard(
-    onExport: (android.net.Uri) -> Unit,
-    onClear: () -> Unit,
-) {
-  var showClearDialog by rememberSaveable { mutableStateOf(false) }
-  val haptics = gymHaptics()
-
-  val exportLauncher =
-      rememberLauncherForActivityResult(
-          ActivityResultContracts.CreateDocument("application/octet-stream"),
-      ) { uri ->
-        uri?.let(onExport)
-      }
-
-  SectionCard(title = "Данные", icon = Icons.Rounded.Storage) {
-    Text(
-        text = "Экспорт — копия локальной базы (SQLite): история, программы и упражнения.",
-        style = MaterialTheme.typography.bodyMedium,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
-    Spacer(Modifier.height(12.dp))
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-      OutlinedButton(
-          onClick = {
-            val today = LocalDate.now().format(DateTimeFormatter.BASIC_ISO_DATE)
-            exportLauncher.launch(DatabaseExporter.suggestedFileName(today))
-          }
-      ) {
-        Icon(
-            imageVector = Icons.Rounded.Download,
-            contentDescription = null,
-            modifier = Modifier.size(18.dp),
-        )
-        Spacer(Modifier.width(8.dp))
-        Text("Экспорт базы")
-      }
-      TextButton(onClick = { showClearDialog = true }) {
-        Text("Очистить данные", color = MaterialTheme.colorScheme.error)
-      }
-    }
-  }
-
-  if (showClearDialog) {
-    AlertDialog(
-        onDismissRequest = { showClearDialog = false },
-        title = { Text("Очистить данные?") },
-        text = {
-          Text(
-              "История, замеры, залы, программы и свои упражнения будут удалены на устройстве и после синхронизации — в аккаунте. " +
-                  "Сначала экспортируйте нужные данные. Встроенный каталог и настройки останутся.",
-          )
-        },
-        confirmButton = {
-          TextButton(
-              onClick = {
-                haptics.reject()
-                showClearDialog = false
-                onClear()
-              }
-          ) {
-            Text("Удалить", color = MaterialTheme.colorScheme.error)
-          }
-        },
-        dismissButton = { TextButton(onClick = { showClearDialog = false }) { Text("Отмена") } },
-    )
-  }
-}
-
-@Composable
 private fun AppUpdateCard(
     state: AppUpdateUiState,
     onCheck: () -> Unit,
@@ -1033,6 +955,7 @@ private fun AppUpdateCard(
           AppUpdateStatus.UpToDate -> "Установлена последняя версия"
           is AppUpdateStatus.Available ->
               "Доступна v${status.release.versionName} · ${formatUpdateBytes(status.release.apk.sizeBytes)}"
+
           is AppUpdateStatus.Downloading -> {
             val percent =
                 if (status.totalBytes > 0L) {
@@ -1042,6 +965,7 @@ private fun AppUpdateCard(
                 }
             "Скачиваем v${status.release.versionName} · $percent%"
           }
+
           is AppUpdateStatus.ReadyToInstall -> "v${status.release.versionName} скачана и проверена"
           is AppUpdateStatus.Failed -> status.message
         }
@@ -1080,8 +1004,10 @@ private fun AppUpdateCard(
           ) {
             Text("Проверить обновление")
           }
+
       AppUpdateStatus.Checking ->
           OutlinedButton(onClick = {}, enabled = false) { Text("Проверяем…") }
+
       is AppUpdateStatus.Available ->
           PillButton(
               text = "Обновить до v${status.release.versionName}",
@@ -1092,6 +1018,7 @@ private fun AppUpdateCard(
               modifier = Modifier.fillMaxWidth(),
               leadingIcon = Icons.Rounded.Download,
           )
+
       is AppUpdateStatus.Downloading -> Unit
       is AppUpdateStatus.ReadyToInstall ->
           PillButton(
@@ -1103,6 +1030,7 @@ private fun AppUpdateCard(
               modifier = Modifier.fillMaxWidth(),
               leadingIcon = Icons.Rounded.SystemUpdate,
           )
+
       is AppUpdateStatus.Failed -> {
         val label =
             when (status.retry) {

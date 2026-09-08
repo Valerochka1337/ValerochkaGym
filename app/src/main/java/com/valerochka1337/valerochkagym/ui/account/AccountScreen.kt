@@ -1,44 +1,40 @@
 package com.valerochka1337.valerochkagym.ui.account
 
-import android.app.Activity
-import android.content.Context
-import android.content.ContextWrapper
+import androidx.activity.compose.BackHandler
+import androidx.activity.compose.LocalActivity
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.AccountCircle
+import androidx.compose.material.icons.rounded.Email
+import androidx.compose.material.icons.rounded.Visibility
+import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-
-private fun Context.activity(): Activity? =
-    when (this) {
-      is Activity -> this
-      is ContextWrapper -> baseContext.activity()
-      else -> null
-    }
+import com.valerochka1337.valerochkagym.ui.components.GymCard
 
 @Composable
 fun AccountGate(content: @Composable () -> Unit) {
   val vm: AccountViewModel = hiltViewModel()
   val session by vm.session.collectAsStateWithLifecycle()
-  val context = LocalContext.current
-  var resetLocal by remember { mutableStateOf(false) }
-  val export =
-      androidx.activity.compose.rememberLauncherForActivityResult(
-          androidx.activity.result.contract.ActivityResultContracts.CreateDocument(
-              "application/octet-stream"
-          )
-      ) { uri ->
-        uri?.let(vm::exportLocal)
-      }
-  if (session != null) content()
+  if (session != null) key(session!!.userId) { content() }
   else
       Surface(Modifier.fillMaxSize()) {
         Column(
@@ -46,153 +42,253 @@ fun AccountGate(content: @Composable () -> Unit) {
                 .safeDrawingPadding()
                 .imePadding()
                 .verticalScroll(rememberScrollState())
-                .padding(24.dp)
+                .padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(24.dp),
         ) {
-          Text("ValerochkaGym", style = MaterialTheme.typography.headlineLarge)
-          Text("Тренировки и прогресс в вашем аккаунте", style = MaterialTheme.typography.bodyLarge)
-          Spacer(Modifier.height(24.dp))
+          Column(
+              Modifier.widthIn(max = 480.dp).fillMaxWidth(),
+              verticalArrangement = Arrangement.spacedBy(8.dp),
+          ) {
+            Text("ValerochkaGym", style = MaterialTheme.typography.headlineLarge)
+            Text(
+                "Ваши тренировки. Ваш прогресс.",
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+          }
           AccountForm(vm)
-          TextButton(onClick = { export.launch("valerochka-gym-backup.db") }) {
-            Text("Экспортировать локальную базу")
-          }
-          TextButton(onClick = { resetLocal = true }) {
-            Text("Очистить устройство для другого аккаунта")
-          }
         }
       }
-  if (resetLocal)
-      AlertDialog(
-          onDismissRequest = { resetLocal = false },
-          title = { Text("Очистить все данные приложения на устройстве?") },
-          text = {
-            Text(
-                "Будут удалены локальные тренировки, настройки и ключи интеграций. Приложение закроется. Серверные данные сохранятся. Сначала экспортируйте несинхронизированную историю."
-            )
-          },
-          confirmButton = {
-            TextButton(
-                onClick = {
-                  resetLocal = false
-                  (context.getSystemService(Context.ACTIVITY_SERVICE)
-                          as android.app.ActivityManager)
-                      .clearApplicationUserData()
-                }
-            ) {
-              Text("Очистить устройство")
-            }
-          },
-          dismissButton = { TextButton(onClick = { resetLocal = false }) { Text("Отмена") } },
-      )
 }
 
 @Composable
-private fun AccountForm(vm: AccountViewModel) {
+internal fun AccountForm(vm: AccountViewModel, onGoogleSignIn: (() -> Unit)? = null) {
+  val activity = LocalActivity.current
+  val googleSignIn = onGoogleSignIn ?: activity?.let { { vm.google(it) } }
   val busy by vm.busy.collectAsStateWithLifecycle()
   val message by vm.message.collectAsStateWithLifecycle()
-  var mode by remember { mutableStateOf("login") }
-  var email by remember { mutableStateOf("") }
+  val mode by vm.mode.collectAsStateWithLifecycle()
+  var email by rememberSaveable { mutableStateOf("") }
+  // Credentials stay in memory and are never written to saved instance state.
   var password by remember { mutableStateOf("") }
   var code by remember { mutableStateOf("") }
-  var adopt by remember { mutableStateOf(false) }
-  val activity = LocalContext.current.activity()
+  var showPassword by remember { mutableStateOf(false) }
+  var attempted by remember { mutableStateOf(false) }
+  val focus = LocalFocusManager.current
+  val needsPassword = mode in setOf("login", "register", "reset")
+  val needsCode = mode in setOf("verify", "reset")
+  val emailValid =
+      android.util.Patterns.EMAIL_ADDRESS.matcher(email.trim()).matches() &&
+          email.trim().length <= 254
+  val passwordValid =
+      !needsPassword || if (mode == "login") password.isNotEmpty() else password.length in 12..128
+  val codeValid = !needsCode || code.length == 8
+  LaunchedEffect(mode) {
+    attempted = false
+    password = ""
+    code = ""
+    showPassword = false
+  }
+  BackHandler(mode != "login" && !busy) { vm.showMode("login") }
+  val submit = {
+    attempted = true
+    if (!busy && emailValid && passwordValid && codeValid) {
+      focus.clearFocus()
+      vm.submit(mode, email, password, code)
+    }
+  }
   val title =
       when (mode) {
         "register" -> "Создать аккаунт"
-        "verify" -> "Подтвердить email"
+        "verify" -> "Проверьте почту"
         "reset" -> "Новый пароль"
-        "request-reset" -> "Восстановить пароль"
+        "request-reset" -> "Забыли пароль?"
+        else -> "С возвращением!"
+      }
+  val action =
+      when (mode) {
+        "register" -> "Создать аккаунт"
+        "verify" -> "Подтвердить email"
+        "reset" -> "Сохранить пароль"
+        "request-reset" -> "Получить код"
         else -> "Войти"
       }
-  Column(
-      Modifier.widthIn(max = 600.dp).fillMaxWidth(),
-      verticalArrangement = Arrangement.spacedBy(12.dp),
-  ) {
-    Text(title, style = MaterialTheme.typography.titleLarge)
-    OutlinedTextField(
-        email,
-        { email = it },
-        Modifier.fillMaxWidth(),
-        enabled = !busy,
-        label = { Text("Email") },
-        singleLine = true,
-        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
-    )
-    if (mode in setOf("login", "register", "reset"))
-        OutlinedTextField(
-            password,
-            { password = it },
-            Modifier.fillMaxWidth(),
-            enabled = !busy,
-            label = { Text("Пароль") },
-            supportingText = { if (mode != "login") Text("От 12 до 128 символов") },
-            singleLine = true,
-            visualTransformation = PasswordVisualTransformation(),
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-        )
-    if (mode in setOf("verify", "reset"))
-        OutlinedTextField(
-            code,
-            { code = it.filter(Char::isDigit).take(8) },
-            Modifier.fillMaxWidth(),
-            enabled = !busy,
-            label = { Text("Код из письма") },
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
-        )
-    if (mode == "login")
-        Row {
-          Checkbox(adopt, { adopt = it }, enabled = !busy)
-          Text(
-              "Сохранить мои локальные тренировки в этом аккаунте",
-              Modifier.weight(1f).padding(top = 12.dp),
-          )
-        }
-    message?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
-    if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
-    Button(
-        onClick = { vm.submit(mode, email, password, code) },
-        enabled = !busy && email.isNotBlank() && (mode != "login" || adopt),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-      Text(title)
-    }
-    if (mode == "login") {
-      OutlinedButton(
-          onClick = { activity?.let { vm.google(it) } },
-          enabled = !busy && adopt && activity != null,
-          modifier = Modifier.fillMaxWidth(),
-      ) {
-        Text("Войти через Google")
-      }
-      TextButton(onClick = { mode = "register" }, enabled = !busy) { Text("Создать аккаунт") }
-      TextButton(onClick = { mode = "request-reset" }, enabled = !busy) { Text("Забыли пароль?") }
-      TextButton(onClick = { mode = "verify" }, enabled = !busy) {
-        Text("Ввести код подтверждения email")
-      }
-    } else {
-      if (mode == "register")
-          TextButton(onClick = { mode = "verify" }, enabled = !busy) {
-            Text("У меня есть код подтверждения")
-          }
-      if (mode == "verify")
-          TextButton(onClick = { vm.submit("resend", email, "", "") }, enabled = !busy) {
-            Text("Отправить код повторно")
-          }
-      if (mode == "request-reset")
-          TextButton(onClick = { mode = "reset" }, enabled = !busy) {
-            Text("Ввести код и новый пароль")
-          }
-      TextButton(
-          onClick = {
-            mode = "login"
-            password = ""
-            code = ""
+  GymCard(Modifier.widthIn(max = 480.dp).fillMaxWidth(), contentPadding = PaddingValues(0.dp)) {
+    Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+      Text(title, style = MaterialTheme.typography.headlineSmall)
+      Text(
+          when (mode) {
+            "register" -> "Сохраняйте тренировки и возвращайтесь к ним на любом устройстве."
+            "verify" ->
+                "Введите 8 цифр из письма. Код действует 10 минут. Если письма нет, проверьте папку «Спам»."
+            "request-reset" -> "Укажите email аккаунта — отправим код для смены пароля."
+            "reset" -> "Введите код из письма и придумайте новый пароль."
+            else -> "Войдите, чтобы продолжить тренировки."
           },
+          style = MaterialTheme.typography.bodyMedium,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
+      )
+      if (mode == "login" || mode == "register") {
+        OutlinedButton(
+            onClick = {
+              focus.clearFocus()
+              googleSignIn?.invoke()
+            },
+            enabled = !busy && googleSignIn != null,
+            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+        ) {
+          Text("Продолжить с Google")
+        }
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+          HorizontalDivider(Modifier.weight(1f))
+          Text(
+              "или по email",
+              style = MaterialTheme.typography.bodySmall,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
+          )
+          HorizontalDivider(Modifier.weight(1f))
+        }
+      }
+      OutlinedTextField(
+          value = email,
+          onValueChange = { email = it },
+          modifier = Modifier.fillMaxWidth(),
           enabled = !busy,
+          label = { Text("Email") },
+          singleLine = true,
+          leadingIcon = { Icon(Icons.Rounded.Email, contentDescription = null) },
+          isError = attempted && !emailValid,
+          supportingText =
+              if (attempted && !emailValid) ({ Text("Введите email, например name@mail.ru") })
+              else null,
+          keyboardOptions =
+              KeyboardOptions(
+                  keyboardType = KeyboardType.Email,
+                  imeAction = if (mode == "request-reset") ImeAction.Done else ImeAction.Next,
+              ),
+          keyboardActions = KeyboardActions(onDone = { submit() }),
+      )
+      if (needsCode)
+          OutlinedTextField(
+              value = code,
+              onValueChange = { code = it.filter { c -> c in '0'..'9' }.take(8) },
+              modifier = Modifier.fillMaxWidth(),
+              enabled = !busy,
+              label = { Text("Код из письма") },
+              singleLine = true,
+              isError = attempted && !codeValid,
+              supportingText =
+                  if (attempted && !codeValid) ({ Text("Введите все 8 цифр") }) else null,
+              keyboardOptions =
+                  KeyboardOptions(
+                      keyboardType = KeyboardType.NumberPassword,
+                      imeAction = if (needsPassword) ImeAction.Next else ImeAction.Done,
+                  ),
+              keyboardActions = KeyboardActions(onDone = { submit() }),
+          )
+      if (needsPassword)
+          OutlinedTextField(
+              value = password,
+              onValueChange = { password = it },
+              modifier = Modifier.fillMaxWidth(),
+              enabled = !busy,
+              label = { Text(if (mode == "reset") "Новый пароль" else "Пароль") },
+              singleLine = true,
+              isError = attempted && !passwordValid,
+              supportingText = {
+                if (mode != "login") Text("От 12 до 128 символов")
+                else if (attempted && !passwordValid) Text("Введите пароль")
+              },
+              visualTransformation =
+                  if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
+              trailingIcon = {
+                IconButton(onClick = { showPassword = !showPassword }, enabled = !busy) {
+                  Icon(
+                      if (showPassword) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility,
+                      contentDescription = if (showPassword) "Скрыть пароль" else "Показать пароль",
+                  )
+                }
+              },
+              keyboardOptions =
+                  KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
+              keyboardActions = KeyboardActions(onDone = { submit() }),
+          )
+      message?.let { AccountMessage(it) }
+      Button(
+          onClick = submit,
+          enabled = !busy,
+          modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
       ) {
-        Text("Вернуться ко входу")
+        if (busy) {
+          CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+          Spacer(Modifier.width(8.dp))
+          Text("Подождите…")
+        } else Text(action)
+      }
+      if (mode == "login") {
+        TextButton(
+            onClick = { vm.showMode("request-reset") },
+            enabled = !busy,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+          Text("Забыли пароль?")
+        }
+        HorizontalDivider()
+        OutlinedButton(
+            onClick = { vm.showMode("register") },
+            enabled = !busy,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+          Text("Создать аккаунт")
+        }
+      } else {
+        if (mode == "verify" || mode == "reset")
+            TextButton(
+                onClick = {
+                  attempted = true
+                  if (emailValid)
+                      vm.submit(if (mode == "verify") "resend" else "request-reset", email, "", "")
+                },
+                enabled = !busy,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+              Text("Отправить код ещё раз")
+            }
+        if (mode == "register")
+            TextButton(onClick = { vm.showMode("verify") }, enabled = !busy) {
+              Text("Уже есть код подтверждения")
+            }
+        if (mode == "request-reset")
+            TextButton(onClick = { vm.showMode("reset") }, enabled = !busy) {
+              Text("Уже есть код восстановления")
+            }
+        TextButton(
+            onClick = { vm.showMode("login") },
+            enabled = !busy,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+          Text("Вернуться ко входу")
+        }
       }
     }
+  }
+}
+
+@Composable
+private fun AccountMessage(message: String) {
+  Surface(
+      color = MaterialTheme.colorScheme.surfaceContainerHighest,
+      shape = MaterialTheme.shapes.medium,
+  ) {
+    Text(
+        message,
+        Modifier.fillMaxWidth().padding(12.dp).semantics { liveRegion = LiveRegionMode.Polite },
+        style = MaterialTheme.typography.bodyMedium,
+    )
   }
 }
 
@@ -208,87 +304,146 @@ fun AccountCard(vm: AccountViewModel = hiltViewModel()) {
   var confirm by remember { mutableStateOf<String?>(null) }
   var deleteCode by remember { mutableStateOf("") }
   var deleting by remember { mutableStateOf(false) }
-  val activity = LocalContext.current.activity()
-  Card(Modifier.fillMaxWidth()) {
-    Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-      Text("Аккаунт ValerochkaGym", style = MaterialTheme.typography.titleLarge)
-      Text(session?.email ?: "Вход не выполнен")
-      Text(status, style = MaterialTheme.typography.bodyMedium)
-      message?.let { Text(it) }
-      if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
-      Button(onClick = { vm.synchronize() }, enabled = !busy) { Text("Синхронизировать") }
-      if (conflict) {
-        Text(
-            if (catalogConflict)
-                "Упражнения и залы стали стандартными. Ваши локальные правки и исходный пакет сохранены до выбора."
-            else
-                "Одни и те же данные изменились на двух устройствах. Выбранная версия заменит конфликтующие записи."
+  var showDevices by remember { mutableStateOf(false) }
+  Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+    GymCard(Modifier.fillMaxWidth(), contentPadding = PaddingValues(0.dp)) {
+      Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Icon(
+            Icons.Rounded.AccountCircle,
+            contentDescription = null,
+            modifier = Modifier.size(40.dp),
+            tint = MaterialTheme.colorScheme.primary,
         )
-        OutlinedButton(onClick = { confirm = "local" }, enabled = !busy) {
+        Text("Ваш аккаунт", style = MaterialTheme.typography.titleLarge)
+        Text(session?.email.orEmpty(), style = MaterialTheme.typography.bodyLarge)
+        Text(
+            status,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        message?.let { AccountMessage(it) }
+        if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
+        if (conflict) {
           Text(
-              if (catalogConflict) "Сохранить правки личными копиями"
-              else "Оставить изменения этого устройства"
+              if (catalogConflict)
+                  "Упражнения и залы стали стандартными. Ваши локальные правки сохранены до выбора."
+              else "Тренировки изменились на другом устройстве. Какой вариант оставить?"
+          )
+          OutlinedButton(
+              onClick = { confirm = "local" },
+              enabled = !busy,
+              modifier = Modifier.fillMaxWidth(),
+          ) {
+            Text(if (catalogConflict) "Сохранить правки личными копиями" else "С этого устройства")
+          }
+          OutlinedButton(
+              onClick = { confirm = "server" },
+              enabled = !busy,
+              modifier = Modifier.fillMaxWidth(),
+          ) {
+            Text(if (catalogConflict) "Принять стандартные версии" else "С другого устройства")
+          }
+        } else
+            TextButton(onClick = { vm.synchronize() }, enabled = !busy) {
+              Text("Обновить тренировки")
+            }
+        OutlinedButton(
+            onClick = { confirm = "logout" },
+            enabled = !busy,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+          Text("Выйти из аккаунта")
+        }
+        Text(
+            "После выхода можно войти с другим email.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+      }
+    }
+    GymCard(Modifier.fillMaxWidth(), contentPadding = PaddingValues(0.dp)) {
+      Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("Безопасность", style = MaterialTheme.typography.titleLarge)
+        TextButton(
+            onClick = {
+              showDevices = !showDevices
+              if (showDevices) vm.loadSessions()
+            },
+            enabled = !busy,
+        ) {
+          Text(if (showDevices) "Скрыть устройства" else "Мои устройства")
+        }
+        if (showDevices)
+            sessions.forEach { device ->
+              Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    device.deviceName + if (device.current) " · это устройство" else "",
+                    Modifier.weight(1f),
+                )
+                if (!device.current)
+                    TextButton(onClick = { vm.revoke(device.id) }, enabled = !busy) {
+                      Text("Выйти")
+                    }
+              }
+            }
+        if (showDevices)
+            TextButton(onClick = { confirm = "logout-all" }, enabled = !busy) {
+              Text("Выйти на всех устройствах")
+            }
+        HorizontalDivider()
+        TextButton(onClick = { deleting = !deleting }, enabled = !busy) {
+          Text(
+              if (deleting) "Отменить удаление" else "Удалить аккаунт",
+              color = MaterialTheme.colorScheme.error,
           )
         }
-        OutlinedButton(onClick = { confirm = "server" }, enabled = !busy) {
-          Text(if (catalogConflict) "Принять стандартные версии" else "Принять изменения с сервера")
-        }
-      }
-      TextButton(onClick = { activity?.let { vm.google(it, true) } }, enabled = !busy) {
-        Text("Подключить вход через Google")
-      }
-      TextButton(onClick = vm::loadSessions, enabled = !busy) { Text("Устройства и сессии") }
-      sessions.forEach { s ->
-        Row(Modifier.fillMaxWidth()) {
-          Text(s.deviceName + if (s.current) " · это устройство" else "", Modifier.weight(1f))
-          if (!s.current)
-              TextButton(onClick = { vm.revoke(s.id) }, enabled = !busy) { Text("Завершить") }
-        }
-      }
-      TextButton(onClick = { confirm = "logout" }, enabled = !busy) { Text("Выйти") }
-      TextButton(onClick = { confirm = "logout-all" }, enabled = !busy) {
-        Text("Выйти на всех устройствах")
-      }
-      TextButton(onClick = { deleting = !deleting }, enabled = !busy) { Text("Удалить аккаунт") }
-      if (deleting) {
-        Text(
-            "Удаление навсегда удалит данные аккаунта с сервера. Перед удалением можно экспортировать локальную базу в разделе «Данные и приложение»."
-        )
-        TextButton(onClick = vm::deletionCode, enabled = !busy) { Text("Получить код удаления") }
-        OutlinedTextField(
-            deleteCode,
-            { deleteCode = it.filter(Char::isDigit).take(8) },
-            label = { Text("Код удаления") },
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
-        )
-        TextButton(onClick = { confirm = "delete" }, enabled = !busy && deleteCode.length == 8) {
-          Text("Удалить навсегда")
+        if (deleting) {
+          Text(
+              "Все тренировки и замеры этого аккаунта будут удалены навсегда. Подтвердите удаление кодом из письма."
+          )
+          TextButton(onClick = vm::deletionCode, enabled = !busy) { Text("Получить код на почту") }
+          OutlinedTextField(
+              deleteCode,
+              { deleteCode = it.filter { c -> c in '0'..'9' }.take(8) },
+              modifier = Modifier.fillMaxWidth(),
+              enabled = !busy,
+              label = { Text("Код удаления") },
+              singleLine = true,
+              keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+          )
+          TextButton(onClick = { confirm = "delete" }, enabled = !busy && deleteCode.length == 8) {
+            Text("Удалить навсегда", color = MaterialTheme.colorScheme.error)
+          }
         }
       }
     }
   }
   confirm?.let { action ->
+    val title =
+        when (action) {
+          "delete" -> "Удалить аккаунт навсегда?"
+          "logout" -> "Выйти из аккаунта?"
+          "logout-all" -> "Выйти на всех устройствах?"
+          else -> "Заменить изменения?"
+        }
     AlertDialog(
         onDismissRequest = { confirm = null },
-        title = {
-          Text(if (action == "delete") "Удалить аккаунт навсегда?" else "Подтвердить действие?")
-        },
+        title = { Text(title) },
         text = {
           Text(
               when (action) {
                 "local" ->
                     if (catalogConflict)
-                        "Будут созданы личные копии ваших правок с новыми UUID. История останется связана со стандартными объектами."
-                    else
-                        "Конфликтующие записи на сервере будут заменены изменениями этого устройства."
+                        "Будут созданы личные копии ваших правок. История останется связана со стандартными объектами."
+                    else "Для совпадающих тренировок будут сохранены изменения с этого устройства."
                 "server" ->
                     if (catalogConflict)
                         "Локальные правки перенесённых объектов будут заменены стандартными версиями. Личные тренировки сохранятся."
                     else
-                        "Конфликтующие локальные записи будут заменены серверными. При необходимости сначала экспортируйте локальную базу."
-                "delete" -> "Восстановить серверные данные после удаления будет невозможно."
+                        "Для совпадающих тренировок будут сохранены изменения с другого устройства."
+                "delete" -> "Восстановить тренировки и замеры после удаления будет невозможно."
                 else ->
-                    "Локальные данные останутся привязаны к этому аккаунту. Для продолжения потребуется снова войти."
+                    "Сохранённые в аккаунте тренировки останутся. Изменения без подключения могут потеряться при входе в другой аккаунт."
               }
           )
         },
@@ -304,7 +459,14 @@ fun AccountCard(vm: AccountViewModel = hiltViewModel()) {
                 }
               }
           ) {
-            Text("Подтвердить")
+            Text(
+                when (action) {
+                  "delete" -> "Удалить"
+                  "local",
+                  "server" -> "Сохранить выбранное"
+                  else -> "Выйти"
+                }
+            )
           }
         },
         dismissButton = { TextButton(onClick = { confirm = null }) { Text("Отмена") } },

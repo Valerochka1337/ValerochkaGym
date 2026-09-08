@@ -7,7 +7,6 @@ import java.io.IOException
 import java.util.UUID
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runTest
-import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.*
 import org.junit.Assert.*
 import org.junit.Test
@@ -96,6 +95,7 @@ class BackendSyncTest : RoomDaoTest() {
   fun `clean restore removes unused bootstrap placeholders while keeping downloaded UUIDs`() =
       runTest {
         SyncSchema.install(raw)
+        raw.execSQL("UPDATE backend_state SET owner='user-a' WHERE id=1")
         val placeholder = exercise().copy(isCustom = false)
         db.exerciseDao().insert(placeholder)
         raw.execSQL(
@@ -123,6 +123,7 @@ class BackendSyncTest : RoomDaoTest() {
   fun `catalog reclassifies stable IDs without changing history and never uploads standard rows`() =
       runTest {
         SyncSchema.install(raw)
+        raw.execSQL("UPDATE backend_state SET owner='user-a' WHERE id=1")
         val ex = exercise()
         val localId = db.exerciseDao().insert(ex)
         insertWorkout("history", finishedAt = 2000)
@@ -155,6 +156,7 @@ class BackendSyncTest : RoomDaoTest() {
   fun `transition retains exact outbox until restart choice and copies edits without relinking history`() =
       runTest {
         SyncSchema.install(raw)
+        raw.execSQL("UPDATE backend_state SET owner='user-a' WHERE id=1")
         val ex = exercise()
         val localId = db.exerciseDao().insert(ex)
         insertWorkout("history", finishedAt = 2000)
@@ -263,6 +265,7 @@ class BackendSyncTest : RoomDaoTest() {
   @Test
   fun `lost response retries the same durable operation without a duplicate`() = runTest {
     SyncSchema.install(raw)
+    raw.execSQL("UPDATE backend_state SET owner='user-a' WHERE id=1")
     db.exerciseDao().insert(exercise())
     val server = Server()
     val store = Store()
@@ -284,6 +287,7 @@ class BackendSyncTest : RoomDaoTest() {
   @Test
   fun `local edits committed while uploading are sent as a newer operation`() = runTest {
     SyncSchema.install(raw)
+    raw.execSQL("UPDATE backend_state SET owner='user-a' WHERE id=1")
     val id = db.exerciseDao().insert(exercise())
     val server = Server()
     val sync = BackendSync(db, server, Store())
@@ -300,32 +304,180 @@ class BackendSyncTest : RoomDaoTest() {
   }
 
   @Test
-  fun `another account cannot claim a database or upload its contents`() = runTest {
+  fun `switching accounts clears the previous history baseline and pending uploads`() = runTest {
     SyncSchema.install(raw)
-    db.exerciseDao().insert(exercise())
     val store = Store()
     val server = Server()
     val sync = BackendSync(db, server, store)
     sync.claim("user-a")
-    try {
-      sync.claim("user-b")
-      fail("Owner must be retained")
-    } catch (e: BackendException) {
-      assertEquals("local_owner", e.code)
-    }
-    store.save(BackendTokens("user-b", "b@example.com", "access", "refresh"))
+    db.exerciseDao().insert(exercise())
+    sync.run()
+    db.bodyMeasurementDao()
+        .insert(
+            BodyMeasurementEntity(
+                id = UUID.randomUUID().toString(),
+                measuredAt = 1,
+                weightKg = 80.0,
+            )
+        )
+    server.loseNextResponse = true
     try {
       sync.run()
-      fail("Upload must be rejected")
+    } catch (_: IOException) {}
+    assertEquals(1, tableCount("backend_outbox"))
+    sync.claim("user-b")
+    assertEquals(0, tableCount("exercises"))
+    assertEquals(0, tableCount("body_measurements"))
+    assertEquals(0, tableCount("backend_baseline"))
+    assertEquals(0, tableCount("backend_outbox"))
+    assertEquals("user-b", sync.owner())
+    // An old worker cannot write with account A's credentials after the owner changes.
+    try {
+      sync.run()
+      fail("Old session must be rejected")
     } catch (e: BackendException) {
       assertEquals("owner_changed", e.code)
     }
-    assertTrue(server.records.isEmpty())
+    val otherServer = Server()
+    store.save(BackendTokens("user-b", "b@example.com", "access-b", "refresh-b"))
+    BackendSync(db, otherServer, store).run()
+    assertTrue(otherServer.records.isEmpty())
+  }
+
+  @Test
+  fun `account switch and sign in retain downloaded standard records without reseeding`() =
+      runTest {
+        SyncSchema.install(raw)
+        val server = Server()
+        val store = Store()
+        val sync = BackendSync(db, server, store)
+        sync.claim("user-a")
+        val ex = exercise()
+        val localId = db.exerciseDao().insert(ex)
+        val payload = PortableData(raw).snapshot().getValue("exercise:${ex.syncId}")
+        raw.execSQL("UPDATE catalog_state SET applying=1 WHERE id=1")
+        raw.execSQL("UPDATE exercises SET origin='STANDARD' WHERE id=?", arrayOf(localId))
+        raw.execSQL("UPDATE catalog_state SET applying=0 WHERE id=1")
+        server.catalog =
+            StandardSnapshot(
+                true,
+                1,
+                listOf(StandardRecord("exercise", ex.syncId, 1, false, payload)),
+                emptyList(),
+            )
+        sync.run()
+        sync.signIn(BackendTokens("user-b", "b@example.com", "access-b", "refresh-b"))
+        sync.run()
+        val retained = db.exerciseDao().getAllOnce().single()
+        assertEquals(localId, retained.id)
+        assertEquals("STANDARD", retained.origin)
+        assertEquals(ex.name, retained.name)
+        assertTrue(server.records.isEmpty())
+        assertEquals(1, tableCount("catalog_records"))
+        assertEquals("user-b", sync.owner())
+      }
+
+  @Test
+  fun `first account discards legacy local history instead of importing it`() = runTest {
+    SyncSchema.install(raw)
+    db.exerciseDao().insert(exercise())
+    insertWorkout("legacy", finishedAt = 2000)
+    val sync = BackendSync(db, Server(), Store())
+    sync.claim("user-a")
+    assertEquals(0, tableCount("workouts"))
+    assertEquals(0, tableCount("exercises"))
+  }
+
+  @Test
+  fun `returning to the same account retains offline changes`() = runTest {
+    SyncSchema.install(raw)
+    val sync = BackendSync(db, Server(), Store())
+    sync.claim("user-a")
+    db.exerciseDao().insert(exercise())
+    sync.claim("user-a")
+    assertEquals(1, tableCount("exercises"))
+  }
+
+  @Test
+  fun `active workout prevents switching to a different account`() = runTest {
+    SyncSchema.install(raw)
+    val sync = BackendSync(db, Server(), Store())
+    sync.claim("user-a")
+    insertWorkout("active")
+    try {
+      sync.claim("user-b")
+      fail("Workout must be finished")
+    } catch (e: BackendException) {
+      assertEquals("workout_active", e.code)
+    }
+    assertEquals("user-a", sync.owner())
+    assertEquals(1, tableCount("workouts"))
+  }
+
+  @Test
+  fun `local logout succeeds offline and allows a different account to sign in`() = runTest {
+    SyncSchema.install(raw)
+    val store = Store()
+    val offline =
+        object : BackendTransport {
+          override val json = Json
+
+          override suspend fun public(
+              method: String,
+              path: String,
+              body: JsonElement?,
+          ): JsonElement = throw IOException()
+
+          override suspend fun authorized(
+              method: String,
+              path: String,
+              body: JsonElement?,
+          ): JsonElement = throw IOException()
+        }
+    val sync = BackendSync(db, offline, store)
+    sync.claim("user-a")
+    db.bodyMeasurementDao().insert(BodyMeasurementEntity(id = "a", measuredAt = 1, weightKg = 80.0))
+    sync.signOut()
+    assertNull(store.session.value)
+    sync.signIn(BackendTokens("user-b", "b@example.com", "access-b", "refresh-b"))
+    assertEquals("user-b", store.session.value?.userId)
+    assertEquals("user-b", sync.owner())
+    assertEquals(0, tableCount("body_measurements"))
+  }
+
+  @Test
+  fun `logout on every device requires an acknowledgement while offline`() = runTest {
+    SyncSchema.install(raw)
+    val store = Store()
+    val offline =
+        object : BackendTransport {
+          override val json = Json
+
+          override suspend fun public(
+              method: String,
+              path: String,
+              body: JsonElement?,
+          ): JsonElement = throw IOException()
+
+          override suspend fun authorized(
+              method: String,
+              path: String,
+              body: JsonElement?,
+          ): JsonElement = throw IOException()
+        }
+    val sync = BackendSync(db, offline, store)
+    sync.claim("user-a")
+    try {
+      sync.signOut(all = true)
+      fail("Server acknowledgement required")
+    } catch (_: IOException) {}
+    assertEquals("user-a", store.session.value?.userId)
   }
 
   @Test
   fun `remote edits and offline deletion conflict without losing the local choice`() = runTest {
     SyncSchema.install(raw)
+    raw.execSQL("UPDATE backend_state SET owner='user-a' WHERE id=1")
     val id = db.exerciseDao().insert(exercise())
     val server = Server()
     val sync = BackendSync(db, server, Store())
@@ -355,6 +507,7 @@ class BackendSyncTest : RoomDaoTest() {
   @Test
   fun `remote version restores an offline deleted object when explicitly selected`() = runTest {
     SyncSchema.install(raw)
+    raw.execSQL("UPDATE backend_state SET owner='user-a' WHERE id=1")
     val id = db.exerciseDao().insert(exercise())
     val server = Server()
     val sync = BackendSync(db, server, Store())
@@ -375,6 +528,7 @@ class BackendSyncTest : RoomDaoTest() {
   @Test
   fun `dirty marker and domain edit roll back together`() = runTest {
     SyncSchema.install(raw)
+    raw.execSQL("UPDATE backend_state SET owner='user-a' WHERE id=1")
     try {
       db.withTransaction {
         db.exerciseDao().insert(exercise())
@@ -440,6 +594,7 @@ class BackendSyncTest : RoomDaoTest() {
   @Test
   fun `active workout blocks remote writes until the foreground session completes`() = runTest {
     SyncSchema.install(raw)
+    raw.execSQL("UPDATE backend_state SET owner='user-a' WHERE id=1")
     insertWorkout(UUID.randomUUID().toString())
     val server = Server()
     val sync = BackendSync(db, server, Store())
