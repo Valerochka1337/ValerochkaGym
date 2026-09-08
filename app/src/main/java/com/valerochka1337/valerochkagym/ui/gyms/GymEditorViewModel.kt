@@ -125,6 +125,8 @@ constructor(
               isNew = gymId == null,
               isCopy = copySourceGymId != null,
               isLoading = gymId != null || copySourceGymId != null,
+              origin = savedStateHandle[DRAFT_ORIGIN] ?: "PERSONAL",
+              copySourceWasLegacy = savedStateHandle[DRAFT_COPY_SOURCE_WAS_LEGACY] ?: false,
               name = savedStateHandle[DRAFT_NAME] ?: "",
               query = savedStateHandle[DRAFT_QUERY] ?: "",
               selectedEquipmentIds =
@@ -168,32 +170,60 @@ constructor(
 
   private suspend fun load(id: String, asCopy: Boolean = false) {
     try {
-      if (savedStateHandle.get<Boolean>(DRAFT_LOADED) == true) {
-        _uiState.update { it.copy(isLoading = false) }
-        return
-      }
       val gym = repository.getGym(id)
+      val restoredDraft = savedStateHandle.get<Boolean>(DRAFT_LOADED) == true
       _uiState.update { state ->
         if (gym == null) {
           state.copy(isLoading = false, loadError = "Зал не найден.")
+        } else if (asCopy) {
+          state.copy(
+              isLoading = false,
+              name = if (restoredDraft) state.name else "",
+              selectedEquipmentIds =
+                  if (restoredDraft) state.selectedEquipmentIds else gym.equipmentIds,
+              selectedExerciseIds = gym.exercises.mapTo(linkedSetOf()) { it.id },
+              mode = if (restoredDraft) state.mode else GymEquipmentMode.ALL,
+              copySourceWasLegacy =
+                  savedStateHandle[DRAFT_COPY_SOURCE_WAS_LEGACY] ?: !gym.inventoryConfigured,
+              origin = "PERSONAL",
+          )
+        } else if (gym.origin == "STANDARD") {
+          // A direct standard-gym route is display-only even if a previous process saved a stale
+          // personal-looking draft. Source data wins over the local draft before controls enable.
+          state.copy(
+              isLoading = false,
+              name = gym.name,
+              selectedEquipmentIds = gym.equipmentIds,
+              selectedExerciseIds = gym.exercises.mapTo(linkedSetOf()) { it.id },
+              mode = GymEquipmentMode.SELECTED,
+              copySourceWasLegacy = false,
+              origin = "STANDARD",
+          )
         } else {
           state.copy(
               isLoading = false,
-              name = if (asCopy) "" else gym.name,
-              selectedEquipmentIds = gym.equipmentIds,
+              name = if (restoredDraft) state.name else gym.name,
+              selectedEquipmentIds =
+                  if (restoredDraft) state.selectedEquipmentIds else gym.equipmentIds,
               selectedExerciseIds = gym.exercises.mapTo(linkedSetOf()) { it.id },
-              mode = if (asCopy) GymEquipmentMode.ALL else GymEquipmentMode.SELECTED,
-              copySourceWasLegacy = asCopy && !gym.inventoryConfigured,
-              origin = if (asCopy) "PERSONAL" else gym.origin,
+              mode = if (restoredDraft) state.mode else GymEquipmentMode.SELECTED,
+              copySourceWasLegacy = false,
+              origin = gym.origin,
           )
         }
       }
-      val loaded = _uiState.value
-      savedStateHandle[DRAFT_NAME] = loaded.name
-      savedStateHandle[DRAFT_EQUIPMENT] = ArrayList(loaded.selectedEquipmentIds)
-      savedStateHandle[DRAFT_INITIAL_NAME] = loaded.name
-      savedStateHandle[DRAFT_INITIAL_EQUIPMENT] = ArrayList(loaded.selectedEquipmentIds)
-      savedStateHandle[DRAFT_LOADED] = true
+      if (gym != null) {
+        val loaded = _uiState.value
+        savedStateHandle[DRAFT_NAME] = loaded.name
+        savedStateHandle[DRAFT_EQUIPMENT] = ArrayList(loaded.selectedEquipmentIds)
+        if (!restoredDraft) {
+          savedStateHandle[DRAFT_INITIAL_NAME] = loaded.name
+          savedStateHandle[DRAFT_INITIAL_EQUIPMENT] = ArrayList(loaded.selectedEquipmentIds)
+        }
+        savedStateHandle[DRAFT_ORIGIN] = loaded.origin
+        savedStateHandle[DRAFT_COPY_SOURCE_WAS_LEGACY] = loaded.copySourceWasLegacy
+        savedStateHandle[DRAFT_LOADED] = true
+      }
     } catch (cancellation: CancellationException) {
       throw cancellation
     } catch (_: Exception) {
@@ -204,29 +234,35 @@ constructor(
   }
 
   fun setName(value: String) {
+    if (!canEdit(_uiState.value)) return
     _uiState.update { state ->
-      if (state.isBusy) state else state.copy(name = value, bulkUndo = null, actionError = null)
+      if (!canEdit(state)) state else state.copy(name = value, bulkUndo = null, actionError = null)
     }
     savedStateHandle[DRAFT_NAME] = value
   }
 
   fun setQuery(value: String) {
-    _uiState.update { it.copy(query = value) }
+    if (!canEdit(_uiState.value)) return
+    _uiState.update { if (canEdit(it)) it.copy(query = value) else it }
     savedStateHandle[DRAFT_QUERY] = value
   }
 
   fun clearQuery() {
-    _uiState.update { it.copy(query = "") }
+    if (!canEdit(_uiState.value)) return
+    _uiState.update { if (canEdit(it)) it.copy(query = "") else it }
     savedStateHandle[DRAFT_QUERY] = ""
   }
 
   fun setMode(mode: GymEquipmentMode) {
-    _uiState.update { if (it.isBusy) it else it.copy(mode = mode) }
+    if (!canEdit(_uiState.value)) return
+    _uiState.update { if (canEdit(it)) it.copy(mode = mode) else it }
     savedStateHandle[DRAFT_MODE] = mode.name
   }
 
   fun toggleGroupExpanded(group: String) {
+    if (!canEdit(_uiState.value)) return
     _uiState.update { state ->
+      if (!canEdit(state)) return@update state
       val expanded = state.expandedGroups.toMutableSet()
       if (!expanded.add(group)) expanded.remove(group)
       state.copy(expandedGroups = expanded)
@@ -239,6 +275,7 @@ constructor(
       _uiState.update { it.copy(preview = false, previewLoading = false, previewExercises = null) }
       return
     }
+    if (!canEdit(_uiState.value)) return
     val exercises = _uiState.value.exercises ?: return
     val equipment = _uiState.value.selectedEquipmentIds
     _uiState.update { it.copy(preview = true, previewLoading = true, previewExercises = null) }
@@ -272,7 +309,7 @@ constructor(
 
   fun toggleExercise(exerciseId: Long) {
     _uiState.update { state ->
-      if (state.isBusy || state.exercises?.none { it.id == exerciseId } != false) {
+      if (!canEdit(state) || state.exercises?.none { it.id == exerciseId } != false) {
         state
       } else {
         val selected = state.selectedExerciseIds.toMutableSet()
@@ -287,8 +324,9 @@ constructor(
   }
 
   fun toggleEquipment(equipmentId: String) {
+    if (!canEdit(_uiState.value)) return
     _uiState.update { state ->
-      if (state.isBusy || state.equipment?.none { it.id == equipmentId } != false) state
+      if (!canEdit(state) || state.equipment?.none { it.id == equipmentId } != false) state
       else {
         val selected = state.selectedEquipmentIds.toMutableSet()
         if (!selected.add(equipmentId)) selected.remove(equipmentId)
@@ -331,7 +369,9 @@ constructor(
       )
 
   fun undoBulk() {
+    if (!canEdit(_uiState.value)) return
     _uiState.update { state ->
+      if (!canEdit(state)) return@update state
       val previous = state.bulkUndo ?: return@update state
       state.copy(
           selectedEquipmentIds = previous,
@@ -345,9 +385,9 @@ constructor(
   }
 
   private fun toggleScope(scope: Set<String>) {
-    if (scope.isEmpty()) return
+    if (scope.isEmpty() || !canEdit(_uiState.value)) return
     _uiState.update { state ->
-      if (state.isBusy) return@update state
+      if (!canEdit(state)) return@update state
       val selected = state.selectedEquipmentIds.toMutableSet()
       if (scope.all { it in selected }) selected.removeAll(scope) else selected.addAll(scope)
       state.copy(
@@ -364,8 +404,9 @@ constructor(
   }
 
   private fun setScope(scope: Set<String>, selected: Boolean) {
+    if (!canEdit(_uiState.value)) return
     _uiState.update { state ->
-      if (state.isBusy) state
+      if (!canEdit(state)) state
       else {
         val values = state.selectedEquipmentIds.toMutableSet()
         if (selected) values.addAll(scope) else values.removeAll(scope)
@@ -428,7 +469,7 @@ constructor(
   fun delete() {
     val id = gymId ?: return
     val state = _uiState.value
-    if (state.isLoading || state.isBusy || state.loadError != null) return
+    if (!canEdit(state)) return
     _uiState.update {
       it.copy(isDeleting = true, actionError = null, saveConflict = null, deleteConflict = null)
     }
@@ -495,6 +536,7 @@ constructor(
   }
 
   private fun hasUnsavedChanges(state: GymEditorUiState): Boolean {
+    if (state.origin == "STANDARD") return false
     if (gymId == null) return state.name.isNotBlank() || state.selectedEquipmentIds.isNotEmpty()
     val initialName: String = savedStateHandle[DRAFT_INITIAL_NAME] ?: state.name
     val initialEquipment =
@@ -502,6 +544,9 @@ constructor(
             ?: state.selectedEquipmentIds
     return state.name != initialName || state.selectedEquipmentIds != initialEquipment
   }
+
+  private fun canEdit(state: GymEditorUiState): Boolean =
+      state.origin != "STANDARD" && !state.isLoading && !state.isBusy && state.loadError == null
 
   private companion object {
     const val DRAFT_NAME = "gym_equipment_name"
@@ -512,5 +557,7 @@ constructor(
     const val DRAFT_LOADED = "gym_equipment_loaded"
     const val DRAFT_INITIAL_NAME = "gym_equipment_initial_name"
     const val DRAFT_INITIAL_EQUIPMENT = "gym_equipment_initial_equipment"
+    const val DRAFT_ORIGIN = "gym_equipment_origin"
+    const val DRAFT_COPY_SOURCE_WAS_LEGACY = "gym_equipment_copy_source_was_legacy"
   }
 }

@@ -25,12 +25,14 @@ import com.valerochka1337.valerochkagym.ui.analysis.AnalysisScreen
 import com.valerochka1337.valerochkagym.ui.calendar.CalendarScreen
 import com.valerochka1337.valerochkagym.ui.calendar.ScheduleEditorScreen
 import com.valerochka1337.valerochkagym.ui.exercise.ExerciseDetailScreen
+import com.valerochka1337.valerochkagym.ui.gyms.GymDetailScreen
 import com.valerochka1337.valerochkagym.ui.gyms.GymEditorScreen
 import com.valerochka1337.valerochkagym.ui.gyms.GymsScreen
 import com.valerochka1337.valerochkagym.ui.history.WorkoutDetailScreen
 import com.valerochka1337.valerochkagym.ui.library.ExerciseLibraryScreen
 import com.valerochka1337.valerochkagym.ui.measurements.MeasurementEditorScreen
 import com.valerochka1337.valerochkagym.ui.measurements.MeasurementsScreen
+import com.valerochka1337.valerochkagym.ui.routine.RoutineDetailScreen
 import com.valerochka1337.valerochkagym.ui.routine.RoutineEditorScreen
 import com.valerochka1337.valerochkagym.ui.routine.RoutineEditorViewModel
 import com.valerochka1337.valerochkagym.ui.settings.SettingsScreen
@@ -67,10 +69,12 @@ object GymRoutes {
   const val SELECTED_EXERCISE_ID = "selected_exercise_id"
 
   const val ROUTINE_EDITOR = "routine_editor?$ROUTINE_ID_ARG={$ROUTINE_ID_ARG}"
+  const val ROUTINE_DETAIL = "routine_detail/{$ROUTINE_ID_ARG}"
   const val WORKOUT_SUMMARY = "workout_summary/{$WORKOUT_ID_ARG}"
   const val WORKOUT_DETAIL = "workout_detail/{$WORKOUT_ID_ARG}"
   const val MEASUREMENT_EDITOR = "measurement_editor?$MEASUREMENT_ID_ARG={$MEASUREMENT_ID_ARG}"
   const val EXERCISE_DETAIL = "exercise_detail/{$EXERCISE_ID_ARG}"
+  const val GYM_DETAIL = "gym_detail/{$GYM_ID_ARG}"
   const val LEGACY_EXERCISE_DETAIL =
       "exercise_detail/{$EXERCISE_ID_ARG}/{$LEGACY_EXECUTION_GROUP_ARG}"
   const val GYM_EDITOR =
@@ -79,11 +83,15 @@ object GymRoutes {
   fun routineEditor(routineId: String? = null) =
       if (routineId != null) "routine_editor?$ROUTINE_ID_ARG=$routineId" else "routine_editor"
 
+  fun routineDetail(routineId: Long) = "routine_detail/$routineId"
+
   fun workoutSummary(workoutId: String) = "workout_summary/$workoutId"
 
   fun workoutDetail(workoutId: String) = "workout_detail/$workoutId"
 
   fun exerciseDetail(exerciseId: Long) = "exercise_detail/$exerciseId"
+
+  fun gymDetail(gymId: String) = "gym_detail/${Uri.encode(gymId)}"
 
   fun measurementEditor(measurementId: String? = null) =
       if (measurementId == null) "measurement_editor"
@@ -201,7 +209,7 @@ fun GymNavGraph(
     composable(GymRoutes.WORKOUTS) {
       WorkoutsScreen(
           onCreateRoutine = { navController.navigate(GymRoutes.routineEditor(null)) },
-          onEditRoutine = { id -> navController.navigate(GymRoutes.routineEditor(id.toString())) },
+          onOpenRoutine = { id -> navController.navigate(GymRoutes.routineDetail(id)) },
           onStartWorkout = { navController.navigate(GymRoutes.ACTIVE_WORKOUT) },
           onOpenSettings = { navController.navigate(GymRoutes.SETTINGS) },
       )
@@ -246,8 +254,32 @@ fun GymNavGraph(
       GymsScreen(
           onBack = { navController.popBackStack() },
           onCreateGym = { navController.navigate(GymRoutes.gymEditor()) },
+          onOpenGym = { id -> navController.navigate(GymRoutes.gymDetail(id)) },
+          windowWidthClass = windowWidthClass,
+      )
+    }
+
+    composable(
+        route = GymRoutes.ROUTINE_DETAIL,
+        arguments = listOf(navArgument(GymRoutes.ROUTINE_ID_ARG) { type = NavType.LongType }),
+    ) {
+      RoutineDetailScreen(
+          onBack = { navController.popBackStack() },
+          onEditRoutine = { id -> navController.navigate(GymRoutes.routineEditor(id.toString())) },
+          onExerciseClick = { id -> navController.navigate(GymRoutes.exerciseDetail(id)) },
+          windowWidthClass = windowWidthClass,
+      )
+    }
+
+    composable(
+        route = GymRoutes.GYM_DETAIL,
+        arguments = listOf(navArgument(GymRoutes.GYM_ID_ARG) { type = NavType.StringType }),
+    ) {
+      GymDetailScreen(
+          onBack = { navController.popBackStack() },
           onEditGym = { id -> navController.navigate(GymRoutes.gymEditor(id)) },
-          onCopyGym = { id -> navController.navigate(GymRoutes.gymEditor(copySourceGymId = id)) },
+          onExerciseClick = { id -> navController.navigate(GymRoutes.exerciseDetail(id)) },
+          windowWidthClass = windowWidthClass,
       )
     }
 
@@ -269,7 +301,10 @@ fun GymNavGraph(
         enterTransition = { slideIntoContainer(SlideDirection.Up, NavSlideSpec) },
         popExitTransition = { slideOutOfContainer(SlideDirection.Down, NavSlideSpec) },
     ) {
-      GymEditorScreen(onBack = { navController.popBackStack() })
+      GymEditorScreen(
+          onBack = { navController.popBackStack() },
+          windowWidthClass = windowWidthClass,
+      )
     }
 
     composable(

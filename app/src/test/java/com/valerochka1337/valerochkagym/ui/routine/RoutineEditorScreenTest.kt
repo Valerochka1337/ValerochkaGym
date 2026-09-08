@@ -6,11 +6,26 @@ import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.v2.createComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.lifecycle.SavedStateHandle
 import com.valerochka1337.valerochkagym.data.db.PlannedSet
+import com.valerochka1337.valerochkagym.data.db.dao.ExerciseDao
+import com.valerochka1337.valerochkagym.data.db.dao.RoutineDao
+import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
+import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEquipmentEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
+import com.valerochka1337.valerochkagym.data.db.entity.MuscleGroup
+import com.valerochka1337.valerochkagym.data.db.entity.RoutineEntity
+import com.valerochka1337.valerochkagym.data.db.entity.RoutineExerciseEntity
+import com.valerochka1337.valerochkagym.data.db.relation.RoutineExerciseWithExercise
+import com.valerochka1337.valerochkagym.data.db.relation.RoutineWithCount
+import com.valerochka1337.valerochkagym.data.db.relation.RoutineWithExercises
+import com.valerochka1337.valerochkagym.ui.navigation.GymRoutes
 import com.valerochka1337.valerochkagym.ui.theme.GymTheme
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -87,6 +102,28 @@ class RoutineEditorScreenTest {
     composeRule.onNodeWithText("Отдых, сек").assertDoesNotExist()
   }
 
+  @Test
+  fun `direct standard editor renders detail without editing controls`() {
+    val viewModel =
+        RoutineEditorViewModel(
+            SavedStateHandle(mapOf(GymRoutes.ROUTINE_ID_ARG to "7")),
+            StandardRoutineDao(),
+            EmptyExerciseDao(),
+        )
+    composeRule.setContent {
+      GymTheme { RoutineEditorScreen(onBack = {}, onAddExercise = {}, viewModel = viewModel) }
+    }
+
+    composeRule.waitForIdle()
+
+    composeRule.onNodeWithText("Стандартная программа").assertExists()
+    composeRule.onNodeWithText("Залы").assertExists()
+    composeRule.onNodeWithText("Название программы").assertDoesNotExist()
+    composeRule.onNodeWithText("Сохранить").assertDoesNotExist()
+    composeRule.onNodeWithText("Упражнение").assertDoesNotExist()
+    composeRule.onNodeWithContentDescription("Удалить упражнение").assertDoesNotExist()
+  }
+
   private fun editorExercise(editorId: String, exerciseId: Long) =
       EditorExercise(
           editorId = editorId,
@@ -96,4 +133,80 @@ class RoutineEditorScreenTest {
           restSeconds = null,
           plannedSets = listOf(PlannedSet()),
       )
+
+  private class StandardRoutineDao : RoutineDao {
+    private val routine =
+        RoutineWithExercises(
+            routine = RoutineEntity(id = 7, name = "Стандартная программа", origin = "STANDARD"),
+            exercises =
+                listOf(
+                    RoutineExerciseWithExercise(
+                        routineExercise =
+                            RoutineExerciseEntity(
+                                routineId = 7,
+                                exerciseId = 1,
+                                position = 0,
+                                restSeconds = 90,
+                                plannedSets = listOf(PlannedSet(reps = 5)),
+                            ),
+                        exercise =
+                            ExerciseEntity(
+                                1,
+                                "Приседания",
+                                MuscleGroup.LEGS,
+                                ExerciseType.STRENGTH,
+                            ),
+                    )
+                ),
+        )
+
+    override fun observeRoutinesWithCount(): Flow<List<RoutineWithCount>> = flowOf(emptyList())
+
+    override fun observeRoutinesFull(): Flow<List<RoutineWithExercises>> = flowOf(listOf(routine))
+
+    override suspend fun getRoutineWithExercises(id: Long): RoutineWithExercises? =
+        routine.takeIf { it.routine.id == id }
+
+    override suspend fun getRoutineName(id: Long): String? =
+        routine.takeIf { it.routine.id == id }?.routine?.name
+
+    override suspend fun getRoutineBySyncId(syncId: String): RoutineEntity? = null
+
+    override suspend fun upsertRoutine(routine: RoutineEntity): Long = routine.id
+
+    override suspend fun deleteRoutine(id: Long) = Unit
+
+    override suspend fun insertRoutineExercises(
+        routineExercises: List<RoutineExerciseEntity>
+    ): List<Long> = emptyList()
+
+    override suspend fun deleteRoutineExercises(routineId: Long) = Unit
+  }
+
+  private class EmptyExerciseDao : ExerciseDao {
+    override fun getAll(): Flow<List<ExerciseEntity>> = flowOf(emptyList())
+
+    override suspend fun insert(exercise: ExerciseEntity): Long = 0
+
+    override suspend fun update(exercise: ExerciseEntity) = Unit
+
+    override suspend fun insertAll(exercises: List<ExerciseEntity>) = Unit
+
+    override suspend fun count(): Int = 0
+
+    override suspend fun getById(id: Long): ExerciseEntity? = null
+
+    override suspend fun getAllOnce(): List<ExerciseEntity> = emptyList()
+
+    override suspend fun getRequirementIds(exerciseId: Long): List<String> = emptyList()
+
+    override suspend fun getRequirements(exerciseIds: List<Long>): List<ExerciseEquipmentEntity> =
+        emptyList()
+
+    override fun observeAllRequirements(): Flow<List<ExerciseEquipmentEntity>> = flowOf(emptyList())
+
+    override suspend fun insertRequirements(requirements: List<ExerciseEquipmentEntity>) = Unit
+
+    override suspend fun deleteRequirements(exerciseId: Long) = Unit
+  }
 }

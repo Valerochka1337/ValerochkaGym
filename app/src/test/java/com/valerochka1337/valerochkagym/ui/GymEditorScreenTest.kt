@@ -13,10 +13,13 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.SavedStateHandle
+import com.valerochka1337.valerochkagym.data.db.EquipmentCatalog
+import com.valerochka1337.valerochkagym.data.db.LocalEquipmentCatalog
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
 import com.valerochka1337.valerochkagym.domain.DeleteGymResult
 import com.valerochka1337.valerochkagym.domain.GymConfiguration
@@ -28,8 +31,10 @@ import com.valerochka1337.valerochkagym.ui.theme.GymTheme
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -39,6 +44,21 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(application = Application::class, qualifiers = "w320dp-h720dp-xhdpi")
 class GymEditorScreenTest {
+
+  private lateinit var previousCatalog: List<LocalEquipmentCatalog.Entry>
+
+  @Before
+  fun loadEquipmentCatalog() {
+    previousCatalog = LocalEquipmentCatalog.state.value
+    LocalEquipmentCatalog.publish(
+        EquipmentCatalog.entries.map { LocalEquipmentCatalog.Entry(it, false) }
+    )
+  }
+
+  @After
+  fun restoreEquipmentCatalog() {
+    LocalEquipmentCatalog.publish(previousCatalog)
+  }
 
   @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
 
@@ -55,22 +75,23 @@ class GymEditorScreenTest {
     }
 
     compose.onNodeWithText("Поиск оборудования").assertIsDisplayed()
-    compose.onNodeWithText("Выбрать всё").assertIsDisplayed()
+    compose.onNodeWithText("Выбрать всё").performScrollTo().assertIsDisplayed()
+    compose.onNodeWithTag("gym_editor_content").performScrollToNode(hasText("Сохранить"))
     compose.onNodeWithText("Сохранить").assertIsDisplayed()
     val freeWeights = hasText("Свободные веса", substring = true)
-    compose.onNodeWithTag("gym_equipment_inventory").performScrollToNode(freeWeights)
+    compose.onNodeWithTag("gym_editor_content").performScrollToNode(freeWeights)
     compose.onNode(freeWeights).performClick()
     val group = compose.onNodeWithContentDescription("Оборудование группы Свободные веса")
     group.performClick()
     compose
-        .onNodeWithTag("gym_equipment_inventory")
+        .onNodeWithTag("gym_editor_content")
         .performScrollToNode(hasContentDescription("Гантели"))
     val dumbbells = compose.onNodeWithContentDescription("Гантели")
     dumbbells.assertIsDisplayed()
     assertTrue(dumbbells.fetchSemanticsNode().boundsInRoot.height >= targetPx)
     dumbbells.performClick()
     compose
-        .onNodeWithTag("gym_equipment_inventory")
+        .onNodeWithTag("gym_editor_content")
         .performScrollToNode(hasContentDescription("Оборудование группы Свободные веса"))
     group.assert(
         androidx.compose.ui.test.SemanticsMatcher.expectValue(
@@ -131,16 +152,48 @@ class GymEditorScreenTest {
     compose.waitUntil { !viewModel.uiState.value.isDeleting }
     compose.waitUntil { backCount == 1 }
   }
+
+  @Test
+  fun `standard editor exposes no mutable controls or delete overflow at compact large font`() {
+    val viewModel =
+        GymEditorViewModel(
+            SavedStateHandle(mapOf("gymId" to "standard")),
+            ScreenGymRepository(
+                GymConfiguration(
+                    id = "standard",
+                    name = "Шаблон",
+                    exercises = emptyList(),
+                    equipmentIds = setOf("dumbbells"),
+                    inventoryConfigured = true,
+                    origin = "STANDARD",
+                ),
+            ),
+        )
+    compose.setContent {
+      val density = LocalDensity.current
+      CompositionLocalProvider(LocalDensity provides Density(density.density, fontScale = 2f)) {
+        GymTheme { GymEditorScreen(onBack = {}, viewModel = viewModel) }
+      }
+    }
+
+    compose.waitUntil { !viewModel.uiState.value.isLoading }
+    compose.onNodeWithText("Встроенный зал").assertIsDisplayed()
+    compose.onNodeWithText("Поиск оборудования").assertDoesNotExist()
+    compose.onNodeWithText("Сохранить").assertDoesNotExist()
+    compose.onNodeWithContentDescription("Дополнительные действия").assertDoesNotExist()
+  }
 }
 
-private class ScreenGymRepository : GymRepository {
+private class ScreenGymRepository(
+    private val gym: GymConfiguration? = null,
+) : GymRepository {
   private val catalog = MutableStateFlow<List<ExerciseEntity>>(emptyList())
 
   override fun observeGyms(): Flow<List<GymConfiguration>> = MutableStateFlow(emptyList())
 
   override fun observeExerciseCatalog(): Flow<List<ExerciseEntity>> = catalog
 
-  override suspend fun getGym(id: String): GymConfiguration? = null
+  override suspend fun getGym(id: String): GymConfiguration? = gym?.takeIf { it.id == id }
 
   override suspend fun saveGym(id: String?, name: String, exerciseIds: Set<Long>): SaveGymResult =
       SaveGymResult.Saved("saved")

@@ -66,7 +66,7 @@ internal fun CatalogOriginContent(
   Column {
     Text(
         if (origin == "STANDARD") "Стандартное" else "Личное",
-        style = MaterialTheme.typography.labelMedium,
+        style = MaterialTheme.typography.titleMedium,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
     if (origin == "STANDARD")

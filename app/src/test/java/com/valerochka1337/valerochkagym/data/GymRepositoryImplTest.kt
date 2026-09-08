@@ -1,10 +1,12 @@
 package com.valerochka1337.valerochkagym.data
 
+import com.valerochka1337.valerochkagym.data.db.PlannedSet
 import com.valerochka1337.valerochkagym.data.db.entity.ConfigurationTombstoneKind
 import com.valerochka1337.valerochkagym.data.db.entity.EquipmentRequirementState
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseMuscleEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
+import com.valerochka1337.valerochkagym.data.db.entity.GymEntity
 import com.valerochka1337.valerochkagym.data.db.entity.Muscle
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleGroup
 import com.valerochka1337.valerochkagym.data.db.entity.RoutineEntity
@@ -17,6 +19,8 @@ import com.valerochka1337.valerochkagym.domain.RoutineConfigurationDraft
 import com.valerochka1337.valerochkagym.domain.SaveExerciseConfigurationResult
 import com.valerochka1337.valerochkagym.domain.SaveGymResult
 import com.valerochka1337.valerochkagym.domain.SaveRoutineConfigurationResult
+import com.valerochka1337.valerochkagym.worker.ConfigurationUploadScheduler
+import com.valerochka1337.valerochkagym.worker.NoOpConfigurationUploadScheduler
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -39,6 +43,27 @@ class GymRepositoryImplTest : RoomDaoTest() {
             routineDao = db.routineDao(),
             workoutDao = db.workoutDao(),
         )
+  }
+
+  @Test
+  fun `standard gym rejects inventory edits and deletion without changing its data`() = runTest {
+    val id =
+        (repository.saveGymInventory(null, "Шаблон зала", setOf("dumbbells"))
+                as SaveGymResult.Saved)
+            .gymId
+    db.openHelper.writableDatabase.execSQL(
+        "UPDATE gyms SET origin='STANDARD' WHERE syncId=?",
+        arrayOf(id),
+    )
+    val original = repository.getGym(id)
+
+    assertEquals(
+        SaveGymResult.Failure,
+        repository.saveGymInventory(id, "Изменённый зал", emptySet()),
+    )
+    assertEquals(DeleteGymResult.Failure, repository.deleteGym(id))
+    assertEquals(original, repository.getGym(id))
+    assertEquals(0, tableCount("configuration_tombstones"))
   }
 
   @Test
@@ -470,6 +495,184 @@ class GymRepositoryImplTest : RoomDaoTest() {
     assertEquals("Тяжёлый день", full.routine.note)
     assertEquals(listOf(exerciseId), full.exercises.map { it.exercise.id })
     assertEquals(listOf(gym), full.gyms.map { it.syncId })
+  }
+
+  @Test
+  fun `named routine clone preserves the complete standard source as a new personal program`() =
+      runTest {
+        val first = db.exerciseDao().insert(exercise("Жим"))
+        val second = db.exerciseDao().insert(exercise("Тяга"))
+        val gymId = db.gymDao().insertGym(GymEntity(name = "Зал"))
+        val sourceId =
+            db.routineDao()
+                .upsertRoutine(
+                    RoutineEntity(name = "Встроенная", note = "Сохранённая заметка"),
+                )
+        db.routineDao()
+            .replaceRoutineExercises(
+                sourceId,
+                listOf(
+                    RoutineExerciseEntity(
+                        routineId = sourceId,
+                        exerciseId = second,
+                        position = 1,
+                        restSeconds = 90,
+                        plannedSets = listOf(PlannedSet(weightKg = 40.0, reps = 12)),
+                    ),
+                    RoutineExerciseEntity(
+                        routineId = sourceId,
+                        exerciseId = first,
+                        position = 0,
+                        restSeconds = 120,
+                        plannedSets =
+                            listOf(
+                                PlannedSet(weightKg = 50.0, reps = 8),
+                                PlannedSet(weightKg = 55.0, reps = 6),
+                            ),
+                    ),
+                ),
+            )
+        db.gymDao().replaceRoutineGyms(sourceId, listOf(gymId))
+        db.openHelper.writableDatabase.execSQL(
+            "UPDATE routines SET origin='STANDARD' WHERE id=?",
+            arrayOf(sourceId),
+        )
+        val original = db.routineDao().getRoutineWithExercises(sourceId)!!
+
+        val copy = repository.duplicateRoutine(sourceId, "  Моя программа  ")!!
+        val cloned = db.routineDao().getRoutineWithExercises(copy.id)!!
+
+        assertEquals("Моя программа", copy.name)
+        assertEquals("PERSONAL", copy.origin)
+        assertTrue(copy.id != sourceId)
+        assertTrue(copy.syncId != original.routine.syncId)
+        assertEquals(original.routine.note, copy.note)
+        assertEquals(original.gyms, cloned.gyms)
+        assertEquals(
+            original.exercises
+                .sortedBy { it.routineExercise.position }
+                .map { it.routineExercise.copy(id = 0, routineId = 0) },
+            cloned.exercises
+                .sortedBy { it.routineExercise.position }
+                .map { it.routineExercise.copy(id = 0, routineId = 0) },
+        )
+        assertEquals(original, db.routineDao().getRoutineWithExercises(sourceId))
+      }
+
+  @Test
+  fun `named routine clone rejects blank names and missing sources without writing`() = runTest {
+    val sourceId = db.routineDao().upsertRoutine(RoutineEntity(name = "Программа"))
+    assertEquals(null, repository.duplicateRoutine(sourceId, "  "))
+    assertEquals(null, repository.duplicateRoutine(Long.MAX_VALUE, "Новая"))
+    assertEquals(1, tableCount("routines"))
+  }
+
+  @Test
+  fun `named gym clone preserves configured and legacy sources without sharing identity`() =
+      runTest {
+        val exerciseId = db.exerciseDao().insert(exercise("Жим"))
+        val routineId = db.routineDao().upsertRoutine(RoutineEntity(name = "Программа"))
+        for (configured in listOf(false, true)) {
+          val source = GymEntity(name = "Встроенный $configured", inventoryConfigured = configured)
+          val sourceId = db.gymDao().insertGym(source)
+          db.gymDao().replaceGymEquipment(sourceId, setOf("dumbbells"))
+          db.gymDao().replaceGymExercises(sourceId, listOf(exerciseId))
+          db.gymDao().replaceRoutineGyms(routineId, listOf(sourceId))
+          db.openHelper.writableDatabase.execSQL(
+              "UPDATE gyms SET origin='STANDARD' WHERE id=?",
+              arrayOf(sourceId),
+          )
+          val original = db.gymDao().getGymWithExercises(sourceId)
+
+          val result =
+              repository.cloneGym(source.syncId, "  Мой зал $configured  ") as SaveGymResult.Saved
+          val copy = db.gymDao().getGymBySyncId(result.gymId)!!
+
+          assertEquals("Мой зал $configured", copy.name)
+          assertEquals("PERSONAL", copy.origin)
+          assertEquals(configured, copy.inventoryConfigured)
+          assertTrue(copy.id != sourceId)
+          assertTrue(copy.syncId != source.syncId)
+          assertEquals(listOf("dumbbells"), db.gymDao().getGymEquipmentIds(copy.id))
+          assertEquals(listOf(exerciseId), db.gymDao().getGymExerciseIds(copy.id))
+          assertEquals(listOf(sourceId), db.gymDao().getGymsForRoutine(routineId).map { it.id })
+          assertEquals(original, db.gymDao().getGymWithExercises(sourceId))
+        }
+      }
+
+  @Test
+  fun `gym clone rejects duplicate names blanks and missing sources without writing`() = runTest {
+    val source = GymEntity(name = "Зал")
+    db.gymDao().insertGym(source)
+    assertEquals(SaveGymResult.NameAlreadyExists, repository.cloneGym(source.syncId, "  зал  "))
+    assertEquals(SaveGymResult.Failure, repository.cloneGym(source.syncId, "  "))
+    assertEquals(SaveGymResult.NotFound, repository.cloneGym("missing", "Другой"))
+    assertEquals(1, tableCount("gyms"))
+  }
+
+  @Test
+  fun `gym clone schedules only the committed copy and rolls back failed links`() = runTest {
+    val scheduled = mutableListOf<String>()
+    var failScheduling = false
+    val cloningRepository =
+        GymRepositoryImpl(
+            database = db,
+            gymDao = db.gymDao(),
+            exerciseDao = db.exerciseDao(),
+            exerciseMuscleDao = db.exerciseMuscleDao(),
+            routineDao = db.routineDao(),
+            workoutDao = db.workoutDao(),
+            configurationUploadScheduler =
+                object : ConfigurationUploadScheduler by NoOpConfigurationUploadScheduler {
+                  override fun scheduleGym(syncId: String) {
+                    if (failScheduling) error("Queue unavailable")
+                    scheduled += syncId
+                  }
+                },
+        )
+    val source = GymEntity(name = "Встроенный", inventoryConfigured = true)
+    val sourceId = db.gymDao().insertGym(source)
+    db.gymDao().replaceGymEquipment(sourceId, setOf("dumbbells"))
+    db.openHelper.writableDatabase.execSQL(
+        "UPDATE gyms SET origin='STANDARD' WHERE id=?",
+        arrayOf(sourceId),
+    )
+    val successful = cloningRepository.cloneGym(source.syncId, "Мой зал") as SaveGymResult.Saved
+    assertEquals(listOf(successful.gymId), scheduled)
+
+    db.openHelper.writableDatabase.execSQL(
+        "CREATE TEMP TRIGGER reject_clone_equipment BEFORE INSERT ON gym_equipment BEGIN SELECT RAISE(ABORT, 'test failure'); END",
+    )
+    assertEquals(SaveGymResult.Failure, cloningRepository.cloneGym(source.syncId, "Не сохранён"))
+    assertEquals(2, tableCount("gyms"))
+    assertEquals(2, tableCount("gym_equipment"))
+    assertEquals(listOf(successful.gymId), scheduled)
+    db.openHelper.writableDatabase.execSQL("DROP TRIGGER reject_clone_equipment")
+    failScheduling = true
+    assertTrue(cloningRepository.cloneGym(source.syncId, "Локальная копия") is SaveGymResult.Saved)
+    assertEquals(3, tableCount("gyms"))
+  }
+
+  @Test
+  fun `failed named routine clone rolls back its row and preserves the source`() = runTest {
+    val exerciseId = db.exerciseDao().insert(exercise("Жим"))
+    val sourceId = db.routineDao().upsertRoutine(RoutineEntity(name = "Программа"))
+    db.routineDao()
+        .replaceRoutineExercises(
+            sourceId,
+            listOf(
+                RoutineExerciseEntity(routineId = sourceId, exerciseId = exerciseId, position = 0),
+            ),
+        )
+    val original = db.routineDao().getRoutineWithExercises(sourceId)
+    db.openHelper.writableDatabase.execSQL(
+        "CREATE TEMP TRIGGER reject_clone_exercise BEFORE INSERT ON routine_exercises BEGIN SELECT RAISE(ABORT, 'test failure'); END",
+    )
+
+    assertEquals(null, repository.duplicateRoutine(sourceId, "Моя копия"))
+    assertEquals(1, tableCount("routines"))
+    assertEquals(1, tableCount("routine_exercises"))
+    assertEquals(original, db.routineDao().getRoutineWithExercises(sourceId))
   }
 
   @Test

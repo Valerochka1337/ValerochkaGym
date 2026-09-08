@@ -79,6 +79,7 @@ data class RoutineEditorUiState(
   val isValid: Boolean
     get() =
         origin != "STANDARD" &&
+            !isLoading &&
             !isSaving &&
             !isCheckingAvailability &&
             name.trim().isNotEmpty() &&
@@ -200,12 +201,14 @@ constructor(
   }
 
   fun setName(value: String) {
-    _uiState.update { if (it.isSaving) it else it.copy(name = value, saveError = null) }
+    _uiState.update { state ->
+      if (!state.isEditable) state else state.copy(name = value, saveError = null)
+    }
   }
 
   fun toggleGym(gymId: String) {
     _uiState.update { state ->
-      if (state.isSaving) return@update state
+      if (!state.isEditable) return@update state
       val selected = state.selectedGymIds.toMutableSet()
       if (!selected.add(gymId)) selected.remove(gymId)
       state.copy(
@@ -219,8 +222,10 @@ constructor(
 
   /** Добавляет упражнение по id (после выбора в библиотеке). */
   fun addExerciseById(exerciseId: Long) {
+    if (!_uiState.value.isEditable) return
     viewModelScope.launch {
       val exercise = exerciseDao.getById(exerciseId) ?: return@launch
+      if (!_uiState.value.isEditable) return@launch
       addExercise(exercise)
     }
   }
@@ -236,7 +241,7 @@ constructor(
             plannedSets = List(setCount) { PlannedSet() },
         )
     _uiState.update { state ->
-      if (state.isSaving) return@update state
+      if (!state.isEditable) return@update state
       state.copy(
           exercises = state.exercises + editorExercise,
           isCheckingAvailability = state.selectedGymIds.isNotEmpty(),
@@ -248,7 +253,7 @@ constructor(
 
   fun removeExercise(index: Int) {
     _uiState.update { state ->
-      if (state.isSaving || index !in state.exercises.indices) return@update state
+      if (!state.isEditable || index !in state.exercises.indices) return@update state
       state.copy(
           exercises = state.exercises.toMutableList().apply { removeAt(index) },
           isCheckingAvailability = state.selectedGymIds.isNotEmpty(),
@@ -262,7 +267,7 @@ constructor(
   fun moveExercise(fromIndex: Int, toIndex: Int) {
     _uiState.update { state ->
       if (
-          state.isSaving ||
+          !state.isEditable ||
               fromIndex !in state.exercises.indices ||
               toIndex !in state.exercises.indices ||
               fromIndex == toIndex
@@ -307,7 +312,7 @@ constructor(
 
   private inline fun updateExercise(index: Int, transform: (EditorExercise) -> EditorExercise) {
     _uiState.update { state ->
-      if (state.isSaving || index !in state.exercises.indices) return@update state
+      if (!state.isEditable || index !in state.exercises.indices) return@update state
       state.copy(
           exercises =
               state.exercises.toMutableList().apply { this[index] = transform(this[index]) },
@@ -317,7 +322,7 @@ constructor(
 
   fun save() {
     val state = _uiState.value
-    if (!state.isValid) return
+    if (!state.isEditable || !state.isValid) return
     _uiState.update { it.copy(isSaving = true, saveError = null) }
     viewModelScope.launch {
       // @Upsert возвращает -1 при обновлении существующей строки, поэтому для правки
@@ -411,6 +416,7 @@ private data class RoutineAvailabilityInput(
 )
 
 private fun RoutineEditorUiState.withGyms(value: List<GymConfiguration>): RoutineEditorUiState {
+  if (origin == "STANDARD") return copy(gyms = value)
   val existingIds = value.mapTo(hashSetOf()) { it.id }
   val selected = selectedGymIds.filterTo(linkedSetOf()) { it in existingIds }
   if (selected == selectedGymIds) return copy(gyms = value)
@@ -421,3 +427,7 @@ private fun RoutineEditorUiState.withGyms(value: List<GymConfiguration>): Routin
       conflictingExercises = emptyList(),
   )
 }
+
+/** A standard or loading editor must never accept a draft mutation, including async picker work. */
+private val RoutineEditorUiState.isEditable: Boolean
+  get() = origin != "STANDARD" && !isLoading && !isSaving

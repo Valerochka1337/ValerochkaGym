@@ -35,7 +35,7 @@ class GymEditorViewModelTest {
   @org.junit.Before
   fun localEquipmentFixture() {
     com.valerochka1337.valerochkagym.data.db.LocalEquipmentCatalog.publish(
-        com.valerochka1337.valerochkagym.data.db.EquipmentCatalog.entries.map {
+        EquipmentCatalog.entries.map {
           com.valerochka1337.valerochkagym.data.db.LocalEquipmentCatalog.Entry(it, false)
         }
     )
@@ -265,6 +265,76 @@ class GymEditorViewModelTest {
       }
 
   @Test
+  fun `restored standard gym discards a stale personal draft and ignores every edit action`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val source =
+            GymConfiguration(
+                id = "standard",
+                name = "Шаблон",
+                exercises = emptyList(),
+                equipmentIds = setOf("barbell"),
+                inventoryConfigured = true,
+                origin = "STANDARD",
+            )
+        val handle =
+            SavedStateHandle(
+                mapOf(
+                    GymRoutes.GYM_ID_ARG to source.id,
+                    "gym_equipment_loaded" to true,
+                    "gym_equipment_name" to "Подменённый черновик",
+                    "gym_equipment_selected" to arrayListOf("dumbbells"),
+                    "gym_equipment_origin" to "PERSONAL",
+                ),
+            )
+        val repository = FakeGymRepository(gym = source)
+        val viewModel = GymEditorViewModel(handle, repository)
+        advanceUntilIdle()
+
+        assertEquals("STANDARD", viewModel.uiState.value.origin)
+        assertEquals("Шаблон", viewModel.uiState.value.name)
+        assertEquals(setOf("barbell"), viewModel.uiState.value.selectedEquipmentIds)
+
+        viewModel.setName("Новое имя")
+        viewModel.setQuery("гантели")
+        viewModel.setMode(com.valerochka1337.valerochkagym.ui.gyms.GymEquipmentMode.ALL)
+        viewModel.toggleGroupExpanded("Свободные веса")
+        viewModel.toggleEquipment("dumbbells")
+        viewModel.toggleAll()
+        viewModel.toggleGroup("Свободные веса")
+        viewModel.undoBulk()
+        viewModel.setPreview(true)
+        viewModel.save()
+        viewModel.delete()
+        advanceUntilIdle()
+
+        assertEquals("Шаблон", viewModel.uiState.value.name)
+        assertEquals(setOf("barbell"), viewModel.uiState.value.selectedEquipmentIds)
+        assertEquals(null, repository.lastSaveRequest)
+        assertEquals(0, repository.deleteCalls)
+      }
+
+  @Test
+  fun `restored legacy copy keeps its personal draft and source legacy flag`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val source = GymConfiguration("source", "Старый", emptyList(), inventoryConfigured = false)
+        val handle = SavedStateHandle(mapOf(GymRoutes.GYM_COPY_SOURCE_ARG to source.id))
+        val first = GymEditorViewModel(handle, FakeGymRepository(gym = source))
+        advanceUntilIdle()
+        first.setName("Моя копия")
+
+        val repository = FakeGymRepository(gym = source)
+        val restored = GymEditorViewModel(handle, repository)
+        advanceUntilIdle()
+        restored.save()
+        advanceUntilIdle()
+
+        assertEquals("PERSONAL", restored.uiState.value.origin)
+        assertTrue(restored.uiState.value.copySourceWasLegacy)
+        assertEquals("Моя копия", restored.uiState.value.name)
+        assertEquals(SaveRequest(null, "Моя копия", emptySet()), repository.lastSaveRequest)
+      }
+
+  @Test
   fun `preview uses coverage and excludes unknown requirements`() =
       runTest(mainDispatcherRule.testDispatcher.scheduler) {
         val flat = exercise(1, "Жим лёжа")
@@ -352,6 +422,9 @@ private class FakeGymRepository(
   var lastSaveRequest: SaveRequest? = null
     private set
 
+  var deleteCalls: Int = 0
+    private set
+
   override fun observeGyms(): Flow<List<GymConfiguration>> = gymsFlow
 
   override fun observeExerciseCatalog(): Flow<List<ExerciseEntity>> = catalogFlow
@@ -378,5 +451,8 @@ private class FakeGymRepository(
   override suspend fun requirementsFor(exercise: ExerciseEntity): ExerciseEquipmentRequirements =
       requirements[exercise.id] ?: ExerciseEquipmentRequirements.UnknownLegacy
 
-  override suspend fun deleteGym(id: String): DeleteGymResult = deleteResult
+  override suspend fun deleteGym(id: String): DeleteGymResult {
+    deleteCalls++
+    return deleteResult
+  }
 }
