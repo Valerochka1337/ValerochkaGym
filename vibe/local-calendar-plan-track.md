@@ -1,10 +1,18 @@
 # CAL-01 local calendar tracker
 
+Strict Gate P final recheck PASS: все 11 замечаний и уточнение UTF-8/границ дат закрыты.
+Backend slice разрешён раньше Android Room slice после заморозки общего контракта.
+Канонический fixture: `vibe/contracts/cal01-sync-contract.json`, SHA-256
+`d841e2a65037ef94993575ac2dea4172ffaa272cdde63baa2a6867ba0ed29911`.
+Backend `src/test/resources/cal01-sync-contract.json` byte-identical (`cmp` PASS).
+Android writer копирует эти же байты в `app/src/test/resources/cal01-sync-contract.json`
+при старте T-002; пока fixture остаётся в vibe, чтобы не смешивать app-тесты разных фич.
+
 | Task | Status | Owner | Depends | AC | Evidence / done condition |
 |---|---|---|---|---|---|
-| T-001 | pending | Root contract owner | — | AC-001–007 | Byte-identical Android/backend `cal01-sync-contract.json`, `cmp` and recorded SHA-256 acknowledge captured metadata, IDs and capability matrix. |
+| T-001 | done | Root contract owner | — | AC-001–007 | Canonical vibe fixture и backend fixture совпадают, SHA-256 выше; Android test-resource copy обязательна перед T-002. |
 | T-002 | pending | Android Room writer | T-001 | AC-001–006 | Targeted Android calendar/backend tests pass; Room migration and gated local source compile. |
-| T-003 | pending | Backend writer | T-001 | AC-004,005,007 | Backend integration tests + bootJar prove additive capability-safe sync. |
+| T-003 | in_progress | Backend writer | T-001 | AC-004,005,007 | Отдельный checkout /private/tmp/yarumo-backend-delivery, feat/calendar-plan-contract; backend integration tests + bootJar обязательны. |
 | T-004 | pending | Android Room writer | T-002,T-003 fixture | AC-001–007 | Real Room/migration/fault/DST/guest/capability/owner/legacy-bridge regressions pass. |
 | T-005 | pending | Android Room writer | T-004 | AC-001–007 | One Android version increment and compile evidence. |
 | T-006 | pending | Independent tester + Sol/high reviewer | T-003,T-005 | AC-001–007 | Consolidated Gate T/V verdict; no open P0/P1. |
