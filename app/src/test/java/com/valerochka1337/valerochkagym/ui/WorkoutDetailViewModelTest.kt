@@ -12,6 +12,8 @@ import com.valerochka1337.valerochkagym.data.db.entity.WorkoutSetEntity
 import com.valerochka1337.valerochkagym.data.db.relation.AnalyticsSetRow
 import com.valerochka1337.valerochkagym.data.db.relation.WorkoutExerciseWithSets
 import com.valerochka1337.valerochkagym.data.db.relation.WorkoutFull
+import com.valerochka1337.valerochkagym.domain.CompletedWorkoutRoutineCommand
+import com.valerochka1337.valerochkagym.domain.CompletedWorkoutRoutineResult
 import com.valerochka1337.valerochkagym.domain.GymRepository
 import com.valerochka1337.valerochkagym.domain.NoOpGymRepository
 import com.valerochka1337.valerochkagym.domain.PreviousSetsUseCase
@@ -520,6 +522,20 @@ class WorkoutDetailViewModelTest {
           }
       return SaveRoutineConfigurationResult.Saved(saved.id, saved)
     }
+
+    override suspend fun saveCompletedWorkoutRoutine(
+        command: CompletedWorkoutRoutineCommand
+    ): CompletedWorkoutRoutineResult {
+      val draft = (command as CompletedWorkoutRoutineCommand.Create).draft
+      return when (val result = saveRoutineConfiguration(draft)) {
+        is SaveRoutineConfigurationResult.Saved ->
+            CompletedWorkoutRoutineResult.Saved(result.routine, replayedWithoutWrite = false)
+        is SaveRoutineConfigurationResult.Conflict ->
+            CompletedWorkoutRoutineResult.AvailabilityConflict(result.exercises)
+        SaveRoutineConfigurationResult.GymNotFound -> CompletedWorkoutRoutineResult.NotFound
+        SaveRoutineConfigurationResult.Failure -> CompletedWorkoutRoutineResult.Failure
+      }
+    }
   }
 
   private class BlockingSaveGymRepository : GymRepository by NoOpGymRepository {
@@ -532,6 +548,20 @@ class WorkoutDetailViewModelTest {
       drafts += draft
       release.await()
       return SaveRoutineConfigurationResult.Saved(1L, draft.routine)
+    }
+
+    override suspend fun saveCompletedWorkoutRoutine(
+        command: CompletedWorkoutRoutineCommand
+    ): CompletedWorkoutRoutineResult {
+      val draft = (command as CompletedWorkoutRoutineCommand.Create).draft
+      return when (val result = saveRoutineConfiguration(draft)) {
+        is SaveRoutineConfigurationResult.Saved ->
+            CompletedWorkoutRoutineResult.Saved(result.routine, replayedWithoutWrite = false)
+        is SaveRoutineConfigurationResult.Conflict ->
+            CompletedWorkoutRoutineResult.AvailabilityConflict(result.exercises)
+        SaveRoutineConfigurationResult.GymNotFound -> CompletedWorkoutRoutineResult.NotFound
+        SaveRoutineConfigurationResult.Failure -> CompletedWorkoutRoutineResult.Failure
+      }
     }
   }
 
@@ -551,6 +581,20 @@ class WorkoutDetailViewModelTest {
       firstCommit.complete(Unit)
       release.await()
       return SaveRoutineConfigurationResult.Saved(saved.id, saved)
+    }
+
+    override suspend fun saveCompletedWorkoutRoutine(
+        command: CompletedWorkoutRoutineCommand
+    ): CompletedWorkoutRoutineResult {
+      val draft = (command as CompletedWorkoutRoutineCommand.Create).draft
+      return when (val result = saveRoutineConfiguration(draft)) {
+        is SaveRoutineConfigurationResult.Saved ->
+            CompletedWorkoutRoutineResult.Saved(result.routine, replayedWithoutWrite = false)
+        is SaveRoutineConfigurationResult.Conflict ->
+            CompletedWorkoutRoutineResult.AvailabilityConflict(result.exercises)
+        SaveRoutineConfigurationResult.GymNotFound -> CompletedWorkoutRoutineResult.NotFound
+        SaveRoutineConfigurationResult.Failure -> CompletedWorkoutRoutineResult.Failure
+      }
     }
   }
 }

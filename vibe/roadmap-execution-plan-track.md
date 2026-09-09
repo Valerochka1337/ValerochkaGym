@@ -33,7 +33,7 @@
 
 | Этапы / issue | Ветка | Статус | Проверки / commit / версия |
 |---|---|---|---|
-| 01–02 / #45–46 | fix/workout-program-save | fixes | Targeted compile/tests прошли; независимые T/V нашли restoration, Done navigation и selection-race; единая пачка 3 P1 + 2 P2 передана implementer; версия 30 / 1.3.22 |
+| 01–02 / #45–46 | fix/workout-program-save | done_local | Full 985 tests, 0 failures/errors, 1 skipped; debug PASS; strict review PASS; версия 30 / 1.3.22; Mac full suite через временный forkEvery=16 |
 | 03 / #44 | следующая fix/completed-set-edit | plan_ready | Gate P strict recheck PASS, четыре замечания плана закрыты; реализация после 01–02 |
 | 04 / #47 | следующая fix/workout-finish | plan_ready | Gate P strict recheck PASS, terminal single-flight зафиксирован; отдельная фича после #44, собственный bump |
 | 11–12 / #51 | следующая feat/guest-sync | plan_ready | Gate P strict recheck PASS, шесть замечаний claim/token/conflict/migration закрыты |

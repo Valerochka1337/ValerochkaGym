@@ -12,6 +12,8 @@ import com.valerochka1337.valerochkagym.data.db.entity.MuscleGroup
 import com.valerochka1337.valerochkagym.data.db.entity.RoutineEntity
 import com.valerochka1337.valerochkagym.data.db.entity.RoutineExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.WorkoutEntity
+import com.valerochka1337.valerochkagym.domain.CompletedWorkoutRoutineCommand
+import com.valerochka1337.valerochkagym.domain.CompletedWorkoutRoutineResult
 import com.valerochka1337.valerochkagym.domain.DeleteGymResult
 import com.valerochka1337.valerochkagym.domain.ExerciseEquipmentRequirements
 import com.valerochka1337.valerochkagym.domain.NewExerciseConfiguration
@@ -19,6 +21,7 @@ import com.valerochka1337.valerochkagym.domain.RoutineConfigurationDraft
 import com.valerochka1337.valerochkagym.domain.SaveExerciseConfigurationResult
 import com.valerochka1337.valerochkagym.domain.SaveGymResult
 import com.valerochka1337.valerochkagym.domain.SaveRoutineConfigurationResult
+import com.valerochka1337.valerochkagym.domain.completedWorkoutFingerprint
 import com.valerochka1337.valerochkagym.worker.ConfigurationUploadScheduler
 import com.valerochka1337.valerochkagym.worker.NoOpConfigurationUploadScheduler
 import kotlinx.coroutines.flow.first
@@ -195,6 +198,123 @@ class GymRepositoryImplTest : RoomDaoTest() {
         db.routineDao().getRoutineWithExercises(first.routineId)?.routine?.name,
     )
     assertTrue(distinct.routineId != first.routineId)
+  }
+
+  @Test
+  fun `completed workout replacement atomically keeps identity rest gyms and workout history`() =
+      runTest {
+        val exerciseId = db.exerciseDao().insert(exercise("Жим"))
+        val gym = savedGym("Альфа", setOf(exerciseId))
+        val sourceId =
+            db.routineDao().upsertRoutine(RoutineEntity(name = "Грудь", note = "Заметка"))
+        db.routineDao()
+            .replaceRoutineExercises(
+                sourceId,
+                listOf(
+                    RoutineExerciseEntity(
+                        routineId = sourceId,
+                        exerciseId = exerciseId,
+                        position = 0,
+                        restSeconds = 90,
+                        plannedSets = (1..4).map { PlannedSet(weightKg = 80.0, reps = it) },
+                    )
+                ),
+            )
+        db.gymDao().replaceRoutineGyms(sourceId, listOf(db.gymDao().getGymBySyncId(gym)!!.id))
+        db.workoutDao()
+            .insertWorkout(
+                WorkoutEntity(
+                    id = "finished",
+                    routineId = sourceId,
+                    name = "История",
+                    startedAt = 1,
+                    finishedAt = 2,
+                )
+            )
+        val source = db.routineDao().getRoutineWithExercises(sourceId)!!
+        val replacement =
+            listOf(
+                RoutineExerciseEntity(
+                    routineId = sourceId,
+                    exerciseId = exerciseId,
+                    position = 0,
+                    restSeconds = 90,
+                    plannedSets = (1..3).map { PlannedSet(weightKg = 80.0, reps = it) },
+                )
+            )
+
+        val result =
+            repository.saveCompletedWorkoutRoutine(
+                CompletedWorkoutRoutineCommand.Replace(
+                    sourceRoutineId = sourceId,
+                    sourceRoutineSyncId = source.routine.syncId,
+                    expectedUpdatedAt = source.routine.updatedAt,
+                    expectedSourceFingerprint = source.completedWorkoutFingerprint(),
+                    predictedTargetFingerprint = source.completedWorkoutFingerprint(replacement),
+                    replacementExercises = replacement,
+                    operationUuid = "replace-1",
+                )
+            )
+
+        assertTrue(result is CompletedWorkoutRoutineResult.Saved)
+        val saved = db.routineDao().getRoutineWithExercises(sourceId)!!
+        assertEquals(source.routine.syncId, saved.routine.syncId)
+        assertEquals(listOf(gym), saved.gyms.map { it.syncId })
+        assertEquals(90, saved.exercises.single().routineExercise.restSeconds)
+        assertEquals(3, saved.exercises.single().routineExercise.plannedSets.size)
+        assertEquals(sourceId, db.workoutDao().getWorkoutFull("finished")!!.workout.routineId)
+      }
+
+  @Test
+  fun `replacement rejects a child-only source change without writing`() = runTest {
+    val exerciseId = db.exerciseDao().insert(exercise("Тяга"))
+    val sourceId = db.routineDao().upsertRoutine(RoutineEntity(name = "Спина"))
+    db.routineDao()
+        .replaceRoutineExercises(
+            sourceId,
+            listOf(
+                RoutineExerciseEntity(routineId = sourceId, exerciseId = exerciseId, position = 0)
+            ),
+        )
+    val source = db.routineDao().getRoutineWithExercises(sourceId)!!
+    val replacement =
+        listOf(
+            RoutineExerciseEntity(
+                routineId = sourceId,
+                exerciseId = exerciseId,
+                position = 0,
+                plannedSets = listOf(PlannedSet(weightKg = 60.0, reps = 10)),
+            )
+        )
+    db.routineDao()
+        .replaceRoutineExercises(
+            sourceId,
+            listOf(
+                RoutineExerciseEntity(
+                    routineId = sourceId,
+                    exerciseId = exerciseId,
+                    position = 0,
+                    restSeconds = 120,
+                )
+            ),
+        )
+    val before = db.routineDao().getRoutineWithExercises(sourceId)!!
+
+    val result =
+        repository.saveCompletedWorkoutRoutine(
+            CompletedWorkoutRoutineCommand.Replace(
+                sourceId,
+                source.routine.syncId,
+                source.routine.updatedAt,
+                source.completedWorkoutFingerprint(),
+                source.completedWorkoutFingerprint(replacement),
+                replacement,
+                "replace-conflict",
+            )
+        )
+
+    assertEquals(CompletedWorkoutRoutineResult.Conflict, result)
+    assertEquals(before, db.routineDao().getRoutineWithExercises(sourceId))
   }
 
   @Test

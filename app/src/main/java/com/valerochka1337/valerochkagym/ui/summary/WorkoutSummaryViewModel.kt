@@ -8,6 +8,8 @@ import com.valerochka1337.valerochkagym.data.db.relation.WorkoutFull
 import com.valerochka1337.valerochkagym.data.sortedWorkoutFull
 import com.valerochka1337.valerochkagym.domain.PrResult
 import com.valerochka1337.valerochkagym.domain.PreviousSetsUseCase
+import com.valerochka1337.valerochkagym.domain.RoutineReplacementSnapshot
+import com.valerochka1337.valerochkagym.domain.RoutineUpdateResult
 import com.valerochka1337.valerochkagym.domain.RoutineUpdateUseCase
 import com.valerochka1337.valerochkagym.domain.SaveCompletedWorkoutAsRoutineResult
 import com.valerochka1337.valerochkagym.domain.SaveCompletedWorkoutAsRoutineUseCase
@@ -36,12 +38,8 @@ data class ExerciseSummaryUi(
 )
 
 /**
- * Состояние экрана итогов. [showUpdateRoutineDialog] управляет разовым предложением «обновить
- * программу» — флаг живёт в VM и сбрасывается при применении/отклонении, поэтому диалог
- * показывается один раз.
- *
- * Оговорка: «один раз» — в пределах одного экземпляра VM. После смерти процесса VM создаётся
- * заново, и если расхождение с программой ещё есть, диалог покажется снова — это допустимо.
+ * Состояние экрана итогов. Сохранение программы — единый путь: выбор, имя новой программы либо
+ * подтверждение перезаписи, затем запись. Команды хранятся в VM, а черновик — в SavedStateHandle.
  */
 data class WorkoutSummaryUiState(
     val loading: Boolean = true,
@@ -50,8 +48,11 @@ data class WorkoutSummaryUiState(
     val volumeKg: Double = 0.0,
     val prs: List<PrResult> = emptyList(),
     val exercises: List<ExerciseSummaryUi> = emptyList(),
-    val showUpdateRoutineDialog: Boolean = false,
     val canSaveAsProgram: Boolean = false,
+    val canReplaceRoutine: Boolean = false,
+    val showSaveChoice: Boolean = false,
+    val isPreparingReplacement: Boolean = false,
+    val showReplaceRoutineDialog: Boolean = false,
     val showSaveAsProgramDialog: Boolean = false,
     val saveAsProgramName: String = "",
     val isSavingAsProgram: Boolean = false,
@@ -80,6 +81,8 @@ constructor(
       MutableStateFlow(
           WorkoutSummaryUiState(
               showSaveAsProgramDialog = savedStateHandle[SAVE_DIALOG_VISIBLE] ?: false,
+              showSaveChoice = savedStateHandle[SAVE_CHOICE_VISIBLE] ?: false,
+              showReplaceRoutineDialog = savedStateHandle[SAVE_REPLACE_VISIBLE] ?: false,
               saveAsProgramName = savedStateHandle[SAVE_NAME] ?: "",
               // An in-flight coroutine cannot survive recreation; restore a retryable draft.
               isSavingAsProgram = false,
@@ -91,10 +94,15 @@ constructor(
   private val _saveEvents = Channel<Unit>(Channel.BUFFERED)
   /** One-shot acknowledgement; saving never changes summary navigation. */
   val saveEvents = _saveEvents.receiveAsFlow()
+  private val _doneEvents = Channel<Unit>(Channel.BUFFERED)
+  val doneEvents = _doneEvents.receiveAsFlow()
 
   /** Загруженная тренировка — источник для applyToRoutine при подтверждении диалога. */
   private var workout: WorkoutFull? = null
   private var saveOperationSyncId: String? = savedStateHandle[SAVE_OPERATION_SYNC_ID]
+  private var replacementSnapshot: RoutineReplacementSnapshot? = null
+  private var finishAfterSaving: Boolean = savedStateHandle[FINISH_AFTER_SAVING] ?: false
+  private var replacePreparationEpoch = 0L
   private val saveConfirmationMutex = Mutex()
 
   init {
@@ -121,7 +129,10 @@ constructor(
       workout = full
       val volume = statsUseCase.volume(full)
       val prs = statsUseCase.newPrs(full)
-      val diverged = routineUpdateUseCase.hasDiverged(full)
+      val canReplace =
+          full.workout.finishedAt != null &&
+              full.exercises.any { section -> section.sets.any { it.isCompleted } } &&
+              routineUpdateUseCase.canReplace(full)
       val duration =
           ((full.workout.finishedAt ?: full.workout.startedAt) - full.workout.startedAt) / 1000
       val exercises =
@@ -145,10 +156,12 @@ constructor(
               volumeKg = volume,
               prs = prs,
               exercises = exercises,
-              showUpdateRoutineDialog = diverged,
               canSaveAsProgram =
                   full.workout.finishedAt != null &&
                       full.exercises.any { section -> section.sets.any { it.isCompleted } },
+              canReplaceRoutine = canReplace,
+              showSaveChoice = _uiState.value.showSaveChoice,
+              showReplaceRoutineDialog = _uiState.value.showReplaceRoutineDialog,
               showSaveAsProgramDialog = _uiState.value.showSaveAsProgramDialog,
               saveAsProgramName = _uiState.value.saveAsProgramName,
               isSavingAsProgram = _uiState.value.isSavingAsProgram,
@@ -158,24 +171,146 @@ constructor(
     }
   }
 
-  fun applyRoutineUpdate() {
-    val full = workout ?: return
-    viewModelScope.launch {
-      routineUpdateUseCase.applyToRoutine(full)
-      _uiState.update { it.copy(showUpdateRoutineDialog = false) }
+  fun onDone() {
+    if (_uiState.value.canSaveAsProgram) {
+      finishAfterSaving = true
+      updateSaveState { it.copy(showSaveChoice = true, saveAsProgramError = null) }
+    } else {
+      viewModelScope.launch { _doneEvents.send(Unit) }
     }
   }
 
-  fun dismissRoutineUpdate() {
-    _uiState.update { it.copy(showUpdateRoutineDialog = false) }
+  fun chooseCreateRoutine() {
+    val state = _uiState.value
+    if (!state.showSaveChoice || state.isSavingAsProgram) return
+    replacePreparationEpoch++
+    saveOperationSyncId = UUID.randomUUID().toString()
+    updateSaveState {
+      it.copy(
+          showSaveChoice = false,
+          showSaveAsProgramDialog = true,
+          saveAsProgramName = it.workoutName,
+          saveAsProgramError = null,
+      )
+    }
+  }
+
+  fun chooseReplaceRoutine() {
+    val state = _uiState.value
+    if (
+        !state.showSaveChoice ||
+            !state.canReplaceRoutine ||
+            state.isSavingAsProgram ||
+            state.isPreparingReplacement
+    )
+        return
+    val full = workout ?: return
+    val operationId = UUID.randomUUID().toString()
+    val epoch = ++replacePreparationEpoch
+    updateSaveState { it.copy(isPreparingReplacement = true, saveAsProgramError = null) }
+    viewModelScope.launch {
+      val snapshot = routineUpdateUseCase.prepareReplacement(full, operationId)
+      if (epoch != replacePreparationEpoch || !_uiState.value.showSaveChoice) return@launch
+      if (snapshot == null) {
+        updateSaveState {
+          it.copy(
+              isPreparingReplacement = false,
+              saveAsProgramError = "Эту программу больше нельзя перезаписать.",
+          )
+        }
+      } else {
+        replacementSnapshot = snapshot
+        saveOperationSyncId = operationId
+        updateSaveState {
+          it.copy(
+              showSaveChoice = false,
+              isPreparingReplacement = false,
+              showReplaceRoutineDialog = true,
+              saveAsProgramError = null,
+          )
+        }
+      }
+    }
+  }
+
+  fun confirmRoutineReplace() {
+    val full = workout ?: return
+    if (!_uiState.value.showReplaceRoutineDialog || !saveConfirmationMutex.tryLock()) return
+    updateSaveState { it.copy(isSavingAsProgram = true, saveAsProgramError = null) }
+    viewModelScope.launch {
+      try {
+        val snapshot = replacementSnapshot ?: restoreReplacementSnapshot(full)
+        val result =
+            if (snapshot == null) RoutineUpdateResult.Conflict
+            else routineUpdateUseCase.apply(snapshot)
+        when (result) {
+          is RoutineUpdateResult.Saved -> {
+            finishOrAcknowledgeSave()
+          }
+          RoutineUpdateResult.ReadOnly ->
+              updateSaveState {
+                it.copy(
+                    isSavingAsProgram = false,
+                    saveAsProgramError = "Эту программу нельзя перезаписать.",
+                )
+              }
+          RoutineUpdateResult.NotFound ->
+              updateSaveState {
+                it.copy(
+                    isSavingAsProgram = false,
+                    saveAsProgramError = "Программа больше не существует.",
+                )
+              }
+          RoutineUpdateResult.Conflict ->
+              updateSaveState {
+                it.copy(
+                    isSavingAsProgram = false,
+                    saveAsProgramError = "Программа изменилась. Откройте выбор снова.",
+                )
+              }
+          RoutineUpdateResult.EmptyWorkout -> clearSaveAsProgram()
+          RoutineUpdateResult.Failure ->
+              updateSaveState {
+                it.copy(
+                    isSavingAsProgram = false,
+                    saveAsProgramError = "Не удалось сохранить программу. Попробуйте ещё раз.",
+                )
+              }
+        }
+      } finally {
+        saveConfirmationMutex.unlock()
+      }
+    }
+  }
+
+  fun dismissSaveChoice() {
+    if (!_uiState.value.isSavingAsProgram) {
+      replacePreparationEpoch++
+      updateSaveState { it.copy(showSaveChoice = false, isPreparingReplacement = false) }
+    }
+  }
+
+  fun skipSavingAndFinish() {
+    if (_uiState.value.showSaveChoice && !_uiState.value.isSavingAsProgram) {
+      replacePreparationEpoch++
+      clearSaveAsProgram()
+      viewModelScope.launch { _doneEvents.send(Unit) }
+    }
+  }
+
+  fun dismissReplaceRoutine() {
+    if (!_uiState.value.isSavingAsProgram) clearSaveAsProgram()
   }
 
   fun openSaveAsProgram() {
     val state = _uiState.value
     if (!state.canSaveAsProgram || state.isSavingAsProgram || state.showSaveAsProgramDialog) return
+    replacePreparationEpoch++
+    finishAfterSaving = false
     saveOperationSyncId = UUID.randomUUID().toString()
     updateSaveState {
       it.copy(
+          showSaveChoice = false,
           showSaveAsProgramDialog = true,
           saveAsProgramName = it.workoutName,
           saveAsProgramError = null,
@@ -211,8 +346,7 @@ constructor(
       try {
         when (val result = saveCompletedWorkoutAsRoutineUseCase(full, name, operationSyncId)) {
           is SaveCompletedWorkoutAsRoutineResult.Saved -> {
-            clearSaveAsProgram()
-            _saveEvents.send(Unit)
+            finishOrAcknowledgeSave()
           }
           SaveCompletedWorkoutAsRoutineResult.BlankName ->
               updateSaveState { current ->
@@ -269,16 +403,34 @@ constructor(
 
   private fun persistSaveState(state: WorkoutSummaryUiState) {
     savedStateHandle[SAVE_DIALOG_VISIBLE] = state.showSaveAsProgramDialog
+    savedStateHandle[SAVE_CHOICE_VISIBLE] = state.showSaveChoice
+    savedStateHandle[SAVE_REPLACE_VISIBLE] = state.showReplaceRoutineDialog
     savedStateHandle[SAVE_NAME] = state.saveAsProgramName
     savedStateHandle[SAVE_ERROR] = state.saveAsProgramError
+    savedStateHandle[FINISH_AFTER_SAVING] = finishAfterSaving
+    replacementSnapshot?.command?.let { command ->
+      savedStateHandle[SAVE_SOURCE_ID] = command.sourceRoutineId
+      savedStateHandle[SAVE_SOURCE_SYNC_ID] = command.sourceRoutineSyncId
+      savedStateHandle[SAVE_EXPECTED_UPDATED_AT] = command.expectedUpdatedAt
+      savedStateHandle[SAVE_EXPECTED_FINGERPRINT] = command.expectedSourceFingerprint
+      savedStateHandle[SAVE_PREDICTED_FINGERPRINT] = command.predictedTargetFingerprint
+    }
     saveOperationSyncId?.let { savedStateHandle[SAVE_OPERATION_SYNC_ID] = it }
         ?: savedStateHandle.remove<String>(SAVE_OPERATION_SYNC_ID)
   }
 
   private fun clearOrphanedSaveDraft() {
     val state = _uiState.value
-    if (state.showSaveAsProgramDialog && saveOperationSyncId.isNullOrBlank()) clearSaveAsProgram()
-    if (!state.showSaveAsProgramDialog && saveOperationSyncId != null) {
+    if (
+        (state.showSaveAsProgramDialog || state.showReplaceRoutineDialog) &&
+            saveOperationSyncId.isNullOrBlank()
+    )
+        clearSaveAsProgram()
+    if (
+        !state.showSaveAsProgramDialog &&
+            !state.showReplaceRoutineDialog &&
+            saveOperationSyncId != null
+    ) {
       saveOperationSyncId = null
       persistSaveState(state)
     }
@@ -286,9 +438,15 @@ constructor(
 
   private fun clearSaveAsProgram() {
     saveOperationSyncId = null
+    replacementSnapshot = null
+    finishAfterSaving = false
+    clearReplacementContext()
     updateSaveState { state ->
       state.copy(
           showSaveAsProgramDialog = false,
+          showSaveChoice = false,
+          isPreparingReplacement = false,
+          showReplaceRoutineDialog = false,
           saveAsProgramName = "",
           isSavingAsProgram = false,
           saveAsProgramError = null,
@@ -296,10 +454,51 @@ constructor(
     }
   }
 
+  private suspend fun restoreReplacementSnapshot(full: WorkoutFull): RoutineReplacementSnapshot? {
+    val operationId = saveOperationSyncId ?: return null
+    val sourceId = savedStateHandle.get<Long>(SAVE_SOURCE_ID) ?: return null
+    val sourceSyncId = savedStateHandle.get<String>(SAVE_SOURCE_SYNC_ID) ?: return null
+    val expectedUpdatedAt = savedStateHandle.get<Long>(SAVE_EXPECTED_UPDATED_AT) ?: return null
+    val expectedFingerprint = savedStateHandle.get<String>(SAVE_EXPECTED_FINGERPRINT) ?: return null
+    val predictedFingerprint =
+        savedStateHandle.get<String>(SAVE_PREDICTED_FINGERPRINT) ?: return null
+    return routineUpdateUseCase.restoreReplacement(
+        workout = full,
+        sourceRoutineId = sourceId,
+        sourceRoutineSyncId = sourceSyncId,
+        expectedUpdatedAt = expectedUpdatedAt,
+        expectedSourceFingerprint = expectedFingerprint,
+        predictedTargetFingerprint = predictedFingerprint,
+        operationUuid = operationId,
+    )
+  }
+
+  private suspend fun finishOrAcknowledgeSave() {
+    val shouldFinish = finishAfterSaving
+    clearSaveAsProgram()
+    if (shouldFinish) _doneEvents.send(Unit) else _saveEvents.send(Unit)
+  }
+
+  private fun clearReplacementContext() {
+    savedStateHandle.remove<Long>(SAVE_SOURCE_ID)
+    savedStateHandle.remove<String>(SAVE_SOURCE_SYNC_ID)
+    savedStateHandle.remove<Long>(SAVE_EXPECTED_UPDATED_AT)
+    savedStateHandle.remove<String>(SAVE_EXPECTED_FINGERPRINT)
+    savedStateHandle.remove<String>(SAVE_PREDICTED_FINGERPRINT)
+  }
+
   private companion object {
     const val SAVE_DIALOG_VISIBLE = "save_as_program_dialog_visible"
+    const val SAVE_CHOICE_VISIBLE = "save_as_program_choice_visible"
+    const val SAVE_REPLACE_VISIBLE = "save_as_program_replace_visible"
     const val SAVE_NAME = "save_as_program_name"
     const val SAVE_ERROR = "save_as_program_error"
     const val SAVE_OPERATION_SYNC_ID = "save_as_program_operation_sync_id"
+    const val FINISH_AFTER_SAVING = "save_as_program_finish_after_saving"
+    const val SAVE_SOURCE_ID = "save_as_program_source_id"
+    const val SAVE_SOURCE_SYNC_ID = "save_as_program_source_sync_id"
+    const val SAVE_EXPECTED_UPDATED_AT = "save_as_program_expected_updated_at"
+    const val SAVE_EXPECTED_FINGERPRINT = "save_as_program_expected_fingerprint"
+    const val SAVE_PREDICTED_FINGERPRINT = "save_as_program_predicted_fingerprint"
   }
 }

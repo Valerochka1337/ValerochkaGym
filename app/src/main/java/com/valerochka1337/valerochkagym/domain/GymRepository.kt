@@ -5,6 +5,7 @@ import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseMuscleEntity
 import com.valerochka1337.valerochkagym.data.db.entity.RoutineEntity
 import com.valerochka1337.valerochkagym.data.db.entity.RoutineExerciseEntity
+import com.valerochka1337.valerochkagym.data.db.relation.RoutineWithExercises
 import kotlinx.coroutines.flow.Flow
 
 /**
@@ -85,6 +86,79 @@ sealed interface SaveRoutineConfigurationResult {
   data object GymNotFound : SaveRoutineConfigurationResult
 
   data object Failure : SaveRoutineConfigurationResult
+}
+
+/**
+ * Immutable command for saving a completed workout as a routine.
+ *
+ * A replacement carries both the source snapshot and its intended target snapshot. The database
+ * checks the fingerprints again inside its transaction, so an open confirmation dialog can never
+ * overwrite an editor change that happened after it was shown.
+ */
+sealed interface CompletedWorkoutRoutineCommand {
+  data class Create(val draft: RoutineConfigurationDraft) : CompletedWorkoutRoutineCommand
+
+  data class Replace(
+      val sourceRoutineId: Long,
+      val sourceRoutineSyncId: String,
+      val expectedUpdatedAt: Long,
+      val expectedSourceFingerprint: String,
+      val predictedTargetFingerprint: String,
+      val replacementExercises: List<RoutineExerciseEntity>,
+      /** Kept by the UI for its transient confirmation context; it is not a durable journal. */
+      val operationUuid: String,
+  ) : CompletedWorkoutRoutineCommand
+}
+
+sealed interface CompletedWorkoutRoutineResult {
+  data class Saved(
+      val routine: RoutineEntity,
+      val replayedWithoutWrite: Boolean,
+  ) : CompletedWorkoutRoutineResult
+
+  data class AvailabilityConflict(val exercises: List<ExerciseEntity>) :
+      CompletedWorkoutRoutineResult
+
+  data object ReadOnly : CompletedWorkoutRoutineResult
+
+  data object NotFound : CompletedWorkoutRoutineResult
+
+  data object Conflict : CompletedWorkoutRoutineResult
+
+  data object Failure : CompletedWorkoutRoutineResult
+}
+
+/** Canonical aggregate identity used by optimistic replacement and replay checks. */
+fun RoutineWithExercises.completedWorkoutFingerprint(
+    replacementExercises: List<RoutineExerciseEntity> = exercises.map { it.routineExercise },
+): String = buildString {
+  fun part(value: Any?) {
+    val text = value?.toString() ?: "<null>"
+    append(text.length).append(':').append(text).append('|')
+  }
+  part(routine.id)
+  part(routine.syncId)
+  part(routine.name)
+  part(routine.note)
+  part(routine.origin)
+  part(routine.archived)
+  gyms.map { it.syncId }.sorted().forEach(::part)
+  append('#')
+  replacementExercises
+      .sortedWith(compareBy<RoutineExerciseEntity> { it.position }.thenBy { it.exerciseId })
+      .forEach { exercise ->
+        part(exercise.exerciseId)
+        part(exercise.position)
+        part(exercise.restSeconds)
+        exercise.plannedSets.forEach { set ->
+          part(set.weightKg)
+          part(set.reps)
+          part(set.durationSec)
+          part(set.speedKmh)
+          part(set.inclinePct)
+        }
+        append(';')
+      }
 }
 
 /** Данные новой записи каталога вместе с полной картой мышц. */
@@ -191,6 +265,23 @@ interface GymRepository {
   suspend fun saveRoutineConfiguration(
       draft: RoutineConfigurationDraft,
   ): SaveRoutineConfigurationResult = SaveRoutineConfigurationResult.Failure
+
+  /** Atomically creates or conditionally replaces a routine from completed workout sets. */
+  suspend fun saveCompletedWorkoutRoutine(
+      command: CompletedWorkoutRoutineCommand,
+  ): CompletedWorkoutRoutineResult =
+      when (command) {
+        is CompletedWorkoutRoutineCommand.Create ->
+            when (val result = saveRoutineConfiguration(command.draft)) {
+              is SaveRoutineConfigurationResult.Saved ->
+                  CompletedWorkoutRoutineResult.Saved(result.routine, replayedWithoutWrite = false)
+              is SaveRoutineConfigurationResult.Conflict ->
+                  CompletedWorkoutRoutineResult.AvailabilityConflict(result.exercises)
+              SaveRoutineConfigurationResult.GymNotFound -> CompletedWorkoutRoutineResult.NotFound
+              SaveRoutineConfigurationResult.Failure -> CompletedWorkoutRoutineResult.Failure
+            }
+        is CompletedWorkoutRoutineCommand.Replace -> CompletedWorkoutRoutineResult.Failure
+      }
 
   /** Создаёт полную копию программы, упражнений и залов одной транзакцией. */
   suspend fun duplicateRoutine(sourceRoutineId: Long, name: String? = null): RoutineEntity? = null

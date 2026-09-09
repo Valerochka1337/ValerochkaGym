@@ -11,7 +11,10 @@ import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 
 sealed interface SaveCompletedWorkoutAsRoutineResult {
-  data class Saved(val routine: RoutineEntity) : SaveCompletedWorkoutAsRoutineResult
+  data class Saved(
+      val routine: RoutineEntity,
+      val replayedWithoutWrite: Boolean = false,
+  ) : SaveCompletedWorkoutAsRoutineResult
 
   data object BlankName : SaveCompletedWorkoutAsRoutineResult
 
@@ -69,9 +72,16 @@ constructor(
             gymIds = emptySet(),
         )
 
+    if (draft.exercises.isEmpty()) return SaveCompletedWorkoutAsRoutineResult.Failure
+
     return try {
-      when (val result = gymRepository.saveRoutineConfiguration(draft)) {
-        is SaveRoutineConfigurationResult.Saved -> {
+      when (
+          val result =
+              gymRepository.saveCompletedWorkoutRoutine(
+                  CompletedWorkoutRoutineCommand.Create(draft)
+              )
+      ) {
+        is CompletedWorkoutRoutineResult.Saved -> {
           try {
             routineUploadScheduler.schedule(result.routine.syncId)
           } catch (error: CancellationException) {
@@ -80,13 +90,14 @@ constructor(
             // The routine transaction is already durable. The established upload-all
             // recovery can enqueue it later; never turn this into a duplicate save.
           }
-          SaveCompletedWorkoutAsRoutineResult.Saved(result.routine)
+          SaveCompletedWorkoutAsRoutineResult.Saved(result.routine, result.replayedWithoutWrite)
         }
-        is SaveRoutineConfigurationResult.Conflict ->
+        is CompletedWorkoutRoutineResult.AvailabilityConflict ->
             SaveCompletedWorkoutAsRoutineResult.Conflict(result.exercises)
-        SaveRoutineConfigurationResult.GymNotFound ->
-            SaveCompletedWorkoutAsRoutineResult.GymNotFound
-        SaveRoutineConfigurationResult.Failure -> SaveCompletedWorkoutAsRoutineResult.Failure
+        CompletedWorkoutRoutineResult.NotFound -> SaveCompletedWorkoutAsRoutineResult.GymNotFound
+        CompletedWorkoutRoutineResult.ReadOnly,
+        CompletedWorkoutRoutineResult.Conflict,
+        CompletedWorkoutRoutineResult.Failure -> SaveCompletedWorkoutAsRoutineResult.Failure
       }
     } catch (error: CancellationException) {
       throw error

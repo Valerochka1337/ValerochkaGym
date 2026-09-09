@@ -326,6 +326,20 @@ class SaveCompletedWorkoutAsRoutineUseCaseTest {
           }
       return SaveRoutineConfigurationResult.Saved(saved.id, saved)
     }
+
+    override suspend fun saveCompletedWorkoutRoutine(
+        command: CompletedWorkoutRoutineCommand
+    ): CompletedWorkoutRoutineResult {
+      val draft = (command as CompletedWorkoutRoutineCommand.Create).draft
+      return when (val result = saveRoutineConfiguration(draft)) {
+        is SaveRoutineConfigurationResult.Saved ->
+            CompletedWorkoutRoutineResult.Saved(result.routine, replayedWithoutWrite = false)
+        is SaveRoutineConfigurationResult.Conflict ->
+            CompletedWorkoutRoutineResult.AvailabilityConflict(result.exercises)
+        SaveRoutineConfigurationResult.GymNotFound -> CompletedWorkoutRoutineResult.NotFound
+        SaveRoutineConfigurationResult.Failure -> CompletedWorkoutRoutineResult.Failure
+      }
+    }
   }
 
   private class FakeRoutineUploadScheduler : RoutineUploadScheduler {
