@@ -36,6 +36,18 @@
 
 ## Инфраструктура и релиз
 
-- Read-only разведка backend-репозитория и release pipeline выполняется параллельно первой фиче.
+- Backend найден: `Valerochka1337/ValerochkaGymBackend`, main `dba59ae`; отдельный checkout
+  `/private/tmp/yarumo-backend-delivery`. Последний deployment до начала работ прошёл успешно:
+  https://github.com/Valerochka1337/ValerochkaGymBackend/actions/runs/34318221584.
+- Android main требует PR и статус `Build and test`; approving review не обязателен.
+  Публикация final integration пойдёт через PR, а не обход защиты main.
+- Backend CI: check/bootJar, admin tests, Docker, immutable digest, backup PostgreSQL,
+  deploy и внешний HTTPS health. При ошибке откатывается образ, но не Liquibase.
+  Новые серверные контракты сначала принимаются совместимо; обязательный upgrade нельзя
+  включать до доступности совместимого Android release.
+- Android CI: signed release APK, проверка подписи, unit tests, GitHub Release для новой SemVer.
+  Контракт обновлений сохраняет имена `ValerochkaGym-v<version>.apk` и `.sha256`, даже после ребрендинга.
+- SMTP production исходно отключён; это существующее инфраструктурное ограничение, Google-вход
+  доступен. Значения секретов не читались. Новые AI/provider настройки исследуются отдельно.
 - Пока ни одна фича не объявлена готовой, main/release не опубликованы этой реализацией.
 - Финальные результаты CI, release URL, asset и коммиты будут записаны после фактической проверки.
