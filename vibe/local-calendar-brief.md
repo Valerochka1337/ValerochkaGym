@@ -47,3 +47,27 @@ instance original-time key, reference/tombstone policy и owner-bound Google lin
 Один writer владеет Room entity/DAO/migration/schema/portable adapter; server slice отдельный
 checkout и отдельный commit после frozen sharedcontract. Tests localoffline/claim/legacy migration
 idempotency/activeowner races/weekly exceptions/timezones/backend legacy filtering.
+
+## Дополнение исследователя: legacy recovery и общий payload
+
+GymApplication ставит WeeklyScheduleRecoveryWorker при запуске. До любого Google replay worker
+должен проверить migration gate; старый operation journal копируется в owner-bound quarantine,
+не исполняется CAL-01. Сохранить accountEmail/ownerEmail, отсутствующего owner не выводить из
+текущего Google аккаунта. CAL-02 позднее reconciles только подтверждённого того же владельца.
+
+Предложенные portable kinds: calendar_plan (routineId UUID, startsAtMillis, IANA timeZoneId,
+optional legacyScheduleId); calendar_rule (routineId UUID, isoDay, HH:mm localTime, zone,
+startLocalDate); calendar_exception (ruleId, instanceKey от original local datetime+zone,
+CANCELLED/MOVED, optional moved instant). Reference validation и порядок удаления exceptions
+перед rule. Google links — отдельные owner-bound локальные метаданные, не переносимый grant.
+
+DST: wall time в сохранённой зоне; gap — первый валидный instant после gap, overlap — ранний offset.
+Instance key остаётся привязан к исходному локальному времени, а не перенесённому instant.
+
+Миграция Room copy с unique source keys → DataStore marker → Room-ready; original schedule/journal
+сохраняются read-only. Fault tests на каждой границе. Важная root-коррекция к предложению
+исследователя: для уже синхронизированного legacy schedule new plan UUID/source key выводить
+из portable legacyScheduleId, а не локального auto-id, иначе два устройства создадут разные планы.
+Новые клиенты подавляют matched legacy representation; старые schedule записи не удаляются.
+В CAL-02 детерминированная external identity/lookup должна исключить создание двух Google событий
+для одного plan UUID с двух устройств, даже если локальная таблица links на втором пуста.
