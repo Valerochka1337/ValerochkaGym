@@ -1,0 +1,653 @@
+{
+  "schemaVersion": 1,
+  "scope": "manual-health stage 17 backend-first ledger, projection and authorization contract",
+  "capabilities": {
+    "healthLedger": "health-ledger-v1",
+    "requestHeader": "X-Gym-Capabilities",
+    "responseHeader": "X-Gym-Capabilities",
+    "dedicatedEndpointsRequireAcceptedCapability": true,
+    "genericSyncBehavior": "health_report, health_observation and health_restriction never enter generic /v1/sync, /v1/sync/changes or /v1/records; existing measurement records remain unchanged",
+    "missingOrDowngraded": "zero health API calls or projection advancement; preserve health baseline, cursor, needsFullRefresh and exact outbox bytes while non-health sync proceeds"
+  },
+  "recordKinds": ["health_report", "health_observation", "health_restriction"],
+  "forbiddenHealthKinds": ["measurement", "body_measurement", "body_measurements"],
+  "bounds": {
+    "operationBytes": 5242880,
+    "versionsPerOperation": [0, 500],
+    "headsPerOperation": [0, 500],
+    "pageEventsCombined": [0, 500],
+    "pageResponseBytes": 5242880,
+    "titleUtf16Units": 200,
+    "sourceTextUtf16Units": 10000,
+    "metricNameUtf16Units": 200,
+    "valueOriginalUtf16Units": 4096,
+    "shortOriginalUtf16Units": 1000,
+    "referenceOriginalUtf16Units": 4096,
+    "restrictionTextUtf16Units": 5000,
+    "decimalIntegralDigits": 18,
+    "decimalFractionalDigits": 12,
+    "cursorOrPageTokenBytes": 4096
+  },
+  "canonicalOperationRequest": {
+    "mediaType": "application/json",
+    "charset": "UTF-8",
+    "hashInput": "complete bounded raw HTTP body bytes, excluding headers",
+    "firstSendAndRetry": "Android validates and normalizes once, serializes once, persists operationId plus exact first-send bytes before dispatch and replays those bytes literally; server hashes received bytes before DTO conversion",
+    "serverRawBodyRules": "reject invalid UTF-8, BOM, duplicate member names, trailing non-whitespace data and bodies over 5242880 bytes before ledger/head/cursor mutation",
+    "jvmSerializer": {
+      "library": "kotlinx.serialization generated serializer",
+      "jsonConfiguration": {
+        "allowSpecialFloatingPointValues": false,
+        "encodeDefaults": true,
+        "explicitNulls": true,
+        "ignoreUnknownKeys": false,
+        "isLenient": false,
+        "prettyPrint": false
+      },
+      "noBom": true,
+      "noTrailingNewline": true,
+      "uuid": "UUID.toString() canonical lowercase",
+      "unicode": "no NFC/NFD normalization; emit non-control Unicode directly as UTF-8 and use standard JSON escapes for quote, reverse-solidus and U+0000..U+001F",
+      "decimal": "parsed decimal fields are canonical strings, never JSON floating point: no plus/exponent/leading zero/trailing fractional zero/negative zero; signed at most 18 integral and 12 fractional digits",
+      "propertyOrder": {
+        "HealthOperationRequest": ["operationId", "versions", "heads"],
+        "HealthVersionUpload": ["versionId", "logicalId", "parentVersionId", "kind", "state", "enteredAtEpochMs", "payload"],
+        "HealthHeadIntent": ["logicalId", "currentVersionId", "baseHeadRevision"],
+        "HealthOperationResult": ["operationId", "versionReceipts", "headResults"],
+        "VersionReceipt": ["versionId", "serverSequence", "healthRevision"],
+        "HeadResult": ["logicalId", "submittedCurrentVersionId", "serverCurrentVersionId", "headRevision", "healthRevision", "outcome"],
+        "ReportPayload": ["title", "sourceText", "observedAt", "observedPrecision"],
+        "ObservationPayload": ["reportLogicalId", "metricIdentityId", "metricNameOriginal", "valueKind", "valueOriginal", "numberValue", "rangeLow", "rangeHigh", "operator", "unitOriginal", "methodOriginal", "specimenOriginal", "sourceOriginal", "referenceOriginal", "observedAt", "observedPrecision", "enteredAtEpochMs"],
+        "RestrictionPayload": ["textOriginal", "confirmedAtEpochMs"]
+      }
+    },
+    "vectors": [
+      {
+        "name": "restriction-first-version-head",
+        "utf8": "{\"operationId\":\"44444444-4444-4444-8444-444444444444\",\"versions\":[{\"versionId\":\"22222222-2222-4222-8222-222222222222\",\"logicalId\":\"11111111-1111-4111-8111-111111111111\",\"parentVersionId\":null,\"kind\":\"health_restriction\",\"state\":\"CONFIRMED\",\"enteredAtEpochMs\":1893456000000,\"payload\":{\"textOriginal\":\"Беречь колено\",\"confirmedAtEpochMs\":1893456000000}}],\"heads\":[{\"logicalId\":\"11111111-1111-4111-8111-111111111111\",\"currentVersionId\":\"22222222-2222-4222-8222-222222222222\",\"baseHeadRevision\":0}]}",
+        "sha256": "75bbf6fb9bfda54eec94ca5f5dacf27fb0fe2443a353bd49346a760ea99d7943"
+      },
+      {
+        "name": "signed-range-original-preserved",
+        "precondition": "reportLogicalId exists as a live health_report head for the authenticated owner",
+        "utf8": "{\"operationId\":\"44444444-4444-4444-8444-444444444445\",\"versions\":[{\"versionId\":\"22222222-2222-4222-8222-222222222223\",\"logicalId\":\"11111111-1111-4111-8111-111111111112\",\"parentVersionId\":null,\"kind\":\"health_observation\",\"state\":\"CONFIRMED\",\"enteredAtEpochMs\":1893456000001,\"payload\":{\"reportLogicalId\":\"11111111-1111-4111-8111-111111111113\",\"metricIdentityId\":\"33333333-3333-4333-8333-333333333333\",\"metricNameOriginal\":\"Показатель é\",\"valueKind\":\"RANGE\",\"valueOriginal\":\" -2,50 — 3,75 \",\"numberValue\":null,\"rangeLow\":\"-2.5\",\"rangeHigh\":\"3.75\",\"operator\":null,\"unitOriginal\":\"ед.\",\"methodOriginal\":null,\"specimenOriginal\":null,\"sourceOriginal\":\"Ручной ввод\",\"referenceOriginal\":null,\"observedAt\":\"2030-01-01T00:00:00Z\",\"observedPrecision\":\"DATETIME\",\"enteredAtEpochMs\":1893456000001}}],\"heads\":[{\"logicalId\":\"11111111-1111-4111-8111-111111111112\",\"currentVersionId\":\"22222222-2222-4222-8222-222222222223\",\"baseHeadRevision\":0}]}",
+        "sha256": "1e35b0f0d601623afd8022bf422c744e9103452f99037007f2bc3578abbe7a09"
+      },
+      {
+        "name": "tombstone-correction",
+        "precondition": "parent version is the authenticated owner's current health_restriction head at headRevision 1",
+        "utf8": "{\"operationId\":\"44444444-4444-4444-8444-444444444446\",\"versions\":[{\"versionId\":\"22222222-2222-4222-8222-222222222224\",\"logicalId\":\"11111111-1111-4111-8111-111111111111\",\"parentVersionId\":\"22222222-2222-4222-8222-222222222222\",\"kind\":\"health_restriction\",\"state\":\"TOMBSTONE\",\"enteredAtEpochMs\":1893456000002,\"payload\":null}],\"heads\":[{\"logicalId\":\"11111111-1111-4111-8111-111111111111\",\"currentVersionId\":\"22222222-2222-4222-8222-222222222224\",\"baseHeadRevision\":1}]}",
+        "sha256": "40d300b9b6b817149b8be2a30af05aec89005831c1e9597a24e24a7bb4a46861"
+      }
+    ]
+  },
+  "canonicalAiDisclosureRequest": {
+    "mediaType": "application/json",
+    "charset": "UTF-8",
+    "hashInput": "complete bounded raw HTTP body bytes, excluding headers",
+    "firstSendAndRetry": "the owner-scoped consent queue persists operationId plus exact first-send bytes before dispatch and replays literally; server hashes received bytes before DTO conversion",
+    "jvmSerializer": {
+      "library": "kotlinx.serialization generated serializer with the same strict Json configuration and UTF-8/BOM/newline/string/number rules as canonicalOperationRequest",
+      "propertyOrder": ["operationId", "baseRevision", "noticeVersion", "enabled"]
+    },
+    "vectors": [
+      {
+        "name": "enable-first-notice",
+        "utf8": "{\"operationId\":\"55555555-5555-4555-8555-555555555551\",\"baseRevision\":0,\"noticeVersion\":1,\"enabled\":true}",
+        "sha256": "bfcba070df880fccf39c6b02ea2a3cd56eeebad43310ef6b4d2634b5bcceea3f"
+      },
+      {
+        "name": "disable-next-revision",
+        "utf8": "{\"operationId\":\"55555555-5555-4555-8555-555555555552\",\"baseRevision\":1,\"noticeVersion\":1,\"enabled\":false}",
+        "sha256": "c6ad1e3c14b5015cb7cfc0543e5e8a567f4f75b6cfb43899197ebea5a87e0c9a"
+      }
+    ]
+  },
+  "ledgerSemantics": {
+    "owner": "authenticated owner only; no owner field is accepted in any health DTO; UUID namespaces and serverSequence are owner-scoped",
+    "versionIdentity": "versionId is immutable client UUID and unique per owner across all health logical records; logicalId, parentVersionId, kind, state, enteredAtEpochMs and payload never change",
+    "versionContentFingerprint": "server validates then hashes the exact HealthVersionUpload tuple bytes emitted by a deterministic backend writer that reproduces canonicalOperationRequest property, UUID, Unicode, escaping, null and decimal rules; no Android serializer dependency is implied; operation whitespace/order is irrelevant to version equality but every original string remains byte-significant",
+    "sameVersionRetry": "after operation-ledger lookup, equal canonical immutable-tuple SHA-256 returns the original serverSequence and first-ingestion healthRevision without revalidating a report's present head; unequal reuse of versionId rejects the whole operation before ledger/head/cursor/operation-ledger mutation",
+    "serverSequence": "positive monotonically increasing per owner, assigned exactly once at first accepted ingestion, unique per owner, returned on all exact/equal retries and never client-authored",
+    "healthRevision": "a distinct positive monotonically increasing owner-scoped change revision; every first ingestion of a version and every APPLIED head transition consumes exactly one unique value, in request version order then request head order; equal-version, ALREADY_CURRENT, STALE and rejected work consumes none; serverSequence is version identity/order and is never a cursor",
+    "headHistory": "every APPLIED head transition appends an immutable owner+logicalId+headRevision+currentVersionId+kind+deleted+healthRevision row; owner+healthRevision and owner+logicalId+headRevision are unique, and current head is a projection of the latest history row rather than the source for an as-of-H page",
+    "parent": "first confirmed version has null parent; correction/tombstone parent must be a version of the same owner/logicalId/kind that is already stored or appears earlier in this request's versions array. Forward parent references and cycles reject the whole operation before any sequence/revision/ledger/head/cursor mutation; siblings from the same parent are allowed and retained",
+    "logicalCreatedAt": "the first accepted parent-null CONFIRMED version creates the logical record and its enteredAtEpochMs is the immutable logical createdAtEpochMs; another parent-null versionId for that logicalId is invalid",
+    "headCas": "when no current head exists, only baseHeadRevision=0 is valid and an applied target creates headRevision 1; nonzero base rejects with health_reference_invalid before mutation. With an existing head, matching baseHeadRevision that changes the target appends one head-history event, advances currentVersionId, increments headRevision once and gets a new healthRevision; an identical current target is ALREADY_CURRENT with its existing head healthRevision; a different base retains every otherwise accepted version and returns STALE with the unchanged non-null server head without a new event",
+    "headTarget": "currentVersionId must identify a submitted or already stored version with the same owner/logicalId/kind; deleted projection is derived only when head targets TOMBSTONE",
+    "observationReportTarget": "classification precedes live-reference validation: an already stored byte-equal immutable observation version is accepted with its original serverSequence/healthRevision even when its report is now tombstoned, while unequal reuse still collides; every new observation version and every matching-CAS head transition that would newly select an observation requires the authenticated owner's referenced health_report resulting head to be CONFIRMED; linkage is always owner/kind checked; ALREADY_CURRENT and STALE head no-ops do not recreate or expose a child hidden by a report tombstone",
+    "operationAtomicity": "after authentication, accepted capability and raw-body validation/hash, lookup owner+operationId first: equal rawBodySha256 returns the stored response bytes and unequal reuse rejects. For a new operation, classify every submitted version as new, stored-equal or collision before reference validation; validate present-day parent/report references only for new versions and matching-CAS head changes, then atomically assign serverSequence/healthRevision, union versions, append head-history events and persist owner+operationId+rawBodySha256+stable result",
+    "operationResult": "versionReceipts has exactly one entry for each requested version in request order, including already stored equal versions, and returns its first-ingestion serverSequence/healthRevision; headResults has exactly one entry for each requested head in request order and returns the selected head event healthRevision; the operation ledger persists deterministic response bytes, and an authenticated capable exact retry returns those bytes unchanged before any present-day report/head validation",
+    "differentOperation": "a different operation containing an equal existing version returns the same serverSequence and first-ingestion healthRevision even after its report head is tombstoned; an already-current identical head returns ALREADY_CURRENT without revalidating the now-hidden target; a stale different head intent returns STALE without rewriting; a new version or matching-CAS head change that selects an observation still requires a live resulting report head",
+    "reportTombstone": "report TOMBSTONE hides its current child observation projections but never removes their immutable audit versions or heads"
+  },
+  "cursorAndProjection": {
+    "fullEndpoint": "GET /v1/health-ledger/snapshot",
+    "changesEndpoint": "GET /v1/health-ledger/changes?after=<committedCursor>",
+    "watermark": "the first snapshot/changes page atomically reads owner healthRevision as H; later pages use that exact H even if new versions or head transitions commit",
+    "snapshotAsOfH": "select every immutable version whose healthRevision is <=H plus exactly the latest immutable head-history row per logicalId with healthRevision <=H; never read today's current-head table to answer an older H",
+    "changesAsOfH": "for committed cursor C, select every immutable version-ingestion and every immutable head-history event with healthRevision in (C,H]; repeated logicalId head events are retained and applied in order",
+    "pagination": "merge selected version/head events by unique healthRevision ascending, take 0..500 combined events per page, then split into versions/heads while retaining their relative order; opaque nextPageToken binds owner, mode, C, H and last emitted healthRevision and cannot cross owner/mode",
+    "pageResponse": "nextPageToken is non-null before final page; commitCursor is non-null only on final page and equals H, including for an empty page; records with healthRevision >H never leak into that page set",
+    "commit": "Android writes non-final pages only to owner/session/high-watermark-scoped durable staging invisible to ledger/head/UI/baseline; after the final page it rechecks owner, active workout, sync consent and accepted capability, then one Room transaction unions all staged versions, applies server heads/baseline, commits final commitCursor and clears staging",
+    "interruptedPageSet": "process death may resume the exact page token or discard staging and restart from the previously committed cursor; capability/consent/owner loss discards or quarantines staging without any live projection/baseline/cursor/outbox mutation",
+    "expiredCursor": "410 health_cursor_expired preserves local ledger, baseline, exact outbox and non-health state, marks needsFullRefresh, then performs capable full snapshot before any new health send",
+    "authoritativeApply": "server versions are inserted by stable versionId with returned serverSequence and acknowledged baseline; server heads select projection without making a dirty local copy or outgoing version",
+    "bodyMeasurements": "no body_measurements row, measurement:<id> record or inferred copy is accepted/emitted by health endpoints; Analysis references existing local BodyMeasurementEntity.id only"
+  },
+  "queueSemantics": {
+    "healthDataQueue": "dedicated Room exact-byte outbox and operationId; never shares or merges with generic sync JSON/operationId",
+    "aiConsentQueue": "separate owner-scoped exact-byte consent outbox; never contains image or health record payload",
+    "prePartitionMixed": "an old durable mixed generic operation settles with identical bytes before health capability enablement/full refresh/capture; never decode/filter/rewrite it",
+    "ambiguous": "after possible dispatch, retry same operationId and exact bytes until stable result",
+    "definiteRejection": "retain rejected bytes/evidence, complete capable full refresh, recompute current intent and only then create a new operationId/body",
+    "consentOrCapabilityOff": "preserve health bytes, operationId, baseline, cursor and needsFullRefresh byte-for-byte; make zero health calls; generic sync continues"
+  },
+  "consents": {
+    "localStorageAcknowledgement": "local DataStore notice version only; gates new local confirmation, never read/delete/hide/upload and is not owner proof",
+    "backendSync": "local DataStore boolean only; controls health queue/API use and grants no AI or trainer access",
+    "aiDisclosure": "local immediate boolean plus owner-scoped backend receipt; grants only existing AI-01 InBody action and no general health sync/trainer access",
+    "aiAuthorizationMutation": "POST exact request {operationId,baseRevision,noticeVersion,enabled}; same owner+operation exact retry returns receipt, changed bytes conflict; matching base increments server revision",
+    "aiAuthorizationRetry": "the consent operation ledger persists owner+operationId+rawBodySha256 plus the exact historical response receipt bytes; exact retry returns them unchanged, while Android applies a receipt only when its revision is not below the already stored owner receipt and never changes the separate immediate local enabled flag from a network response",
+    "aiActionRevisionHeader": "X-Health-AI-Disclosure-Revision carries the exact current receipt revision",
+    "aiActionGate": "AI-01 InBody supplies expected authorization revision; backend requires current enabled receipt/current notice before accepting image bytes and rechecks after provider completion before returning result",
+    "revocation": "local false blocks before encoding immediately; only exact consent revocation is queued; stale CAS refreshes receipt then creates a new disable operation, never queues/replays an image; a late provider result is discarded",
+    "debugPersistence": "no health image, prompt, response, provider/error body or parsed result in logs or durable diagnostics"
+  },
+  "guestClaim": {
+    "fresh": "Room GUEST→CLAIMED(B,mergeId) binds logical records, versions, heads and health sync metadata before B token installation without rewriting immutable versions",
+    "recovery": "CLAIMED(B) survives crash/sign-out/token loss; only B resumes; C is rejected before token replacement, health capture or apply",
+    "owned": "OWNED(B) only after accepted guest-sync final equality and all eligible health/non-health outboxes ACK; disabled health consent/capability leaves health local and follows the accepted guest-sync readiness contract",
+    "ownerSwitchPreflight": "extend the accepted guest-sync preservation footprint, irrespective of local health-sync/AI consent and negotiated capability, with every retained health logical/version/current-head/head-history row, server acknowledgement/baseline, cursor/needsFullRefresh/staging state, and both exact health-data and AI-consent journals. A version without its stable serverSequence/healthRevision acknowledgement, a local head not equal to its acknowledged server head, any staged page, refresh obligation or journal blocks replacement before cleanup or B-token installation",
+    "ownerSwitch": "OWNED(A)→B may remove A's local health projection only when the shared preflight is clear and its deterministic fingerprint is rechecked in the same final Room ownership transaction. A blocked, cancelled, stale-fingerprint or process-death path preserves A ownership, ledger, heads/history, sync state, both outboxes and tokens byte-for-byte; it never enables consent, transfers A data to B or reclassifies A as guest",
+    "physicalDelete": "only a separately confirmed account full erase may destroy the sole or backend audit copy; a clean owner switch may discard an acknowledged recoverable local projection under the shared preflight"
+  },
+  "http": {
+    "base": "/v1",
+    "capability": "health-ledger-v1",
+    "contentType": "application/json",
+    "errorSchema": "#/$defs/ApiError",
+    "routes": [
+      {"name": "healthSnapshot", "method": "GET", "path": "/health-ledger/snapshot?limit=1..500&pageToken=opaque?", "requestSchema": null, "successStatus": 200, "responseSchema": "#/$defs/HealthPage"},
+      {"name": "healthChanges", "method": "GET", "path": "/health-ledger/changes?after=opaque&limit=1..500&pageToken=opaque?", "requestSchema": null, "successStatus": 200, "responseSchema": "#/$defs/HealthPage"},
+      {"name": "healthOperation", "method": "POST", "path": "/health-ledger/operations", "requestSchema": "#/$defs/HealthOperationRequest", "successStatus": 200, "responseSchema": "#/$defs/HealthOperationResult"},
+      {"name": "aiDisclosureRead", "method": "GET", "path": "/health-ai-disclosure", "requestSchema": null, "successStatus": 200, "responseSchema": "#/$defs/AiDisclosureReceipt"},
+      {"name": "aiDisclosureMutation", "method": "POST", "path": "/health-ai-disclosure", "requestSchema": "#/$defs/AiDisclosureRequest", "successStatus": 200, "responseSchema": "#/$defs/AiDisclosureReceipt"}
+    ]
+  },
+  "errorMatrix": [
+    {"status": 400, "code": "invalid_request", "mutation": "none", "when": "malformed/duplicate/unknown/missing field, bound/type/date/decimal/value-union failure"},
+    {"status": 400, "code": "health_reference_invalid", "mutation": "none", "when": "cross-kind/logical/parent/report/head/tombstone reference is invalid"},
+    {"status": 401, "code": "unauthorized", "mutation": "none", "when": "authentication missing, expired or revoked"},
+    {"status": 403, "code": "forbidden", "mutation": "none", "when": "owner mismatch or caller lacks owner authorization"},
+    {"status": 409, "code": "health_operation_reused", "mutation": "none", "when": "same owner operationId has different raw body hash"},
+    {"status": 409, "code": "health_version_collision", "mutation": "none", "when": "same owner versionId has unequal immutable tuple/payload bytes"},
+    {"status": 409, "code": "health_account_limit", "mutation": "none", "when": "technical account record/byte quota exceeded"},
+    {"status": 409, "code": "consent_operation_reused", "mutation": "none", "when": "same owner AI consent operationId has different raw body hash"},
+    {"status": 409, "code": "consent_revision_conflict", "mutation": "none", "when": "AI consent baseRevision is stale; client reads receipt before a new operation"},
+    {"status": 410, "code": "health_cursor_expired", "mutation": "none", "when": "committed cursor/page token is expired or cannot be resumed"},
+    {"status": 413, "code": "payload_too_large", "mutation": "none", "when": "raw request or response technical byte bound exceeded"},
+    {"status": 426, "code": "capability_required", "mutation": "none", "when": "dedicated endpoint lacks accepted health-ledger-v1 capability"},
+    {"status": 403, "code": "health_ai_consent_required", "mutation": "none", "when": "AI-01 InBody authorization absent/disabled/stale before bytes or after provider"}
+  ],
+  "dtoJsonSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://yarumo.app/contracts/manual-health-v1.schema.json",
+    "$comment": "Validate DTOs against named $defs. x-* keywords are mandatory deterministic cross-field checks in backend and Android validators.",
+    "$defs": {
+      "Uuid": {"type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"},
+      "NonNegativeLong": {"type": "integer", "minimum": 0, "maximum": 9223372036854775807},
+      "PositiveLong": {"type": "integer", "minimum": 1, "maximum": 9223372036854775807},
+      "NullableUuid": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/Uuid"}]},
+      "NullableText1000": {"oneOf": [{"type": "null"}, {"type": "string", "minLength": 1, "maxLength": 1000, "x-maxUtf16CodeUnits": 1000}]},
+      "NullableText4096": {"oneOf": [{"type": "null"}, {"type": "string", "minLength": 1, "maxLength": 4096, "x-maxUtf16CodeUnits": 4096}]},
+      "NullableCanonicalDecimal": {
+        "oneOf": [
+          {"type": "null"},
+          {"type": "string", "pattern": "^(?!-0(?:\\.0+)?$)-?(?:0|[1-9][0-9]{0,17})(?:\\.[0-9]{0,11}[1-9])?$"}
+        ]
+      },
+      "ObservedAt": {
+        "type": "string",
+        "minLength": 10,
+        "maxLength": 40,
+        "x-exactIsoLocalDateWhenDATE": true,
+        "x-exactRfc3339OffsetDateTimeWhenDATETIME": true
+      },
+      "ReportPayload": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["title", "sourceText", "observedAt", "observedPrecision"],
+        "properties": {
+          "title": {"type": "string", "minLength": 1, "maxLength": 200, "x-trimmedWithKotlinTrim": true, "x-maxUtf16CodeUnits": 200},
+          "sourceText": {"oneOf": [{"type": "null"}, {"type": "string", "maxLength": 10000, "x-maxUtf16CodeUnits": 10000}]},
+          "observedAt": {"$ref": "#/$defs/ObservedAt"},
+          "observedPrecision": {"enum": ["DATE", "DATETIME"]}
+        },
+        "x-observedAtMatchesPrecision": true
+      },
+      "ObservationPayload": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["reportLogicalId", "metricIdentityId", "metricNameOriginal", "valueKind", "valueOriginal", "numberValue", "rangeLow", "rangeHigh", "operator", "unitOriginal", "methodOriginal", "specimenOriginal", "sourceOriginal", "referenceOriginal", "observedAt", "observedPrecision", "enteredAtEpochMs"],
+        "properties": {
+          "reportLogicalId": {"$ref": "#/$defs/Uuid"},
+          "metricIdentityId": {"$ref": "#/$defs/Uuid"},
+          "metricNameOriginal": {"type": "string", "minLength": 1, "maxLength": 200, "x-maxUtf16CodeUnits": 200},
+          "valueKind": {"enum": ["NUMBER", "COMPARATOR", "RANGE", "CATEGORY", "TEXT"]},
+          "valueOriginal": {"type": "string", "minLength": 1, "maxLength": 4096, "x-maxUtf16CodeUnits": 4096},
+          "numberValue": {"$ref": "#/$defs/NullableCanonicalDecimal"},
+          "rangeLow": {"$ref": "#/$defs/NullableCanonicalDecimal"},
+          "rangeHigh": {"$ref": "#/$defs/NullableCanonicalDecimal"},
+          "operator": {"oneOf": [{"type": "null"}, {"enum": ["LT", "LE", "GT", "GE", "EQ"]}]},
+          "unitOriginal": {"$ref": "#/$defs/NullableText1000"},
+          "methodOriginal": {"$ref": "#/$defs/NullableText1000"},
+          "specimenOriginal": {"$ref": "#/$defs/NullableText1000"},
+          "sourceOriginal": {"$ref": "#/$defs/NullableText1000"},
+          "referenceOriginal": {"$ref": "#/$defs/NullableText4096"},
+          "observedAt": {"$ref": "#/$defs/ObservedAt"},
+          "observedPrecision": {"enum": ["DATE", "DATETIME"]},
+          "enteredAtEpochMs": {"$ref": "#/$defs/NonNegativeLong"}
+        },
+        "allOf": [
+          {"if": {"required": ["valueKind"], "properties": {"valueKind": {"const": "NUMBER"}}}, "then": {"properties": {"numberValue": {"type": "string"}, "rangeLow": {"type": "null"}, "rangeHigh": {"type": "null"}, "operator": {"type": "null"}}}},
+          {"if": {"required": ["valueKind"], "properties": {"valueKind": {"const": "COMPARATOR"}}}, "then": {"properties": {"numberValue": {"type": "string"}, "rangeLow": {"type": "null"}, "rangeHigh": {"type": "null"}, "operator": {"enum": ["LT", "LE", "GT", "GE", "EQ"]}}}},
+          {"if": {"required": ["valueKind"], "properties": {"valueKind": {"const": "RANGE"}}}, "then": {"properties": {"numberValue": {"type": "null"}, "rangeLow": {"type": "string"}, "rangeHigh": {"type": "string"}, "operator": {"type": "null"}}, "x-rangeLowLteHigh": true}},
+          {"if": {"required": ["valueKind"], "properties": {"valueKind": {"enum": ["CATEGORY", "TEXT"]}}}, "then": {"properties": {"numberValue": {"type": "null"}, "rangeLow": {"type": "null"}, "rangeHigh": {"type": "null"}, "operator": {"type": "null"}}}}
+        ],
+        "x-observedAtMatchesPrecision": true,
+        "x-enteredAtEqualsVersionEnteredAt": true
+      },
+      "RestrictionPayload": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["textOriginal", "confirmedAtEpochMs"],
+        "properties": {
+          "textOriginal": {"type": "string", "minLength": 1, "maxLength": 5000, "x-maxUtf16CodeUnits": 5000},
+          "confirmedAtEpochMs": {"$ref": "#/$defs/NonNegativeLong"}
+        }
+      },
+      "HealthVersionUpload": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["versionId", "logicalId", "parentVersionId", "kind", "state", "enteredAtEpochMs", "payload"],
+        "properties": {
+          "versionId": {"$ref": "#/$defs/Uuid"},
+          "logicalId": {"$ref": "#/$defs/Uuid"},
+          "parentVersionId": {"$ref": "#/$defs/NullableUuid"},
+          "kind": {"enum": ["health_report", "health_observation", "health_restriction"]},
+          "state": {"enum": ["CONFIRMED", "TOMBSTONE"]},
+          "enteredAtEpochMs": {"$ref": "#/$defs/NonNegativeLong"},
+          "payload": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/ReportPayload"}, {"$ref": "#/$defs/ObservationPayload"}, {"$ref": "#/$defs/RestrictionPayload"}]}
+        },
+        "allOf": [
+          {"if": {"required": ["state"], "properties": {"state": {"const": "TOMBSTONE"}}}, "then": {"properties": {"payload": {"type": "null"}}, "x-parentRequired": true}},
+          {"if": {"required": ["state", "kind"], "properties": {"state": {"const": "CONFIRMED"}, "kind": {"const": "health_report"}}}, "then": {"properties": {"payload": {"$ref": "#/$defs/ReportPayload"}}}},
+          {"if": {"required": ["state", "kind"], "properties": {"state": {"const": "CONFIRMED"}, "kind": {"const": "health_observation"}}}, "then": {"properties": {"payload": {"$ref": "#/$defs/ObservationPayload"}}}},
+          {"if": {"required": ["state", "kind"], "properties": {"state": {"const": "CONFIRMED"}, "kind": {"const": "health_restriction"}}}, "then": {"properties": {"payload": {"$ref": "#/$defs/RestrictionPayload"}}}}
+        ],
+        "x-parentAndReferenceOwnership": true
+      },
+      "HealthVersionRecord": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["versionId", "logicalId", "parentVersionId", "kind", "state", "enteredAtEpochMs", "payload", "serverSequence", "healthRevision"],
+        "properties": {
+          "versionId": {"$ref": "#/$defs/Uuid"},
+          "logicalId": {"$ref": "#/$defs/Uuid"},
+          "parentVersionId": {"$ref": "#/$defs/NullableUuid"},
+          "kind": {"enum": ["health_report", "health_observation", "health_restriction"]},
+          "state": {"enum": ["CONFIRMED", "TOMBSTONE"]},
+          "enteredAtEpochMs": {"$ref": "#/$defs/NonNegativeLong"},
+          "payload": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/ReportPayload"}, {"$ref": "#/$defs/ObservationPayload"}, {"$ref": "#/$defs/RestrictionPayload"}]},
+          "serverSequence": {"$ref": "#/$defs/PositiveLong"},
+          "healthRevision": {"$ref": "#/$defs/PositiveLong"}
+        },
+        "allOf": [
+          {"if": {"required": ["state"], "properties": {"state": {"const": "TOMBSTONE"}}}, "then": {"properties": {"payload": {"type": "null"}}, "x-parentRequired": true}},
+          {"if": {"required": ["state", "kind"], "properties": {"state": {"const": "CONFIRMED"}, "kind": {"const": "health_report"}}}, "then": {"properties": {"payload": {"$ref": "#/$defs/ReportPayload"}}}},
+          {"if": {"required": ["state", "kind"], "properties": {"state": {"const": "CONFIRMED"}, "kind": {"const": "health_observation"}}}, "then": {"properties": {"payload": {"$ref": "#/$defs/ObservationPayload"}}}},
+          {"if": {"required": ["state", "kind"], "properties": {"state": {"const": "CONFIRMED"}, "kind": {"const": "health_restriction"}}}, "then": {"properties": {"payload": {"$ref": "#/$defs/RestrictionPayload"}}}}
+        ],
+        "x-parentAndReferenceOwnership": true
+      },
+      "HealthHeadIntent": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["logicalId", "currentVersionId", "baseHeadRevision"],
+        "properties": {
+          "logicalId": {"$ref": "#/$defs/Uuid"},
+          "currentVersionId": {"$ref": "#/$defs/Uuid"},
+          "baseHeadRevision": {"$ref": "#/$defs/NonNegativeLong"}
+        }
+      },
+      "HealthHeadRecord": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["logicalId", "currentVersionId", "headRevision", "kind", "deleted", "healthRevision"],
+        "properties": {
+          "logicalId": {"$ref": "#/$defs/Uuid"},
+          "currentVersionId": {"$ref": "#/$defs/Uuid"},
+          "headRevision": {"$ref": "#/$defs/PositiveLong"},
+          "kind": {"enum": ["health_report", "health_observation", "health_restriction"]},
+          "deleted": {"type": "boolean"},
+          "healthRevision": {"$ref": "#/$defs/PositiveLong"}
+        }
+      },
+      "HealthOperationRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["operationId", "versions", "heads"],
+        "properties": {
+          "operationId": {"$ref": "#/$defs/Uuid"},
+          "versions": {"type": "array", "maxItems": 500, "items": {"$ref": "#/$defs/HealthVersionUpload"}, "x-uniqueVersionIds": true},
+          "heads": {"type": "array", "maxItems": 500, "items": {"$ref": "#/$defs/HealthHeadIntent"}, "x-uniqueLogicalIds": true}
+        },
+        "x-minCombinedItems": 1,
+        "x-maxUtf8Bytes": 5242880
+      },
+      "VersionReceipt": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["versionId", "serverSequence", "healthRevision"],
+        "properties": {
+          "versionId": {"$ref": "#/$defs/Uuid"},
+          "serverSequence": {"$ref": "#/$defs/PositiveLong"},
+          "healthRevision": {"$ref": "#/$defs/PositiveLong"}
+        }
+      },
+      "HeadResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["logicalId", "submittedCurrentVersionId", "serverCurrentVersionId", "headRevision", "healthRevision", "outcome"],
+        "properties": {
+          "logicalId": {"$ref": "#/$defs/Uuid"},
+          "submittedCurrentVersionId": {"$ref": "#/$defs/Uuid"},
+          "serverCurrentVersionId": {"$ref": "#/$defs/Uuid"},
+          "headRevision": {"$ref": "#/$defs/PositiveLong"},
+          "healthRevision": {"$ref": "#/$defs/PositiveLong"},
+          "outcome": {"enum": ["APPLIED", "ALREADY_CURRENT", "STALE"]}
+        },
+        "x-healthRevisionByOutcome": "APPLIED returns the newly assigned value; ALREADY_CURRENT returns the existing selected head event value; STALE returns the unchanged selected head event value. A missing head with nonzero base is rejected, so every successful head result has non-null currentVersionId, positive headRevision and positive healthRevision"
+      },
+      "HealthOperationResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["operationId", "versionReceipts", "headResults"],
+        "properties": {
+          "operationId": {"$ref": "#/$defs/Uuid"},
+          "versionReceipts": {"type": "array", "maxItems": 500, "items": {"$ref": "#/$defs/VersionReceipt"}, "x-uniqueVersionIds": true},
+          "headResults": {"type": "array", "maxItems": 500, "items": {"$ref": "#/$defs/HeadResult"}, "x-uniqueLogicalIds": true}
+        }
+      },
+      "HealthPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["versions", "heads", "nextPageToken", "commitCursor"],
+        "properties": {
+          "versions": {"type": "array", "maxItems": 500, "items": {"$ref": "#/$defs/HealthVersionRecord"}, "x-uniqueVersionIds": true},
+          "heads": {"type": "array", "maxItems": 500, "items": {"$ref": "#/$defs/HealthHeadRecord"}, "x-uniqueLogicalHeadRevisions": true},
+          "nextPageToken": {"oneOf": [{"type": "null"}, {"type": "string", "minLength": 1, "maxLength": 4096}]},
+          "commitCursor": {"oneOf": [{"type": "null"}, {"type": "string", "minLength": 1, "maxLength": 4096}]}
+        },
+        "oneOf": [
+          {"properties": {"nextPageToken": {"type": "string"}, "commitCursor": {"type": "null"}}},
+          {"properties": {"nextPageToken": {"type": "null"}, "commitCursor": {"type": "string"}}}
+        ],
+        "x-maxCombinedItems": 500,
+        "x-eventsStrictlyIncreasingByHealthRevisionAcrossBothArrays": true,
+        "x-maxUtf8Bytes": 5242880
+      },
+      "AiDisclosureRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "x-maxUtf8Bytes": 4096,
+        "required": ["operationId", "baseRevision", "noticeVersion", "enabled"],
+        "properties": {
+          "operationId": {"$ref": "#/$defs/Uuid"},
+          "baseRevision": {"$ref": "#/$defs/NonNegativeLong"},
+          "noticeVersion": {"type": "integer", "minimum": 1, "maximum": 2147483647},
+          "enabled": {"type": "boolean"}
+        }
+      },
+      "AiDisclosureReceipt": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["revision", "noticeVersion", "enabled", "recordedAtEpochMs"],
+        "properties": {
+          "revision": {"$ref": "#/$defs/NonNegativeLong"},
+          "noticeVersion": {"type": "integer", "minimum": 0, "maximum": 2147483647},
+          "enabled": {"type": "boolean"},
+          "recordedAtEpochMs": {"$ref": "#/$defs/NonNegativeLong"}
+        },
+        "x-zeroReceipt": "revision=0,noticeVersion=0,enabled=false is the only absent-state projection"
+      },
+      "ApiError": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "message"],
+        "properties": {
+          "code": {"enum": ["invalid_request", "health_reference_invalid", "unauthorized", "forbidden", "health_operation_reused", "health_version_collision", "health_account_limit", "consent_operation_reused", "consent_revision_conflict", "health_cursor_expired", "payload_too_large", "capability_required", "health_ai_consent_required"]},
+          "message": {"type": "string", "minLength": 1, "maxLength": 1000}
+        }
+      }
+    }
+  },
+  "validFixtures": [
+    {
+      "name": "report-date-precision",
+      "schema": "#/$defs/ReportPayload",
+      "value": {"title": "Ручной отчёт", "sourceText": null, "observedAt": "2030-01-01", "observedPrecision": "DATE"}
+    },
+    {
+      "name": "number-observation",
+      "schema": "#/$defs/ObservationPayload",
+      "value": {
+        "reportLogicalId": "11111111-1111-4111-8111-111111111113",
+        "metricIdentityId": "33333333-3333-4333-8333-333333333333",
+        "metricNameOriginal": "Значение",
+        "valueKind": "NUMBER",
+        "valueOriginal": "-2,50",
+        "numberValue": "-2.5",
+        "rangeLow": null,
+        "rangeHigh": null,
+        "operator": null,
+        "unitOriginal": null,
+        "methodOriginal": null,
+        "specimenOriginal": null,
+        "sourceOriginal": "Ручной ввод",
+        "referenceOriginal": null,
+        "observedAt": "2030-01-01",
+        "observedPrecision": "DATE",
+        "enteredAtEpochMs": 1893456000001
+      }
+    },
+    {
+      "name": "comparator-observation",
+      "schema": "#/$defs/ObservationPayload",
+      "value": {
+        "reportLogicalId": "11111111-1111-4111-8111-111111111113",
+        "metricIdentityId": "33333333-3333-4333-8333-333333333333",
+        "metricNameOriginal": "Значение",
+        "valueKind": "COMPARATOR",
+        "valueOriginal": "< 1",
+        "numberValue": "1",
+        "rangeLow": null,
+        "rangeHigh": null,
+        "operator": "LT",
+        "unitOriginal": "ед.",
+        "methodOriginal": null,
+        "specimenOriginal": null,
+        "sourceOriginal": null,
+        "referenceOriginal": null,
+        "observedAt": "2030-01-01T03:00:00+03:00",
+        "observedPrecision": "DATETIME",
+        "enteredAtEpochMs": 1893456000001
+      }
+    },
+    {
+      "name": "category-observation",
+      "schema": "#/$defs/ObservationPayload",
+      "value": {
+        "reportLogicalId": "11111111-1111-4111-8111-111111111113",
+        "metricIdentityId": "33333333-3333-4333-8333-333333333333",
+        "metricNameOriginal": "Категория",
+        "valueKind": "CATEGORY",
+        "valueOriginal": "Исходный текст",
+        "numberValue": null,
+        "rangeLow": null,
+        "rangeHigh": null,
+        "operator": null,
+        "unitOriginal": null,
+        "methodOriginal": null,
+        "specimenOriginal": null,
+        "sourceOriginal": null,
+        "referenceOriginal": null,
+        "observedAt": "2030-01-01",
+        "observedPrecision": "DATE",
+        "enteredAtEpochMs": 1893456000001
+      }
+    },
+    {
+      "name": "text-observation",
+      "schema": "#/$defs/ObservationPayload",
+      "value": {
+        "reportLogicalId": "11111111-1111-4111-8111-111111111113",
+        "metricIdentityId": "33333333-3333-4333-8333-333333333334",
+        "metricNameOriginal": "Комментарий",
+        "valueKind": "TEXT",
+        "valueOriginal": "Сохранить буквально",
+        "numberValue": null,
+        "rangeLow": null,
+        "rangeHigh": null,
+        "operator": null,
+        "unitOriginal": null,
+        "methodOriginal": null,
+        "specimenOriginal": null,
+        "sourceOriginal": null,
+        "referenceOriginal": null,
+        "observedAt": "2030-01-01",
+        "observedPrecision": "DATE",
+        "enteredAtEpochMs": 1893456000001
+      }
+    },
+    {
+      "name": "stale-head-result-retains-version",
+      "schema": "#/$defs/HealthOperationResult",
+      "value": {
+        "operationId": "44444444-4444-4444-8444-444444444447",
+        "versionReceipts": [{"versionId": "22222222-2222-4222-8222-222222222225", "serverSequence": 8, "healthRevision": 12}],
+        "headResults": [{"logicalId": "11111111-1111-4111-8111-111111111111", "submittedCurrentVersionId": "22222222-2222-4222-8222-222222222225", "serverCurrentVersionId": "22222222-2222-4222-8222-222222222224", "headRevision": 2, "healthRevision": 10, "outcome": "STALE"}]
+      }
+    },
+    {
+      "name": "equal-historical-observation-after-report-tombstone",
+      "schema": "#/$defs/HealthOperationResult",
+      "setup": "the observation version was accepted at serverSequence 9/healthRevision 13, then its report head became TOMBSTONE; this is a different operationId with the byte-equal immutable observation and an ALREADY_CURRENT no-op head",
+      "value": {
+        "operationId": "44444444-4444-4444-8444-444444444448",
+        "versionReceipts": [{"versionId": "22222222-2222-4222-8222-222222222223", "serverSequence": 9, "healthRevision": 13}],
+        "headResults": [{"logicalId": "11111111-1111-4111-8111-111111111112", "submittedCurrentVersionId": "22222222-2222-4222-8222-222222222223", "serverCurrentVersionId": "22222222-2222-4222-8222-222222222223", "headRevision": 1, "healthRevision": 14, "outcome": "ALREADY_CURRENT"}]
+      }
+    },
+    {
+      "name": "snapshot-head-as-of-frozen-watermark",
+      "schema": "#/$defs/HealthPage",
+      "setup": "snapshot watermark is H=14; current head advanced to revision 3 at healthRevision 15 after the first page",
+      "value": {
+        "versions": [],
+        "heads": [{"logicalId": "11111111-1111-4111-8111-111111111111", "currentVersionId": "22222222-2222-4222-8222-222222222224", "headRevision": 2, "kind": "health_restriction", "deleted": true, "healthRevision": 14}],
+        "nextPageToken": null,
+        "commitCursor": "opaque-owner-snapshot-H14"
+      }
+    },
+    {
+      "name": "absent-ai-disclosure",
+      "schema": "#/$defs/AiDisclosureReceipt",
+      "value": {"revision": 0, "noticeVersion": 0, "enabled": false, "recordedAtEpochMs": 0}
+    }
+  ],
+  "invalidFixtures": [
+    {"name": "number-with-operator", "schema": "#/$defs/ObservationPayload", "baseFixture": "number-observation", "jsonPatch": [{"op": "replace", "path": "/operator", "value": "GT"}], "error": "invalid_request"},
+    {"name": "range-reversed", "schema": "#/$defs/ObservationPayload", "baseCanonicalVector": "signed-range-original-preserved", "valuePointer": "/versions/0/payload", "jsonPatch": [{"op": "replace", "path": "/rangeLow", "value": "3.75"}, {"op": "replace", "path": "/rangeHigh", "value": "-2.5"}], "error": "invalid_request"},
+    {"name": "decimal-exponent", "schema": "#/$defs/ObservationPayload", "baseFixture": "number-observation", "jsonPatch": [{"op": "replace", "path": "/numberValue", "value": "1e3"}], "error": "invalid_request"},
+    {"name": "decimal-too-many-integral-digits", "schema": "#/$defs/ObservationPayload", "baseFixture": "number-observation", "jsonPatch": [{"op": "replace", "path": "/numberValue", "value": "1234567890123456789"}], "error": "invalid_request"},
+    {"name": "decimal-too-many-fractional-digits", "schema": "#/$defs/ObservationPayload", "baseFixture": "number-observation", "jsonPatch": [{"op": "replace", "path": "/numberValue", "value": "0.1234567890123"}], "error": "invalid_request"},
+    {"name": "tombstone-payload-present", "schema": "#/$defs/HealthVersionUpload", "baseCanonicalVector": "tombstone-correction", "valuePointer": "/versions/0", "jsonPatch": [{"op": "replace", "path": "/payload", "value": {"textOriginal": "x", "confirmedAtEpochMs": 1}}], "error": "invalid_request"},
+    {"name": "confirmed-payload-wrong-kind", "schema": "#/$defs/HealthVersionUpload", "baseCanonicalVector": "restriction-first-version-head", "valuePointer": "/versions/0", "jsonPatch": [{"op": "replace", "path": "/kind", "value": "health_report"}], "error": "invalid_request"},
+    {"name": "owner-field-in-version", "schema": "#/$defs/HealthVersionUpload", "baseCanonicalVector": "restriction-first-version-head", "valuePointer": "/versions/0", "jsonPatch": [{"op": "add", "path": "/ownerId", "value": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"}], "error": "invalid_request"},
+    {"name": "body-measurement-kind", "schema": "#/$defs/HealthVersionUpload", "baseCanonicalVector": "restriction-first-version-head", "valuePointer": "/versions/0", "jsonPatch": [{"op": "replace", "path": "/kind", "value": "measurement"}], "error": "invalid_request"},
+    {"name": "same-version-unequal-payload", "schema": "semantic", "setupCanonicalVector": "restriction-first-version-head", "retryPatch": [{"op": "replace", "path": "/versions/0/payload/textOriginal", "value": "changed"}], "expectedStatus": 409, "error": "health_version_collision", "assertNoMutation": ["versions", "heads", "cursor", "operationLedger"]},
+    {"name": "new-observation-after-report-tombstone", "schema": "semantic", "setup": "the referenced owner health_report resulting head is TOMBSTONE and this versionId is not stored", "requestCanonicalVector": "signed-range-original-preserved", "expectedStatus": 400, "error": "health_reference_invalid", "assertNoMutation": ["versions", "heads", "headHistory", "healthRevision", "cursor", "operationLedger"]},
+    {"name": "matching-head-change-selects-observation-after-report-tombstone", "schema": "semantic", "setup": "the observation version is stored but is not current, baseHeadRevision matches, and the referenced owner health_report resulting head is TOMBSTONE", "request": {"logicalId": "11111111-1111-4111-8111-111111111112", "currentVersionId": "22222222-2222-4222-8222-222222222223", "baseHeadRevision": 2}, "expectedStatus": 400, "error": "health_reference_invalid", "assertNoMutation": ["versions", "heads", "headHistory", "healthRevision", "cursor", "operationLedger"]},
+    {"name": "missing-head-with-nonzero-base", "schema": "semantic", "setup": "the authenticated owner has no head for this logicalId and the target version is otherwise valid", "request": {"logicalId": "11111111-1111-4111-8111-111111111111", "currentVersionId": "22222222-2222-4222-8222-222222222222", "baseHeadRevision": 1}, "expectedStatus": 400, "error": "health_reference_invalid", "assertNoMutation": ["versions", "heads", "headHistory", "healthRevision", "cursor", "operationLedger"]},
+    {"name": "forward-parent-in-operation", "schema": "semantic", "setup": "neither version is stored; versions[0].parentVersionId equals versions[1].versionId and all owner/logical/kind fields otherwise match", "requestOrder": ["child-before-parent", "parent"], "expectedStatus": 400, "error": "health_reference_invalid", "assertNoMutation": ["versions", "heads", "headHistory", "serverSequence", "healthRevision", "cursor", "operationLedger"]},
+    {"name": "cyclic-parents-in-operation", "schema": "semantic", "setup": "neither version is stored; V1.parentVersionId=V2.versionId and V2.parentVersionId=V1.versionId with matching owner/logical/kind", "expectedStatus": 400, "error": "health_reference_invalid", "assertNoMutation": ["versions", "heads", "headHistory", "serverSequence", "healthRevision", "cursor", "operationLedger"]},
+    {"name": "cross-owner-parent-or-report", "schema": "semantic", "setup": {"referencedUuidOwner": "A", "authenticatedOwner": "B"}, "requestCanonicalVector": "signed-range-original-preserved", "expectedStatus": 400, "error": "health_reference_invalid", "assertNoMutation": ["versions", "heads", "cursor", "operationLedger"]},
+    {"name": "head-target-other-logical", "schema": "semantic", "setup": {"targetVersionLogicalId": "11111111-1111-4111-8111-111111111112"}, "request": {"logicalId": "11111111-1111-4111-8111-111111111111", "currentVersionId": "22222222-2222-4222-8222-222222222223", "baseHeadRevision": 0}, "expectedStatus": 400, "error": "health_reference_invalid", "assertNoMutation": ["versions", "heads", "cursor", "operationLedger"]},
+    {"name": "same-operation-changed-byte", "schema": "semantic", "setupCanonicalVector": "restriction-first-version-head", "retryRawBytePatch": "append one U+0020 byte", "expectedStatus": 409, "error": "health_operation_reused", "assertNoMutation": ["versions", "heads", "cursor", "operationLedger"]},
+    {"name": "health-without-capability", "schema": "HTTP", "requestCanonicalVector": "restriction-first-version-head", "headers": {"X-Gym-Capabilities": ""}, "expectedStatus": 426, "error": "capability_required", "assertNoMutation": ["versions", "heads", "cursor", "operationLedger"]}
+  ],
+  "raceFixtures": [
+    {
+      "name": "two-corrections-same-head",
+      "given": "V1 is server head revision 1; devices submit distinct V2a/V2b parent V1 and baseHeadRevision 1",
+      "interleaving": "A locks first, then B",
+      "expected": "both immutable versions receive distinct stable serverSequence; A head APPLIED revision 2; B head STALE returning A current/revision 2; no version loss or automatic clone/rebase"
+    },
+    {
+      "name": "lost-ack-exact-operation",
+      "given": "server committed an observation version, head and operation ledger but the response was lost",
+      "interleaving": "its report is tombstoned, then the same authenticated capable owner retries the same operationId and exact bytes",
+      "expected": "byte-identical HealthOperationResult including original serverSequence, healthRevision and head outcome is returned from the operation ledger before present-day report validation; no new sequence/head/revision/cursor mutation"
+    },
+    {
+      "name": "different-operation-equal-version",
+      "given": "observation version was ingested and selected as current, then its report head was tombstoned",
+      "interleaving": "new operationId submits the byte-equal immutable version and the same desired head",
+      "expected": "original serverSequence/healthRevision and ALREADY_CURRENT at unchanged headRevision; no live-report revalidation, resurrection or new change event"
+    },
+    {
+      "name": "head-only-change-and-pagination-watermark",
+      "given": "snapshot/changes first page freezes H and a later logical head currently points at V2 as of H",
+      "interleaving": "after page one, matching CAS selects already stored V3 and appends headRevision+1 at healthRevision H+1; client resumes the frozen page token",
+      "expected": "all remaining pages are ordered over the combined immutable event stream through H and return the latest head-history row at or before H, never V3; final commitCursor is H, and the next changes request after H returns the head-only H+1 event exactly once"
+    },
+    {
+      "name": "capability-loss-dispatched",
+      "given": "health request may have reached server, local ACK absent, capability then missing",
+      "interleaving": "generic sync continues; health later accepted again",
+      "expected": "health bytes/id/baseline/cursor unchanged while missing; capable full refresh observes result, then exact operation replay returns stable receipt"
+    },
+    {
+      "name": "pre-partition-mixed-operation",
+      "given": "upgrade has one durable generic operation containing legacy supported records",
+      "interleaving": "user enables health sync",
+      "expected": "old operation settles unchanged before health full refresh/capture; no record extraction, new health operationId or mixed health queue"
+    },
+    {
+      "name": "ai-revoke-during-provider",
+      "given": "backend accepted InBody bytes under enabled authorization revision R",
+      "interleaving": "disable commits as R+1 before provider returns",
+      "expected": "post-provider recheck rejects/discards late result with health_ai_consent_required; no durable request/result/error and no automatic retry"
+    },
+    {
+      "name": "guest-claim-crash-and-owner-switch",
+      "given": "guest health ledger exists; separately, OWNED(A) has sync disabled with a local version lacking serverSequence/healthRevision and a pending exact health or AI-consent journal",
+      "interleaving": "Room commits CLAIMED(B,mergeId), crash before token; C attempts login; B resumes; later B sign-in runs A→B preflight, then cancellation/process death or a stale fingerprint occurs before its final transaction",
+      "expected": "only B resumes the guest claim unchanged and OWNED waits all eligible ACK; the A→B branch is blocked and preserves A ownership, all health rows/history/staging/state, both exact journals and A/B token state byte-for-byte; it grants no consent, transfer or guest reclassification"
+    },
+    {
+      "name": "clean-owner-switch-health-projection",
+      "given": "OWNED(A) health versions and heads exactly match their acknowledged serverSequence/healthRevision baseline, cursor is committed, needsFullRefresh is false, staging and both exact health journals are empty, and the full shared preservation footprint fingerprint is current",
+      "interleaving": "under the singleton sync mutex the final Room transaction rechecks active work, owner phase and the complete fingerprint before committing OWNED(B); B tokens install only after that commit",
+      "expected": "the transaction may remove A's recoverable local health projection and sync metadata while preserving server audit; any concurrent local version, head change, journal, staging row, refresh flag, cancellation or fingerprint mismatch aborts before cleanup/ownership/token mutation"
+    },
+    {
+      "name": "body-measurement-exclusion",
+      "given": "existing BodyMeasurementEntity and measurement:<id> remote record resemble a manual observation",
+      "interleaving": "health full refresh, capture and Analysis projection run",
+      "expected": "zero health version/head/baseline/outbox rows originate from measurement; existing measurement transport unchanged; UI references local measurement ID once"
+    }
+  ]
+}
