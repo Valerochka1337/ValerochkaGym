@@ -40,15 +40,15 @@
 | 03 / #44 | fix/completed-set-edit | done_local | 8c243e4; full1002 tests 0failures,1skipped; debugPASS; GateV/T PASS с принятым popup P2;31/1.3.23 |
 | 04 / #47 | fix/workout-finish | done_local | 26b2b96; full1012tests0failures,1skipped/debugPASS; GateT/V PASS;32/1.3.24 |
 | 05 / #5 | fix/empty-workout-start | done_local | 6ecb7a0; full1013tests0failures,1skipped/debug/spotlessPASS; independentreviewPASS;33/1.3.25 |
-| 06 / #10 | fix/permission-recovery | in_progress | implementerT001–004, planned34/1.3.26; matchingActivityResult andlivegrant invariants |
-| 07 / #48 | следующая feat/yarumo-rebrand | plan_ready | Gate P strict PASS; неизменный исходник + XML fill/inset, точные identity/signer/R8/forward rollback gates |
+| 06 / #10 | fix/permission-recovery | done_local | 455f05a; full1035tests0failures/1skip,debugPASS,T/VPASS;34/1.3.26 |
+| 07 / #48 | feat/yarumo-rebrand | in_progress | Gate P strict PASS; неизменный исходник + XML fill/inset, точные identity/signer/R8/forward rollback gates |
 | 08 / #43 | следующая feat/google-account-calendar | plan_ready | Gate P strict PASS; verified connected identity, account-bound operations, ownerless quarantine and saved consent target |
 | 11–12 / #51 | следующая feat/guest-sync | plan_ready | Gate P strict recheck PASS, шесть замечаний claim/token/conflict/migration закрыты |
 | CAL-01 server slice | backend feat/calendar-plan-contract | done_local | c73c411; full check/bootJar PASS, 44 tests 0 failures; strict PASS; upstream push/deploy blocked READ rights; Android Room slice ждёт этап12 |
 | AI-01 server slice | backend feat/server-ai-drafts | done_local | a5b567a; Gate T/V PASS; full check/bootJar64tests0failures;15 Python delivery tests PASS; READ rights block upstream; Android slice ждёт12 |
 | 10 / #9 server slice | backend feat/workout-notes-contract | done_local | f26de34; Gate T/V PASS; full68tests0failures/check/bootJarPASS; Android slice waits12/CAL01 |
 
-| 14–15 / #50 server slice | backend feat/basic-profile-contract | in_progress | strict P PASS; one owner-profile + redacted AI context; Android follows notes/current schema |
+| 14–15 / #50 server slice | backend feat/basic-profile-contract | done_local | 03a0c1d; Gate T/V PASS; full72tests0failures/check/bootJarPASS; Android follows notes/current schema |
 
 ## Инфраструктура и релиз
 

@@ -5,7 +5,7 @@
 | Task | Status | Owner | Depends | AC | Evidence / observable done condition |
 |---|---|---|---|---|---|
 | T-001 | pending | Root contract owner | #51, CAL-01, AI-01 | AC-002–006 | Three canonical fixture copies have identical SHA-256 and owner-7 UUID/capability/null/tombstone/downgrade matrix. |
-| T-002 | pending | Backend writer | T-001 | AC-003,005–007 | Backend integration matrix proves tombstone reject before ledger/revision, capability preservation and provider redaction; `test`, `bootJar`. |
+| T-002 | done | Backend writer | T-001 | AC-003,005–007 | 03a0c1d; strict T/V PASS; full 72 tests, 0 failures/errors/skips; check/bootJar PASS. |
 | T-003 | pending | Android writer, sole Room owner | T-001,T-002, #08/#12/CAL-01/#9 | AC-001–007,010 | Actual `N→N+1` migration/schema and Profile/BackendSync tests prove incoming tombstone and accepted→missing→accepted safety. |
 | T-004 | pending | Same Android writer | T-003, AI-01 Android boundary | AC-001–004,008–010 | Profile/DataStore/AI-gate/ViewModel/Compose tests cover reservation/shown ack and three process-death windows; compile passes. |
 | T-005 | pending | Same Android writer | T-003,T-004 | AC-001–010 | One version increment, actual N and Gate I evidence recorded. |
@@ -43,3 +43,5 @@ DataStore cannot atomically commit with Room; the reservation/shown-ack/token pr
 Root: strict Sol/high narrow Gate P recheck PASS; all three P1 findings closed.
 
 Root canonical fixture prepared at vibe/basic-profile-sync-contract.json, SHA256 1bec288ad8d841efaf645af13ac5ea1cbe2b53c841846589c8101cfe3f524ed6. Per-checkout copies wait their feature branches; no app changes mixed into preparation.
+
+Backend copy matches the canonical SHA. Android copy remains T-001 outstanding work on its feature branch. Backend final log: `/private/tmp/yarumo-profile-backend-final-fixed.log`; migration 009, unique owner profile and tombstone rejection, UTC age-only AI projection verified. Existing admin-session expiry test uses a fixed expired timestamp to remove database/JVM clock skew; production expiry behavior is unchanged.
