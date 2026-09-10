@@ -38,12 +38,21 @@ sealed interface TokenResult {
  * (Стадии 19/21) от конкретной реализации на Credential Manager / AuthorizationClient — чтобы их
  * можно было мокать в тестах.
  */
-interface GoogleAuth {
+interface GoogleAuth : AccountBoundGoogleAuth {
+
+  /** Explicit account picker. It returns a candidate and does not establish Calendar access. */
+  suspend fun selectAccount(activity: Activity): Result<String>
+
+  /** Requests calendar.events for one exact normalized account. */
+  suspend fun authorizeForAccount(activity: Activity, expectedEmail: String): AuthorizeOutcome
+
+  /** Revokes calendar.events for one exact account without clearing backend credentials. */
+  suspend fun revokeCalendarAccess(expectedEmail: String): Result<Unit>
 
   /**
    * Вход через Credential Manager. Требует Activity-контекст (системный UI выбора аккаунта). В
-   * случае успеха email сохраняется в настройки и возвращается в [Result]. Отмена пользователем —
-   * «тихий» [Result.failure] без побочных эффектов.
+   * случае успеха email возвращается как кандидат без изменения Calendar identity. Отмена
+   * пользователем — «тихий» [Result.failure] без побочных эффектов.
    */
   suspend fun signIn(activity: Activity): Result<String>
 
@@ -59,7 +68,9 @@ interface GoogleAuth {
    */
   suspend fun getAccessToken(): TokenResult
 
-  /** Выход: очищает состояние Credential Manager и стирает сохранённый email. */
+  override suspend fun getAccessTokenForAccount(expectedEmail: String): TokenResult
+
+  /** Legacy full sign-out retained for old callers; Calendar disconnect does not use it. */
   suspend fun signOut()
 }
 

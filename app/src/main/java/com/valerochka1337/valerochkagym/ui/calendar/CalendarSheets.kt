@@ -40,10 +40,14 @@ internal fun DayModalBottomSheet(
     onDismiss: () -> Unit,
     onWorkoutClick: (String) -> Unit,
     onStartAdHoc: (AdHocUi) -> Unit,
-    onCancelAdHoc: (Long) -> Unit,
+    onCancelAdHoc: (String) -> Unit,
+    onMoveAdHoc: (AdHocUi) -> Unit,
     onStartRecurring: (Long) -> Unit,
+    onCancelRecurring: (RecurringUi) -> Unit,
+    onMoveRecurring: (RecurringUi) -> Unit,
     onEditSchedule: () -> Unit,
     onPlan: () -> Unit,
+    editingEnabled: Boolean,
 ) {
   ModalBottomSheet(
       onDismissRequest = onDismiss,
@@ -96,12 +100,22 @@ internal fun DayModalBottomSheet(
                   modifier = Modifier.weight(1f),
               )
             }
-            TextButton(onClick = { onCancelAdHoc(item.scheduledId) }) { Text("Удалить") }
+            TextButton(
+                onClick = { onMoveAdHoc(item) },
+                enabled = editingEnabled,
+            ) {
+              Text("Перенести")
+            }
+            TextButton(onClick = { onCancelAdHoc(item.planId) }, enabled = editingEnabled) {
+              Text("Отменить")
+            }
           }
         }
       }
 
-      day.recurring?.let { rule ->
+      day.planMessage?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+
+      day.recurring.forEach { rule ->
         SectionLabel("Из расписания")
         GymCard(
             modifier = Modifier.fillMaxWidth(),
@@ -117,12 +131,22 @@ internal fun DayModalBottomSheet(
                   modifier = Modifier.weight(1f),
               )
             }
-            TextButton(onClick = onEditSchedule) { Text("Изменить расписание") }
+            TextButton(onClick = onEditSchedule, enabled = editingEnabled) {
+              Text("Изменить расписание")
+            }
+          }
+          Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            TextButton(onClick = { onMoveRecurring(rule) }, enabled = editingEnabled) {
+              Text("Перенести")
+            }
+            TextButton(onClick = { onCancelRecurring(rule) }, enabled = editingEnabled) {
+              Text("Отменить")
+            }
           }
         }
       }
 
-      if (day.completed.isEmpty() && day.adHoc.isEmpty() && day.recurring == null) {
+      if (day.completed.isEmpty() && day.adHoc.isEmpty() && day.recurring.isEmpty()) {
         Text(
             text = "В этот день ничего нет",
             style = MaterialTheme.typography.bodyMedium,
@@ -132,7 +156,12 @@ internal fun DayModalBottomSheet(
 
       if (day.allowPlan) {
         Spacer(Modifier.height(4.dp))
-        PillButton(text = "Запланировать", onClick = onPlan, modifier = Modifier.fillMaxWidth())
+        PillButton(
+            text = "Запланировать",
+            onClick = onPlan,
+            enabled = editingEnabled,
+            modifier = Modifier.fillMaxWidth(),
+        )
       }
     }
   }

@@ -5,6 +5,8 @@ import androidx.room.Room
 import androidx.sqlite.db.SimpleSQLiteQuery
 import androidx.test.core.app.ApplicationProvider
 import com.valerochka1337.valerochkagym.data.db.GymDatabase
+import com.valerochka1337.valerochkagym.data.db.entity.CalendarMigrationPhase
+import com.valerochka1337.valerochkagym.data.db.entity.CalendarMigrationStateEntity
 import com.valerochka1337.valerochkagym.data.db.entity.WorkoutEntity
 import com.valerochka1337.valerochkagym.data.db.entity.WorkoutExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.WorkoutSetEntity
@@ -39,6 +41,13 @@ abstract class RoomDaoTest {
     com.valerochka1337.valerochkagym.data.backend.CatalogSchema.publishEquipment(
         db.openHelper.writableDatabase
     )
+    com.valerochka1337.valerochkagym.data.db.CalendarEventAccountLinkSchema.install(
+        db.openHelper.writableDatabase
+    )
+    kotlinx.coroutines.runBlocking {
+      db.calendarPlanDao().insertMigrationState(CalendarMigrationStateEntity())
+      db.calendarPlanDao().setMigrationPhase(CalendarMigrationPhase.READY)
+    }
   }
 
   @After

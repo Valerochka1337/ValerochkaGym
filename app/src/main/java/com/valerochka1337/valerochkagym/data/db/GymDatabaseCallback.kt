@@ -31,6 +31,7 @@ constructor(
     com.valerochka1337.valerochkagym.data.backend.SyncSchema.install(db)
     com.valerochka1337.valerochkagym.data.backend.CatalogSchema.install(db)
     com.valerochka1337.valerochkagym.data.backend.CatalogSchema.publishEquipment(db)
+    CalendarEventAccountLinkSchema.install(db)
     scope.launch {
       val database = database.get()
       // The canonical catalogue is the local authority. This is idempotent and deliberately

@@ -1,5 +1,6 @@
 package com.valerochka1337.valerochkagym.data.db.entity
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Index
@@ -29,4 +30,5 @@ data class WorkoutSetEntity(
     val inclinePct: Double? = null,
     val isCompleted: Boolean = false,
     val completedAt: Long? = null,
+    @ColumnInfo(defaultValue = "''") val note: String = "",
 )

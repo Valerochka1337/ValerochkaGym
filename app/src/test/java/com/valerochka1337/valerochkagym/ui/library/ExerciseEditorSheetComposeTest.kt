@@ -13,11 +13,15 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.unit.Density
+import com.valerochka1337.valerochkagym.data.db.EquipmentCatalog
+import com.valerochka1337.valerochkagym.data.db.LocalEquipmentCatalog
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
 import com.valerochka1337.valerochkagym.data.db.entity.Muscle
 import com.valerochka1337.valerochkagym.domain.ExerciseEquipmentRequirements
 import com.valerochka1337.valerochkagym.ui.theme.GymTheme
+import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -27,6 +31,21 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(application = Application::class, qualifiers = "w420dp-h800dp-xhdpi")
 class ExerciseEditorSheetComposeTest {
+
+  private lateinit var previousCatalog: List<LocalEquipmentCatalog.Entry>
+
+  @Before
+  fun loadEquipmentCatalog() {
+    previousCatalog = LocalEquipmentCatalog.state.value
+    LocalEquipmentCatalog.publish(
+        EquipmentCatalog.entries.map { LocalEquipmentCatalog.Entry(it, false) }
+    )
+  }
+
+  @After
+  fun restoreEquipmentCatalog() {
+    LocalEquipmentCatalog.publish(previousCatalog)
+  }
 
   @get:Rule val compose = createComposeRule()
 

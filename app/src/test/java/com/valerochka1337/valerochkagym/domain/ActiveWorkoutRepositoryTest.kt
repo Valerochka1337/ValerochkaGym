@@ -41,6 +41,68 @@ class ActiveWorkoutRepositoryTest : RoomDaoTest() {
     repository = ActiveWorkoutRepositoryImpl(db, workoutDao, routineDao)
   }
 
+  @Test
+  fun `set note is guarded by active workout and survives a stale numeric entity save`() = runTest {
+    val exercise = addExercise("Заметка")
+    val workoutId = repository.startEmpty()
+    val section = repository.addExercise(workoutId, exercise)
+    val stale = workoutDao.getSetsForWorkoutExercise(section).single()
+
+    assertEquals(NoteSaveResult.Saved, repository.saveSetNote(workoutId, stale.id, "  cue  "))
+    repository.updateSet(stale.copy(reps = 8))
+
+    assertEquals("cue", workoutDao.getSet(stale.id)?.note)
+    assertEquals(
+        NoteSaveResult.TooLong,
+        repository.saveSetNote(workoutId, stale.id, "x".repeat(2001)),
+    )
+    repository.finish(workoutId)
+    assertEquals(
+        NoteSaveResult.MissingOrInactive,
+        repository.saveSetNote(workoutId, stale.id, "later"),
+    )
+  }
+
+  @Test
+  fun `notes only incomplete set survives finish while copied history remains incomplete`() =
+      runTest {
+        val exercise = addExercise("Подсказка")
+        val workoutId = repository.startEmpty()
+        val section = repository.addExercise(workoutId, exercise)
+        val set = workoutDao.getSetsForWorkoutExercise(section).single()
+
+        assertEquals(NoteSaveResult.Saved, repository.saveSetNote(workoutId, set.id, "наблюдение"))
+        repository.finish(workoutId)
+
+        val saved = workoutFull(workoutId).exercises.single().sets.single()
+        assertFalse(saved.isCompleted)
+        assertEquals("наблюдение", saved.note)
+      }
+
+  @Test
+  fun `set note stays on its row through reorder while duplicate is empty and cascade removes it`() =
+      runTest {
+        val firstExercise = addExercise("Первое")
+        val secondExercise = addExercise("Второе")
+        val workoutId = repository.startEmpty()
+        val firstSection = repository.addExercise(workoutId, firstExercise)
+        val secondSection = repository.addExercise(workoutId, secondExercise)
+        val noted = workoutDao.getSetsForWorkoutExercise(firstSection).single()
+        assertEquals(
+            NoteSaveResult.Saved,
+            repository.saveSetNote(workoutId, noted.id, "только этот"),
+        )
+
+        repository.addSet(firstSection)
+        repository.reorderExercises(workoutId, listOf(secondSection, firstSection))
+
+        val rows = workoutDao.getSetsForWorkoutExercise(firstSection)
+        assertEquals("только этот", rows.single { it.id == noted.id }.note)
+        assertEquals("", rows.single { it.id != noted.id }.note)
+        repository.deleteExercise(firstSection)
+        assertEquals(null, workoutDao.getSet(noted.id))
+      }
+
   // region startFromRoutine
 
   @Test
@@ -438,6 +500,81 @@ class ActiveWorkoutRepositoryTest : RoomDaoTest() {
 
     repository.toggleSetCompleted(setId, completed = false)
     assertFalse(setById(workoutExerciseId, setId).isCompleted)
+  }
+
+  @Test
+  fun `completed strength edit changes only strength numbers and preserves completion metadata`() =
+      runTest {
+        val exercise = addExercise("Жим", ExerciseType.STRENGTH)
+        val workoutId = repository.startEmpty()
+        val workoutExerciseId = repository.addExercise(workoutId, exercise)
+        val original =
+            workoutDao
+                .getSetsForWorkoutExercise(workoutExerciseId)
+                .single()
+                .copy(
+                    weightKg = 60.0,
+                    reps = 10,
+                    durationSec = 120,
+                    speedKmh = 9.0,
+                    inclinePct = 4.0,
+                    isCompleted = true,
+                    completedAt = 456L,
+                )
+        repository.updateSet(original)
+
+        val result =
+            repository.updateCompletedSetNumbers(
+                original.copy(weightKg = 72.5, reps = 8, durationSec = 999),
+                ExerciseType.STRENGTH,
+            )
+
+        val stored = setById(workoutExerciseId, original.id)
+        assertEquals(CompletedSetEditResult.Saved, result)
+        assertEquals(72.5, stored.weightKg!!, 0.0)
+        assertEquals(8, stored.reps)
+        assertEquals(120, stored.durationSec)
+        assertEquals(9.0, stored.speedKmh!!, 0.0)
+        assertEquals(4.0, stored.inclinePct!!, 0.0)
+        assertTrue(stored.isCompleted)
+        assertEquals(456L, stored.completedAt)
+      }
+
+  @Test
+  fun `completed edit rejects unfinished or wrong type rows without changing them`() = runTest {
+    val timed = addExercise("Планка", ExerciseType.TIMED)
+    val workoutId = repository.startEmpty()
+    val workoutExerciseId = repository.addExercise(workoutId, timed)
+    val original =
+        workoutDao
+            .getSetsForWorkoutExercise(workoutExerciseId)
+            .single()
+            .copy(
+                durationSec = 60,
+                isCompleted = true,
+                completedAt = 456L,
+            )
+    repository.updateSet(original)
+
+    val wrongType =
+        repository.updateCompletedSetNumbers(
+            original.copy(weightKg = 80.0, reps = 5),
+            ExerciseType.STRENGTH,
+        )
+    repository.finish(workoutId)
+    val finished =
+        repository.updateCompletedSetNumbers(
+            original.copy(durationSec = 75),
+            ExerciseType.TIMED,
+        )
+
+    val stored = setById(workoutExerciseId, original.id)
+    assertEquals(CompletedSetEditResult.MissingOrInactive, wrongType)
+    assertEquals(CompletedSetEditResult.MissingOrInactive, finished)
+    assertEquals(60, stored.durationSec)
+    assertEquals(null, stored.weightKg)
+    assertTrue(stored.isCompleted)
+    assertEquals(456L, stored.completedAt)
   }
 
   // endregion

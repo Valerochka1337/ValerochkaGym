@@ -1,0 +1,222 @@
+package com.valerochka1337.valerochkagym.data.ai
+
+import com.valerochka1337.valerochkagym.data.backend.*
+import com.valerochka1337.valerochkagym.data.db.GymDatabase
+import com.valerochka1337.valerochkagym.data.db.LocalEquipmentCatalog
+import com.valerochka1337.valerochkagym.data.db.entity.EquipmentRequirementState
+import com.valerochka1337.valerochkagym.data.db.entity.Muscle
+import com.valerochka1337.valerochkagym.data.trainingproposal.*
+import com.valerochka1337.valerochkagym.service.WallClock
+import java.time.Instant
+import java.time.ZoneId
+import java.util.UUID
+import javax.inject.Inject
+import javax.inject.Singleton
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.encodeToString
+
+/** Only user intent is sent. History, catalog, profile and notes are read by the backend. */
+@Serializable
+data class CalendarAiIntent(
+    val startsAtMillis: Long,
+    val timeZoneId: String,
+    val gymIds: List<String>,
+    val excludedExerciseIds: List<String> = emptyList(),
+    val excludedEquipmentIds: List<String> = emptyList(),
+    val priorityMuscles: List<String> = emptyList(),
+    val includeNotes: Boolean = true,
+    val availableDurationMinutes: Int = 60,
+    val currentState: String? = null,
+    val preferences: String? = null,
+) {
+  fun valid(nowMillis: Long): Boolean =
+      runCatching {
+            val zone = ZoneId.of(timeZoneId)
+            require(
+                timeZoneId in ZoneId.getAvailableZoneIds() &&
+                    Instant.ofEpochMilli(startsAtMillis).atZone(zone).year in 1970..2100 &&
+                    startsAtMillis > nowMillis
+            )
+            require(availableDurationMinutes in 10..240)
+            require(
+                listOf(gymIds, excludedExerciseIds).all {
+                  it.size <= 1000 && it.distinct().size == it.size && it.all(ProposalWire::uuid)
+                }
+            )
+            require(
+                excludedEquipmentIds.size <= 200 &&
+                    excludedEquipmentIds.distinct().size == excludedEquipmentIds.size &&
+                    excludedEquipmentIds.all {
+                      it.isNotBlank() && it.length <= 255 && it == it.trim()
+                    }
+            )
+            require(
+                priorityMuscles.size <= 25 &&
+                    priorityMuscles.distinct().size == priorityMuscles.size &&
+                    priorityMuscles.all { p -> Muscle.entries.any { it.name == p } }
+            )
+            require(
+                listOf(currentState, preferences).all {
+                  it == null ||
+                      it.isNotBlank() && it == it.trim() && it.codePointCount(0, it.length) <= 2000
+                }
+            )
+          }
+          .isSuccess
+}
+
+@Serializable
+private data class CalendarRequest(
+    val requestId: String,
+    val expectedRevision: Long,
+    val expectedCatalogRevision: Long,
+    val startsAtMillis: Long,
+    val timeZoneId: String,
+    val gymIds: List<String>,
+    val excludedExerciseIds: List<String>,
+    val excludedEquipmentIds: List<String>,
+    val priorityMuscles: List<String>,
+    val includeNotes: Boolean,
+    val availableDurationMinutes: Int,
+    val currentState: String?,
+    val preferences: String?,
+)
+
+@Serializable
+private data class CalendarContext(
+    val revision: Long,
+    val catalogRevision: Long,
+    val capturedAtMillis: Long,
+)
+
+@Serializable
+private data class CalendarResponse(
+    val requestId: String,
+    val context: CalendarContext,
+    val proposal: TrainingProposal,
+)
+
+@Singleton
+class CalendarAiRepository
+@Inject
+constructor(
+    private val api: BackendTransport,
+    private val readySource: SyncReadySource,
+    private val db: GymDatabase,
+    private val clock: WallClock,
+) {
+  suspend fun generate(intent: CalendarAiIntent): TrainingProposal {
+    require(intent.valid(clock.nowMillis()))
+    val ready =
+        readySource.await() as? SyncReady.Ready
+            ?: throw BackendException(409, "ai_context_stale", "Сначала завершите синхронизацию")
+    suspend fun guard() {
+      if (!readySource.isCurrent(ready) || db.healthDao().hasActiveWorkout())
+          throw BackendException(
+              409,
+              "ai_context_stale",
+              "Сначала завершите тренировку и синхронизацию",
+          )
+    }
+    guard()
+    val gyms = db.gymDao().getGyms().filterNot { it.archived }
+    require(intent.gymIds.all { id -> gyms.any { it.syncId == id } })
+    val selected = gyms.filter { it.syncId in intent.gymIds }
+    val equipment = selected.flatMap { db.gymDao().getGymEquipmentIds(it.id) }.toSet()
+    val exercises = db.exerciseDao().getAllOnce().filterNot { it.archived }
+    val requirements =
+        db.exerciseDao().getRequirements(exercises.map { it.id }).groupBy { it.exerciseId }
+    val allowed =
+        exercises
+            .filter { e ->
+              val req = requirements[e.id].orEmpty().map { it.equipmentId }
+              e.syncId !in intent.excludedExerciseIds &&
+                  req.none { it in intent.excludedEquipmentIds } &&
+                  (intent.gymIds.isEmpty() ||
+                      e.equipmentRequirementState == EquipmentRequirementState.KNOWN &&
+                          req.all { LocalEquipmentCatalog.covers(equipment, it) })
+            }
+            .map { it.syncId }
+            .toSet()
+    require(allowed.isNotEmpty())
+    guard()
+    val id = UUID.randomUUID().toString()
+    val request =
+        CalendarRequest(
+            id,
+            ready.revision,
+            ready.catalogRevision,
+            intent.startsAtMillis,
+            intent.timeZoneId,
+            intent.gymIds.sorted(),
+            intent.excludedExerciseIds.sorted(),
+            intent.excludedEquipmentIds.sorted(),
+            intent.priorityMuscles.sorted(),
+            intent.includeNotes,
+            intent.availableDurationMinutes,
+            intent.currentState,
+            intent.preferences,
+        )
+    val response =
+        api.authorizedRawResponse(
+            "POST",
+            "/ai/calendar-drafts",
+            ProposalWire.json.encodeToString(request).encodeToByteArray(),
+            expectedOwner = ready.owner,
+            expectedSessionEpoch = ready.sessionEpoch,
+            retryOnUnauthorized = false,
+            maxResponseBytes = ProposalWire.RESPONSE_LIMIT,
+        )
+    guard()
+    require(response.owner == ready.owner && response.sessionEpoch == ready.sessionEpoch)
+    val result = ProposalWire.decode<CalendarResponse>(response.rawBody)
+    require(
+        result.requestId == id &&
+            result.context.revision == ready.revision &&
+            result.context.catalogRevision == ready.catalogRevision &&
+            result.context.capturedAtMillis >= 0
+    )
+    val p = result.proposal
+    require(
+        ProposalWire.valid(p) &&
+            p.recipientId == ready.owner &&
+            p.source == ProposalSource.AI &&
+            p.status == ProposalStatus.PENDING &&
+            p.author.accountId == null
+    )
+    require(
+        p.snapshot.ownerRevision == ready.revision &&
+            p.snapshot.catalogRevision == ready.catalogRevision
+    )
+    require(
+        p.snapshot.draft.startsAtMillis == intent.startsAtMillis &&
+            p.snapshot.draft.timeZoneId == intent.timeZoneId &&
+            p.snapshot.draft.gymIds == intent.gymIds.sorted() &&
+            p.snapshot.draft.exercises.all { it.exerciseId in allowed }
+    )
+    require(
+        p.snapshot.draft.exercises.all { planned ->
+          val type = exercises.first { it.syncId == planned.exerciseId }.type.name
+          planned.plannedSets.all { set ->
+            when (type) {
+              "STRENGTH" ->
+                  set.reps != null &&
+                      set.durationSec == null &&
+                      set.speedKmh == null &&
+                      set.inclinePct == null
+              "TIMED" ->
+                  set.reps == null &&
+                      set.weightKg == null &&
+                      set.durationSec != null &&
+                      set.speedKmh == null &&
+                      set.inclinePct == null
+              "CARDIO" -> set.reps == null && set.weightKg == null && set.durationSec != null
+              else -> false
+            }
+          }
+        }
+    )
+    guard()
+    return p
+  }
+}

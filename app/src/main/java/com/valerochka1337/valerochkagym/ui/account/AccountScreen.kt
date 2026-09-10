@@ -28,11 +28,14 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.valerochka1337.valerochkagym.data.backend.GuestSyncPhase
 import com.valerochka1337.valerochkagym.ui.components.GymCard
 
 @Composable
-fun AccountGate(content: @Composable () -> Unit) {
-  val vm: AccountViewModel = hiltViewModel()
+fun AccountGate(
+    vm: AccountViewModel = hiltViewModel(),
+    content: @Composable () -> Unit,
+) {
   val session by vm.session.collectAsStateWithLifecycle()
   if (session != null) key(session!!.userId) { content() }
   else
@@ -50,7 +53,7 @@ fun AccountGate(content: @Composable () -> Unit) {
               Modifier.widthIn(max = 480.dp).fillMaxWidth(),
               verticalArrangement = Arrangement.spacedBy(8.dp),
           ) {
-            Text("ValerochkaGym", style = MaterialTheme.typography.headlineLarge)
+            Text("Yarumo coach", style = MaterialTheme.typography.headlineLarge)
             Text(
                 "Ваши тренировки. Ваш прогресс.",
                 style = MaterialTheme.typography.bodyLarge,
@@ -69,6 +72,7 @@ internal fun AccountForm(vm: AccountViewModel, onGoogleSignIn: (() -> Unit)? = n
   val busy by vm.busy.collectAsStateWithLifecycle()
   val message by vm.message.collectAsStateWithLifecycle()
   val mode by vm.mode.collectAsStateWithLifecycle()
+  val transfer by vm.transfer.collectAsStateWithLifecycle()
   var email by rememberSaveable { mutableStateOf("") }
   // Credentials stay in memory and are never written to saved instance state.
   var password by remember { mutableStateOf("") }
@@ -129,6 +133,12 @@ internal fun AccountForm(vm: AccountViewModel, onGoogleSignIn: (() -> Unit)? = n
           style = MaterialTheme.typography.bodyMedium,
           color = MaterialTheme.colorScheme.onSurfaceVariant,
       )
+      if (transfer.phase == GuestSyncPhase.CLAIMED)
+          Text(
+              "Перенос данных ожидает входа в тот же аккаунт, с которым начали перенос. Войдите в него, чтобы продолжить.",
+              style = MaterialTheme.typography.bodyMedium,
+              color = MaterialTheme.colorScheme.error,
+          )
       if (mode == "login" || mode == "register") {
         OutlinedButton(
             onClick = {

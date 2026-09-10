@@ -1,4 +1,4 @@
-# ValerochkaGym
+# Yarumo coach
 
 Android-приложение для ведения силовых тренировок: планы тренировок, библиотека упражнений с
 разметкой мышц и отдельными карточками статистики, активная тренировка с таймером отдыха,
@@ -7,6 +7,22 @@ Android-приложение для ведения силовых трениро
 
 - Пакет: `com.valerochka1337.valerochkagym`
 - minSdk 36, Kotlin + Jetpack Compose (Material 3), Hilt, Room, DataStore.
+
+## Бренд и совместимость
+
+Пользовательское название приложения — **Yarumo coach**. Ребрендинг не меняет техническую
+идентичность уже установленного приложения: package/application ID и namespace остаются
+`com.valerochka1337.valerochkagym`, тема — `Theme.ValerochkaGym`, а release-подпись и manifest
+authorities `${applicationId}.inbody-import` и `${applicationId}.androidx-startup` сохраняются.
+Локальная база остаётся `gym.db`; DataStore-файлы — `settings`, `ai_secrets` и
+`weekly_schedule_operations`; стабильные UUID-префиксы `ValerochkaGym.exercise:`,
+`ValerochkaGym.canonical-exercise:` и `ValerochkaGym.schedule:` также не переименовываются.
+
+Google OAuth продолжает использовать существующий ключ ресурса `google_web_client_id` и прежнюю
+Android-привязку package name + SHA-1. Репозиторий обновлений остаётся
+`Valerochka1337/ValerochkaGym`, а ожидаемый APK asset — `ValerochkaGym-v<version>.apk`.
+При необходимости владелец отдельно меняет отображаемое имя consent screen в Google Cloud Console:
+это внешняя настройка, не поставляемая Android-репозиторием.
 
 ## Аккаунт и backend
 
@@ -247,7 +263,7 @@ API key шифруется через Android Keystore; после сохран�
 
 | Карточка | Что настраивается |
 |---|---|
-| Аккаунт ValerochkaGym | Google/email, синхронизация, конфликты, сессии, удаление аккаунта |
+| Аккаунт Yarumo coach | Google/email, синхронизация, конфликты, сессии, удаление аккаунта |
 | Google Calendar | отдельный Google-аккаунт и OAuth-доступ к календарю |
 | Тренажёрные залы | названия залов и доступные в каждом упражнения |
 | Нейросеть | Base URL, зашифрованный API key и общая модель для упражнений и InBody |
@@ -272,7 +288,7 @@ Release-сборка при холодном запуске проверяет �
 
 Скачанный APK не передаётся Android вслепую: приложение проверяет размер и SHA-256 из GitHub,
 свой package name, версию, монотонный `versionCode` и совпадение release-подписи. После этого
-Android один раз попросит разрешить ValerochkaGym устанавливать приложения из этого источника и
+Android один раз попросит разрешить Yarumo coach устанавливать приложения из этого источника и
 покажет собственный экран подтверждения установки. Автопроверка намеренно отключена в debug APK,
 потому что debug- и release-подписи различаются; ручная кнопка остаётся доступной.
 

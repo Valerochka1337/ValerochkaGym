@@ -1,13 +1,21 @@
 package com.valerochka1337.valerochkagym.ui.active
 
 import android.app.Application
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertHeightIsAtLeast
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.dp
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleGroup
@@ -16,12 +24,15 @@ import com.valerochka1337.valerochkagym.data.db.entity.WorkoutExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.WorkoutSetEntity
 import com.valerochka1337.valerochkagym.data.db.relation.WorkoutExerciseWithSets
 import com.valerochka1337.valerochkagym.data.db.relation.WorkoutFull
+import com.valerochka1337.valerochkagym.domain.ExercisePersonalHint
 import com.valerochka1337.valerochkagym.service.RestTimerState
 import com.valerochka1337.valerochkagym.service.heartrate.HeartRateConnectionState
 import com.valerochka1337.valerochkagym.service.heartrate.HeartRateReading
 import com.valerochka1337.valerochkagym.ui.theme.GymTheme
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -36,6 +47,141 @@ import org.robolectric.annotation.GraphicsMode
 class ActiveWorkoutScreenTest {
 
   @get:Rule val composeRule = createComposeRule()
+
+  @Test
+  fun `active screen exposes a set note and its edit action`() {
+    val workout =
+        workoutWithIncompleteExercises()
+            .copy(
+                exercises =
+                    workoutWithIncompleteExercises().exercises.map { exercise ->
+                      exercise.copy(
+                          sets =
+                              exercise.sets.map { set ->
+                                if (set.id == FIRST_SET_ID) set.copy(note = "Не спешить") else set
+                              },
+                      )
+                    },
+            )
+    composeRule.setContent {
+      GymTheme {
+        ActiveWorkoutContent(
+            state = ActiveWorkoutUiState(loading = false, workout = workout),
+            elapsedSeconds = MutableStateFlow(0L),
+            restTimer = MutableStateFlow<RestTimerState?>(null),
+            heartRateState =
+                MutableStateFlow<HeartRateConnectionState>(HeartRateConnectionState.Idle),
+            heartRateReading = MutableStateFlow<HeartRateReading?>(null),
+            setActions = noOpSetActions(),
+            onDeleteExercise = {},
+            onReorderExercises = {},
+            onAddExercise = {},
+            onExerciseClick = {},
+            onFinish = {},
+            onDiscard = {},
+            onAddRestSeconds = {},
+            onSkipRest = {},
+            onScanHeartRate = {},
+            onConnectHeartRate = {},
+            onCancelHeartRateSelection = {},
+        )
+      }
+    }
+
+    composeRule.onNodeWithText("Не спешить").assertIsDisplayed()
+    composeRule.onAllNodesWithText("Заметка к подходу").assertCountEquals(3)
+  }
+
+  @Test
+  fun `set note remains reachable at font scale two`() {
+    val workout =
+        workoutWithIncompleteExercises()
+            .copy(
+                exercises =
+                    workoutWithIncompleteExercises().exercises.map { exercise ->
+                      exercise.copy(
+                          sets =
+                              exercise.sets.map { set ->
+                                if (set.id == FIRST_SET_ID) set.copy(note = "Не спешить") else set
+                              },
+                      )
+                    },
+            )
+    composeRule.setContent {
+      CompositionLocalProvider(LocalDensity provides Density(density = 1f, fontScale = 2f)) {
+        GymTheme {
+          ActiveWorkoutContent(
+              state = ActiveWorkoutUiState(loading = false, workout = workout),
+              elapsedSeconds = MutableStateFlow(0L),
+              restTimer = MutableStateFlow<RestTimerState?>(null),
+              heartRateState =
+                  MutableStateFlow<HeartRateConnectionState>(HeartRateConnectionState.Idle),
+              heartRateReading = MutableStateFlow<HeartRateReading?>(null),
+              setActions = noOpSetActions(),
+              onDeleteExercise = {},
+              onReorderExercises = {},
+              onAddExercise = {},
+              onExerciseClick = {},
+              onFinish = {},
+              onDiscard = {},
+              onAddRestSeconds = {},
+              onSkipRest = {},
+              onScanHeartRate = {},
+              onConnectHeartRate = {},
+              onCancelHeartRateSelection = {},
+          )
+        }
+      }
+    }
+
+    composeRule.onNodeWithText("Не спешить").assertIsDisplayed()
+    composeRule.onAllNodesWithText("Заметка к подходу").assertCountEquals(3)
+  }
+
+  @Test
+  fun `active hint exposes edit and unpin actions before the first set`() {
+    val edited = mutableListOf<Long>()
+    val unpinned = mutableListOf<Long>()
+    val workout = workoutWithIncompleteExercises()
+    composeRule.setContent {
+      GymTheme {
+        ActiveWorkoutContent(
+            state =
+                ActiveWorkoutUiState(
+                    loading = false,
+                    workout = workout,
+                    hintsByExercise = mapOf(111L to ExercisePersonalHint("Лопатки вместе", 1L)),
+                ),
+            elapsedSeconds = MutableStateFlow(0L),
+            restTimer = MutableStateFlow<RestTimerState?>(null),
+            heartRateState =
+                MutableStateFlow<HeartRateConnectionState>(HeartRateConnectionState.Idle),
+            heartRateReading = MutableStateFlow<HeartRateReading?>(null),
+            setActions =
+                noOpSetActions(
+                    editPersonalHint = { edited += it },
+                    unpinPersonalHint = { unpinned += it },
+                ),
+            onDeleteExercise = {},
+            onReorderExercises = {},
+            onAddExercise = {},
+            onExerciseClick = {},
+            onFinish = {},
+            onDiscard = {},
+            onAddRestSeconds = {},
+            onSkipRest = {},
+            onScanHeartRate = {},
+            onConnectHeartRate = {},
+            onCancelHeartRateSelection = {},
+        )
+      }
+    }
+
+    composeRule.onNodeWithText("Изменить подсказку").performClick()
+    composeRule.onNodeWithText("Убрать подсказку").performClick()
+    assertEquals(listOf(111L), edited)
+    assertEquals(listOf(111L), unpinned)
+  }
 
   @Test
   fun `one completion button follows the focused set`() {
@@ -93,6 +239,9 @@ class ActiveWorkoutScreenTest {
     assertAddSetIsAvailable()
     completeFocusedSet()
     assertEquals(listOf(FIRST_SET_ID), completedSetIds)
+    composeRule
+        .onNodeWithContentDescription("Выполнено, нажмите чтобы изменить фактические значения")
+        .assertIsDisplayed()
     assertAddSetIsAvailable()
 
     completeFocusedSet()
@@ -173,11 +322,263 @@ class ActiveWorkoutScreenTest {
     assertEquals(listOf(12L), addedSetTo)
   }
 
+  @Test
+  fun `strength edit fields show prefilled weight and repetitions`() {
+    renderCompletedEditFields(
+        CompletedSetEditDraft(
+            setId = FIRST_SET_ID,
+            type = ExerciseType.STRENGTH,
+            token = 1L,
+            weightKg = "72.5",
+            reps = "8",
+        ),
+    )
+
+    composeRule.onNodeWithText("Вес, кг").assertIsDisplayed()
+    composeRule.onNodeWithText("Повторы").assertIsDisplayed()
+    composeRule.onNodeWithText("72.5").assertIsDisplayed()
+    composeRule.onNodeWithText("8").assertIsDisplayed()
+  }
+
+  @Test
+  fun `timed edit fields show only prefilled duration`() {
+    renderCompletedEditFields(
+        CompletedSetEditDraft(
+            setId = FIRST_SET_ID,
+            type = ExerciseType.TIMED,
+            token = 1L,
+            durationSec = "75",
+        ),
+    )
+
+    composeRule.onNodeWithText("Длительность, секунды").assertIsDisplayed()
+    composeRule.onNodeWithText("75").assertIsDisplayed()
+    composeRule.onAllNodesWithText("Скорость, км/ч").assertCountEquals(0)
+  }
+
+  @Test
+  fun `cardio edit fields show all prefilled actual values`() {
+    renderCompletedEditFields(
+        CompletedSetEditDraft(
+            setId = FIRST_SET_ID,
+            type = ExerciseType.CARDIO,
+            token = 1L,
+            durationSec = "360",
+            speedKmh = "10.5",
+            inclinePct = "4",
+        ),
+    )
+
+    composeRule.onNodeWithText("Длительность, секунды").assertIsDisplayed()
+    composeRule.onNodeWithText("Скорость, км/ч").assertIsDisplayed()
+    composeRule.onNodeWithText("Наклон, %").assertIsDisplayed()
+    composeRule.onNodeWithText("360").assertIsDisplayed()
+    composeRule.onNodeWithText("10.5").assertIsDisplayed()
+    composeRule.onNodeWithText("4").assertIsDisplayed()
+  }
+
+  @Test
+  fun `nonfinite decimal draft disables saving`() {
+    assertFalse(
+        CompletedSetEditDraft(
+                setId = FIRST_SET_ID,
+                type = ExerciseType.CARDIO,
+                token = 1L,
+                speedKmh = "9".repeat(400),
+            )
+            .isValidNumericInput(),
+    )
+  }
+
+  @Test
+  fun `header exposes a labelled finish action with a 48 dp target`() {
+    renderActiveWorkout(mutableStateOf(workoutWithIncompleteExercises()))
+
+    composeRule
+        .onNodeWithContentDescription("Завершить тренировку")
+        .assertIsDisplayed()
+        .assertHeightIsAtLeast(48.dp)
+  }
+
+  @Test
+  fun `bottom finish action follows the current Room completion snapshot`() {
+    val workout = mutableStateOf(workoutWithIncompleteExercises().withoutSets())
+    renderActiveWorkout(workout)
+
+    composeRule.onAllNodesWithText("Завершить тренировку").assertCountEquals(0)
+
+    composeRule.runOnIdle { workout.value = workoutWithIncompleteExercises() }
+    composeRule.waitForIdle()
+    composeRule.onAllNodesWithText("Завершить тренировку").assertCountEquals(0)
+
+    composeRule.runOnIdle {
+      workout.value =
+          workout.value
+              .markSetCompleted(FIRST_SET_ID)
+              .markSetCompleted(SECOND_SET_ID)
+              .markSetCompleted(THIRD_SET_ID)
+    }
+    composeRule.waitForIdle()
+    composeRule.onAllNodesWithText("Завершить тренировку").assertCountEquals(1)
+
+    composeRule.runOnIdle {
+      workout.value =
+          workout.value.copy(
+              exercises =
+                  workout.value.exercises.map { exercise ->
+                    exercise.copy(
+                        sets =
+                            exercise.sets.map { set ->
+                              if (set.id == FIRST_SET_ID) set.copy(isCompleted = false) else set
+                            },
+                    )
+                  },
+          )
+    }
+    composeRule.waitForIdle()
+    composeRule.onAllNodesWithText("Завершить тренировку").assertCountEquals(0)
+  }
+
+  @Test
+  fun `new incomplete Room exercise blocks finish before local order catches up`() {
+    val completedWorkout =
+        workoutWithIncompleteExercises()
+            .markSetCompleted(FIRST_SET_ID)
+            .markSetCompleted(SECOND_SET_ID)
+            .markSetCompleted(THIRD_SET_ID)
+    assertTrue(completedWorkout.exercises.areAllSetsCompleted())
+
+    val updatedRoomWorkout =
+        completedWorkout.copy(
+            exercises =
+                completedWorkout.exercises +
+                    exercise(
+                        position = 3,
+                        workoutExerciseId = 14L,
+                        setId = 104L,
+                        name = "Свежий подход",
+                    ),
+        )
+
+    assertFalse(updatedRoomWorkout.exercises.areAllSetsCompleted())
+  }
+
+  @Test
+  fun `finish confirmation actions keep cancel separate and disable confirm in flight`() {
+    val actions = mutableListOf<String>()
+    val enabled = mutableStateOf(true)
+    composeRule.setContent {
+      CompositionLocalProvider(LocalDensity provides Density(density = 1f, fontScale = 2f)) {
+        GymTheme {
+          FinishWorkoutConfirmationActions(
+              enabled = enabled.value,
+              onConfirm = { actions += "finish" },
+              onDismiss = { actions += "cancel" },
+          )
+        }
+      }
+    }
+
+    composeRule.onNodeWithText("Отмена").performClick()
+    composeRule.onNodeWithText("Завершить").performClick()
+    assertEquals(listOf("cancel", "finish"), actions)
+
+    composeRule.runOnIdle { enabled.value = false }
+    composeRule.onNodeWithText("Отмена").assertIsNotEnabled()
+    composeRule.onNodeWithText("Завершить").assertIsNotEnabled()
+  }
+
+  @Test
+  fun `finishing state disables both finish initiators`() {
+    val workout =
+        workoutWithIncompleteExercises()
+            .markSetCompleted(FIRST_SET_ID)
+            .markSetCompleted(SECOND_SET_ID)
+            .markSetCompleted(THIRD_SET_ID)
+    renderActiveWorkout(mutableStateOf(workout), isFinishing = true)
+
+    composeRule.onNodeWithContentDescription("Завершить тренировку").assertIsNotEnabled()
+    composeRule.onNodeWithText("Завершить тренировку").assertIsNotEnabled()
+  }
+
   private fun completeFocusedSet() {
     composeRule.onAllNodesWithText("Подход выполнен").assertCountEquals(1)
     composeRule.onNodeWithText("Подход выполнен").performClick()
     composeRule.waitForIdle()
   }
+
+  private fun renderCompletedEditFields(draft: CompletedSetEditDraft) {
+    composeRule.setContent {
+      GymTheme {
+        CompletedSetEditFields(
+            draft = draft,
+            onWeightChange = {},
+            onRepsChange = {},
+            onDurationChange = {},
+            onSpeedChange = {},
+            onInclineChange = {},
+        )
+      }
+    }
+  }
+
+  private fun renderActiveWorkout(
+      workout: androidx.compose.runtime.State<WorkoutFull>,
+      isFinishing: Boolean = false,
+  ) {
+    composeRule.setContent {
+      GymTheme {
+        ActiveWorkoutContent(
+            state =
+                ActiveWorkoutUiState(
+                    loading = false,
+                    workout = workout.value,
+                    isFinishing = isFinishing,
+                ),
+            elapsedSeconds = MutableStateFlow(0L),
+            restTimer = MutableStateFlow<RestTimerState?>(null),
+            heartRateState =
+                MutableStateFlow<HeartRateConnectionState>(HeartRateConnectionState.Idle),
+            heartRateReading = MutableStateFlow<HeartRateReading?>(null),
+            setActions = noOpSetActions(),
+            onDeleteExercise = {},
+            onReorderExercises = {},
+            onAddExercise = {},
+            onExerciseClick = {},
+            onFinish = {},
+            onDiscard = {},
+            onAddRestSeconds = {},
+            onSkipRest = {},
+            onScanHeartRate = {},
+            onConnectHeartRate = {},
+            onCancelHeartRateSelection = {},
+        )
+      }
+    }
+  }
+
+  private fun noOpSetActions(
+      editPersonalHint: (Long) -> Unit = {},
+      unpinPersonalHint: (Long) -> Unit = {},
+  ) =
+      SetActions(
+          stepWeight = { _, _ -> },
+          stepReps = { _, _ -> },
+          stepDuration = { _, _ -> },
+          stepSpeed = { _, _ -> },
+          stepIncline = { _, _ -> },
+          setWeight = { _, _ -> },
+          setReps = { _, _ -> },
+          setDuration = { _, _ -> },
+          setSpeed = { _, _ -> },
+          setIncline = { _, _ -> },
+          complete = { _ -> },
+          uncomplete = { _ -> },
+          addSet = { _ -> },
+          deleteSet = { _ -> },
+          editPersonalHint = editPersonalHint,
+          unpinPersonalHint = unpinPersonalHint,
+      )
 
   private fun assertAddSetIsAvailable() {
     composeRule.onAllNodesWithText("Подход").assertCountEquals(1)
@@ -263,6 +664,9 @@ class ActiveWorkoutScreenTest {
                 )
               },
       )
+
+  private fun WorkoutFull.withoutSets(): WorkoutFull =
+      copy(exercises = exercises.map { exercise -> exercise.copy(sets = emptyList()) })
 
   private fun WorkoutFull.reorderExercises(orderedWorkoutExerciseIds: List<Long>): WorkoutFull =
       copy(

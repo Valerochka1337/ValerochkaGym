@@ -1,0 +1,52 @@
+{
+  "capabilities": [
+    "annotated-workout-writes",
+    "exercise-hint"
+  ],
+  "cases": [
+    "empty-current-empty-baseline",
+    "nonempty-current-empty-baseline",
+    "empty-current-nonempty-baseline",
+    "nonempty-current-nonempty-baseline",
+    "tombstone-nonempty-baseline",
+    "accepted-clean-hint-to-hidden-capability",
+    "mixed-compatible-and-unsupported-retained",
+    "late-local-note-after-sent-baseline",
+    "hidden-kind-paging-cursor",
+    "incapable-delete-with-annotation-no-ledger-write"
+  ],
+  "client": {
+    "ambiguousOutbox": "exact retry only, never rebuild or partially ACK",
+    "capabilityTransition": "owner-scoped; missing/downgrade clears cache; first acceptance forces full refresh",
+    "guest": "normal owner claim includes hints; no STANDARD record mutation",
+    "legacyProjectionPredicate": "current and acknowledged baseline set notes both empty; strip empty set note fields",
+    "unsupported": "preserve Room, baseline and pending bytes; never infer deletion from hidden kind"
+  },
+  "exercise_hint": {
+    "catalogMutation": false,
+    "conflict": "server snapshot or tombstone wins",
+    "delete": "normal tombstone",
+    "id": "canonical exercise sync UUID",
+    "owner": "authenticated owner only, including hints for STANDARD exercises",
+    "payload": {
+      "text": "nonblank trimmed string max2000 Unicode codepoints",
+      "updatedAt": "nonnegative epoch milliseconds UTC"
+    },
+    "referencePolicy": "new or changed nondeleted hint requires own or public live exercise; existing hint is retained when referenced exercise is later removed; tombstone allowed"
+  },
+  "schemaVersion": 1,
+  "workout": {
+    "conflict": "server whole aggregate wins",
+    "error": "annotated_workout_requires_capability",
+    "existingWorkoutNote": "legacy string max10000 preserved; new editor max2000 Unicode codepoints",
+    "incapableRead": "strip only set note across all read surfaces before cursor construction",
+    "incapableWrite": "reject upsert or tombstone discarding stored nonempty set note before ledger/revision",
+    "setNote": {
+      "maxCodePoints": 2000,
+      "missing": "empty string",
+      "trimmed": true,
+      "type": "string",
+      "wireField": "note"
+    }
+  }
+}

@@ -1,5 +1,9 @@
 package com.valerochka1337.valerochkagym.di
 
+import com.valerochka1337.valerochkagym.data.calendar.CalendarLegacyMigration
+import com.valerochka1337.valerochkagym.data.calendar.CalendarMigrationGate
+import com.valerochka1337.valerochkagym.data.calendar.CalendarPlanRepository
+import com.valerochka1337.valerochkagym.data.calendar.RoomCalendarPlanRepository
 import com.valerochka1337.valerochkagym.data.google.AccountBoundGoogleAuth
 import com.valerochka1337.valerochkagym.data.google.CalendarRepository
 import com.valerochka1337.valerochkagym.data.google.CalendarRepositoryImpl
@@ -10,6 +14,8 @@ import com.valerochka1337.valerochkagym.data.google.SheetsRepository
 import com.valerochka1337.valerochkagym.data.google.WorkoutImportRepository
 import com.valerochka1337.valerochkagym.data.schedule.WeeklyScheduleRepository
 import com.valerochka1337.valerochkagym.data.schedule.WeeklyScheduleRepositoryImpl
+import com.valerochka1337.valerochkagym.data.settings.CalendarAccountIdentity
+import com.valerochka1337.valerochkagym.data.settings.SettingsRepository
 import com.valerochka1337.valerochkagym.worker.WeeklyScheduleRecoveryScheduler
 import com.valerochka1337.valerochkagym.worker.WorkManagerWeeklyScheduleRecoveryScheduler
 import dagger.Binds
@@ -23,7 +29,19 @@ import javax.inject.Singleton
 @Suppress("unused")
 abstract class GoogleModule {
 
+  @Binds
+  @Singleton
+  abstract fun bindCalendarPlanRepository(impl: RoomCalendarPlanRepository): CalendarPlanRepository
+
+  @Binds
+  @Singleton
+  abstract fun bindCalendarMigrationGate(impl: CalendarLegacyMigration): CalendarMigrationGate
+
   @Binds @Singleton abstract fun bindGoogleAuth(impl: GoogleAuthManager): GoogleAuth
+
+  @Binds
+  @Singleton
+  abstract fun bindCalendarAccountIdentity(impl: SettingsRepository): CalendarAccountIdentity
 
   @Binds
   @Singleton

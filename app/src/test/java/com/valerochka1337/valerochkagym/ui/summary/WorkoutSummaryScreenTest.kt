@@ -55,4 +55,33 @@ class WorkoutSummaryScreenTest {
     assertTrue(save.width >= minimumTargetPx && save.height >= minimumTargetPx)
     assertTrue(done.width > save.width)
   }
+
+  @Test
+  fun `save choice keeps every action accessible at large font scale`() {
+    var minimumTargetPx = 0f
+    composeRule.setContent {
+      val density = LocalDensity.current
+      minimumTargetPx = with(density) { 48.dp.toPx() }
+      CompositionLocalProvider(LocalDensity provides Density(density.density, fontScale = 2f)) {
+        GymTheme {
+          SaveRoutineChoiceDialog(
+              canReplace = true,
+              isPreparing = false,
+              error = "Программа изменилась.",
+              onCreate = {},
+              onReplace = {},
+              onSkip = {},
+              onDismiss = {},
+          )
+        }
+      }
+    }
+
+    listOf("Новая", "Перезаписать", "Не сохранять").forEach { label ->
+      val bounds =
+          composeRule.onNodeWithText(label).assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+      assertTrue(bounds.width >= minimumTargetPx && bounds.height >= minimumTargetPx)
+    }
+    composeRule.onNodeWithText("Программа изменилась.").assertIsDisplayed()
+  }
 }

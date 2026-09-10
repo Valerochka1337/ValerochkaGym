@@ -1,0 +1,488 @@
+{
+  "schemaVersion": 1,
+  "scope": "PLAN-01 single future training proposal",
+  "approval": {
+    "bodyFieldsInJvmDeclarationOrder": ["operationId", "version", "draft"],
+    "differentOperationAfterApproved": "same accepted result, no extra objects",
+    "fingerprint": "SHA-256 of the complete bounded raw HTTP request body bytes; server hashes received bytes before DTO conversion; no requestFingerprint body field and no client digest is trusted",
+    "journal": "owner+proposal+version+operation; immutable exact first-send body bytes persisted before dispatch and replayed byte-for-byte",
+    "ledgerBindings": ["proposalId", "version", "requestSha256"],
+    "ledgerKey": ["recipientId", "operationId"],
+    "otherTerminal": "explicit rejected/revoked/stale/expired error, never success",
+    "resultRevisionIsSyncCursor": false,
+    "sameOperationChangedBytes": "409 proposal_operation_conflict",
+    "transaction": "catalog→recipient head→active relation when COACH→proposal→auth/revocation; all mutation paths share order, recheck session/relation/context after locks",
+    "writes": [
+      "one new PERSONAL routine with server UUID; note empty, positions derived, timestamp server-owned",
+      "one calendar_plan with server UUID referencing routine",
+      "one owner revision advance covering both sync records",
+      "APPROVED status and stable result receipt",
+      "idempotency ledger atomically"
+    ]
+  },
+  "canonicalApprovalRequest": {
+    "mediaType": "application/json",
+    "charset": "UTF-8",
+    "hashInput": "all raw body bytes exactly as sent, excluding HTTP headers",
+    "serverRawBodyRules": "reject an empty body, invalid UTF-8, BOM, trailing non-whitespace data, duplicate object member names and bodies over 524288 bytes before domain handling; hash the accepted raw bytes before DTO conversion",
+    "normalizationBeforeSerialization": [
+      "operationId and every UUID use UUID.toString() canonical lowercase form",
+      "name uses Kotlin trim() and is otherwise not Unicode-normalized",
+      "gymIds are unique and sorted by canonical lowercase UUID string",
+      "exercise and plannedSets arrays retain user order",
+      "all finite Double zero values, including negative zero input, normalize to positive 0.0"
+    ],
+    "jvmSerializer": {
+      "library": "kotlinx.serialization generated serializer",
+      "jsonConfiguration": {
+        "allowSpecialFloatingPointValues": false,
+        "encodeDefaults": true,
+        "explicitNulls": true,
+        "ignoreUnknownKeys": false,
+        "isLenient": false,
+        "prettyPrint": false
+      },
+      "noBom": true,
+      "noTrailingNewline": true,
+      "propertyOrder": {
+        "ApprovalRequest": ["operationId", "version", "draft"],
+        "ApprovalDraft": ["name", "gymIds", "exercises", "startsAtMillis", "timeZoneId"],
+        "PlannedExercise": ["exerciseId", "restSeconds", "plannedSets"],
+        "PlannedSet": ["weightKg", "reps", "durationSec", "speedKmh", "inclinePct"]
+      },
+      "strings": "kotlinx.serialization JSON escaping; quote, reverse-solidus and U+0000..U+001F are escaped, all other Unicode is emitted directly as UTF-8; no NFC/NFD normalization",
+      "numbers": "Int/Long use base-10 without plus or leading zero; finite Double uses JVM Double.toString after negative-zero normalization, so integral doubles retain .0"
+    },
+    "vectors": [
+      {
+        "name": "strength-russian-null-weight",
+        "utf8": "{\"operationId\":\"d2e2d968-84e8-4e95-ae88-21bb9f611111\",\"version\":1,\"draft\":{\"name\":\"Тренировка\",\"gymIds\":[],\"exercises\":[{\"exerciseId\":\"a88f0000-0000-4000-8000-000000000001\",\"restSeconds\":90,\"plannedSets\":[{\"weightKg\":null,\"reps\":10,\"durationSec\":null,\"speedKmh\":null,\"inclinePct\":null}]}],\"startsAtMillis\":1893456000000,\"timeZoneId\":\"UTC\"}}",
+        "sha256": "9757a93b4e1891e6c4bb164d492b9a177fac265f6529a95db507510492907d13"
+      },
+      {
+        "name": "cardio-bounds-sorted-gyms-escaping",
+        "utf8": "{\"operationId\":\"d2e2d968-84e8-4e95-ae88-21bb9f612222\",\"version\":2,\"draft\":{\"name\":\"Кардио \\\"A\\\"\\n😀\",\"gymIds\":[\"00000000-0000-4000-8000-000000000001\",\"ffffffff-ffff-4fff-8fff-ffffffffffff\"],\"exercises\":[{\"exerciseId\":\"a88f0000-0000-4000-8000-000000000002\",\"restSeconds\":null,\"plannedSets\":[{\"weightKg\":null,\"reps\":null,\"durationSec\":1000000,\"speedKmh\":0.0,\"inclinePct\":-100.0}]}],\"startsAtMillis\":1893456000001,\"timeZoneId\":\"Europe/Moscow\"}}",
+        "preSerializationInput": "speedKmh is negative zero and normalizes to the emitted 0.0",
+        "sha256": "71b1627227788b5143e518b57e122a08250ebbe0087a454f5c2dafb4de7762f8"
+      },
+      {
+        "name": "strength-double-upper-bound-decomposed-unicode",
+        "utf8": "{\"operationId\":\"d2e2d968-84e8-4e95-ae88-21bb9f613333\",\"version\":2147483647,\"draft\":{\"name\":\"é\",\"gymIds\":[],\"exercises\":[{\"exerciseId\":\"a88f0000-0000-4000-8000-000000000003\",\"restSeconds\":86400,\"plannedSets\":[{\"weightKg\":1000000.0,\"reps\":1000000,\"durationSec\":null,\"speedKmh\":null,\"inclinePct\":null}]}],\"startsAtMillis\":1893456000002,\"timeZoneId\":\"UTC\"}}",
+        "sha256": "4de5a39cf205ab01a54cc753941cac1b0a3a3c68172ee27e514308ac431639d3"
+      }
+    ]
+  },
+  "androidApply": "full authoritative BackendSync normal transaction applies server UUID records+baseline+projection key+actual response cursor; preserve preexisting outbox; never manual second insert/dirty clone/second configuration POST; owner+active guard before/after/in transaction",
+  "author": {
+    "accountId": "null for typed internal AI; UUID for COACH",
+    "clientCanSelectAiActor": false,
+    "kind": ["AI", "COACH"],
+    "recipientId": "authenticated recipient UUID"
+  },
+  "context": "server-captured owner and catalog revisions; stale relevant context rejects before approval; exact accepted retry bypasses changed context only after recipient authentication and session-revision recheck",
+  "draftRules": {
+    "equipment": "derive requirements from canonical exercise and selected gym graph; validate current graph, never trust client-supplied availability",
+    "exerciseIdentity": "canonical live exercise UUID; exercise type is resolved from locked catalogue and is not a client field",
+    "exerciseOrder": "array order is authoritative; duplicate exercise IDs are rejected",
+    "gymIds": "at most 1000 unique sorted canonical owner gym UUIDs, matching routine record validation",
+    "name": "Kotlin-trimmed nonblank string, maximum 200 UTF-16 code units, matching existing routine wire name bound",
+    "restSeconds": "null or integer 0..86400",
+    "startsAtMillis": "signed 64-bit epoch milliseconds; future at approval and renders in declared zone to CAL-01 inclusive 1970-01-01..2100-12-31",
+    "timeZoneId": "canonical ZoneId.of identifier, length 1..255"
+  },
+  "plannedSetRules": {
+    "allWireFieldsRequired": true,
+    "allNumbersFinite": true,
+    "resolvedBy": "canonical locked exercise type; client cannot supply or override type",
+    "STRENGTH": {
+      "weightKg": "null or Double 0.0..1000000.0",
+      "reps": "integer 1..1000000",
+      "durationSec": "null",
+      "speedKmh": "null",
+      "inclinePct": "null"
+    },
+    "TIMED": {
+      "weightKg": "null",
+      "reps": "null",
+      "durationSec": "integer 1..1000000",
+      "speedKmh": "null",
+      "inclinePct": "null"
+    },
+    "CARDIO": {
+      "weightKg": "null",
+      "reps": "null",
+      "durationSec": "integer 1..1000000",
+      "speedKmh": "null or Double 0.0..1000000.0",
+      "inclinePct": "null or Double -100.0..1000000.0"
+    },
+    "validationVectors": [
+      {
+        "resolvedExerciseType": "STRENGTH",
+        "set": {"weightKg": 0.0, "reps": 1, "durationSec": null, "speedKmh": null, "inclinePct": null},
+        "valid": true
+      },
+      {
+        "resolvedExerciseType": "STRENGTH",
+        "set": {"weightKg": null, "reps": 0, "durationSec": null, "speedKmh": null, "inclinePct": null},
+        "valid": false,
+        "error": "invalid_request"
+      },
+      {
+        "resolvedExerciseType": "TIMED",
+        "set": {"weightKg": null, "reps": null, "durationSec": 1000000, "speedKmh": null, "inclinePct": null},
+        "valid": true
+      },
+      {
+        "resolvedExerciseType": "TIMED",
+        "set": {"weightKg": 1.0, "reps": null, "durationSec": 30, "speedKmh": null, "inclinePct": null},
+        "valid": false,
+        "error": "invalid_request"
+      },
+      {
+        "resolvedExerciseType": "CARDIO",
+        "set": {"weightKg": null, "reps": null, "durationSec": 1, "speedKmh": 1000000.0, "inclinePct": -100.0},
+        "valid": true
+      },
+      {
+        "resolvedExerciseType": "CARDIO",
+        "set": {"weightKg": null, "reps": null, "durationSec": 1, "speedKmh": null, "inclinePct": -100.0000001},
+        "valid": false,
+        "error": "invalid_request"
+      },
+      {
+        "resolvedExerciseType": "CARDIO",
+        "set": {"weightKg": null, "reps": 1, "durationSec": 1, "speedKmh": null, "inclinePct": null},
+        "valid": false,
+        "error": "invalid_request"
+      }
+    ]
+  },
+  "limits": {
+    "exercises": [1, 30],
+    "expiryDays": 7,
+    "nameUtf16Units": 200,
+    "reasonCodePoints": 500,
+    "requestBytes": 524288,
+    "responsePageBytes": 1048576,
+    "setsPerExercise": [1, 20]
+  },
+  "http": {
+    "base": "/v1/training-proposals",
+    "authenticated": true,
+    "contentType": "application/json",
+    "errorSchema": "#/$defs/ApiError",
+    "routes": [
+      {"name": "list", "method": "GET", "path": "?limit=1..50&cursor=opaque", "pathParameterSchema": null, "requestSchema": null, "successStatus": 200, "responseSchema": "#/$defs/ProposalListResponse"},
+      {"name": "detail", "method": "GET", "path": "/{proposalId}", "pathParameterSchema": "#/$defs/Uuid", "requestSchema": null, "successStatus": 200, "responseSchema": "#/$defs/Proposal"},
+      {"name": "approve", "method": "POST", "path": "/{proposalId}/approve", "pathParameterSchema": "#/$defs/Uuid", "requestSchema": "#/$defs/ApprovalRequest", "successStatus": 200, "responseSchema": "#/$defs/AcceptedResult", "requiredCapability": "calendar-plans"},
+      {"name": "acceptedResult", "method": "GET", "path": "/{proposalId}/accepted-result", "pathParameterSchema": "#/$defs/Uuid", "requestSchema": null, "successStatus": 200, "responseSchema": "#/$defs/AcceptedResult", "authorization": "recipient only"},
+      {"name": "reject", "method": "POST", "path": "/{proposalId}/reject", "pathParameterSchema": "#/$defs/Uuid", "requestSchema": "#/$defs/RejectRequest", "successStatus": 200, "responseSchema": "#/$defs/DecisionResponse"},
+      {"name": "revoke", "method": "POST", "path": "/{proposalId}/revoke", "pathParameterSchema": "#/$defs/Uuid", "requestSchema": "#/$defs/RevokeRequest", "successStatus": 200, "responseSchema": "#/$defs/DecisionResponse", "authorization": "author COACH only while relation active; AI revoke internal only"}
+    ],
+    "creation": "AI uses internal service principal; stage-23 coach entry invokes shared service after relation authorization; no public client source/actor selector in PLAN-01",
+    "listCursor": "opaque stable creation-sequence pagination watermark; response is items,nextCursor"
+  },
+  "errorMatrix": [
+    {"status": 400, "code": "invalid_request", "when": "malformed JSON, duplicate/unknown/missing field, invalid UUID/type/bound/cross-field value"},
+    {"status": 401, "code": "unauthorized", "when": "missing, expired or revoked authentication"},
+    {"status": 403, "code": "forbidden", "when": "wrong participant/role, client AI spoof, absent or failing coach authority"},
+    {"status": 404, "code": "proposal_not_found", "when": "proposal is absent or intentionally hidden from caller"},
+    {"status": 409, "code": "proposal_operation_conflict", "when": "same recipient operationId is rebound to different proposal/version/raw request bytes"},
+    {"status": 409, "code": "proposal_version_conflict", "when": "requested version is not current; UI outcome needs_refresh"},
+    {"status": 409, "code": "proposal_rejected", "when": "operation targets REJECTED proposal"},
+    {"status": 409, "code": "proposal_revoked", "when": "operation targets REVOKED proposal"},
+    {"status": 409, "code": "proposal_stale", "when": "locked owner/catalogue/relation/context prerequisite changed; UI outcome needs_refresh"},
+    {"status": 409, "code": "proposal_expired", "when": "seven-day expiry elapsed; UI outcome needs_refresh"},
+    {"status": 409, "code": "proposal_not_approved", "when": "accepted-result requested while proposal has no accepted result"},
+    {"status": 409, "code": "active_workout", "when": "owner active-workout guard blocks approval"},
+    {"status": 413, "code": "payload_too_large", "when": "bounded raw request exceeds 524288 bytes"},
+    {"status": 426, "code": "capability_required", "when": "approve lacks accepted calendar-plans capability"}
+  ],
+  "dtoJsonSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://yarumo.app/contracts/training-proposals-v1.schema.json",
+    "$comment": "Validate a DTO against the named $defs entry referenced by http.routes. x-* keywords are mandatory cross-field checks implemented by both JVM validators.",
+    "$defs": {
+      "Uuid": {"type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"},
+      "PositiveVersion": {"type": "integer", "minimum": 1, "maximum": 2147483647},
+      "Revision": {"type": "integer", "minimum": 0, "maximum": 9223372036854775807},
+      "EpochMillis": {"type": "integer", "minimum": 0, "maximum": 9223372036854775807},
+      "NullableBoundedDouble": {
+        "oneOf": [
+          {"type": "null"},
+          {"type": "number", "minimum": 0.0, "maximum": 1000000.0}
+        ]
+      },
+      "NullableInclineDouble": {
+        "oneOf": [
+          {"type": "null"},
+          {"type": "number", "minimum": -100.0, "maximum": 1000000.0}
+        ]
+      },
+      "NullablePositiveInteger": {
+        "oneOf": [
+          {"type": "null"},
+          {"type": "integer", "minimum": 1, "maximum": 1000000}
+        ]
+      },
+      "PlannedSetWire": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["weightKg", "reps", "durationSec", "speedKmh", "inclinePct"],
+        "properties": {
+          "weightKg": {"$ref": "#/$defs/NullableBoundedDouble"},
+          "reps": {"$ref": "#/$defs/NullablePositiveInteger"},
+          "durationSec": {"$ref": "#/$defs/NullablePositiveInteger"},
+          "speedKmh": {"$ref": "#/$defs/NullableBoundedDouble"},
+          "inclinePct": {"$ref": "#/$defs/NullableInclineDouble"}
+        },
+        "x-allNumbersFinite": true,
+        "x-selectExactTypeSchemaFromCanonicalExercise": true
+      },
+      "StrengthPlannedSet": {
+        "allOf": [
+          {"$ref": "#/$defs/PlannedSetWire"},
+          {"properties": {
+            "weightKg": {"$ref": "#/$defs/NullableBoundedDouble"},
+            "reps": {"type": "integer", "minimum": 1, "maximum": 1000000},
+            "durationSec": {"type": "null"},
+            "speedKmh": {"type": "null"},
+            "inclinePct": {"type": "null"}
+          }}
+        ]
+      },
+      "TimedPlannedSet": {
+        "allOf": [
+          {"$ref": "#/$defs/PlannedSetWire"},
+          {"properties": {
+            "weightKg": {"type": "null"},
+            "reps": {"type": "null"},
+            "durationSec": {"type": "integer", "minimum": 1, "maximum": 1000000},
+            "speedKmh": {"type": "null"},
+            "inclinePct": {"type": "null"}
+          }}
+        ]
+      },
+      "CardioPlannedSet": {
+        "allOf": [
+          {"$ref": "#/$defs/PlannedSetWire"},
+          {"properties": {
+            "weightKg": {"type": "null"},
+            "reps": {"type": "null"},
+            "durationSec": {"type": "integer", "minimum": 1, "maximum": 1000000},
+            "speedKmh": {"$ref": "#/$defs/NullableBoundedDouble"},
+            "inclinePct": {"$ref": "#/$defs/NullableInclineDouble"}
+          }}
+        ]
+      },
+      "PlannedExercise": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["exerciseId", "restSeconds", "plannedSets"],
+        "properties": {
+          "exerciseId": {"$ref": "#/$defs/Uuid"},
+          "restSeconds": {
+            "oneOf": [
+              {"type": "null"},
+              {"type": "integer", "minimum": 0, "maximum": 86400}
+            ]
+          },
+          "plannedSets": {"type": "array", "minItems": 1, "maxItems": 20, "items": {"$ref": "#/$defs/PlannedSetWire"}}
+        },
+        "x-noDuplicateExerciseIdWithinDraft": true,
+        "x-plannedSetSchemaByResolvedExerciseType": {
+          "STRENGTH": "#/$defs/StrengthPlannedSet",
+          "TIMED": "#/$defs/TimedPlannedSet",
+          "CARDIO": "#/$defs/CardioPlannedSet"
+        }
+      },
+      "ApprovalDraft": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "gymIds", "exercises", "startsAtMillis", "timeZoneId"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "x-trimmedWithKotlinTrim": true,
+            "x-maxUtf16CodeUnits": 200
+          },
+          "gymIds": {"type": "array", "maxItems": 1000, "uniqueItems": true, "items": {"$ref": "#/$defs/Uuid"}, "x-sortedCanonicalUuid": true},
+          "exercises": {"type": "array", "minItems": 1, "maxItems": 30, "items": {"$ref": "#/$defs/PlannedExercise"}, "x-uniqueExerciseIds": true},
+          "startsAtMillis": {
+            "$ref": "#/$defs/EpochMillis",
+            "x-futureAtApproval": true,
+            "x-localDateInDeclaredZoneInclusive": ["1970-01-01", "2100-12-31"]
+          },
+          "timeZoneId": {"type": "string", "minLength": 1, "maxLength": 255, "x-canonicalJavaZoneId": true}
+        }
+      },
+      "ApprovalRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "x-maxUtf8Bytes": 524288,
+        "required": ["operationId", "version", "draft"],
+        "properties": {
+          "operationId": {"$ref": "#/$defs/Uuid"},
+          "version": {"$ref": "#/$defs/PositiveVersion"},
+          "draft": {"$ref": "#/$defs/ApprovalDraft"}
+        }
+      },
+      "RejectRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["version", "reason"],
+        "properties": {
+          "version": {"$ref": "#/$defs/PositiveVersion"},
+          "reason": {
+            "oneOf": [
+              {"type": "null"},
+              {"type": "string", "maxLength": 500}
+            ]
+          }
+        }
+      },
+      "RevokeRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["version"],
+        "properties": {"version": {"$ref": "#/$defs/PositiveVersion"}}
+      },
+      "Author": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "accountId"],
+            "properties": {"kind": {"const": "AI"}, "accountId": {"type": "null"}}
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "accountId"],
+            "properties": {"kind": {"const": "COACH"}, "accountId": {"$ref": "#/$defs/Uuid"}}
+          }
+        ]
+      },
+      "ProposalSnapshot": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["version", "draft", "ownerRevision", "catalogRevision", "createdAt"],
+        "properties": {
+          "version": {"$ref": "#/$defs/PositiveVersion"},
+          "draft": {"$ref": "#/$defs/ApprovalDraft"},
+          "ownerRevision": {"$ref": "#/$defs/Revision"},
+          "catalogRevision": {"$ref": "#/$defs/Revision"},
+          "createdAt": {"$ref": "#/$defs/EpochMillis"}
+        }
+      },
+      "Proposal": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["proposalId", "author", "recipientId", "source", "status", "currentVersion", "createdAt", "updatedAt", "expiresAt", "snapshot"],
+        "properties": {
+          "proposalId": {"$ref": "#/$defs/Uuid"},
+          "author": {"$ref": "#/$defs/Author"},
+          "recipientId": {"$ref": "#/$defs/Uuid"},
+          "source": {"enum": ["AI", "COACH"]},
+          "status": {"enum": ["PENDING", "APPROVED", "REJECTED", "REVOKED", "STALE"]},
+          "currentVersion": {"$ref": "#/$defs/PositiveVersion"},
+          "createdAt": {"$ref": "#/$defs/EpochMillis"},
+          "updatedAt": {"$ref": "#/$defs/EpochMillis"},
+          "expiresAt": {"$ref": "#/$defs/EpochMillis"},
+          "snapshot": {"$ref": "#/$defs/ProposalSnapshot"}
+        },
+        "x-sourceEqualsAuthorKind": true,
+        "x-currentVersionEqualsSnapshotVersion": true
+      },
+      "ProposalListResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "x-maxUtf8Bytes": 1048576,
+        "required": ["items", "nextCursor"],
+        "properties": {
+          "items": {"type": "array", "maxItems": 50, "items": {"$ref": "#/$defs/Proposal"}},
+          "nextCursor": {
+            "oneOf": [
+              {"type": "null"},
+              {"type": "string", "minLength": 1, "maxLength": 4096}
+            ]
+          }
+        }
+      },
+      "AcceptedResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["proposalId", "version", "routineId", "calendarPlanId", "revision", "approvedAt"],
+        "properties": {
+          "proposalId": {"$ref": "#/$defs/Uuid"},
+          "version": {"$ref": "#/$defs/PositiveVersion"},
+          "routineId": {"$ref": "#/$defs/Uuid"},
+          "calendarPlanId": {"$ref": "#/$defs/Uuid"},
+          "revision": {"$ref": "#/$defs/Revision", "minimum": 1, "x-notSyncCursor": true},
+          "approvedAt": {"$ref": "#/$defs/EpochMillis"}
+        }
+      },
+      "DecisionResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["proposalId", "version", "status", "updatedAt"],
+        "properties": {
+          "proposalId": {"$ref": "#/$defs/Uuid"},
+          "version": {"$ref": "#/$defs/PositiveVersion"},
+          "status": {"enum": ["REJECTED", "REVOKED"]},
+          "updatedAt": {"$ref": "#/$defs/EpochMillis"}
+        }
+      },
+      "ApiError": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "message"],
+        "properties": {
+          "code": {
+            "enum": [
+              "invalid_request",
+              "unauthorized",
+              "forbidden",
+              "proposal_not_found",
+              "proposal_operation_conflict",
+              "proposal_version_conflict",
+              "proposal_rejected",
+              "proposal_revoked",
+              "proposal_stale",
+              "proposal_expired",
+              "proposal_not_approved",
+              "active_workout",
+              "payload_too_large",
+              "capability_required"
+            ]
+          },
+          "message": {"type": "string", "minLength": 1, "maxLength": 1000}
+        }
+      }
+    }
+  },
+  "cases": [
+    "same-op-exact-retry-after-response-loss",
+    "same-op-changed-byte-or-proposal-conflict",
+    "different-op-after-approved-same-IDs",
+    "approve-vs-reject-revoke-relation-revoke",
+    "catalog-or-head-change-before-lock",
+    "client-spoof-AI-denied",
+    "missing-or-throwing-authority-denied",
+    "new-device-full-sync-no-duplicate-outbox",
+    "active-start-before-Room-apply",
+    "A-B-A-journal-owner-isolation",
+    "edited-preview-process-death-exact-version",
+    "cancel-before-vs-after-dispatch",
+    "no-history-AI-null-vs-human-explicit-weight",
+    "every-canonical-vector-and-schema-example-valid",
+    "unknown-missing-duplicate-field-rejected",
+    "each-planned-set-type-boundary-and-cross-type-field-rejected"
+  ],
+  "privacy": "recipient retains own read; coach reads/mutations require active accepted relation, absence/error deny; health/profile/notes never shared implicitly",
+  "states": ["PENDING", "APPROVED", "REJECTED", "REVOKED", "STALE"],
+  "version": "positive integer immutable snapshots; newer version invalidates prior preview",
+  "weightOrigin": "only AI inferred weights are forced null without same-exercise history; explicit coach/recipient weights valid under typed bounds"
+}

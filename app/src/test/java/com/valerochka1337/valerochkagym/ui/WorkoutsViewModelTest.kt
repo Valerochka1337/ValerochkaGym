@@ -13,6 +13,7 @@ import com.valerochka1337.valerochkagym.data.db.entity.GymEntity
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleGroup
 import com.valerochka1337.valerochkagym.data.db.entity.RoutineEntity
 import com.valerochka1337.valerochkagym.data.db.entity.RoutineExerciseEntity
+import com.valerochka1337.valerochkagym.data.db.entity.WorkoutEntity
 import com.valerochka1337.valerochkagym.data.db.entity.WorkoutSetEntity
 import com.valerochka1337.valerochkagym.data.db.relation.RoutineExerciseWithExercise
 import com.valerochka1337.valerochkagym.data.db.relation.RoutineWithCount
@@ -25,10 +26,10 @@ import com.valerochka1337.valerochkagym.util.MainDispatcherRule
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -200,10 +201,51 @@ class WorkoutsViewModelTest {
         assertEquals(listOf(3L), routineDao.deletedIds)
       }
 
+  @Test
+  fun `permission recovery continues each action once while allowing a new action for the same workout`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val matchingRepository = FakeActiveWorkoutRepository(activeWorkoutId = "expected")
+        val matching = WorkoutsViewModel(FakeRoutineDao(), settingsRepository(), matchingRepository)
+        val matchingEvents = collectStartReadyEvents(matching)
+
+        matching.continueStartedWorkout("11", "expected")
+        matching.continueStartedWorkout("11", "expected")
+        matching.continueStartedWorkout("12", "expected")
+        runCurrent()
+
+        assertEquals(listOf("expected", "expected"), matchingEvents)
+
+        val different =
+            WorkoutsViewModel(
+                FakeRoutineDao(),
+                settingsRepository(),
+                FakeActiveWorkoutRepository(activeWorkoutId = "different"),
+            )
+        val missing =
+            WorkoutsViewModel(FakeRoutineDao(), settingsRepository(), FakeActiveWorkoutRepository())
+        val differentEvents = collectStartReadyEvents(different)
+        val missingEvents = collectStartReadyEvents(missing)
+
+        different.continueStartedWorkout("13", "expected")
+        missing.continueStartedWorkout("14", "expected")
+        runCurrent()
+
+        assertTrue(differentEvents.isEmpty())
+        assertTrue(missingEvents.isEmpty())
+      }
+
   // endregion
 
   private fun TestScope.collectUiState(viewModel: WorkoutsViewModel) {
     backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { viewModel.uiState.collect {} }
+  }
+
+  private fun TestScope.collectStartReadyEvents(viewModel: WorkoutsViewModel): List<String> {
+    val events = mutableListOf<String>()
+    backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+      viewModel.startReadyEvents.collect { events += it }
+    }
+    return events
   }
 
   private fun settingsRepository(defaultRestSeconds: Int? = null): SettingsRepository {
@@ -333,9 +375,12 @@ class WorkoutsViewModelTest {
   }
 
   /** In-memory [ActiveWorkoutRepository]: counts [startFromRoutine] calls. */
-  private class FakeActiveWorkoutRepository : ActiveWorkoutRepository {
+  private class FakeActiveWorkoutRepository(activeWorkoutId: String? = null) :
+      ActiveWorkoutRepository {
     var startFromRoutineCalls = 0
       private set
+
+    private val active = MutableStateFlow(activeWorkoutId?.let(::activeWorkout))
 
     override suspend fun startFromRoutine(routineId: Long): String {
       startFromRoutineCalls++
@@ -344,7 +389,7 @@ class WorkoutsViewModelTest {
 
     override suspend fun startEmpty(): String = "workout"
 
-    override fun observeActive(): Flow<WorkoutFull?> = flowOf(null)
+    override fun observeActive(): Flow<WorkoutFull?> = active
 
     override suspend fun getSet(setId: Long): WorkoutSetEntity? = null
 
@@ -368,6 +413,12 @@ class WorkoutsViewModelTest {
     override suspend fun finish(workoutId: String) = Unit
 
     override suspend fun discard(workoutId: String) = Unit
+
+    private fun activeWorkout(id: String) =
+        WorkoutFull(
+            workout = WorkoutEntity(id = id, name = "Тренировка", startedAt = 0L),
+            exercises = emptyList(),
+        )
   }
 
   /**

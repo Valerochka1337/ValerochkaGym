@@ -3,6 +3,9 @@ package com.valerochka1337.valerochkagym.data.backend
 import android.content.ContentValues
 import android.database.Cursor
 import androidx.sqlite.db.SupportSQLiteDatabase
+import com.valerochka1337.valerochkagym.data.calendar.CalendarTimeResolver
+import com.valerochka1337.valerochkagym.data.profile.ProfileValidator
+import java.nio.charset.StandardCharsets.UTF_8
 import java.util.UUID
 import kotlinx.serialization.json.*
 
@@ -52,6 +55,11 @@ class PortableData(private val db: SupportSQLiteDatabase) {
 
   private fun array(values: List<JsonElement>) = JsonArray(values)
 
+  private fun profileScope(): String =
+      db.query("SELECT owner FROM backend_state WHERE id=1").use { cursor ->
+        if (cursor.moveToFirst() && !cursor.isNull(0)) cursor.getString(0) else "GUEST"
+      }
+
   fun snapshot(includeStandard: Boolean = false): Map<String, JsonObject> {
     val result = linkedMapOf<String, JsonObject>()
     val exercises = rows("exercises")
@@ -60,6 +68,31 @@ class PortableData(private val db: SupportSQLiteDatabase) {
     val exerciseIds = exercises.associate { it.s("id") to it.s("syncId") }
     val gymIds = gyms.associate { it.s("id") to it.s("syncId") }
     val routineIds = routines.associate { it.s("id") to it.s("syncId") }
+    rows("profiles", "WHERE scope=?", arrayOf(profileScope())).firstOrNull()?.let { profile ->
+      val equipmentIds =
+          rows(
+                  "profile_equipment",
+                  "WHERE scope=? ORDER BY equipmentId",
+                  arrayOf(profile.s("scope")),
+              )
+              .map { it.getValue("equipmentId") }
+      result["profile:${profile.s("syncId")}"] = buildJsonObject {
+        put("schemaVersion", profile.getValue("schemaVersion"))
+        put("syncId", profile.getValue("syncId"))
+        put("updatedAt", profile.getValue("updatedAt"))
+        put("trainingGoal", profile["trainingGoal"] ?: JsonNull)
+        put("sex", profile["sex"] ?: JsonNull)
+        put("birthDate", profile["birthDate"] ?: JsonNull)
+        put("experienceLevel", profile["experienceLevel"] ?: JsonNull)
+        put("plannedSessionsPerWeek", profile["plannedSessionsPerWeek"] ?: JsonNull)
+        put(
+            "preferredSessionDurationMinutes",
+            profile["preferredSessionDurationMinutes"] ?: JsonNull,
+        )
+        put("manualConstraints", profile["manualConstraints"] ?: JsonNull)
+        put("equipmentIds", array(equipmentIds))
+      }
+    }
     fun links(
         table: String,
         ownerColumn: String,
@@ -161,6 +194,10 @@ class PortableData(private val db: SupportSQLiteDatabase) {
     rows("body_measurements").forEach {
       result["measurement:${it.s("id")}"] = JsonObject(it.portable())
     }
+    rows("exercise_personal_hints").forEach { hint ->
+      result["exercise_hint:${hint.s("exerciseSyncId")}"] =
+          JsonObject(hint.portable("exerciseSyncId"))
+    }
     rows("scheduled_workouts").forEach { s ->
       val n = s.portable()
       n["routineId"] = JsonPrimitive(routineIds.getValue(s.s("routineId")))
@@ -168,6 +205,32 @@ class PortableData(private val db: SupportSQLiteDatabase) {
           UUID.nameUUIDFromBytes("ValerochkaGym.schedule:${s.s("calendarEventId")}".toByteArray())
               .toString()
       result["schedule:$id"] = JsonObject(n)
+    }
+    rows("calendar_plans").forEach { plan ->
+      result["calendar_plan:${plan.s("id")}"] = buildJsonObject {
+        put("routineId", JsonPrimitive(routineIds.getValue(plan.s("routineId"))))
+        put("startsAtMillis", plan.getValue("startsAtMillis"))
+        put("timeZoneId", plan.getValue("timeZoneId"))
+        put("legacyScheduleId", plan["legacyScheduleId"] ?: JsonNull)
+      }
+    }
+    rows("calendar_rules").forEach { rule ->
+      result["calendar_rule:${rule.s("id")}"] = buildJsonObject {
+        put("routineId", JsonPrimitive(routineIds.getValue(rule.s("routineId"))))
+        put("isoDay", rule.getValue("isoDay"))
+        put("localTime", rule.getValue("localTime"))
+        put("timeZoneId", rule.getValue("timeZoneId"))
+        put("startLocalDate", rule.getValue("startLocalDate"))
+        put("legacyRuleKey", rule["legacyRuleKey"] ?: JsonNull)
+      }
+    }
+    rows("calendar_exceptions").forEach { exception ->
+      result["calendar_exception:${exception.s("id")}"] = buildJsonObject {
+        put("ruleId", exception.getValue("ruleId"))
+        put("instanceKey", exception.getValue("instanceKey"))
+        put("kind", exception.getValue("kind"))
+        put("movedAtMillis", exception["movedAtMillis"] ?: JsonNull)
+      }
     }
     if (!includeStandard) {
       for ((kind, items) in
@@ -209,6 +272,126 @@ class PortableData(private val db: SupportSQLiteDatabase) {
       rows(table, "WHERE syncId=?", arrayOf(id.jsonPrimitive.content)).firstOrNull()?.get("id")
           as? JsonPrimitive ?: error("Missing $table reference")
 
+  private fun calendarMigrationReady(): Boolean =
+      db.query("SELECT phase FROM calendar_migration_state WHERE id=1").use {
+        it.moveToFirst() && it.getString(0) == "READY"
+      }
+
+  private fun legacyScheduleId(eventId: String): String =
+      UUID.nameUUIDFromBytes("ValerochkaGym.schedule:$eventId".toByteArray()).toString()
+
+  /**
+   * Old clients still write schedule records. Once migration has completed, preserve that record
+   * and add only the missing deterministic plan; a canonical plan already present wins unchanged.
+   */
+  private fun bridgeLegacySchedule(
+      eventId: String,
+      routineId: Long,
+      startsAtMillis: Long,
+      revision: Long,
+  ) {
+    if (!calendarMigrationReady()) return
+    val legacyId = legacyScheduleId(eventId)
+    val planId = CalendarTimeResolver.planId(legacyId)
+    // The migration captures this display zone once. A remote legacy record must never produce a
+    // different canonical plan just because another device has a different default zone.
+    val zoneId = capturedCalendarZoneId() ?: return
+    val fingerprint = "$routineId|$startsAtMillis|$zoneId"
+    val plan = rows("calendar_plans", "WHERE id=?", arrayOf(planId)).firstOrNull()
+    val bridge =
+        rows(
+                "calendar_google_links",
+                "WHERE objectKind=? AND objectId=?",
+                arrayOf("legacy_schedule_bridge", planId),
+            )
+            .firstOrNull()
+    val matched =
+        plan != null &&
+            bridge != null &&
+            bridge["error"]?.jsonPrimitive?.content ==
+                "${plan.s("routineId")}|${plan.s("startsAtMillis")}|${plan.s("timeZoneId")}" &&
+            bridge["error"]?.jsonPrimitive?.content != fingerprint
+    if (plan == null) {
+      insert(
+          "calendar_plans",
+          mapOf(
+              "id" to JsonPrimitive(planId),
+              "routineId" to JsonPrimitive(routineId),
+              "startsAtMillis" to JsonPrimitive(startsAtMillis),
+              "timeZoneId" to JsonPrimitive(zoneId),
+              "legacyScheduleId" to JsonPrimitive(legacyId),
+          ),
+      )
+    } else if (matched) {
+      db.update(
+          "calendar_plans",
+          0,
+          values(
+              mapOf(
+                  "routineId" to JsonPrimitive(routineId),
+                  "startsAtMillis" to JsonPrimitive(startsAtMillis),
+                  "timeZoneId" to JsonPrimitive(zoneId),
+              )
+          ),
+          "id=?",
+          arrayOf(planId),
+      )
+    } else if (bridge == null) return
+    if (plan == null || matched) {
+      val linkValues =
+          mapOf(
+              "objectKind" to JsonPrimitive("legacy_schedule_bridge"),
+              "objectId" to JsonPrimitive(planId),
+              "ownerEmail" to JsonNull,
+              "calendarId" to JsonNull,
+              "eventId" to JsonPrimitive(eventId),
+              "status" to JsonPrimitive("BRIDGED"),
+              "error" to JsonPrimitive(fingerprint),
+              "remoteRevision" to JsonPrimitive(revision),
+          )
+      if (bridge == null) insert("calendar_google_links", linkValues)
+      else
+          db.update(
+              "calendar_google_links",
+              0,
+              values(linkValues),
+              "objectKind=? AND objectId=?",
+              arrayOf("legacy_schedule_bridge", planId),
+          )
+    }
+  }
+
+  private fun deleteBridgedLegacySchedule(eventId: String, revision: Long) {
+    if (!calendarMigrationReady()) return
+    val planId = CalendarTimeResolver.planId(legacyScheduleId(eventId))
+    val bridge =
+        rows(
+                "calendar_google_links",
+                "WHERE objectKind=? AND objectId=?",
+                arrayOf("legacy_schedule_bridge", planId),
+            )
+            .firstOrNull() ?: return
+    val bridgedRevision = bridge["remoteRevision"]?.jsonPrimitive?.longOrNull ?: return
+    if (bridgedRevision > revision) return
+    val plan = rows("calendar_plans", "WHERE id=?", arrayOf(planId)).firstOrNull()
+    val matchesBridge =
+        plan != null &&
+            bridge["error"]?.jsonPrimitive?.content ==
+                "${plan.s("routineId")}|${plan.s("startsAtMillis")}|${plan.s("timeZoneId")}"
+    db.delete(
+        "calendar_google_links",
+        "objectKind=? AND objectId=?",
+        arrayOf("legacy_schedule_bridge", planId),
+    )
+    if (matchesBridge)
+        db.delete("calendar_plans", "id=? AND legacyScheduleId IS NOT NULL", arrayOf(planId))
+  }
+
+  private fun capturedCalendarZoneId(): String? =
+      db.query("SELECT zoneId FROM calendar_migration_metadata WHERE id=1").use { cursor ->
+        if (cursor.moveToFirst()) cursor.getString(0) else null
+      }
+
   private fun replaceLinks(
       table: String,
       column: String,
@@ -221,12 +404,64 @@ class PortableData(private val db: SupportSQLiteDatabase) {
 
   /** Caller owns a Room transaction. Updates preserve local parent IDs and active section IDs. */
   fun apply(upserts: List<CloudRecord>, deletes: List<CloudRecord>) {
-    val order = listOf("exercise", "gym", "routine", "workout", "measurement", "schedule")
+    val order =
+        listOf(
+            "profile",
+            "exercise",
+            "exercise_hint",
+            "gym",
+            "routine",
+            "workout",
+            "measurement",
+            "schedule",
+            "calendar_plan",
+            "calendar_rule",
+            "calendar_exception",
+        )
     upserts
         .sortedBy { order.indexOf(it.kind) }
         .forEach { r ->
           val n = r.payload!!
           when (r.kind) {
+            "profile" -> {
+              val scope = profileScope()
+              if (scope == "GUEST") error("Remote profile requires an authenticated owner")
+              val expectedId =
+                  UUID.nameUUIDFromBytes("ValerochkaGym.profile.v1:$scope".toByteArray(UTF_8))
+                      .toString()
+              if (r.id != expectedId) error("Profile owner identity mismatch")
+              val profile =
+                  ProfileValidator.wireProfile(n, r.id, System.currentTimeMillis())
+                      ?: error("Invalid profile payload")
+              val body =
+                  mapOf(
+                      "scope" to JsonPrimitive(scope),
+                      "syncId" to JsonPrimitive(r.id),
+                      "schemaVersion" to JsonPrimitive(1),
+                      "trainingGoal" to (n["trainingGoal"] ?: JsonNull),
+                      "sex" to (n["sex"] ?: JsonNull),
+                      "birthDate" to (n["birthDate"] ?: JsonNull),
+                      "experienceLevel" to (n["experienceLevel"] ?: JsonNull),
+                      "plannedSessionsPerWeek" to (n["plannedSessionsPerWeek"] ?: JsonNull),
+                      "preferredSessionDurationMinutes" to
+                          (n["preferredSessionDurationMinutes"] ?: JsonNull),
+                      "manualConstraints" to (n["manualConstraints"] ?: JsonNull),
+                      "updatedAt" to n.getValue("updatedAt"),
+                  )
+              if (rows("profiles", "WHERE scope=?", arrayOf(scope)).isEmpty())
+                  insert("profiles", body)
+              else db.update("profiles", 0, values(body), "scope=?", arrayOf(scope))
+              db.delete("profile_equipment", "scope=?", arrayOf(scope))
+              profile.equipmentIds.sorted().forEach { equipmentId ->
+                insert(
+                    "profile_equipment",
+                    mapOf(
+                        "scope" to JsonPrimitive(scope),
+                        "equipmentId" to JsonPrimitive(equipmentId),
+                    ),
+                )
+              }
+            }
             "exercise" -> {
               val id = JsonPrimitive(stable("exercises", r.id, n - "muscles" - "equipmentIds"))
               replaceLinks(
@@ -330,7 +565,10 @@ class PortableData(private val db: SupportSQLiteDatabase) {
                     "workout_sets",
                     "workoutExerciseId",
                     JsonPrimitive(section),
-                    e.getValue("sets").jsonArray.map { it.jsonObject },
+                    e.getValue("sets").jsonArray.map { item ->
+                      item.jsonObject +
+                          mapOf("note" to (item.jsonObject["note"] ?: JsonPrimitive("")))
+                    },
                 )
               }
             }
@@ -346,6 +584,21 @@ class PortableData(private val db: SupportSQLiteDatabase) {
                   insert("body_measurements", body)
               else db.update("body_measurements", 0, values(body), "id=?", arrayOf(r.id))
             }
+            "exercise_hint" -> {
+              val body = n + mapOf("exerciseSyncId" to JsonPrimitive(r.id))
+              if (
+                  rows("exercise_personal_hints", "WHERE exerciseSyncId=?", arrayOf(r.id)).isEmpty()
+              )
+                  insert("exercise_personal_hints", body)
+              else
+                  db.update(
+                      "exercise_personal_hints",
+                      0,
+                      values(body),
+                      "exerciseSyncId=?",
+                      arrayOf(r.id),
+                  )
+            }
             "schedule" -> {
               val body = n + mapOf("routineId" to localId("routines", n.getValue("routineId")))
               val old =
@@ -357,12 +610,54 @@ class PortableData(private val db: SupportSQLiteDatabase) {
                       .firstOrNull()
               if (old == null) insert("scheduled_workouts", body)
               else db.update("scheduled_workouts", 0, values(body), "id=?", arrayOf(old.s("id")))
+              bridgeLegacySchedule(
+                  n.s("calendarEventId"),
+                  body.getValue("routineId").jsonPrimitive.long,
+                  n.getValue("dateTimeMillis").jsonPrimitive.long,
+                  r.revision,
+              )
+            }
+            "calendar_plan" -> {
+              val body =
+                  n +
+                      mapOf(
+                          "id" to JsonPrimitive(r.id),
+                          "routineId" to localId("routines", n.getValue("routineId")),
+                      )
+              if (rows("calendar_plans", "WHERE id=?", arrayOf(r.id)).isEmpty())
+                  insert("calendar_plans", body)
+              else db.update("calendar_plans", 0, values(body), "id=?", arrayOf(r.id))
+              // A canonical record arriving alongside an old schedule supersedes bridge-only
+              // metadata, while retaining both portable representations.
+              db.delete(
+                  "calendar_google_links",
+                  "objectKind=? AND objectId=?",
+                  arrayOf("legacy_schedule_bridge", r.id),
+              )
+            }
+            "calendar_rule" -> {
+              val body =
+                  n +
+                      mapOf(
+                          "id" to JsonPrimitive(r.id),
+                          "routineId" to localId("routines", n.getValue("routineId")),
+                      )
+              if (rows("calendar_rules", "WHERE id=?", arrayOf(r.id)).isEmpty())
+                  insert("calendar_rules", body)
+              else db.update("calendar_rules", 0, values(body), "id=?", arrayOf(r.id))
+            }
+            "calendar_exception" -> {
+              val body = n + mapOf("id" to JsonPrimitive(r.id))
+              if (rows("calendar_exceptions", "WHERE id=?", arrayOf(r.id)).isEmpty())
+                  insert("calendar_exceptions", body)
+              else db.update("calendar_exceptions", 0, values(body), "id=?", arrayOf(r.id))
             }
           }
         }
     deletes
         .sortedByDescending { order.indexOf(it.kind) }
         .forEach { r ->
+          if (r.kind == "profile") error("Profile tombstones are a protocol violation")
           val table =
               when (r.kind) {
                 "exercise" -> "exercises"
@@ -370,21 +665,26 @@ class PortableData(private val db: SupportSQLiteDatabase) {
                 "routine" -> "routines"
                 "workout" -> "workouts"
                 "measurement" -> "body_measurements"
+                "exercise_hint" -> "exercise_personal_hints"
+                "calendar_plan" -> "calendar_plans"
+                "calendar_rule" -> "calendar_rules"
+                "calendar_exception" -> "calendar_exceptions"
                 else -> "scheduled_workouts"
               }
           if (r.kind == "schedule") {
             rows(table)
-                .filter {
-                  UUID.nameUUIDFromBytes(
-                          "ValerochkaGym.schedule:${it.s("calendarEventId")}".toByteArray()
-                      )
-                      .toString() == r.id
+                .filter { legacyScheduleId(it.s("calendarEventId")) == r.id }
+                .forEach {
+                  db.delete(table, "id=?", arrayOf(it.s("id")))
+                  deleteBridgedLegacySchedule(it.s("calendarEventId"), r.revision)
                 }
-                .forEach { db.delete(table, "id=?", arrayOf(it.s("id"))) }
-          } else
+          } else if (r.kind in setOf("calendar_plan", "calendar_rule", "calendar_exception"))
+              db.delete(table, "id=?", arrayOf(r.id))
+          else
               db.delete(
                   table,
-                  if (r.kind in setOf("workout", "measurement")) "id=?" else "syncId=?",
+                  if (r.kind in setOf("workout", "measurement")) "id=?"
+                  else if (r.kind == "exercise_hint") "exerciseSyncId=?" else "syncId=?",
                   arrayOf(r.id),
               )
         }

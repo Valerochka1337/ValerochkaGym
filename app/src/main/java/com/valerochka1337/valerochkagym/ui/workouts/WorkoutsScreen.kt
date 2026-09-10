@@ -1,9 +1,6 @@
 package com.valerochka1337.valerochkagym.ui.workouts
 
 import android.Manifest
-import android.content.pm.PackageManager
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -48,7 +45,6 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.core.content.ContextCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.valerochka1337.valerochkagym.service.WorkoutSessionService
@@ -64,7 +60,11 @@ import com.valerochka1337.valerochkagym.ui.components.GymTopBar
 import com.valerochka1337.valerochkagym.ui.components.PillButton
 import com.valerochka1337.valerochkagym.ui.components.TemplatesSectionHeader
 import com.valerochka1337.valerochkagym.ui.haptics.gymHaptics
+import com.valerochka1337.valerochkagym.ui.permissions.AndroidPermissionPlatform
+import com.valerochka1337.valerochkagym.ui.permissions.rememberPermissionRecoveryHost
 import com.valerochka1337.valerochkagym.ui.theme.GymMotion
+
+private const val NOTIFICATION_PENDING_KIND = "notification"
 
 /**
  * Вкладка «Тренировки»: тап по программе выбирает её, а закреплённый снизу блок запускает выбранную
@@ -88,33 +88,29 @@ fun WorkoutsScreen(
   var pendingDeleteId by rememberSaveable { mutableStateOf<Long?>(null) }
   var templatesExpanded by rememberSaveable { mutableStateOf(false) }
   val snackbarHostState = remember { SnackbarHostState() }
-  var showNotificationRationale by rememberSaveable { mutableStateOf(false) }
 
   val context = LocalContext.current
+  val permissionPlatform = remember(context) { AndroidPermissionPlatform(context) }
+  val permissionHost =
+      rememberPermissionRecoveryHost(
+          kind = NOTIFICATION_PENDING_KIND,
+          permissions = listOf(Manifest.permission.POST_NOTIFICATIONS),
+          platform = permissionPlatform,
+          decide = viewModel::decidePermissions,
+          markRequestLaunched = viewModel::markPermissionRequestLaunched,
+          onAction = { token, workoutId, _ -> viewModel.continueStartedWorkout(token, workoutId) },
+      )
   val continueToWorkout = {
     WorkoutSessionService.start(context)
     onStartWorkout()
   }
-  // Отказ не блокирует тренировку — таймер остаётся на экране, но не переживёт сворачивание.
-  val notificationPermission =
-      rememberLauncherForActivityResult(
-          ActivityResultContracts.RequestPermission(),
-      ) {
-        continueToWorkout()
-      }
 
   LaunchedEffect(Unit) {
-    viewModel.startEvents.collect {
-      if (
-          ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
-              PackageManager.PERMISSION_GRANTED
-      ) {
-        showNotificationRationale = true
-      } else {
-        continueToWorkout()
-      }
+    viewModel.startEvents.collect { started ->
+      permissionHost.begin(started.workoutId, started.actionToken)
     }
   }
+  LaunchedEffect(Unit) { viewModel.startReadyEvents.collect { continueToWorkout() } }
   LaunchedEffect(Unit) { viewModel.messages.collect(snackbarHostState::showSnackbar) }
   LaunchedEffect(Unit) { cloneViewModel.messages.collect(snackbarHostState::showSnackbar) }
 
@@ -145,7 +141,8 @@ fun WorkoutsScreen(
               }
           routines.isEmpty() ->
               FadeInContent(modifier = Modifier.weight(1f)) {
-                EmptyState(
+                EmptyWorkoutsState(
+                    onStartEmpty = viewModel::startEmpty,
                     onCreateRoutine = onCreateRoutine,
                     modifier = Modifier.fillMaxSize(),
                 )
@@ -201,12 +198,9 @@ fun WorkoutsScreen(
     )
   }
 
-  if (showNotificationRationale) {
+  if (permissionHost.showDialog) {
     AlertDialog(
-        onDismissRequest = {
-          showNotificationRationale = false
-          continueToWorkout()
-        },
+        onDismissRequest = permissionHost::cancel,
         title = { Text("Показывать таймер отдыха в уведомлении?") },
         text = {
           Text(
@@ -215,25 +209,11 @@ fun WorkoutsScreen(
           )
         },
         confirmButton = {
-          TextButton(
-              onClick = {
-                showNotificationRationale = false
-                notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
-              }
-          ) {
-            Text("Разрешить")
+          TextButton(onClick = { permissionHost.confirm() }) {
+            Text(if (permissionHost.offersSettings) "Открыть настройки" else "Разрешить")
           }
         },
-        dismissButton = {
-          TextButton(
-              onClick = {
-                showNotificationRationale = false
-                continueToWorkout()
-              }
-          ) {
-            Text("Не сейчас")
-          }
-        },
+        dismissButton = { TextButton(onClick = permissionHost::cancel) { Text("Не сейчас") } },
     )
   }
 
@@ -443,7 +423,8 @@ private fun RoutineCardMenu(
 }
 
 @Composable
-private fun EmptyState(
+internal fun EmptyWorkoutsState(
+    onStartEmpty: () -> Unit,
     onCreateRoutine: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -453,22 +434,24 @@ private fun EmptyState(
       verticalArrangement = Arrangement.Center,
   ) {
     Text(
-        text = "Создайте первую программу",
+        text = "Начните первую тренировку",
         style = MaterialTheme.typography.titleMedium,
         color = MaterialTheme.colorScheme.onSurface,
     )
     Spacer(Modifier.height(8.dp))
     Text(
-        text = "Соберите список упражнений с подходами, чтобы быстро начинать тренировку.",
+        text = "Добавляйте упражнения во время тренировки или заранее создайте программу.",
         style = MaterialTheme.typography.bodyMedium,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
     Spacer(Modifier.height(20.dp))
     PillButton(
-        text = "Новая программа",
-        onClick = onCreateRoutine,
-        leadingIcon = Icons.Default.Add,
+        text = "Начать без программы",
+        onClick = onStartEmpty,
+        modifier = Modifier.fillMaxWidth(),
     )
+    Spacer(Modifier.height(8.dp))
+    TextButton(onClick = onCreateRoutine) { Text("Создать программу") }
   }
 }
 

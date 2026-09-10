@@ -1,10 +1,8 @@
 package com.valerochka1337.valerochkagym.ui
 
 import androidx.lifecycle.SavedStateHandle
-import com.valerochka1337.valerochkagym.data.ai.AiApiConfigurationProvider
 import com.valerochka1337.valerochkagym.data.ai.ExerciseAiGenerationResult
 import com.valerochka1337.valerochkagym.data.ai.ExerciseAiGenerator
-import com.valerochka1337.valerochkagym.data.ai.MODEL_UNAVAILABLE_MESSAGE
 import com.valerochka1337.valerochkagym.data.db.CanonicalExerciseRegistry
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseDao
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseMuscleDao
@@ -711,7 +709,6 @@ class ExerciseLibraryViewModelTest {
                                 ),
                         ),
                     ),
-                aiApiConfigurationProvider = FakeAiApiConfigurationProvider(configured = true),
             )
         mainDispatcherRule.testDispatcher.scheduler.advanceUntilIdle()
 
@@ -743,7 +740,6 @@ class ExerciseLibraryViewModelTest {
                 exerciseMuscleDao = muscleDao,
                 exerciseAiGenerator =
                     FakeExerciseAiGenerator(ExerciseAiGenerationResult.Existing(1L)),
-                aiApiConfigurationProvider = FakeAiApiConfigurationProvider(configured = true),
             )
         mainDispatcherRule.testDispatcher.scheduler.advanceUntilIdle()
 
@@ -760,6 +756,67 @@ class ExerciseLibraryViewModelTest {
       }
 
   @Test
+  fun `stale AI existing mapping never opens an editor`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val viewModel =
+            ExerciseLibraryViewModel(
+                exerciseDao =
+                    FakeExerciseDao(
+                        listOf(catalogue().first().copy(origin = "CUSTOM", isCustom = true)),
+                    ),
+                exerciseMuscleDao = FakeExerciseMuscleDao(),
+                exerciseAiGenerator =
+                    FakeExerciseAiGenerator(
+                        ExerciseAiGenerationResult.Existing(1L) { false },
+                    ),
+            )
+        mainDispatcherRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        viewModel.openCreate()
+        viewModel.onAiDescriptionChange("Жим лёжа")
+        viewModel.generateAiExercise()
+        mainDispatcherRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        assertNull(viewModel.editor.value)
+        assertEquals("Список устарел, попробуйте ещё раз", viewModel.aiCreation.value?.error)
+      }
+
+  @Test
+  fun `existing AI mapping that expires during editor reads never opens the editor`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        var current = true
+        val lookupStarted = CompletableDeferred<Unit>()
+        val releaseLookup = CompletableDeferred<Unit>()
+        val personal = catalogue().first().copy(origin = "CUSTOM", isCustom = true)
+        val viewModel =
+            ExerciseLibraryViewModel(
+                exerciseDao =
+                    FakeExerciseDao(
+                        initial = listOf(personal),
+                        getByIdStarted = lookupStarted,
+                        getByIdGate = releaseLookup,
+                    ),
+                exerciseMuscleDao = FakeExerciseMuscleDao(),
+                exerciseAiGenerator =
+                    FakeExerciseAiGenerator(
+                        ExerciseAiGenerationResult.Existing(personal.id) { current },
+                    ),
+            )
+        mainDispatcherRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        viewModel.openCreate()
+        viewModel.onAiDescriptionChange("Жим лёжа")
+        viewModel.generateAiExercise()
+        lookupStarted.await()
+        current = false
+        releaseLookup.complete(Unit)
+        mainDispatcherRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        assertNull(viewModel.editor.value)
+        assertEquals("Список устарел, попробуйте ещё раз", viewModel.aiCreation.value?.error)
+      }
+
+  @Test
   fun `ai generation failure keeps the description available for retry`() =
       runTest(mainDispatcherRule.testDispatcher.scheduler) {
         val viewModel =
@@ -772,7 +829,6 @@ class ExerciseLibraryViewModelTest {
                             "Лимит бесплатной модели исчерпан — попробуйте позже"
                         ),
                     ),
-                aiApiConfigurationProvider = FakeAiApiConfigurationProvider(configured = true),
             )
         mainDispatcherRule.testDispatcher.scheduler.advanceUntilIdle()
 
@@ -790,33 +846,7 @@ class ExerciseLibraryViewModelTest {
       }
 
   @Test
-  fun `ai generation exposes a settings action when the selected model is unavailable`() =
-      runTest(mainDispatcherRule.testDispatcher.scheduler) {
-        val viewModel =
-            ExerciseLibraryViewModel(
-                exerciseDao = FakeExerciseDao(),
-                exerciseMuscleDao = FakeExerciseMuscleDao(),
-                exerciseAiGenerator =
-                    FakeExerciseAiGenerator(
-                        ExerciseAiGenerationResult.Failure(
-                            message = MODEL_UNAVAILABLE_MESSAGE,
-                            modelUnavailable = true,
-                        ),
-                    ),
-                aiApiConfigurationProvider = FakeAiApiConfigurationProvider(configured = true),
-            )
-        mainDispatcherRule.testDispatcher.scheduler.advanceUntilIdle()
-
-        viewModel.openCreate()
-        viewModel.onAiDescriptionChange("Упражнение")
-        viewModel.generateAiExercise()
-        mainDispatcherRule.testDispatcher.scheduler.advanceUntilIdle()
-
-        assertTrue(viewModel.aiCreation.value?.modelUnavailable ?: false)
-      }
-
-  @Test
-  fun `manual creation remains available without an AiApi key`() =
+  fun `manual creation remains available without backend availability`() =
       runTest(mainDispatcherRule.testDispatcher.scheduler) {
         val viewModel = ExerciseLibraryViewModel(FakeExerciseDao(), FakeExerciseMuscleDao())
 
@@ -836,7 +866,6 @@ class ExerciseLibraryViewModelTest {
                 exerciseDao = FakeExerciseDao(),
                 exerciseMuscleDao = FakeExerciseMuscleDao(),
                 exerciseAiGenerator = generator,
-                aiApiConfigurationProvider = FakeAiApiConfigurationProvider(configured = true),
             )
         mainDispatcherRule.testDispatcher.scheduler.advanceUntilIdle()
 
@@ -921,7 +950,11 @@ class ExerciseLibraryViewModelTest {
    * next id) and records the last inserted exercise so the tests can assert on it. The remaining
    * methods are the simplest correct implementations over the backing list.
    */
-  private class FakeExerciseDao(initial: List<ExerciseEntity> = emptyList()) : ExerciseDao {
+  private class FakeExerciseDao(
+      initial: List<ExerciseEntity> = emptyList(),
+      private val getByIdStarted: CompletableDeferred<Unit>? = null,
+      private val getByIdGate: CompletableDeferred<Unit>? = null,
+  ) : ExerciseDao {
 
     val items = MutableStateFlow(initial)
 
@@ -952,7 +985,11 @@ class ExerciseLibraryViewModelTest {
 
     override suspend fun count(): Int = items.value.size
 
-    override suspend fun getById(id: Long): ExerciseEntity? = items.value.find { it.id == id }
+    override suspend fun getById(id: Long): ExerciseEntity? {
+      getByIdStarted?.complete(Unit)
+      getByIdGate?.await()
+      return items.value.find { it.id == id }
+    }
 
     override suspend fun getAllOnce(): List<ExerciseEntity> = items.value
 
@@ -1031,16 +1068,6 @@ class ExerciseLibraryViewModelTest {
       started.complete(Unit)
       return result.await()
     }
-  }
-
-  private class FakeAiApiConfigurationProvider(configured: Boolean) : AiApiConfigurationProvider {
-    private val configuredFlow = MutableStateFlow(configured)
-
-    override val isConfigured: Flow<Boolean> = configuredFlow
-
-    override suspend fun connection() = null
-
-    override suspend fun requestConfiguration() = null
   }
 
   private class FakePickerGymRepository : GymRepository {

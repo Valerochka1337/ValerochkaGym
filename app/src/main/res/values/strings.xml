@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">ValerochkaGym</string>
+    <string name="app_name">Yarumo coach</string>
 
     <!-- Web application OAuth client ID из Google Cloud Console (настройка описана в README.md). -->
     <string name="google_web_client_id" translatable="false">193759830496-lucic3av1r1l4441ed54ap9e30fkolfl.apps.googleusercontent.com</string>

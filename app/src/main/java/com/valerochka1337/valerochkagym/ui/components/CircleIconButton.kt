@@ -22,9 +22,11 @@ fun CircleIconButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     tint: Color = MaterialTheme.colorScheme.onSurfaceVariant,
+    enabled: Boolean = true,
 ) {
   FilledTonalIconButton(
       onClick = onClick,
+      enabled = enabled,
       modifier = modifier.size(48.dp),
       colors =
           IconButtonDefaults.filledTonalIconButtonColors(

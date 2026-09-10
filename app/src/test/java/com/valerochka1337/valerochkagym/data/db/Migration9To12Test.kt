@@ -6,6 +6,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 import androidx.sqlite.db.SupportSQLiteOpenHelper
 import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
 import androidx.test.core.app.ApplicationProvider
+import java.io.Closeable
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -29,14 +30,19 @@ class Migration9To12Test {
 
   @Test
   fun `room opens v9 data through v10 and v12 preserving base rows and sets`() {
-    MigrationRecoveryFixtures.createCurrentDatabase(context, name).use { sql ->
+    val fixture = MigrationRecoveryFixtures.createCurrentDatabase(context, name)
+    fixture.use {
+      val sql = fixture.database
       MigrationRecoveryFixtures.prepareVariantSchema(sql, version = 9, includeV11Additions = false)
       MigrationRecoveryFixtures.seedVariantData(sql)
     }
 
     val db = MigrationRecoveryFixtures.openThroughProductionList(context, name)
     try {
-      MigrationRecoveryFixtures.assertBaseOnlyRecovery(db.openHelper.writableDatabase)
+      MigrationRecoveryFixtures.assertBaseOnlyRecovery(
+          db.openHelper.writableDatabase,
+          expectedVersion = fixture.version,
+      )
     } finally {
       db.close()
     }
@@ -44,34 +50,48 @@ class Migration9To12Test {
 }
 
 internal object MigrationRecoveryFixtures {
-  fun createCurrentDatabase(context: Context, name: String): SupportSQLiteDatabase {
-    Room.databaseBuilder(context, GymDatabase::class.java, name)
-        .addMigrations(*GymDatabase.ALL_MIGRATIONS)
-        .allowMainThreadQueries()
-        .build()
-        .also {
-          it.openHelper.writableDatabase
-          it.close()
-        }
-    return FrameworkSQLiteOpenHelperFactory()
-        .create(
-            SupportSQLiteOpenHelper.Configuration.builder(context)
-                .name(name)
-                .callback(
-                    object : SupportSQLiteOpenHelper.Callback(16) {
-                      override fun onCreate(db: SupportSQLiteDatabase) = Unit
+  fun createCurrentDatabase(context: Context, name: String): CurrentDatabaseFixture {
+    val currentVersion =
+        Room.databaseBuilder(context, GymDatabase::class.java, name)
+            .addMigrations(*GymDatabase.ALL_MIGRATIONS)
+            .allowMainThreadQueries()
+            .build()
+            .let { database ->
+              try {
+                database.openHelper.writableDatabase.query("PRAGMA user_version").use { cursor ->
+                  check(cursor.moveToFirst())
+                  cursor.getInt(0)
+                }
+              } finally {
+                database.close()
+              }
+            }
+    val database =
+        FrameworkSQLiteOpenHelperFactory()
+            .create(
+                SupportSQLiteOpenHelper.Configuration.builder(context)
+                    .name(name)
+                    .callback(
+                        object : SupportSQLiteOpenHelper.Callback(currentVersion) {
+                          override fun onCreate(db: SupportSQLiteDatabase) = Unit
 
-                      override fun onUpgrade(
-                          db: SupportSQLiteDatabase,
-                          oldVersion: Int,
-                          newVersion: Int,
-                      ) = Unit
-                    }
-                )
-                .build(),
-        )
-        .writableDatabase
+                          override fun onUpgrade(
+                              db: SupportSQLiteDatabase,
+                              oldVersion: Int,
+                              newVersion: Int,
+                          ) = Unit
+                        }
+                    )
+                    .build(),
+            )
+            .writableDatabase
+    return CurrentDatabaseFixture(database, currentVersion)
   }
+
+  class CurrentDatabaseFixture(
+      val database: SupportSQLiteDatabase,
+      val version: Int,
+  ) : Closeable by database
 
   fun prepareVariantSchema(
       db: SupportSQLiteDatabase,
@@ -80,7 +100,13 @@ internal object MigrationRecoveryFixtures {
   ) {
     // The fixture starts from Room's current schema, then reconstructs the historical recovery
     // surface. v13's review column intentionally remains because MIGRATION_12_13 must tolerate
-    // interrupted vendor restores that already carried it; v14's inventory-only objects must not.
+    // interrupted vendor restores that already carried it; later-version objects must not.
+    removeV23ProfileSchema(db)
+    removeV22WorkoutNotesSchema(db)
+    removeV20HealthAiDisclosureSchema(db)
+    removeV19CalendarPlanSchema(db)
+    removeV18GuestSyncSchema(db)
+    removeV17CalendarAccountSchema(db)
     removeV14EquipmentSchema(db)
     db.execSQL(
         "CREATE TABLE `exercise_variants` (" +
@@ -197,6 +223,49 @@ internal object MigrationRecoveryFixtures {
     db.execSQL("PRAGMA foreign_keys = ON")
   }
 
+  fun removeV17CalendarAccountSchema(db: SupportSQLiteDatabase) {
+    db.execSQL("DROP TRIGGER IF EXISTS calendar_event_account_links_validate_insert")
+    db.execSQL("DROP TRIGGER IF EXISTS calendar_event_account_links_immutable")
+    db.execSQL("DROP TABLE IF EXISTS calendar_event_account_links")
+  }
+
+  fun removeV18GuestSyncSchema(db: SupportSQLiteDatabase) {
+    db.execSQL("DROP TABLE IF EXISTS backend_conflict_copies")
+    db.execSQL("ALTER TABLE backend_state DROP COLUMN initialMergeAcknowledged")
+    db.execSQL("ALTER TABLE backend_state DROP COLUMN mergeId")
+    db.execSQL("ALTER TABLE backend_state DROP COLUMN phase")
+  }
+
+  /** Restores the pre-v19 backend state before the real 18 → 19 migration adds these columns. */
+  fun removeV19CalendarPlanSchema(db: SupportSQLiteDatabase) {
+    db.execSQL("DROP TABLE IF EXISTS calendar_exceptions")
+    db.execSQL("DROP TABLE IF EXISTS calendar_rules")
+    db.execSQL("DROP TABLE IF EXISTS calendar_plans")
+    db.execSQL("DROP TABLE IF EXISTS calendar_google_links")
+    db.execSQL("DROP TABLE IF EXISTS calendar_migration_metadata")
+    db.execSQL("DROP TABLE IF EXISTS calendar_migration_state")
+    db.execSQL("ALTER TABLE backend_state DROP COLUMN acceptedCapabilities")
+    db.execSQL("ALTER TABLE backend_state DROP COLUMN capabilityOwner")
+  }
+
+  /** Historical recovery fixtures start before the strict 19 → 20 disclosure migration. */
+  fun removeV20HealthAiDisclosureSchema(db: SupportSQLiteDatabase) {
+    db.execSQL("DROP TABLE IF EXISTS health_ai_consent_outbox")
+    db.execSQL("DROP TABLE IF EXISTS health_ai_consent_state")
+  }
+
+  /** Removes all v22 objects before the fixture reconstructs a historical pre-note schema. */
+  fun removeV23ProfileSchema(db: SupportSQLiteDatabase) {
+    db.execSQL("DROP TABLE IF EXISTS profile_equipment")
+    db.execSQL("DROP TABLE IF EXISTS profiles")
+  }
+
+  /** Removes all v22 objects before the fixture reconstructs a historical pre-note schema. */
+  fun removeV22WorkoutNotesSchema(db: SupportSQLiteDatabase) {
+    db.execSQL("DROP TABLE IF EXISTS exercise_personal_hints")
+    db.execSQL("ALTER TABLE workout_sets DROP COLUMN note")
+  }
+
   fun seedVariantData(db: SupportSQLiteDatabase) {
     db.execSQL(
         "INSERT INTO exercises VALUES (1, 'Жим', 'CHEST', 'STRENGTH', 1, 'exercise-sync', 1, 0)"
@@ -226,10 +295,10 @@ internal object MigrationRecoveryFixtures {
           .allowMainThreadQueries()
           .build()
 
-  fun assertBaseOnlyRecovery(sql: SupportSQLiteDatabase) {
+  fun assertBaseOnlyRecovery(sql: SupportSQLiteDatabase, expectedVersion: Int) {
     sql.query("PRAGMA user_version").use { cursor ->
       assertTrue(cursor.moveToFirst())
-      assertEquals(16, cursor.getInt(0))
+      assertEquals(expectedVersion, cursor.getInt(0))
     }
     sql.query(
             "SELECT id, routineId, exerciseId, position, restSeconds, plannedSetsJson FROM routine_exercises"

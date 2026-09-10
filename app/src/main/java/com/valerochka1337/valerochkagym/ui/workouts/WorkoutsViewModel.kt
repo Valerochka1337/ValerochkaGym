@@ -12,9 +12,14 @@ import com.valerochka1337.valerochkagym.domain.ActiveWorkoutRepository
 import com.valerochka1337.valerochkagym.domain.GymRepository
 import com.valerochka1337.valerochkagym.domain.NoOpGymRepository
 import com.valerochka1337.valerochkagym.domain.RoutineGymConflictException
+import com.valerochka1337.valerochkagym.ui.permissions.LivePermissionState
+import com.valerochka1337.valerochkagym.ui.permissions.PermissionRecoveryController
+import com.valerochka1337.valerochkagym.ui.permissions.PermissionRecoveryDecision
+import com.valerochka1337.valerochkagym.ui.permissions.PermissionRecoveryPolicy
 import com.valerochka1337.valerochkagym.worker.NoOpRoutineUploadScheduler
 import com.valerochka1337.valerochkagym.worker.RoutineUploadScheduler
 import dagger.hilt.android.lifecycle.HiltViewModel
+import java.util.UUID
 import javax.inject.Inject
 import kotlin.math.roundToInt
 import kotlinx.coroutines.channels.Channel
@@ -22,6 +27,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
@@ -52,6 +58,8 @@ data class WorkoutsUiState(
     get() = routines?.isEmpty() == true
 }
 
+data class StartedWorkout(val actionToken: String, val workoutId: String)
+
 /**
  * Бэкенд вкладки «Тренировки»: список программ с оценкой длительности, дублирование и удаление.
  * Оценка считается в памяти, т.к. plannedSets лежат в JSON. Планирование тренировок вынесено на
@@ -66,6 +74,7 @@ constructor(
     private val activeWorkoutRepository: ActiveWorkoutRepository,
     private val routineUploadScheduler: RoutineUploadScheduler = NoOpRoutineUploadScheduler,
     private val gymRepository: GymRepository = NoOpGymRepository,
+    private val permissionRecoveryController: PermissionRecoveryController? = null,
 ) : ViewModel() {
 
   private val selectedRoutineId = MutableStateFlow<Long?>(null)
@@ -76,11 +85,15 @@ constructor(
    * полностью.
    */
   private var startInFlight = false
+  private val consumedPermissionActionTokens = mutableSetOf<String>()
 
-  private val _startEvents = Channel<Unit>(Channel.BUFFERED)
+  private val _startEvents = Channel<StartedWorkout>(Channel.BUFFERED)
 
   /** Событие «тренировка создана» — экран навигирует на активную тренировку. */
   val startEvents = _startEvents.receiveAsFlow()
+
+  private val _startReadyEvents = Channel<String>(Channel.BUFFERED)
+  val startReadyEvents = _startReadyEvents.receiveAsFlow()
 
   private val _messages = Channel<String>(Channel.BUFFERED)
   val messages = _messages.receiveAsFlow()
@@ -111,8 +124,7 @@ constructor(
   /** Старт тренировки по программе. Событие [startEvents] шлётся только при успешном создании. */
   fun startFromRoutine(routineId: Long) = launchStart {
     try {
-      activeWorkoutRepository.startFromRoutine(routineId)
-      _startEvents.send(Unit)
+      sendStartedWorkout(activeWorkoutRepository.startFromRoutine(routineId))
     } catch (conflict: RoutineGymConflictException) {
       _messages.send(
           "Нельзя начать: недоступно во всех залах — ${conflict.exerciseNames.joinToString()}",
@@ -121,9 +133,39 @@ constructor(
   }
 
   /** Старт пустой тренировки. */
-  fun startEmpty() = launchStart {
-    activeWorkoutRepository.startEmpty()
-    _startEvents.send(Unit)
+  fun startEmpty() = launchStart { sendStartedWorkout(activeWorkoutRepository.startEmpty()) }
+
+  /** Revalidates that the exact workout which requested permission is still the active Room row. */
+  fun continueStartedWorkout(actionToken: String, workoutId: String) {
+    if (!consumedPermissionActionTokens.add(actionToken)) return
+    viewModelScope.launch {
+      if (activeWorkoutRepository.observeActive().first()?.workout?.id == workoutId) {
+        _startReadyEvents.send(workoutId)
+      }
+    }
+  }
+
+  private suspend fun sendStartedWorkout(workoutId: String) {
+    _startEvents.send(
+        StartedWorkout(actionToken = UUID.randomUUID().toString(), workoutId = workoutId)
+    )
+  }
+
+  suspend fun decidePermissions(live: List<LivePermissionState>): PermissionRecoveryDecision =
+      permissionRecoveryController?.decide(live)
+          ?: PermissionRecoveryPolicy.decide(
+              live.map { state ->
+                com.valerochka1337.valerochkagym.ui.permissions.PermissionSnapshot(
+                    state.permission,
+                    state.granted,
+                    requestedBefore = false,
+                    state.shouldShowRationale,
+                )
+              }
+          )
+
+  suspend fun markPermissionRequestLaunched(permissions: Collection<String>) {
+    permissionRecoveryController?.markRequestLaunched(permissions)
   }
 
   /**

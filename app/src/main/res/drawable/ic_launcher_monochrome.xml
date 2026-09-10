@@ -4,23 +4,43 @@
     android:height="108dp"
     android:viewportWidth="1024"
     android:viewportHeight="1024">
-    <!-- Themed-icon layer: the system tints this shape; colors here are placeholders. -->
+    <!-- System-tinted mask of the Yarumo mark: ring, dumbbell, heart, and pulse. -->
     <group
         android:pivotX="512"
         android:pivotY="512"
         android:scaleX="0.7"
         android:scaleY="0.7">
         <path
-            android:pathData="M264,512 a248,248 0 1,0 496,0 a248,248 0 1,0 -496,0"
-            android:strokeColor="#FFFFFF"
-            android:strokeWidth="88"
-            android:strokeLineCap="round"
-            android:strokeLineJoin="round" />
+            android:fillColor="@android:color/transparent"
+            android:pathData="M512,104 a408,408 0,1 0,0.1,0"
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="28" />
         <path
-            android:pathData="M418,414 L512,602 L606,414"
-            android:strokeColor="#FFFFFF"
-            android:strokeWidth="84"
+            android:fillColor="@android:color/transparent"
+            android:pathData="M512,184 a272,272 0,1 0,0.1,0"
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="24" />
+        <path
+            android:fillColor="@android:color/transparent"
+            android:pathData="M512,376 a272,272 0,1 0,0.1,0"
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="24" />
+        <path
+            android:fillColor="@android:color/white"
+            android:pathData="M380,302h28v116h-28z M430,270h42v180h-42z M552,270h42v180h-42z M616,302h28v116h-28z M472,342h80v36h-80z" />
+        <path
+            android:fillColor="@android:color/transparent"
+            android:pathData="M512,830 C468,800 402,752 402,674 C402,618 468,590 512,642 C556,590 622,618 622,674 C622,752 556,800 512,830"
+            android:strokeColor="@android:color/white"
             android:strokeLineCap="round"
-            android:strokeLineJoin="round" />
+            android:strokeLineJoin="round"
+            android:strokeWidth="30" />
+        <path
+            android:fillColor="@android:color/transparent"
+            android:pathData="M404,714h64l38,-58l42,112l34,-54h42"
+            android:strokeColor="@android:color/white"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round"
+            android:strokeWidth="28" />
     </group>
 </vector>

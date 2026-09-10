@@ -9,6 +9,13 @@
 
 Отображаемое название приложения: **Yarumo coach**. Регистр надписи в логотипе — часть оригинала.
 
-Это исходные материалы, а не готовые Android-ресурсы. При реализации ребрендинга
-из знака нужно подготовить adaptive/round/monochrome иконки с безопасными отступами,
-сохранив пропорции и узнаваемость. Полный объём работ и критерии приёмки описаны в issue.
+`app-icon-source.png` скопирован byte-for-byte в Android resource
+`app/src/main/res/drawable-nodpi/yarumo_app_icon_mark.png` (SHA-256
+`0eabd16bbfc8ba3f1edaa14ad25702f5beb0131eb71cb63e3085b2ee230b2431`). Все default, round и
+accent adaptive foreground используют этот ресурс через native XML `bitmap` c `gravity="fill"`
+и равными inset 15% со всех сторон. Wordmark не используется как мелкий текст в launcher.
+
+`ic_launcher_monochrome` и `ic_notification_gym` — отдельные system-tinted vector-маски с
+контуром, гантелью, сердцем и пульсом того же знака. Старые density PNG сохранены без изменений
+для совместимости; при minSdk 36 launcher выбирает adaptive resources. Полный объём работ и
+критерии приёмки описаны в issue.

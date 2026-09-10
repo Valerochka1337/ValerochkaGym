@@ -76,6 +76,7 @@ fun WorkoutSummaryScreen(
       snackbarHostState.showSnackbar("Программа сохранена")
     }
   }
+  LaunchedEffect(Unit) { viewModel.doneEvents.collect { onDone() } }
 
   GlowBackground(modifier = modifier) {
     if (state.loading) {
@@ -178,7 +179,7 @@ fun WorkoutSummaryScreen(
               haptics.tap()
               viewModel.openSaveAsProgram()
             },
-            onDone = onDone,
+            onDone = viewModel::onDone,
         )
       }
       SnackbarHost(
@@ -188,20 +189,44 @@ fun WorkoutSummaryScreen(
     }
   }
 
-  if (state.showUpdateRoutineDialog) {
+  if (state.showSaveChoice) {
+    SaveRoutineChoiceDialog(
+        canReplace = state.canReplaceRoutine,
+        isPreparing = state.isPreparingReplacement,
+        error = state.saveAsProgramError,
+        onCreate = viewModel::chooseCreateRoutine,
+        onReplace = viewModel::chooseReplaceRoutine,
+        onSkip = viewModel::skipSavingAndFinish,
+        onDismiss = viewModel::dismissSaveChoice,
+    )
+  }
+  if (state.showReplaceRoutineDialog) {
     AlertDialog(
-        onDismissRequest = viewModel::dismissRoutineUpdate,
-        title = { Text("Обновить программу?") },
+        onDismissRequest = viewModel::dismissReplaceRoutine,
+        title = { Text("Перезаписать программу?") },
         text = {
-          Text(
-              "Фактически выполненные упражнения и подходы отличаются от программы. Перезаписать программу по факту тренировки?"
-          )
+          Column {
+            Text("Программа будет заменена только выполненными подходами этой тренировки.")
+            state.saveAsProgramError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+          }
         },
         confirmButton = {
-          TextButton(onClick = viewModel::applyRoutineUpdate) { Text("Обновить") }
+          TextButton(
+              onClick = viewModel::confirmRoutineReplace,
+              enabled = !state.isSavingAsProgram,
+              modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp),
+          ) {
+            Text(if (state.isSavingAsProgram) "Сохраняем…" else "Перезаписать")
+          }
         },
         dismissButton = {
-          TextButton(onClick = viewModel::dismissRoutineUpdate) { Text("Не сейчас") }
+          TextButton(
+              onClick = viewModel::dismissReplaceRoutine,
+              enabled = !state.isSavingAsProgram,
+              modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp),
+          ) {
+            Text("Отмена")
+          }
         },
     )
   }
@@ -242,6 +267,61 @@ internal fun WorkoutSummaryActions(
       onClick = onDone,
       modifier =
           Modifier.fillMaxWidth().padding(start = 24.dp, end = 24.dp, top = 8.dp, bottom = 16.dp),
+  )
+}
+
+@Composable
+internal fun SaveRoutineChoiceDialog(
+    canReplace: Boolean,
+    isPreparing: Boolean,
+    error: String?,
+    onCreate: () -> Unit,
+    onReplace: () -> Unit,
+    onSkip: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+  AlertDialog(
+      onDismissRequest = onDismiss,
+      title = { Text("Сохранить программу?") },
+      text = {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+          Text(
+              if (canReplace) {
+                "Создайте новую программу или перезапишите текущую личную программу выполненными подходами."
+              } else {
+                "Создайте новую программу из выполненных подходов."
+              }
+          )
+          error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+        }
+      },
+      confirmButton = {
+        TextButton(
+            onClick = onCreate,
+            modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp),
+        ) {
+          Text("Новая")
+        }
+      },
+      dismissButton = {
+        Column(horizontalAlignment = Alignment.End) {
+          if (canReplace) {
+            TextButton(
+                onClick = onReplace,
+                enabled = !isPreparing,
+                modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp),
+            ) {
+              Text(if (isPreparing) "Проверяем…" else "Перезаписать")
+            }
+          }
+          TextButton(
+              onClick = onSkip,
+              modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp),
+          ) {
+            Text("Не сохранять")
+          }
+        }
+      },
   )
 }
 

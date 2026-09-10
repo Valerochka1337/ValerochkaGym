@@ -213,6 +213,87 @@ class WorkoutDaoTest : RoomDaoTest() {
     assertNull(workoutDao.observeActiveWorkout().first())
   }
 
+  @Test
+  fun `completed number updates require an active completed row of the matching type`() = runTest {
+    val strength = addExercise(type = ExerciseType.STRENGTH)
+    insertWorkout("active", startedAt = 1_000, finishedAt = null)
+    val activeExercise = insertWorkoutExercise("active", strength)
+    val activeSet =
+        insertSet(
+            activeExercise,
+            setIndex = 0,
+            weightKg = 60.0,
+            reps = 10,
+            durationSec = 120,
+            isCompleted = true,
+        )
+    val unfinished = insertSet(activeExercise, setIndex = 1, weightKg = 40.0, isCompleted = false)
+    val finishedType = addExercise(type = ExerciseType.TIMED)
+    insertWorkout("finished", startedAt = 2_000, finishedAt = 3_000)
+    val finishedExercise = insertWorkoutExercise("finished", finishedType)
+    val finishedSet =
+        insertSet(finishedExercise, setIndex = 0, durationSec = 60, isCompleted = true)
+
+    assertEquals(1, workoutDao.updateCompletedStrengthNumbers(activeSet, 72.5, 8))
+    assertEquals(0, workoutDao.updateCompletedStrengthNumbers(unfinished, 50.0, 5))
+    assertEquals(0, workoutDao.updateCompletedTimedNumbers(finishedSet, 75))
+
+    val stored = workoutDao.getSet(activeSet)!!
+    assertEquals(72.5, stored.weightKg!!, 0.0)
+    assertEquals(8, stored.reps)
+    assertEquals(120, stored.durationSec)
+    assertTrue(stored.isCompleted)
+  }
+
+  @Test
+  fun `timed and cardio completed updates preserve completion metadata and other type columns`() =
+      runTest {
+        insertWorkout("active", startedAt = 1_000, finishedAt = null)
+        val timed = addExercise(name = "Планка", type = ExerciseType.TIMED)
+        val timedExercise = insertWorkoutExercise("active", timed, position = 0)
+        val timedSet =
+            insertSet(
+                timedExercise,
+                setIndex = 0,
+                weightKg = 40.0,
+                reps = 8,
+                durationSec = 60,
+                speedKmh = 7.0,
+                inclinePct = 2.0,
+                isCompleted = true,
+            )
+        val cardio = addExercise(name = "Дорожка", type = ExerciseType.CARDIO)
+        val cardioExercise = insertWorkoutExercise("active", cardio, position = 1)
+        val cardioSet =
+            insertSet(
+                cardioExercise,
+                setIndex = 0,
+                weightKg = 50.0,
+                reps = 10,
+                durationSec = 300,
+                speedKmh = 9.0,
+                inclinePct = 3.0,
+                isCompleted = true,
+            )
+
+        assertEquals(1, workoutDao.updateCompletedTimedNumbers(timedSet, 75))
+        assertEquals(1, workoutDao.updateCompletedCardioNumbers(cardioSet, 360, 10.5, 4.0))
+
+        val timedStored = workoutDao.getSet(timedSet)!!
+        assertEquals(75, timedStored.durationSec)
+        assertEquals(40.0, timedStored.weightKg!!, 0.0)
+        assertEquals(8, timedStored.reps)
+        assertEquals(7.0, timedStored.speedKmh!!, 0.0)
+        assertTrue(timedStored.isCompleted)
+        val cardioStored = workoutDao.getSet(cardioSet)!!
+        assertEquals(360, cardioStored.durationSec)
+        assertEquals(10.5, cardioStored.speedKmh!!, 0.0)
+        assertEquals(4.0, cardioStored.inclinePct!!, 0.0)
+        assertEquals(50.0, cardioStored.weightKg!!, 0.0)
+        assertEquals(10, cardioStored.reps)
+        assertTrue(cardioStored.isCompleted)
+      }
+
   // endregion
 
   // region cascades
@@ -268,12 +349,15 @@ class WorkoutDaoTest : RoomDaoTest() {
 
   // endregion
 
-  private suspend fun addExercise(name: String = "Жим штанги лёжа"): Long =
+  private suspend fun addExercise(
+      name: String = "Жим штанги лёжа",
+      type: ExerciseType = ExerciseType.STRENGTH,
+  ): Long =
       exerciseDao.insert(
           ExerciseEntity(
               name = name,
               muscleGroup = MuscleGroup.CHEST,
-              type = ExerciseType.STRENGTH,
+              type = type,
           ),
       )
 }

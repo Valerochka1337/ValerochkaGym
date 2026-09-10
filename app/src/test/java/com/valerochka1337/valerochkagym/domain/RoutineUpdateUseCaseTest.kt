@@ -1,5 +1,6 @@
 package com.valerochka1337.valerochkagym.domain
 
+import com.valerochka1337.valerochkagym.data.GymRepositoryImpl
 import com.valerochka1337.valerochkagym.data.RoomDaoTest
 import com.valerochka1337.valerochkagym.data.db.PlannedSet
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseDao
@@ -14,6 +15,8 @@ import com.valerochka1337.valerochkagym.data.db.entity.WorkoutExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.WorkoutSetEntity
 import com.valerochka1337.valerochkagym.data.db.relation.WorkoutExerciseWithSets
 import com.valerochka1337.valerochkagym.data.db.relation.WorkoutFull
+import com.valerochka1337.valerochkagym.worker.NoOpConfigurationUploadScheduler
+import com.valerochka1337.valerochkagym.worker.NoOpRoutineUploadScheduler
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -31,7 +34,20 @@ class RoutineUpdateUseCaseTest : RoomDaoTest() {
   fun setUp() {
     routineDao = db.routineDao()
     exerciseDao = db.exerciseDao()
-    useCase = RoutineUpdateUseCase(routineDao)
+    useCase =
+        RoutineUpdateUseCase(
+            routineDao,
+            GymRepositoryImpl(
+                database = db,
+                gymDao = db.gymDao(),
+                exerciseDao = db.exerciseDao(),
+                exerciseMuscleDao = db.exerciseMuscleDao(),
+                routineDao = routineDao,
+                workoutDao = db.workoutDao(),
+                configurationUploadScheduler = NoOpConfigurationUploadScheduler,
+            ),
+            NoOpRoutineUploadScheduler,
+        )
   }
 
   // region hasDiverged
@@ -50,6 +66,31 @@ class RoutineUpdateUseCaseTest : RoomDaoTest() {
         workoutFull(
             routineId,
             listOf(exerciseWithSets(squat, position = 0, sets = listOf(completed(0, 100.0, 5)))),
+        )
+
+    assertFalse(useCase.hasDiverged(workout))
+  }
+
+  @Test
+  fun `hasDiverged ignores a completed set note`() = runTest {
+    val squat = addExercise("Присед")
+    val routineId = addRoutine("День A")
+    addRoutineExercise(
+        routineId,
+        squat.id,
+        position = 0,
+        plannedSets = listOf(PlannedSet(100.0, 5)),
+    )
+    val workout =
+        workoutFull(
+            routineId,
+            listOf(
+                exerciseWithSets(
+                    squat,
+                    position = 0,
+                    sets = listOf(completed(0, 100.0, 5).copy(note = "Колени наружу")),
+                ),
+            ),
         )
 
     assertFalse(useCase.hasDiverged(workout))

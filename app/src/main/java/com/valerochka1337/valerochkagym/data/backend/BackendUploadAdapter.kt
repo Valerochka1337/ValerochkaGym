@@ -17,7 +17,7 @@ constructor(
   private suspend fun upload(): UploadResult =
       try {
         if (tokens.session.value == null)
-            UploadResult.PermanentFailure("Войдите в аккаунт ValerochkaGym")
+            UploadResult.PermanentFailure("Войдите в аккаунт Yarumo coach")
         else if (sync.hasActiveWorkout())
             UploadResult.TransientFailure("Синхронизация продолжится после тренировки")
         else {

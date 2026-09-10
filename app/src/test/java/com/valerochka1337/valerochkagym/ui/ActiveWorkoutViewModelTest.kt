@@ -4,6 +4,7 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.mutablePreferencesOf
+import androidx.lifecycle.SavedStateHandle
 import com.valerochka1337.valerochkagym.data.db.dao.RoutineDao
 import com.valerochka1337.valerochkagym.data.db.dao.WorkoutDao
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
@@ -23,6 +24,11 @@ import com.valerochka1337.valerochkagym.data.db.relation.WorkoutFull
 import com.valerochka1337.valerochkagym.data.settings.SettingsRepository
 import com.valerochka1337.valerochkagym.domain.ActiveWorkoutRepository
 import com.valerochka1337.valerochkagym.domain.CompleteSetUseCase
+import com.valerochka1337.valerochkagym.domain.CompletedSetEditResult
+import com.valerochka1337.valerochkagym.domain.ExercisePersonalHint
+import com.valerochka1337.valerochkagym.domain.ExercisePersonalHintRepository
+import com.valerochka1337.valerochkagym.domain.HintEditTarget
+import com.valerochka1337.valerochkagym.domain.NoteSaveResult
 import com.valerochka1337.valerochkagym.domain.PreviousSetsUseCase
 import com.valerochka1337.valerochkagym.domain.RestDurationResolver
 import com.valerochka1337.valerochkagym.domain.RoutineGymConflictException
@@ -37,6 +43,7 @@ import com.valerochka1337.valerochkagym.ui.active.ActiveWorkoutEvent
 import com.valerochka1337.valerochkagym.ui.active.ActiveWorkoutViewModel
 import com.valerochka1337.valerochkagym.util.MainDispatcherRule
 import com.valerochka1337.valerochkagym.worker.UploadScheduler
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -45,6 +52,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -99,6 +107,43 @@ class ActiveWorkoutViewModelTest {
       }
 
   // endregion
+
+  @Test
+  fun `saving a set note trims its draft and keeps a newer target when the old save returns`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val harness = harness(active = workoutFull(setId = 10L))
+        collectUiState(harness.viewModel)
+        val releaseOldSave = CompletableDeferred<Unit>()
+        harness.repository.noteSaveGate = releaseOldSave
+
+        harness.viewModel.openSetNote(10L)
+        harness.viewModel.updateNote("  первый  ")
+        harness.viewModel.saveNoteEdit()
+        harness.viewModel.openWorkoutNote()
+        harness.viewModel.updateNote("новая цель")
+        releaseOldSave.complete(Unit)
+        advanceUntilIdle()
+
+        assertEquals("первый", harness.repository.savedSetNotes.single().second)
+        assertEquals("новая цель", harness.viewModel.uiState.value.noteEdit?.text)
+      }
+
+  @Test
+  fun `note draft rejects more than 2000 Unicode code points before repository save`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val harness = harness(active = workoutFull(setId = 10L))
+        collectUiState(harness.viewModel)
+
+        harness.viewModel.openWorkoutNote()
+        harness.viewModel.updateNote("x".repeat(2_001))
+        harness.viewModel.saveNoteEdit()
+
+        assertEquals(
+            "Заметка не длиннее 2000 символов",
+            harness.viewModel.uiState.value.noteEdit?.error,
+        )
+        assertTrue(harness.repository.savedWorkoutNotes.isEmpty())
+      }
 
   // region set mutations
 
@@ -158,6 +203,137 @@ class ActiveWorkoutViewModelTest {
       }
 
   @Test
+  fun `opening a completed set keeps a cancelable prefilled numeric draft`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val harness = harness(active = workoutFull(setId = 10L).markSetCompleted(10L))
+        collectUiState(harness.viewModel)
+
+        harness.viewModel.openCompletedSetEdit(10L, ExerciseType.STRENGTH)
+
+        assertEquals("60.0", harness.viewModel.uiState.value.completedSetEdit?.weightKg)
+        assertEquals("10", harness.viewModel.uiState.value.completedSetEdit?.reps)
+        harness.viewModel.cancelCompletedSetEdit()
+
+        assertNull(harness.viewModel.uiState.value.completedSetEdit)
+        assertTrue(harness.repository.toggledSets.isEmpty())
+        assertNull(harness.restTimerEngine.state.value)
+      }
+
+  @Test
+  fun `recreated completed edit keeps raw values and resets submission feedback`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val handle = SavedStateHandle()
+        val first =
+            harness(
+                active = workoutFull(setId = 10L).markSetCompleted(10L),
+                savedStateHandle = handle,
+            )
+        collectUiState(first.viewModel)
+        first.viewModel.openCompletedSetEdit(10L, ExerciseType.STRENGTH)
+        first.viewModel.updateCompletedSetWeight("72.5")
+
+        val recreated =
+            harness(
+                active = workoutFull(setId = 10L).markSetCompleted(10L),
+                savedStateHandle = handle,
+            )
+        collectUiState(recreated.viewModel)
+
+        val draft = recreated.viewModel.uiState.value.completedSetEdit
+        assertEquals("72.5", draft?.weightKg)
+        assertFalse(draft?.isSubmitting ?: true)
+        assertNull(draft?.error)
+      }
+
+  @Test
+  fun `restored completed edit clears when its set is no longer available`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val handle = SavedStateHandle()
+        val first =
+            harness(
+                active = workoutFull(setId = 10L).markSetCompleted(10L),
+                savedStateHandle = handle,
+            )
+        collectUiState(first.viewModel)
+        first.viewModel.openCompletedSetEdit(10L, ExerciseType.STRENGTH)
+
+        val recreated = harness(active = null, savedStateHandle = handle)
+        val events = collectEvents(recreated.viewModel)
+        collectUiState(recreated.viewModel)
+        runCurrent()
+
+        assertNull(recreated.viewModel.uiState.value.completedSetEdit)
+        assertEquals(
+            listOf(ActiveWorkoutEvent.ShowMessage("Подход уже недоступен для правки")),
+            events,
+        )
+      }
+
+  @Test
+  fun `dismissing an enqueued edit then reopening keeps the new draft when the old reply arrives`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val active =
+            workoutWithTwoIncompleteExercises()
+                .markSetCompleted(10L)
+                .markSetCompleted(SECOND_SET_ID)
+        val harness = harness(active = active)
+        collectUiState(harness.viewModel)
+        val releaseOldSave = CompletableDeferred<Unit>()
+        harness.repository.completedEditGate = releaseOldSave
+
+        harness.viewModel.openCompletedSetEdit(10L, ExerciseType.STRENGTH)
+        harness.viewModel.saveCompletedSetEdit()
+        runCurrent()
+        harness.viewModel.cancelCompletedSetEdit()
+        harness.viewModel.openCompletedSetEdit(SECOND_SET_ID, ExerciseType.STRENGTH)
+        releaseOldSave.complete(Unit)
+        runCurrent()
+
+        assertEquals(SECOND_SET_ID, harness.viewModel.uiState.value.completedSetEdit?.setId)
+      }
+
+  @Test
+  fun `nonfinite completed number input is rejected before it reaches the mutator`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val harness = harness(active = workoutFull(setId = 10L).markSetCompleted(10L))
+        collectUiState(harness.viewModel)
+        harness.viewModel.openCompletedSetEdit(10L, ExerciseType.STRENGTH)
+        harness.viewModel.updateCompletedSetWeight("9".repeat(400))
+
+        harness.viewModel.saveCompletedSetEdit()
+
+        assertEquals(
+            "Введите корректные числа",
+            harness.viewModel.uiState.value.completedSetEdit?.error,
+        )
+        assertTrue(harness.repository.completedNumberEdits.isEmpty())
+      }
+
+  @Test
+  fun `saving a completed edit leaves focus rest and completion handling untouched`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val active = workoutWithTwoIncompleteExercises().markSetCompleted(10L)
+        val harness = harness(active = active)
+        collectUiState(harness.viewModel)
+        harness.viewModel.openCompletedSetEdit(10L, ExerciseType.STRENGTH)
+        harness.viewModel.updateCompletedSetWeight("72.5")
+
+        harness.viewModel.saveCompletedSetEdit()
+        runCurrent()
+
+        assertEquals(
+            listOf(10L to ExerciseType.STRENGTH),
+            harness.repository.completedNumberEdits.map { it.first.id to it.second },
+        )
+        assertTrue(harness.repository.toggledSets.isEmpty())
+        assertNull(harness.restTimerEngine.state.value)
+        assertEquals(
+            SECOND_SET_ID,
+            harness.viewModel.uiState.value.workout?.exercises?.last()?.sets?.single()?.id,
+        )
+      }
+
+  @Test
   fun `rest pill actions extend and skip the running timer`() =
       runTest(mainDispatcherRule.testDispatcher.scheduler) {
         val harness = harness(active = workoutFull(setId = 10L))
@@ -189,6 +365,42 @@ class ActiveWorkoutViewModelTest {
         assertEquals(1, harness.heartRateMonitor.scanCalls)
         assertEquals(device, harness.heartRateMonitor.connectedTo)
         assertEquals(128, harness.viewModel.heartRateReading.value?.bpm)
+      }
+
+  @Test
+  fun `permission recovery scans only while its exact active workout remains current`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val harness = harness(active = workoutFull(setId = 10L))
+        collectUiState(harness.viewModel)
+
+        harness.viewModel.scanHeartRateForWorkout("other-workout")
+        harness.viewModel.scanHeartRateForWorkout("w1")
+
+        assertEquals(1, harness.heartRateMonitor.scanCalls)
+      }
+
+  @Test
+  fun `permission recovery does not scan after the active workout disappears`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val harness = harness(active = null)
+        collectUiState(harness.viewModel)
+
+        harness.viewModel.scanHeartRateForWorkout("w1")
+
+        assertEquals(0, harness.heartRateMonitor.scanCalls)
+      }
+
+  @Test
+  fun `permission recovery consumes one BLE action token only once`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val harness = harness(active = workoutFull(setId = 10L))
+        collectUiState(harness.viewModel)
+
+        harness.viewModel.scanHeartRateForPermissionAction("20", "w1")
+        harness.viewModel.scanHeartRateForPermissionAction("20", "w1")
+        harness.viewModel.scanHeartRateForPermissionAction("21", "w1")
+
+        assertEquals(2, harness.heartRateMonitor.scanCalls)
       }
 
   // endregion
@@ -317,6 +529,129 @@ class ActiveWorkoutViewModelTest {
       }
 
   @Test
+  fun `repeated finish while persistence is suspended runs one terminal chain`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val harness = harness(active = workoutFull(setId = 10L))
+        val events = collectEvents(harness.viewModel)
+        collectUiState(harness.viewModel)
+        val releaseFinish = CompletableDeferred<Unit>()
+        harness.repository.finishGate = releaseFinish
+
+        harness.viewModel.finish()
+        harness.viewModel.finish()
+        runCurrent()
+
+        assertEquals(listOf("w1"), harness.repository.finishedIds)
+        assertTrue(harness.viewModel.uiState.value.isFinishing)
+        assertTrue(harness.uploadScheduler.scheduledIds.isEmpty())
+
+        releaseFinish.complete(Unit)
+        runCurrent()
+
+        assertEquals(listOf("w1"), harness.uploadScheduler.scheduledIds)
+        assertEquals(listOf<ActiveWorkoutEvent>(ActiveWorkoutEvent.NavigateToSummary("w1")), events)
+      }
+
+  @Test
+  fun `finished workout stays terminal while Room still exposes its old snapshot`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val harness = harness(active = workoutFull(setId = 10L))
+        val events = collectEvents(harness.viewModel)
+        collectUiState(harness.viewModel)
+        harness.repository.retainActiveAfterFinish = true
+
+        harness.viewModel.finish()
+        runCurrent()
+        harness.viewModel.finish()
+        runCurrent()
+
+        assertTrue(harness.viewModel.uiState.value.isFinishing)
+        assertEquals(listOf("w1"), harness.repository.finishedIds)
+        assertEquals(listOf("w1"), harness.uploadScheduler.scheduledIds)
+        assertEquals(listOf<ActiveWorkoutEvent>(ActiveWorkoutEvent.NavigateToSummary("w1")), events)
+      }
+
+  @Test
+  fun `finish persistence failure reports error and allows one retry`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val harness = harness(active = workoutFull(setId = 10L))
+        val events = collectEvents(harness.viewModel)
+        collectUiState(harness.viewModel)
+        harness.repository.finishFailure = IllegalStateException("database unavailable")
+
+        harness.viewModel.finish()
+        runCurrent()
+
+        assertFalse(harness.viewModel.uiState.value.isFinishing)
+        assertTrue(harness.repository.finishedIds.isEmpty())
+        assertTrue(harness.uploadScheduler.scheduledIds.isEmpty())
+        assertEquals(
+            listOf<ActiveWorkoutEvent>(
+                ActiveWorkoutEvent.ShowMessage("Не удалось завершить тренировку")
+            ),
+            events,
+        )
+
+        harness.repository.finishFailure = null
+        harness.viewModel.finish()
+        runCurrent()
+
+        assertEquals(listOf("w1"), harness.repository.finishedIds)
+        assertEquals(listOf("w1"), harness.uploadScheduler.scheduledIds)
+        assertEquals(
+            listOf(
+                ActiveWorkoutEvent.ShowMessage("Не удалось завершить тренировку"),
+                ActiveWorkoutEvent.NavigateToSummary("w1"),
+            ),
+            events,
+        )
+      }
+
+  @Test
+  fun `scheduler failure after persistence reports once and still navigates once`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val harness = harness(active = workoutFull(setId = 10L))
+        val events = collectEvents(harness.viewModel)
+        collectUiState(harness.viewModel)
+        harness.repository.retainActiveAfterFinish = true
+        harness.uploadScheduler.scheduleFailure = IllegalStateException("work manager unavailable")
+
+        harness.viewModel.finish()
+        runCurrent()
+        harness.viewModel.finish()
+        runCurrent()
+
+        assertTrue(harness.viewModel.uiState.value.isFinishing)
+        assertEquals(listOf("w1"), harness.repository.finishedIds)
+        assertEquals(listOf("w1"), harness.uploadScheduler.scheduledIds)
+        assertEquals(
+            listOf(
+                ActiveWorkoutEvent.ShowMessage(
+                    "Тренировка завершена, не удалось поставить выгрузку в очередь",
+                ),
+                ActiveWorkoutEvent.NavigateToSummary("w1"),
+            ),
+            events,
+        )
+      }
+
+  @Test
+  fun `finish cancellation is not converted to a retryable error`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val harness = harness(active = workoutFull(setId = 10L))
+        val events = collectEvents(harness.viewModel)
+        collectUiState(harness.viewModel)
+        harness.repository.finishFailure = kotlinx.coroutines.CancellationException("cancelled")
+
+        harness.viewModel.finish()
+        runCurrent()
+
+        assertFalse(harness.viewModel.uiState.value.isFinishing)
+        assertTrue(harness.uploadScheduler.scheduledIds.isEmpty())
+        assertTrue(events.isEmpty())
+      }
+
+  @Test
   fun `discard drops the workout and navigates home without scheduling an upload`() =
       runTest(mainDispatcherRule.testDispatcher.scheduler) {
         val harness = harness(active = workoutFull(setId = 10L))
@@ -359,6 +694,7 @@ class ActiveWorkoutViewModelTest {
       active: WorkoutFull?,
       previousSets: List<WorkoutSetEntity> = emptyList(),
       heartRateRestEnabled: Boolean = false,
+      savedStateHandle: SavedStateHandle = SavedStateHandle(),
   ): Harness {
     val repository = FakeActiveWorkoutRepository(active)
     val uploadScheduler = FakeUploadScheduler()
@@ -391,6 +727,8 @@ class ActiveWorkoutViewModelTest {
             restTimerEngine = restTimerEngine,
             uploadScheduler = uploadScheduler,
             heartRateMonitor = heartRateMonitor,
+            savedStateHandle = savedStateHandle,
+            personalHintRepository = FakePersonalHints(),
         )
     return Harness(viewModel, repository, uploadScheduler, restTimerEngine, heartRateMonitor)
   }
@@ -523,6 +861,15 @@ class ActiveWorkoutViewModelTest {
     val finishedIds = mutableListOf<String>()
     val discardedIds = mutableListOf<String>()
     var addExerciseFailure: Exception? = null
+    var finishFailure: Exception? = null
+    var finishGate: CompletableDeferred<Unit>? = null
+    var retainActiveAfterFinish = false
+    var completedEditResult: CompletedSetEditResult = CompletedSetEditResult.Saved
+    var completedEditGate: CompletableDeferred<Unit>? = null
+    var noteSaveGate: CompletableDeferred<Unit>? = null
+    val completedNumberEdits = mutableListOf<Pair<WorkoutSetEntity, ExerciseType>>()
+    val savedWorkoutNotes = mutableListOf<Pair<String, String>>()
+    val savedSetNotes = mutableListOf<Pair<Long, String>>()
 
     override fun observeActive(): Flow<WorkoutFull?> = active
 
@@ -540,6 +887,31 @@ class ActiveWorkoutViewModelTest {
                     },
             )
           }
+    }
+
+    override suspend fun updateCompletedSetNumbers(
+        set: WorkoutSetEntity,
+        type: ExerciseType,
+    ): CompletedSetEditResult {
+      completedNumberEdits += set to type
+      completedEditGate?.await()
+      return completedEditResult
+    }
+
+    override suspend fun saveWorkoutNote(workoutId: String, text: String): NoteSaveResult {
+      noteSaveGate?.await()
+      savedWorkoutNotes += workoutId to text
+      return NoteSaveResult.Saved
+    }
+
+    override suspend fun saveSetNote(
+        workoutId: String,
+        setId: Long,
+        text: String,
+    ): NoteSaveResult {
+      noteSaveGate?.await()
+      savedSetNotes += setId to text
+      return NoteSaveResult.Saved
     }
 
     override suspend fun toggleSetCompleted(setId: Long, completed: Boolean) {
@@ -572,8 +944,10 @@ class ActiveWorkoutViewModelTest {
     }
 
     override suspend fun finish(workoutId: String) {
+      finishFailure?.let { throw it }
       finishedIds += workoutId
-      active.value = null
+      finishGate?.await()
+      if (!retainActiveAfterFinish) active.value = null
     }
 
     override suspend fun discard(workoutId: String) {
@@ -584,6 +958,18 @@ class ActiveWorkoutViewModelTest {
     override suspend fun startFromRoutine(routineId: Long): String = "w1"
 
     override suspend fun startEmpty(): String = "w1"
+  }
+
+  private class FakePersonalHints : ExercisePersonalHintRepository {
+    override fun observe(exerciseId: Long) = flowOf<ExercisePersonalHint?>(null)
+
+    override suspend fun editTarget(exerciseId: Long): HintEditTarget? =
+        HintEditTarget(exerciseId, "sync-$exerciseId", "owner", 1L)
+
+    override suspend fun save(target: HintEditTarget, text: String): NoteSaveResult =
+        NoteSaveResult.Saved
+
+    override suspend fun unpin(target: HintEditTarget): NoteSaveResult = NoteSaveResult.Saved
   }
 
   /**
@@ -608,6 +994,25 @@ class ActiveWorkoutViewModelTest {
     override suspend fun insertSets(sets: List<WorkoutSetEntity>): List<Long> = emptyList()
 
     override suspend fun updateSet(set: WorkoutSetEntity) = Unit
+
+    override suspend fun updateActiveSetNote(workoutId: String, setId: Long, note: String) = 0
+
+    override suspend fun updateActiveWorkoutNote(workoutId: String, note: String) = 0
+
+    override suspend fun updateCompletedStrengthNumbers(
+        setId: Long,
+        weightKg: Double?,
+        reps: Int?,
+    ) = 0
+
+    override suspend fun updateCompletedTimedNumbers(setId: Long, durationSec: Int?) = 0
+
+    override suspend fun updateCompletedCardioNumbers(
+        setId: Long,
+        durationSec: Int?,
+        speedKmh: Double?,
+        inclinePct: Double?,
+    ) = 0
 
     override suspend fun updateWorkoutExercises(exercises: List<WorkoutExerciseEntity>) = Unit
 
@@ -678,9 +1083,11 @@ class ActiveWorkoutViewModelTest {
 
   private class FakeUploadScheduler : UploadScheduler {
     val scheduledIds = mutableListOf<String>()
+    var scheduleFailure: Exception? = null
 
     override fun schedule(workoutId: String) {
       scheduledIds += workoutId
+      scheduleFailure?.let { throw it }
     }
 
     override suspend fun retry(workoutId: String) = Unit

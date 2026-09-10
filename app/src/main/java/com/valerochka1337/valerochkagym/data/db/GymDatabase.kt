@@ -5,24 +5,55 @@ import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import com.valerochka1337.valerochkagym.data.backend.GuestMergeDao
+import com.valerochka1337.valerochkagym.data.coachrelation.CoachRelationOperationDao
+import com.valerochka1337.valerochkagym.data.coachrelation.CoachRelationOperationEntity
 import com.valerochka1337.valerochkagym.data.db.dao.BodyMeasurementDao
+import com.valerochka1337.valerochkagym.data.db.dao.CalendarEventAccountLinkDao
+import com.valerochka1337.valerochkagym.data.db.dao.CalendarPlanDao
 import com.valerochka1337.valerochkagym.data.db.dao.ConfigurationTombstoneDao
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseDao
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseMuscleDao
+import com.valerochka1337.valerochkagym.data.db.dao.ExercisePersonalHintDao
 import com.valerochka1337.valerochkagym.data.db.dao.GymDao
+import com.valerochka1337.valerochkagym.data.db.dao.HealthAiConsentDao
+import com.valerochka1337.valerochkagym.data.db.dao.HealthDao
+import com.valerochka1337.valerochkagym.data.db.dao.HealthSyncDao
 import com.valerochka1337.valerochkagym.data.db.dao.MuscleLoadUpgradeNoticeDao
+import com.valerochka1337.valerochkagym.data.db.dao.ProfileDao
 import com.valerochka1337.valerochkagym.data.db.dao.RoutineDao
 import com.valerochka1337.valerochkagym.data.db.dao.ScheduledWorkoutDao
 import com.valerochka1337.valerochkagym.data.db.dao.WorkoutDao
 import com.valerochka1337.valerochkagym.data.db.entity.BodyMeasurementEntity
+import com.valerochka1337.valerochkagym.data.db.entity.CalendarEventAccountLinkEntity
+import com.valerochka1337.valerochkagym.data.db.entity.CalendarExceptionEntity
+import com.valerochka1337.valerochkagym.data.db.entity.CalendarGoogleLinkEntity
+import com.valerochka1337.valerochkagym.data.db.entity.CalendarMigrationMetadataEntity
+import com.valerochka1337.valerochkagym.data.db.entity.CalendarMigrationStateEntity
+import com.valerochka1337.valerochkagym.data.db.entity.CalendarPlanEntity
+import com.valerochka1337.valerochkagym.data.db.entity.CalendarRuleEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ConfigurationTombstoneEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEquipmentEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseMuscleEntity
+import com.valerochka1337.valerochkagym.data.db.entity.ExercisePersonalHintEntity
 import com.valerochka1337.valerochkagym.data.db.entity.GymEntity
 import com.valerochka1337.valerochkagym.data.db.entity.GymEquipmentEntity
 import com.valerochka1337.valerochkagym.data.db.entity.GymExerciseEntity
+import com.valerochka1337.valerochkagym.data.db.entity.HealthAiConsentIntentEntity
+import com.valerochka1337.valerochkagym.data.db.entity.HealthAiConsentOutboxEntity
+import com.valerochka1337.valerochkagym.data.db.entity.HealthAiConsentStateEntity
+import com.valerochka1337.valerochkagym.data.db.entity.HealthHeadHistoryEntity
+import com.valerochka1337.valerochkagym.data.db.entity.HealthLogicalRecordEntity
+import com.valerochka1337.valerochkagym.data.db.entity.HealthMetricIdentityEntity
+import com.valerochka1337.valerochkagym.data.db.entity.HealthRecordVersionEntity
+import com.valerochka1337.valerochkagym.data.db.entity.HealthSyncBaselineEntity
+import com.valerochka1337.valerochkagym.data.db.entity.HealthSyncOutboxEntity
+import com.valerochka1337.valerochkagym.data.db.entity.HealthSyncStagingEntity
+import com.valerochka1337.valerochkagym.data.db.entity.HealthSyncStateEntity
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleLoadUpgradeNoticeEntity
+import com.valerochka1337.valerochkagym.data.db.entity.ProfileEntity
+import com.valerochka1337.valerochkagym.data.db.entity.ProfileEquipmentPreferenceEntity
 import com.valerochka1337.valerochkagym.data.db.entity.RoutineEntity
 import com.valerochka1337.valerochkagym.data.db.entity.RoutineExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.RoutineGymEntity
@@ -33,6 +64,7 @@ import com.valerochka1337.valerochkagym.data.db.entity.WorkoutGymEntity
 import com.valerochka1337.valerochkagym.data.db.entity.WorkoutSetEntity
 import com.valerochka1337.valerochkagym.data.db.entity.builtInExerciseSyncId
 import com.valerochka1337.valerochkagym.data.db.entity.migratedCustomExerciseSyncId
+import com.valerochka1337.valerochkagym.data.trainingproposal.*
 import java.util.UUID
 
 @Database(
@@ -41,17 +73,44 @@ import java.util.UUID
             com.valerochka1337.valerochkagym.data.backend.BackendStateEntity::class,
             com.valerochka1337.valerochkagym.data.backend.BackendBaselineEntity::class,
             com.valerochka1337.valerochkagym.data.backend.BackendOutboxEntity::class,
+            com.valerochka1337.valerochkagym.data.backend.BackendRejectedOperationEntity::class,
+            com.valerochka1337.valerochkagym.data.backend.BackendConflictCopyEntity::class,
             com.valerochka1337.valerochkagym.data.backend.CatalogStateEntity::class,
             com.valerochka1337.valerochkagym.data.backend.CatalogRecordEntity::class,
             com.valerochka1337.valerochkagym.data.backend.CatalogEquipmentEntity::class,
             BodyMeasurementEntity::class,
+            CalendarEventAccountLinkEntity::class,
+            CalendarPlanEntity::class,
+            CalendarRuleEntity::class,
+            CalendarExceptionEntity::class,
+            CalendarGoogleLinkEntity::class,
+            CalendarMigrationStateEntity::class,
+            CalendarMigrationMetadataEntity::class,
             ConfigurationTombstoneEntity::class,
             ExerciseEntity::class,
+            ExercisePersonalHintEntity::class,
             ExerciseEquipmentEntity::class,
             ExerciseMuscleEntity::class,
             MuscleLoadUpgradeNoticeEntity::class,
+            ProfileEntity::class,
+            ProfileEquipmentPreferenceEntity::class,
             GymEntity::class,
             GymEquipmentEntity::class,
+            HealthAiConsentStateEntity::class,
+            HealthAiConsentOutboxEntity::class,
+            HealthAiConsentIntentEntity::class,
+            TrainingProposalDraftEntity::class,
+            CoachRelationOperationEntity::class,
+            TrainingProposalOperationEntity::class,
+            TrainingProposalProjectionEntity::class,
+            HealthLogicalRecordEntity::class,
+            HealthRecordVersionEntity::class,
+            HealthHeadHistoryEntity::class,
+            HealthMetricIdentityEntity::class,
+            HealthSyncBaselineEntity::class,
+            HealthSyncStateEntity::class,
+            HealthSyncOutboxEntity::class,
+            HealthSyncStagingEntity::class,
             GymExerciseEntity::class,
             RoutineEntity::class,
             RoutineExerciseEntity::class,
@@ -62,22 +121,42 @@ import java.util.UUID
             WorkoutGymEntity::class,
             WorkoutSetEntity::class,
         ],
-    version = 16,
+    version = 26,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
 abstract class GymDatabase : RoomDatabase() {
   abstract fun bodyMeasurementDao(): BodyMeasurementDao
 
+  abstract fun calendarEventAccountLinkDao(): CalendarEventAccountLinkDao
+
+  abstract fun calendarPlanDao(): CalendarPlanDao
+
   abstract fun configurationTombstoneDao(): ConfigurationTombstoneDao
 
   abstract fun exerciseDao(): ExerciseDao
+
+  abstract fun exercisePersonalHintDao(): ExercisePersonalHintDao
 
   abstract fun exerciseMuscleDao(): ExerciseMuscleDao
 
   abstract fun muscleLoadUpgradeNoticeDao(): MuscleLoadUpgradeNoticeDao
 
+  abstract fun profileDao(): ProfileDao
+
   abstract fun gymDao(): GymDao
+
+  abstract fun healthAiConsentDao(): HealthAiConsentDao
+
+  abstract fun coachRelationOperationDao(): CoachRelationOperationDao
+
+  abstract fun trainingProposalDao(): TrainingProposalDao
+
+  abstract fun healthDao(): HealthDao
+
+  abstract fun healthSyncDao(): HealthSyncDao
+
+  abstract fun guestMergeDao(): GuestMergeDao
 
   abstract fun routineDao(): RoutineDao
 
@@ -661,6 +740,234 @@ abstract class GymDatabase : RoomDatabase() {
           }
         }
 
+    val MIGRATION_16_17: Migration =
+        object : Migration(16, 17) {
+          override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS `calendar_event_account_links` (" +
+                    "`scheduledWorkoutId` INTEGER NOT NULL, `ownerEmail` TEXT, " +
+                    "`state` TEXT NOT NULL, PRIMARY KEY(`scheduledWorkoutId`), " +
+                    "FOREIGN KEY(`scheduledWorkoutId`) REFERENCES `scheduled_workouts`(`id`) " +
+                    "ON UPDATE NO ACTION ON DELETE CASCADE)"
+            )
+            db.execSQL(
+                "INSERT INTO calendar_event_account_links(scheduledWorkoutId,ownerEmail,state) " +
+                    "SELECT id,NULL,'LEGACY_OWNER_UNKNOWN' FROM scheduled_workouts"
+            )
+            CalendarEventAccountLinkSchema.install(db)
+          }
+        }
+
+    val MIGRATION_17_18: Migration =
+        object : Migration(17, 18) {
+          override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE backend_state ADD COLUMN phase TEXT NOT NULL DEFAULT 'GUEST'")
+            db.execSQL("ALTER TABLE backend_state ADD COLUMN mergeId TEXT")
+            db.execSQL(
+                "ALTER TABLE backend_state ADD COLUMN initialMergeAcknowledged INTEGER NOT NULL DEFAULT 0"
+            )
+            db.execSQL(
+                "UPDATE backend_state SET phase=CASE WHEN owner IS NULL THEN 'GUEST' ELSE 'OWNED' END, initialMergeAcknowledged=CASE WHEN owner IS NULL THEN 0 ELSE 1 END"
+            )
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS backend_conflict_copies (mergeId TEXT NOT NULL,kind TEXT NOT NULL,originalSyncId TEXT NOT NULL,remoteRevision INTEGER NOT NULL,localPayloadFingerprint TEXT NOT NULL,localCopySyncId TEXT NOT NULL,PRIMARY KEY(mergeId,kind,originalSyncId,remoteRevision,localPayloadFingerprint))"
+            )
+            db.execSQL(
+                "CREATE UNIQUE INDEX IF NOT EXISTS index_backend_conflict_copies_localCopySyncId ON backend_conflict_copies(localCopySyncId)"
+            )
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS backend_rejected_operations (operationId TEXT NOT NULL,owner TEXT NOT NULL,PRIMARY KEY(operationId))"
+            )
+          }
+        }
+
+    /** CAL-01 keeps legacy sources and introduces Room-owned portable calendar aggregates. */
+    val MIGRATION_18_19: Migration =
+        object : Migration(18, 19) {
+          override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS `calendar_plans` (`id` TEXT NOT NULL, `routineId` INTEGER NOT NULL, `startsAtMillis` INTEGER NOT NULL, `timeZoneId` TEXT NOT NULL, `legacyScheduleId` TEXT, PRIMARY KEY(`id`), FOREIGN KEY(`routineId`) REFERENCES `routines`(`id`) ON UPDATE NO ACTION ON DELETE RESTRICT)"
+            )
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS `index_calendar_plans_routineId` ON `calendar_plans` (`routineId`)"
+            )
+            db.execSQL(
+                "CREATE UNIQUE INDEX IF NOT EXISTS `index_calendar_plans_legacyScheduleId` ON `calendar_plans` (`legacyScheduleId`)"
+            )
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS `calendar_rules` (`id` TEXT NOT NULL, `routineId` INTEGER NOT NULL, `isoDay` INTEGER NOT NULL, `localTime` TEXT NOT NULL, `timeZoneId` TEXT NOT NULL, `startLocalDate` TEXT NOT NULL, `legacyRuleKey` TEXT, PRIMARY KEY(`id`), FOREIGN KEY(`routineId`) REFERENCES `routines`(`id`) ON UPDATE NO ACTION ON DELETE RESTRICT)"
+            )
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS `index_calendar_rules_routineId` ON `calendar_rules` (`routineId`)"
+            )
+            db.execSQL(
+                "CREATE UNIQUE INDEX IF NOT EXISTS `index_calendar_rules_legacyRuleKey` ON `calendar_rules` (`legacyRuleKey`)"
+            )
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS `calendar_exceptions` (`id` TEXT NOT NULL, `ruleId` TEXT NOT NULL, `instanceKey` TEXT NOT NULL, `kind` TEXT NOT NULL, `movedAtMillis` INTEGER, PRIMARY KEY(`id`), FOREIGN KEY(`ruleId`) REFERENCES `calendar_rules`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE)"
+            )
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS `index_calendar_exceptions_ruleId` ON `calendar_exceptions` (`ruleId`)"
+            )
+            db.execSQL(
+                "CREATE UNIQUE INDEX IF NOT EXISTS `index_calendar_exceptions_ruleId_instanceKey` ON `calendar_exceptions` (`ruleId`, `instanceKey`)"
+            )
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS `calendar_google_links` (`objectKind` TEXT NOT NULL, `objectId` TEXT NOT NULL, `ownerEmail` TEXT, `calendarId` TEXT, `eventId` TEXT, `status` TEXT NOT NULL, `error` TEXT, `remoteRevision` INTEGER, PRIMARY KEY(`objectKind`, `objectId`))"
+            )
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS `calendar_migration_state` (`id` INTEGER NOT NULL, `phase` TEXT NOT NULL, PRIMARY KEY(`id`))"
+            )
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS `calendar_migration_metadata` (`id` INTEGER NOT NULL, `sourceFingerprint` TEXT NOT NULL, `zoneId` TEXT NOT NULL, `weeklyStartLocalDate` TEXT NOT NULL, `observedOwners` TEXT NOT NULL, PRIMARY KEY(`id`))"
+            )
+            db.execSQL("ALTER TABLE backend_state ADD COLUMN capabilityOwner TEXT")
+            db.execSQL(
+                "ALTER TABLE backend_state ADD COLUMN acceptedCapabilities TEXT NOT NULL DEFAULT ''"
+            )
+            db.execSQL(
+                "INSERT OR IGNORE INTO calendar_migration_state(id,phase) VALUES (1,'PENDING')"
+            )
+          }
+        }
+
+    /** AI-01: owner-scoped durable disclosure receipt and exact mutation outbox. */
+    val MIGRATION_19_20: Migration =
+        object : Migration(19, 20) {
+          override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS `health_ai_consent_state` (`owner` TEXT NOT NULL, `revision` INTEGER NOT NULL, `noticeVersion` INTEGER NOT NULL, `enabled` INTEGER NOT NULL, `recordedAtEpochMs` INTEGER NOT NULL, `receiptBytes` BLOB NOT NULL, PRIMARY KEY(`owner`))"
+            )
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS `health_ai_consent_outbox` (`owner` TEXT NOT NULL, `operationId` TEXT NOT NULL, `requestBytes` BLOB NOT NULL, `requestSha256` TEXT NOT NULL, `dispatched` INTEGER NOT NULL, PRIMARY KEY(`owner`))"
+            )
+          }
+        }
+
+    /** Keeps a later explicit choice while the previous exact request is recovered. */
+    val MIGRATION_20_21: Migration =
+        object : Migration(20, 21) {
+          override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS `health_ai_consent_intent` (`owner` TEXT NOT NULL, `enabled` INTEGER NOT NULL, PRIMARY KEY(`owner`))"
+            )
+            db.execSQL(
+                "INSERT OR IGNORE INTO health_ai_consent_intent(owner,enabled) SELECT owner, CASE WHEN instr(CAST(requestBytes AS TEXT),'\"enabled\":true') > 0 THEN 1 ELSE 0 END FROM health_ai_consent_outbox"
+            )
+          }
+        }
+
+    /** v21 → v22: factual set notes and portable private exercise hints. */
+    val MIGRATION_21_22: Migration =
+        object : Migration(21, 22) {
+          override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE workout_sets ADD COLUMN note TEXT NOT NULL DEFAULT ''")
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS `exercise_personal_hints` (`exerciseSyncId` TEXT NOT NULL, `text` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`exerciseSyncId`))"
+            )
+            // Existing owned databases do not re-run claim(), so install the new generation
+            // triggers during the schema upgrade as well.
+            com.valerochka1337.valerochkagym.data.backend.SyncSchema.install(db)
+          }
+        }
+
+    /** v22 → v23: owner-scoped optional profile and its canonical equipment child set. */
+    val MIGRATION_22_23: Migration =
+        object : Migration(22, 23) {
+          override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS `profiles` (`scope` TEXT NOT NULL, `syncId` TEXT NOT NULL, `schemaVersion` INTEGER NOT NULL, `trainingGoal` TEXT, `sex` TEXT, `birthDate` TEXT, `experienceLevel` TEXT, `plannedSessionsPerWeek` INTEGER, `preferredSessionDurationMinutes` INTEGER, `manualConstraints` TEXT, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`scope`))"
+            )
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS `profile_equipment` (`scope` TEXT NOT NULL, `equipmentId` TEXT NOT NULL, PRIMARY KEY(`scope`, `equipmentId`), FOREIGN KEY(`scope`) REFERENCES `profiles`(`scope`) ON UPDATE CASCADE ON DELETE CASCADE)"
+            )
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS `index_profile_equipment_scope` ON `profile_equipment` (`scope`)"
+            )
+            com.valerochka1337.valerochkagym.data.backend.SyncSchema.install(db)
+          }
+        }
+
+    /** v23 → v24: isolated immutable manual-health ledger and exact health-only sync journal. */
+    val MIGRATION_23_24: Migration =
+        object : Migration(23, 24) {
+          override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS `health_logical_records` (`logicalId` TEXT NOT NULL, `scope` TEXT NOT NULL, `kind` TEXT NOT NULL, `createdAtEpochMs` INTEGER NOT NULL, `currentVersionId` TEXT, `headRevision` INTEGER NOT NULL, `deleted` INTEGER NOT NULL, `healthRevision` INTEGER, PRIMARY KEY(`logicalId`))"
+            )
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS `index_health_logical_records_scope` ON `health_logical_records` (`scope`)"
+            )
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS `index_health_logical_records_scope_deleted` ON `health_logical_records` (`scope`, `deleted`)"
+            )
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS `health_record_versions` (`versionId` TEXT NOT NULL, `logicalId` TEXT NOT NULL, `parentVersionId` TEXT, `kind` TEXT NOT NULL, `state` TEXT NOT NULL, `enteredAtEpochMs` INTEGER NOT NULL, `payloadJson` TEXT, `serverSequence` INTEGER, `healthRevision` INTEGER, PRIMARY KEY(`versionId`), FOREIGN KEY(`logicalId`) REFERENCES `health_logical_records`(`logicalId`) ON UPDATE NO ACTION ON DELETE CASCADE)"
+            )
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS `index_health_record_versions_logicalId` ON `health_record_versions` (`logicalId`)"
+            )
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS `index_health_record_versions_logicalId_enteredAtEpochMs` ON `health_record_versions` (`logicalId`, `enteredAtEpochMs`)"
+            )
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS `health_head_history` (`logicalId` TEXT NOT NULL, `headRevision` INTEGER NOT NULL, `currentVersionId` TEXT NOT NULL, `kind` TEXT NOT NULL, `deleted` INTEGER NOT NULL, `healthRevision` INTEGER NOT NULL, PRIMARY KEY(`logicalId`, `headRevision`), FOREIGN KEY(`logicalId`) REFERENCES `health_logical_records`(`logicalId`) ON UPDATE NO ACTION ON DELETE CASCADE)"
+            )
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS `index_health_head_history_healthRevision` ON `health_head_history` (`healthRevision`)"
+            )
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS `health_metric_identities` (`id` TEXT NOT NULL, `scope` TEXT NOT NULL, `nameOriginal` TEXT NOT NULL, `createdAtEpochMs` INTEGER NOT NULL, PRIMARY KEY(`id`))"
+            )
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS `index_health_metric_identities_scope` ON `health_metric_identities` (`scope`)"
+            )
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS `health_sync_baseline` (`scope` TEXT NOT NULL, `versionId` TEXT NOT NULL, `versionJson` TEXT NOT NULL, PRIMARY KEY(`scope`, `versionId`))"
+            )
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS `health_sync_state` (`scope` TEXT NOT NULL, `cursor` TEXT, `needsFullRefresh` INTEGER NOT NULL, `pendingCursor` TEXT, `pendingWatermark` INTEGER, PRIMARY KEY(`scope`))"
+            )
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS `health_sync_outbox` (`operationId` TEXT NOT NULL, `scope` TEXT NOT NULL, `requestBytes` BLOB NOT NULL, `requestSha256` TEXT NOT NULL, `dispatched` INTEGER NOT NULL, PRIMARY KEY(`operationId`))"
+            )
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS `index_health_sync_outbox_scope` ON `health_sync_outbox` (`scope`)"
+            )
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS `health_sync_staging` (`scope` TEXT NOT NULL, `healthRevision` INTEGER NOT NULL, `eventKind` TEXT NOT NULL, `eventId` TEXT NOT NULL, `eventJson` TEXT NOT NULL, PRIMARY KEY(`scope`, `healthRevision`, `eventKind`, `eventId`))"
+            )
+            com.valerochka1337.valerochkagym.data.backend.SyncSchema.install(db)
+          }
+        }
+
+    val MIGRATION_25_26: Migration =
+        object : Migration(25, 26) {
+          override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS coach_relation_operations (owner TEXT NOT NULL, operationId TEXT NOT NULL, action TEXT NOT NULL, route TEXT NOT NULL, resource TEXT NOT NULL, rawSha256 TEXT NOT NULL, firstSendBytes BLOB, state TEXT NOT NULL, resultJson TEXT, PRIMARY KEY(owner,operationId))"
+            )
+          }
+        }
+
+    val MIGRATION_24_25: Migration =
+        object : Migration(24, 25) {
+          override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS training_proposal_drafts (owner TEXT NOT NULL, proposalId TEXT NOT NULL, version INTEGER NOT NULL, proposalJson TEXT NOT NULL, draftJson TEXT NOT NULL, PRIMARY KEY(owner,proposalId,version))"
+            )
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS training_proposal_operations (owner TEXT NOT NULL, proposalId TEXT NOT NULL, version INTEGER NOT NULL, operationId TEXT NOT NULL, requestBytes BLOB NOT NULL, requestSha256 TEXT NOT NULL, acceptedResultJson TEXT, rejected INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(owner,proposalId,version,operationId))"
+            )
+            db.execSQL(
+                "CREATE UNIQUE INDEX IF NOT EXISTS index_training_proposal_operations_operationId ON training_proposal_operations(operationId)"
+            )
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS training_proposal_projections (owner TEXT NOT NULL, proposalId TEXT NOT NULL, version INTEGER NOT NULL, routineId TEXT NOT NULL, calendarPlanId TEXT NOT NULL, syncRevision INTEGER NOT NULL, PRIMARY KEY(owner,proposalId,version))"
+            )
+          }
+        }
+
     val MIGRATION_14_15: Migration =
         object : Migration(14, 15) {
           override fun migrate(db: SupportSQLiteDatabase) {
@@ -686,6 +993,16 @@ abstract class GymDatabase : RoomDatabase() {
             MIGRATION_13_14,
             MIGRATION_14_15,
             MIGRATION_15_16,
+            MIGRATION_16_17,
+            MIGRATION_17_18,
+            MIGRATION_18_19,
+            MIGRATION_19_20,
+            MIGRATION_20_21,
+            MIGRATION_21_22,
+            MIGRATION_22_23,
+            MIGRATION_23_24,
+            MIGRATION_24_25,
+            MIGRATION_25_26,
         )
   }
 }

@@ -4,10 +4,7 @@ import android.Manifest
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
-import android.content.pm.PackageManager
 import android.view.WindowManager
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Animatable
@@ -59,6 +56,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
@@ -86,7 +84,6 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.core.content.ContextCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
@@ -108,6 +105,8 @@ import com.valerochka1337.valerochkagym.ui.components.NumberField
 import com.valerochka1337.valerochkagym.ui.components.PillButton
 import com.valerochka1337.valerochkagym.ui.components.rememberGymReorderableLazyListState
 import com.valerochka1337.valerochkagym.ui.haptics.gymHaptics
+import com.valerochka1337.valerochkagym.ui.permissions.AndroidPermissionPlatform
+import com.valerochka1337.valerochkagym.ui.permissions.rememberPermissionRecoveryHost
 import com.valerochka1337.valerochkagym.ui.theme.GymMotion
 import kotlinx.coroutines.flow.StateFlow
 import sh.calvin.reorderable.ReorderableItem
@@ -125,6 +124,7 @@ private const val REPS_STEP = 1
 
 /** Шаг правки таймера отдыха на пилюле, сек. */
 private const val REST_TIMER_STEP = 15
+private const val BLE_PENDING_KIND = "ble"
 
 /**
  * Экран активной тренировки («вариант B» — фокус на текущем подходе). Тренировка уже создана (старт
@@ -144,32 +144,23 @@ fun ActiveWorkoutScreen(
   val state by viewModel.uiState.collectAsStateWithLifecycle()
   val context = LocalContext.current
   val snackbarHostState = remember { SnackbarHostState() }
-  var showNearbyDevicesRationale by rememberSaveable { mutableStateOf(false) }
-  val nearbyDevicesPermission =
-      rememberLauncherForActivityResult(
-          ActivityResultContracts.RequestMultiplePermissions(),
-      ) {
-        // Даже при отказе запускаем монитор: он переведёт плитку в PermissionRequired с понятным
-        // объяснением, а не оставит кнопку в неопределённом исходном состоянии.
-        viewModel.scanHeartRate()
-      }
+  val permissionPlatform = remember(context) { AndroidPermissionPlatform(context) }
+  val permissionHost =
+      rememberPermissionRecoveryHost(
+          kind = BLE_PENDING_KIND,
+          permissions =
+              listOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT),
+          platform = permissionPlatform,
+          decide = viewModel::decidePermissions,
+          markRequestLaunched = viewModel::markPermissionRequestLaunched,
+          onAction = { token, workoutId, _ ->
+            viewModel.scanHeartRateForPermissionAction(token, workoutId)
+          },
+      )
 
   fun startHeartRateSearch() {
-    val hasScan =
-        ContextCompat.checkSelfPermission(
-            context,
-            Manifest.permission.BLUETOOTH_SCAN,
-        ) == PackageManager.PERMISSION_GRANTED
-    val hasConnect =
-        ContextCompat.checkSelfPermission(
-            context,
-            Manifest.permission.BLUETOOTH_CONNECT,
-        ) == PackageManager.PERMISSION_GRANTED
-    if (hasScan && hasConnect) {
-      viewModel.scanHeartRate()
-    } else {
-      showNearbyDevicesRationale = true
-    }
+    val workoutId = state.workout?.workout?.id ?: return
+    permissionHost.begin(workoutId)
   }
 
   LaunchedEffect(Unit) {
@@ -198,6 +189,23 @@ fun ActiveWorkoutScreen(
             setSpeed = viewModel::setSpeed,
             setIncline = viewModel::setIncline,
             complete = viewModel::completeSet,
+            editCompleted = viewModel::openCompletedSetEdit,
+            updateCompletedWeight = viewModel::updateCompletedSetWeight,
+            updateCompletedReps = viewModel::updateCompletedSetReps,
+            updateCompletedDuration = viewModel::updateCompletedSetDuration,
+            updateCompletedSpeed = viewModel::updateCompletedSetSpeed,
+            updateCompletedIncline = viewModel::updateCompletedSetIncline,
+            saveCompletedEdit = viewModel::saveCompletedSetEdit,
+            cancelCompletedEdit = viewModel::cancelCompletedSetEdit,
+            editNote = viewModel::openSetNote,
+            updateNote = viewModel::updateNote,
+            saveNoteEdit = viewModel::saveNoteEdit,
+            cancelNoteEdit = viewModel::cancelNoteEdit,
+            editPersonalHint = viewModel::openPersonalHintEdit,
+            unpinPersonalHint = viewModel::unpinPersonalHint,
+            updatePersonalHint = viewModel::updatePersonalHintEdit,
+            savePersonalHint = viewModel::savePersonalHintEdit,
+            cancelPersonalHint = viewModel::cancelPersonalHintEdit,
             uncomplete = viewModel::uncompleteSet,
             addSet = viewModel::addSet,
             deleteSet = viewModel::deleteSet,
@@ -228,6 +236,7 @@ fun ActiveWorkoutScreen(
                   onScanHeartRate = ::startHeartRateSearch,
                   onConnectHeartRate = viewModel::connectHeartRate,
                   onCancelHeartRateSelection = viewModel::cancelHeartRateSelection,
+                  onEditWorkoutNote = viewModel::openWorkoutNote,
               )
             }
 
@@ -248,9 +257,9 @@ fun ActiveWorkoutScreen(
     }
   }
 
-  if (showNearbyDevicesRationale) {
+  if (permissionHost.showDialog) {
     AlertDialog(
-        onDismissRequest = { showNearbyDevicesRationale = false },
+        onDismissRequest = permissionHost::cancel,
         title = { Text("Подключить датчик пульса?") },
         text = {
           Text(
@@ -259,23 +268,11 @@ fun ActiveWorkoutScreen(
           )
         },
         confirmButton = {
-          TextButton(
-              onClick = {
-                showNearbyDevicesRationale = false
-                nearbyDevicesPermission.launch(
-                    arrayOf(
-                        Manifest.permission.BLUETOOTH_SCAN,
-                        Manifest.permission.BLUETOOTH_CONNECT,
-                    ),
-                )
-              }
-          ) {
-            Text("Продолжить")
+          TextButton(onClick = { permissionHost.confirm() }) {
+            Text(if (permissionHost.offersSettings) "Открыть настройки" else "Продолжить")
           }
         },
-        dismissButton = {
-          TextButton(onClick = { showNearbyDevicesRationale = false }) { Text("Не сейчас") }
-        },
+        dismissButton = { TextButton(onClick = permissionHost::cancel) { Text("Не сейчас") } },
     )
   }
 }
@@ -296,6 +293,23 @@ internal class SetActions(
     val uncomplete: (Long) -> Unit,
     val addSet: (Long) -> Unit,
     val deleteSet: (Long) -> Unit,
+    val editCompleted: (Long, ExerciseType) -> Unit = { _, _ -> },
+    val updateCompletedWeight: (String) -> Unit = {},
+    val updateCompletedReps: (String) -> Unit = {},
+    val updateCompletedDuration: (String) -> Unit = {},
+    val updateCompletedSpeed: (String) -> Unit = {},
+    val updateCompletedIncline: (String) -> Unit = {},
+    val saveCompletedEdit: () -> Unit = {},
+    val cancelCompletedEdit: () -> Unit = {},
+    val editNote: (Long) -> Unit = {},
+    val updateNote: (String) -> Unit = {},
+    val saveNoteEdit: () -> Unit = {},
+    val cancelNoteEdit: () -> Unit = {},
+    val editPersonalHint: (Long) -> Unit = {},
+    val unpinPersonalHint: (Long) -> Unit = {},
+    val updatePersonalHint: (String) -> Unit = {},
+    val savePersonalHint: () -> Unit = {},
+    val cancelPersonalHint: () -> Unit = {},
 )
 
 @Composable
@@ -317,6 +331,7 @@ internal fun ActiveWorkoutContent(
     onScanHeartRate: () -> Unit,
     onConnectHeartRate: (HeartRateDevice) -> Unit,
     onCancelHeartRateSelection: () -> Unit,
+    onEditWorkoutNote: () -> Unit = {},
 ) {
   val workout = state.workout ?: return
   val roomExercises = workout.exercises
@@ -389,14 +404,22 @@ internal fun ActiveWorkoutContent(
         exercises.indexOfFirst { exercise -> exercise.sets.any { it.id == setId } }
       } ?: -1
   val currentNumber = if (currentIndex >= 0) currentIndex + 1 else exercises.size
+  val showBottomFinish = roomExercises.areAllSetsCompleted()
 
   var showFinishDialog by rememberSaveable { mutableStateOf(false) }
   var showDiscardDialog by rememberSaveable { mutableStateOf(false) }
   var pendingDeleteExerciseId by rememberSaveable { mutableStateOf<Long?>(null) }
+  val requestFinish = {
+    if (!state.isFinishing) {
+      haptics.tap()
+      showFinishDialog = true
+    }
+  }
 
   Column(modifier = Modifier.fillMaxSize()) {
     ActiveWorkoutHeader(
         name = workout.workout.name,
+        note = workout.workout.note,
         elapsedSeconds = elapsedSeconds,
         currentNumber = currentNumber,
         total = exercises.size,
@@ -405,8 +428,10 @@ internal fun ActiveWorkoutContent(
         onScanHeartRate = onScanHeartRate,
         onConnectHeartRate = onConnectHeartRate,
         onCancelHeartRateSelection = onCancelHeartRateSelection,
-        onFinish = { showFinishDialog = true },
+        isFinishing = state.isFinishing,
+        onFinish = requestFinish,
         onDiscard = { showDiscardDialog = true },
+        onEditNote = onEditWorkoutNote,
     )
 
     LazyColumn(
@@ -457,6 +482,7 @@ internal fun ActiveWorkoutContent(
                       .semantics { customActions = moveActions },
               exercise = exercise,
               previous = state.previousByExercise[exercise.exercise.id].orEmpty(),
+              hint = state.hintsByExercise[exercise.exercise.id]?.text,
               actions = setActions,
               activeSetId = activeSetId,
               showAddSet =
@@ -511,14 +537,22 @@ internal fun ActiveWorkoutContent(
           activeSetId = activeSetId,
           onComplete = setActions.complete,
       )
+      if (showBottomFinish) {
+        Spacer(Modifier.height(8.dp))
+        PillButton(
+            text = "Завершить тренировку",
+            onClick = requestFinish,
+            enabled = !state.isFinishing,
+            leadingIcon = Icons.Default.Check,
+            modifier = Modifier.fillMaxWidth(),
+        )
+      }
     }
   }
 
   if (showFinishDialog) {
-    ConfirmDialog(
-        title = "Завершить тренировку?",
-        text = "Пустые невыполненные подходы будут отброшены, тренировка попадёт в историю.",
-        confirmText = "Завершить",
+    FinishWorkoutConfirmDialog(
+        isFinishing = state.isFinishing,
         onConfirm = {
           haptics.success()
           showFinishDialog = false
@@ -561,6 +595,39 @@ internal fun ActiveWorkoutContent(
           onDeleteExercise(deleteExerciseId)
         },
         onDismiss = { pendingDeleteExerciseId = null },
+    )
+  }
+
+  state.completedSetEdit?.let { draft ->
+    CompletedSetEditDialog(
+        draft = draft,
+        onWeightChange = setActions.updateCompletedWeight,
+        onRepsChange = setActions.updateCompletedReps,
+        onDurationChange = setActions.updateCompletedDuration,
+        onSpeedChange = setActions.updateCompletedSpeed,
+        onInclineChange = setActions.updateCompletedIncline,
+        onSave = setActions.saveCompletedEdit,
+        onCancel = setActions.cancelCompletedEdit,
+        onUncomplete = {
+          setActions.cancelCompletedEdit()
+          setActions.uncomplete(draft.setId)
+        },
+    )
+  }
+  state.noteEdit?.let { draft ->
+    WorkoutNoteEditDialog(
+        draft = draft,
+        onTextChange = setActions.updateNote,
+        onSave = setActions.saveNoteEdit,
+        onCancel = setActions.cancelNoteEdit,
+    )
+  }
+  state.personalHintEdit?.let { draft ->
+    ActivePersonalHintEditDialog(
+        draft = draft,
+        onTextChange = setActions.updatePersonalHint,
+        onSave = setActions.savePersonalHint,
+        onCancel = setActions.cancelPersonalHint,
     )
   }
 }
@@ -802,6 +869,7 @@ private fun RestPillSide(
 @Composable
 private fun ActiveWorkoutHeader(
     name: String,
+    note: String,
     elapsedSeconds: StateFlow<Long>,
     currentNumber: Int,
     total: Int,
@@ -810,8 +878,10 @@ private fun ActiveWorkoutHeader(
     onScanHeartRate: () -> Unit,
     onConnectHeartRate: (HeartRateDevice) -> Unit,
     onCancelHeartRateSelection: () -> Unit,
+    isFinishing: Boolean,
     onFinish: () -> Unit,
     onDiscard: () -> Unit,
+    onEditNote: () -> Unit,
 ) {
   // Собираем таймер только здесь, чтобы посекундный тик не рекомпозил список подходов.
   val elapsed by elapsedSeconds.collectAsStateWithLifecycle()
@@ -838,6 +908,16 @@ private fun ActiveWorkoutHeader(
           onSelectDevice = onConnectHeartRate,
           onDismissSelection = onCancelHeartRateSelection,
       )
+      IconButton(
+          onClick = onFinish,
+          enabled = !isFinishing,
+          modifier = Modifier.size(48.dp),
+      ) {
+        Icon(
+            imageVector = Icons.Default.Check,
+            contentDescription = "Завершить тренировку",
+        )
+      }
       Box {
         IconButton(onClick = { menuExpanded = true }) {
           Icon(
@@ -850,10 +930,10 @@ private fun ActiveWorkoutHeader(
             onDismissRequest = { menuExpanded = false },
         ) {
           DropdownMenuItem(
-              text = { Text("Завершить тренировку") },
+              text = { Text("Заметка к тренировке") },
               onClick = {
                 menuExpanded = false
-                onFinish()
+                onEditNote()
               },
           )
           DropdownMenuItem(
@@ -888,6 +968,14 @@ private fun ActiveWorkoutHeader(
         )
       }
     }
+    if (note.isNotBlank()) {
+      Text(
+          text = note,
+          style = MaterialTheme.typography.bodySmall,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
+          modifier = Modifier.padding(top = 4.dp),
+      )
+    }
   }
 }
 
@@ -896,6 +984,7 @@ private fun ActiveWorkoutHeader(
 private fun ExerciseSection(
     exercise: WorkoutExerciseWithSets,
     previous: String,
+    hint: String?,
     actions: SetActions,
     activeSetId: Long?,
     showAddSet: Boolean,
@@ -937,6 +1026,13 @@ private fun ExerciseSection(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
           }
+          if (!hint.isNullOrBlank()) {
+            Text(
+                text = hint,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+          }
         }
       }
       dragHandle()
@@ -950,6 +1046,17 @@ private fun ExerciseSection(
     }
 
     Spacer(Modifier.height(8.dp))
+
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+      TextButton(onClick = { actions.editPersonalHint(exercise.exercise.id) }) {
+        Text(if (hint.isNullOrBlank()) "Добавить подсказку" else "Изменить подсказку")
+      }
+      if (!hint.isNullOrBlank()) {
+        TextButton(onClick = { actions.unpinPersonalHint(exercise.exercise.id) }) {
+          Text("Убрать подсказку")
+        }
+      }
+    }
 
     exercise.sets.forEach { set ->
       when {
@@ -966,14 +1073,22 @@ private fun ExerciseSection(
               set = set,
               type = type,
               onClick = {
-                haptics.toggle(on = false)
-                actions.uncomplete(set.id)
+                haptics.step()
+                actions.editCompleted(set.id, type)
               },
           )
         }
 
         else -> FutureSetPill(set = set, type = type)
       }
+      if (set.note.isNotBlank()) {
+        Text(
+            text = set.note,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+      }
+      TextButton(onClick = { actions.editNote(set.id) }) { Text("Заметка к подходу") }
       Spacer(Modifier.height(8.dp))
     }
 
@@ -1207,7 +1322,7 @@ private fun CompletedSetPill(
       trailing = {
         Icon(
             Icons.Default.Check,
-            contentDescription = "Выполнено, нажмите чтобы отменить",
+            contentDescription = "Выполнено, нажмите чтобы изменить фактические значения",
             modifier =
                 Modifier.size(18.dp).graphicsLayer {
                   scaleX = checkScale.value
@@ -1216,6 +1331,149 @@ private fun CompletedSetPill(
         )
       },
   )
+}
+
+@Composable
+private fun CompletedSetEditDialog(
+    draft: CompletedSetEditDraft,
+    onWeightChange: (String) -> Unit,
+    onRepsChange: (String) -> Unit,
+    onDurationChange: (String) -> Unit,
+    onSpeedChange: (String) -> Unit,
+    onInclineChange: (String) -> Unit,
+    onSave: () -> Unit,
+    onCancel: () -> Unit,
+    onUncomplete: () -> Unit,
+) {
+  val haptics = gymHaptics()
+  AlertDialog(
+      onDismissRequest = onCancel,
+      title = { Text("Фактические значения") },
+      text = {
+        CompletedSetEditFields(
+            draft = draft,
+            onWeightChange = onWeightChange,
+            onRepsChange = onRepsChange,
+            onDurationChange = onDurationChange,
+            onSpeedChange = onSpeedChange,
+            onInclineChange = onInclineChange,
+        )
+      },
+      confirmButton = {
+        TextButton(
+            enabled = !draft.isSubmitting && draft.isValidNumericInput(),
+            onClick = {
+              haptics.confirm()
+              onSave()
+            },
+        ) {
+          Text(if (draft.isSubmitting) "Сохранение…" else "Сохранить")
+        }
+      },
+      dismissButton = {
+        Column(horizontalAlignment = Alignment.End) {
+          TextButton(enabled = !draft.isSubmitting, onClick = onCancel) { Text("Отмена") }
+          TextButton(
+              enabled = !draft.isSubmitting,
+              onClick = {
+                haptics.toggle(on = false)
+                onUncomplete()
+              },
+          ) {
+            Text("Отметить невыполненным")
+          }
+        }
+      },
+  )
+}
+
+@Composable
+internal fun CompletedSetEditFields(
+    draft: CompletedSetEditDraft,
+    onWeightChange: (String) -> Unit,
+    onRepsChange: (String) -> Unit,
+    onDurationChange: (String) -> Unit,
+    onSpeedChange: (String) -> Unit,
+    onInclineChange: (String) -> Unit,
+) {
+  Column(
+      modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
+      verticalArrangement = Arrangement.spacedBy(10.dp),
+  ) {
+    when (draft.type) {
+      ExerciseType.STRENGTH -> {
+        NumberField(
+            value = draft.weightKg,
+            onValueChange = onWeightChange,
+            modifier = Modifier.fillMaxWidth(),
+            label = "Вес, кг",
+            decimal = true,
+            enabled = !draft.isSubmitting,
+        )
+        NumberField(
+            value = draft.reps,
+            onValueChange = onRepsChange,
+            modifier = Modifier.fillMaxWidth(),
+            label = "Повторы",
+            enabled = !draft.isSubmitting,
+        )
+      }
+
+      ExerciseType.TIMED ->
+          NumberField(
+              value = draft.durationSec,
+              onValueChange = onDurationChange,
+              modifier = Modifier.fillMaxWidth(),
+              label = "Длительность, секунды",
+              enabled = !draft.isSubmitting,
+          )
+
+      ExerciseType.CARDIO -> {
+        NumberField(
+            value = draft.durationSec,
+            onValueChange = onDurationChange,
+            modifier = Modifier.fillMaxWidth(),
+            label = "Длительность, секунды",
+            enabled = !draft.isSubmitting,
+        )
+        NumberField(
+            value = draft.speedKmh,
+            onValueChange = onSpeedChange,
+            modifier = Modifier.fillMaxWidth(),
+            label = "Скорость, км/ч",
+            decimal = true,
+            enabled = !draft.isSubmitting,
+        )
+        NumberField(
+            value = draft.inclinePct,
+            onValueChange = onInclineChange,
+            modifier = Modifier.fillMaxWidth(),
+            label = "Наклон, %",
+            decimal = true,
+            enabled = !draft.isSubmitting,
+        )
+      }
+    }
+    draft.error?.let {
+      Text(
+          text = it,
+          color = MaterialTheme.colorScheme.error,
+          style = MaterialTheme.typography.bodySmall,
+      )
+    }
+  }
+}
+
+internal fun CompletedSetEditDraft.isValidNumericInput(): Boolean {
+  fun String.isOptionalInt() = isBlank() || toIntOrNull() != null
+  return when (type) {
+    ExerciseType.STRENGTH -> weightKg.isValidOptionalFiniteDecimal() && reps.isOptionalInt()
+    ExerciseType.TIMED -> durationSec.isOptionalInt()
+    ExerciseType.CARDIO ->
+        durationSec.isOptionalInt() &&
+            speedKmh.isValidOptionalFiniteDecimal() &&
+            inclinePct.isValidOptionalFiniteDecimal()
+  }
 }
 
 @Composable
@@ -1300,26 +1558,79 @@ private fun ConfirmDialog(
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
     destructive: Boolean = false,
+    actions: (@Composable () -> Unit)? = null,
+    dismissEnabled: Boolean = true,
 ) {
   AlertDialog(
-      onDismissRequest = onDismiss,
+      onDismissRequest = { if (dismissEnabled) onDismiss() },
       title = { Text(title) },
       text = { Text(text) },
       confirmButton = {
-        TextButton(onClick = onConfirm) {
-          Text(
-              text = confirmText,
-              color =
-                  if (destructive) {
-                    MaterialTheme.colorScheme.error
-                  } else {
-                    MaterialTheme.colorScheme.primary
-                  },
-          )
+        if (actions != null) {
+          actions()
+        } else {
+          TextButton(onClick = onConfirm) {
+            Text(
+                text = confirmText,
+                color =
+                    if (destructive) {
+                      MaterialTheme.colorScheme.error
+                    } else {
+                      MaterialTheme.colorScheme.primary
+                    },
+            )
+          }
         }
       },
-      dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } },
+      dismissButton = {
+        if (actions == null) {
+          TextButton(onClick = onDismiss, enabled = dismissEnabled) { Text("Отмена") }
+        }
+      },
   )
+}
+
+@Composable
+private fun FinishWorkoutConfirmDialog(
+    isFinishing: Boolean,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+  ConfirmDialog(
+      title = "Завершить тренировку?",
+      text = "Пустые невыполненные подходы будут отброшены, тренировка попадёт в историю.",
+      confirmText = "Завершить",
+      onConfirm = onConfirm,
+      onDismiss = onDismiss,
+      dismissEnabled = !isFinishing,
+      actions = {
+        FinishWorkoutConfirmationActions(
+            enabled = !isFinishing,
+            onConfirm = onConfirm,
+            onDismiss = onDismiss,
+        )
+      },
+  )
+}
+
+/**
+ * Shared dialog actions, kept separately so their disabled and cancel semantics remain testable.
+ */
+@Composable
+internal fun FinishWorkoutConfirmationActions(
+    enabled: Boolean,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+  Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    TextButton(onClick = onDismiss, enabled = enabled) { Text("Отмена") }
+    TextButton(onClick = onConfirm, enabled = enabled) { Text("Завершить") }
+  }
+}
+
+internal fun List<WorkoutExerciseWithSets>.areAllSetsCompleted(): Boolean {
+  val roomSets = flatMap { it.sets }
+  return roomSets.isNotEmpty() && roomSets.all { it.isCompleted }
 }
 
 /** Пока экран на переднем плане, экран устройства не гаснет. */
@@ -1384,3 +1695,81 @@ private fun Double?.toField(): String =
     }
 
 private fun Int?.toField(): String = this?.toString() ?: ""
+
+@Composable
+private fun WorkoutNoteEditDialog(
+    draft: WorkoutNoteEditDraft,
+    onTextChange: (String) -> Unit,
+    onSave: () -> Unit,
+    onCancel: () -> Unit,
+) {
+  AlertDialog(
+      onDismissRequest = { if (!draft.isSubmitting) onCancel() },
+      title = { Text(if (draft.setId == null) "Заметка к тренировке" else "Заметка к подходу") },
+      text = {
+        Column {
+          OutlinedTextField(
+              value = draft.text,
+              onValueChange = onTextChange,
+              label = { Text("Заметка") },
+              supportingText = { Text("До 2000 символов") },
+              isError = draft.error != null,
+              enabled = !draft.isSubmitting,
+              modifier = Modifier.fillMaxWidth(),
+          )
+          draft.error?.let {
+            Text(
+                text = it,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+          }
+        }
+      },
+      confirmButton = {
+        TextButton(onClick = onSave, enabled = !draft.isSubmitting) { Text("Сохранить") }
+      },
+      dismissButton = {
+        TextButton(onClick = onCancel, enabled = !draft.isSubmitting) { Text("Отмена") }
+      },
+  )
+}
+
+@Composable
+private fun ActivePersonalHintEditDialog(
+    draft: ActivePersonalHintEditDraft,
+    onTextChange: (String) -> Unit,
+    onSave: () -> Unit,
+    onCancel: () -> Unit,
+) {
+  AlertDialog(
+      onDismissRequest = { if (!draft.isSubmitting) onCancel() },
+      title = { Text("Моя подсказка") },
+      text = {
+        Column {
+          OutlinedTextField(
+              value = draft.text,
+              onValueChange = onTextChange,
+              label = { Text("Подсказка") },
+              supportingText = { Text("До 2000 символов") },
+              isError = draft.error != null,
+              enabled = !draft.isSubmitting,
+              modifier = Modifier.fillMaxWidth(),
+          )
+          draft.error?.let {
+            Text(
+                text = it,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+          }
+        }
+      },
+      confirmButton = {
+        TextButton(onClick = onSave, enabled = !draft.isSubmitting) { Text("Сохранить") }
+      },
+      dismissButton = {
+        TextButton(onClick = onCancel, enabled = !draft.isSubmitting) { Text("Отмена") }
+      },
+  )
+}

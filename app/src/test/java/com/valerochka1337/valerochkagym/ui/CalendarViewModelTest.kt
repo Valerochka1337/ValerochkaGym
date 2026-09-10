@@ -1,30 +1,37 @@
 package com.valerochka1337.valerochkagym.ui
 
+import androidx.lifecycle.SavedStateHandle
+import com.valerochka1337.valerochkagym.data.backend.CalendarCloudState
+import com.valerochka1337.valerochkagym.data.backend.CalendarCloudStatus
+import com.valerochka1337.valerochkagym.data.calendar.*
+import com.valerochka1337.valerochkagym.data.calendar.CalendarMigrationGate
+import com.valerochka1337.valerochkagym.data.calendar.CalendarPlanRepository
+import com.valerochka1337.valerochkagym.data.calendar.CalendarPlanResult
+import com.valerochka1337.valerochkagym.data.calendar.ResolvedCalendarInstance
 import com.valerochka1337.valerochkagym.data.db.dao.RoutineDao
-import com.valerochka1337.valerochkagym.data.db.dao.ScheduledWorkoutDao
 import com.valerochka1337.valerochkagym.data.db.dao.WorkoutDao
+import com.valerochka1337.valerochkagym.data.db.entity.CalendarPlanEntity
+import com.valerochka1337.valerochkagym.data.db.entity.CalendarRuleEntity
 import com.valerochka1337.valerochkagym.data.db.entity.RoutineEntity
 import com.valerochka1337.valerochkagym.data.db.entity.RoutineExerciseEntity
-import com.valerochka1337.valerochkagym.data.db.entity.ScheduledWorkoutEntity
 import com.valerochka1337.valerochkagym.data.db.entity.UploadStatus
 import com.valerochka1337.valerochkagym.data.db.entity.WorkoutEntity
 import com.valerochka1337.valerochkagym.data.db.entity.WorkoutExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.WorkoutSetEntity
 import com.valerochka1337.valerochkagym.data.db.relation.AnalyticsSetRow
+import com.valerochka1337.valerochkagym.data.db.relation.CalendarPlanWithRoutine
+import com.valerochka1337.valerochkagym.data.db.relation.CalendarRuleWithRoutine
 import com.valerochka1337.valerochkagym.data.db.relation.RoutineWithCount
 import com.valerochka1337.valerochkagym.data.db.relation.RoutineWithExercises
-import com.valerochka1337.valerochkagym.data.db.relation.ScheduledWithRoutine
 import com.valerochka1337.valerochkagym.data.db.relation.WorkoutFull
-import com.valerochka1337.valerochkagym.data.google.CalendarRepository
-import com.valerochka1337.valerochkagym.data.google.ScheduleResult
 import com.valerochka1337.valerochkagym.data.schedule.DayRule
 import com.valerochka1337.valerochkagym.data.schedule.WeeklySchedule
-import com.valerochka1337.valerochkagym.data.schedule.WeeklyScheduleRecoveryResult
-import com.valerochka1337.valerochkagym.data.schedule.WeeklyScheduleRepository
 import com.valerochka1337.valerochkagym.domain.ActiveWorkoutRepository
+import com.valerochka1337.valerochkagym.ui.calendar.CalendarMigrationUiState
 import com.valerochka1337.valerochkagym.ui.calendar.CalendarViewModel
 import com.valerochka1337.valerochkagym.ui.calendar.DotStyle
 import com.valerochka1337.valerochkagym.util.MainDispatcherRule
+import java.io.IOException
 import java.time.LocalDate
 import java.time.YearMonth
 import java.time.ZoneId
@@ -35,6 +42,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -134,7 +142,7 @@ class CalendarViewModelTest {
         collect(vm)
         vm.onDaySelected(today)
 
-        val recurring = vm.daySheet.value!!.recurring!!
+        val recurring = vm.daySheet.value!!.recurring.single()
         assertEquals("Спина", recurring.routineName)
         assertEquals("08:30", recurring.timeLabel)
         assertTrue(recurring.canStart) // today
@@ -163,10 +171,71 @@ class CalendarViewModelTest {
   // region scheduling
 
   @Test
+  fun `pending migration keeps Room history visible and blocks editing`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val calendar = FakeCalendarPlanRepository()
+        val today = LocalDate.now(zone)
+        val vm =
+            viewModel(
+                finished = listOf(finishedWorkout("done", "Ноги", noon(today))),
+                calendarPlanRepository = calendar,
+                migrationGate = MutableGate(false),
+            )
+        collect(vm)
+        runCurrent()
+
+        assertEquals(CalendarMigrationUiState.Preparing, vm.calendarStatus.value.migration)
+        assertEquals(DotStyle.Completed, vm.monthUi.value.cells.first { it.date == today }.dot)
+        vm.schedule(1L, System.currentTimeMillis() + 60_000)
+
+        assertEquals("Подготовка календаря ещё не завершена", vm.events.first())
+        assertEquals(0, calendar.scheduleCalls)
+      }
+
+  @Test
+  fun `migration failure exposes a recoverable retry state`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val gate = MutableGate(error = IOException("disk"))
+        val vm = viewModel(migrationGate = gate)
+        collect(vm)
+        runCurrent()
+
+        assertEquals(
+            CalendarMigrationUiState.Error("Не удалось подготовить календарь"),
+            vm.calendarStatus.value.migration,
+        )
+        gate.ready = true
+        gate.error = null
+        vm.retryMigration()
+        runCurrent()
+
+        assertEquals(CalendarMigrationUiState.Ready, vm.calendarStatus.value.migration)
+      }
+
+  @Test
+  fun `unsupported cloud status does not turn a local plan success into failure`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val calendar = FakeCalendarPlanRepository()
+        val vm =
+            viewModel(
+                calendarPlanRepository = calendar,
+                cloudStatus = FakeCalendarCloudStatus(CalendarCloudState.Unsupported),
+            )
+        collect(vm)
+        runCurrent()
+
+        vm.schedule(1L, System.currentTimeMillis() + 60_000)
+
+        assertEquals(CalendarCloudState.Unsupported, vm.calendarStatus.value.cloud)
+        assertEquals(1, calendar.scheduleCalls)
+        assertEquals("Запланировано", vm.events.first())
+      }
+
+  @Test
   fun `schedule in the past emits the guard message and never calls the repository`() =
       runTest(mainDispatcherRule.testDispatcher.scheduler) {
-        val calendar = FakeCalendarRepository()
-        val vm = viewModel(calendar = calendar)
+        val calendar = FakeCalendarPlanRepository()
+        val vm = viewModel(calendarPlanRepository = calendar)
         collect(vm)
 
         vm.schedule(routineId = 1L, dateTimeMillis = 1_000L)
@@ -176,33 +245,56 @@ class CalendarViewModelTest {
       }
 
   @Test
+  fun `recreated scheduling command reuses its saved UUID until Room accepts it`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val calendar =
+            FakeCalendarPlanRepository().apply {
+              createResult = CalendarPlanResult.Failure("Повторите")
+            }
+        val handle = SavedStateHandle()
+        val at = System.currentTimeMillis() + 60_000
+        val first = viewModel(calendarPlanRepository = calendar, savedStateHandle = handle)
+        collect(first)
+        first.schedule(1L, at)
+        val id = calendar.planCommandIds.single()
+
+        calendar.createResult = CalendarPlanResult.Success
+        val recreated = viewModel(calendarPlanRepository = calendar, savedStateHandle = handle)
+        collect(recreated)
+        recreated.schedule(1L, at)
+
+        assertEquals(listOf(id, id), calendar.planCommandIds)
+      }
+
+  @Test
   fun `startAdHoc starts the routine then cancels its event`() =
       runTest(mainDispatcherRule.testDispatcher.scheduler) {
         val active = FakeActiveWorkoutRepository()
-        val calendar = FakeCalendarRepository()
-        val vm = viewModel(active = active, calendar = calendar)
+        val calendar = FakeCalendarPlanRepository()
+        val vm = viewModel(active = active, calendarPlanRepository = calendar)
         collect(vm)
 
         vm.startAdHoc(
             com.valerochka1337.valerochkagym.ui.calendar.AdHocUi(
-                scheduledId = 3L,
+                planId = "3",
                 routineId = 5L,
                 routineName = "Ноги",
                 timeLabel = "18:00",
+                startsAtMillis = System.currentTimeMillis(),
                 canStart = true,
             ),
         )
 
         assertEquals(1, active.startFromRoutineCalls)
-        assertEquals(listOf(3L), calendar.cancelledIds)
+        assertEquals(listOf("3"), calendar.cancelledIds)
       }
 
   @Test
   fun `startRecurring starts the routine without cancelling anything`() =
       runTest(mainDispatcherRule.testDispatcher.scheduler) {
         val active = FakeActiveWorkoutRepository()
-        val calendar = FakeCalendarRepository()
-        val vm = viewModel(active = active, calendar = calendar)
+        val calendar = FakeCalendarPlanRepository()
+        val vm = viewModel(active = active, calendarPlanRepository = calendar)
         collect(vm)
 
         vm.startRecurring(routineId = 5L)
@@ -212,10 +304,87 @@ class CalendarViewModelTest {
       }
 
   @Test
+  fun `recurring cancellation and move keep the selected rule and original date`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val calendar = FakeCalendarPlanRepository()
+        val vm = viewModel(calendarPlanRepository = calendar)
+        collect(vm)
+        val date = LocalDate.now(zone).plusDays(7)
+        val movedAt = noon(date.plusDays(1))
+
+        vm.cancelRecurring("rule-1", date)
+        vm.moveRecurring("rule-1", date, movedAt)
+
+        assertEquals(
+            listOf(
+                ExceptionCommand(
+                    "rule-1",
+                    date,
+                    com.valerochka1337.valerochkagym.data.db.entity.CalendarExceptionKind.CANCELLED,
+                    null,
+                ),
+                ExceptionCommand(
+                    "rule-1",
+                    date,
+                    com.valerochka1337.valerochkagym.data.db.entity.CalendarExceptionKind.MOVED,
+                    movedAt,
+                ),
+            ),
+            calendar.exceptions,
+        )
+      }
+
+  @Test
+  fun `moved recurring commands retain the rule-local date when displayed on another date`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val original = LocalDate.of(2026, 9, 7)
+        val movedAt = java.time.Instant.parse("2026-09-12T10:00:00Z").toEpochMilli()
+        val calendar =
+            FakeCalendarPlanRepository(
+                instances =
+                    listOf(
+                        ResolvedCalendarInstance(
+                            id = "exception",
+                            planId = null,
+                            ruleId = "rule-1",
+                            instanceKey = "2026-09-07T08:30[UTC]",
+                            routineId = 1,
+                            routineName = "Ноги",
+                            startsAtMillis = movedAt,
+                            moved = true,
+                        )
+                    )
+            )
+        val vm = viewModel(calendarPlanRepository = calendar)
+        collect(vm)
+        vm.onDaySelected(java.time.Instant.ofEpochMilli(movedAt).atZone(zone).toLocalDate())
+        val recurring = vm.daySheet.value!!.recurring.single()
+
+        assertEquals(original, recurring.instanceDate)
+        vm.cancelRecurring(recurring.ruleId, recurring.instanceDate)
+        vm.moveRecurring(recurring.ruleId, recurring.instanceDate, movedAt + 60_000)
+
+        assertEquals(listOf(original, original), calendar.exceptions.map { it.instanceDate })
+      }
+
+  @Test
+  fun `one-off move delegates its plan id and new instant`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val calendar = FakeCalendarPlanRepository()
+        val vm = viewModel(calendarPlanRepository = calendar)
+        collect(vm)
+        val movedAt = System.currentTimeMillis() + 60_000
+
+        vm.moveAdHoc("plan-1", movedAt)
+
+        assertEquals(listOf("plan-1" to movedAt), calendar.movedPlans)
+      }
+
+  @Test
   fun `saveSchedule delegates and surfaces the success message`() =
       runTest(mainDispatcherRule.testDispatcher.scheduler) {
-        val weekly = FakeWeeklyScheduleRepository()
-        val vm = viewModel(weeklyRepo = weekly)
+        val weekly = FakeCalendarPlanRepository()
+        val vm = viewModel(calendarPlanRepository = weekly)
         collect(vm)
 
         val schedule =
@@ -229,13 +398,16 @@ class CalendarViewModelTest {
   @Test
   fun `clearSchedule surfaces a NeedsConsent message`() =
       runTest(mainDispatcherRule.testDispatcher.scheduler) {
-        val weekly = FakeWeeklyScheduleRepository(clearResult = ScheduleResult.NeedsConsent)
-        val vm = viewModel(weeklyRepo = weekly)
+        val weekly =
+            FakeCalendarPlanRepository(
+                clearResult = CalendarPlanResult.Failure("Нет доступа к календарю")
+            )
+        val vm = viewModel(calendarPlanRepository = weekly)
         collect(vm)
 
         vm.clearSchedule()
 
-        assertEquals("Настройте доступ к Google в настройках", vm.events.first())
+        assertEquals("Нет доступа к календарю", vm.events.first())
         assertTrue(weekly.cleared)
       }
 
@@ -244,7 +416,8 @@ class CalendarViewModelTest {
       runTest(mainDispatcherRule.testDispatcher.scheduler) {
         val schedule =
             WeeklySchedule(listOf(DayRule(isoDay = 4, routineId = 9L, hour = 7, minute = 15)))
-        val vm = viewModel(weeklyRepo = FakeWeeklyScheduleRepository(initial = schedule))
+        val vm =
+            viewModel(calendarPlanRepository = FakeCalendarPlanRepository(initialWeekly = schedule))
         backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
           vm.weeklySchedule.collect {}
         }
@@ -255,8 +428,8 @@ class CalendarViewModelTest {
   @Test
   fun `rapid save and clear share one busy gate`() =
       runTest(mainDispatcherRule.testDispatcher.scheduler) {
-        val weekly = FakeWeeklyScheduleRepository(suspendSave = true)
-        val vm = viewModel(weeklyRepo = weekly)
+        val weekly = FakeCalendarPlanRepository(suspendSave = true)
+        val vm = viewModel(calendarPlanRepository = weekly)
 
         vm.saveSchedule(WeeklySchedule(listOf(DayRule(1, 2, 18, 0))))
         runCurrent()
@@ -274,8 +447,8 @@ class CalendarViewModelTest {
   @Test
   fun `rapid save and save invoke repository once`() =
       runTest(mainDispatcherRule.testDispatcher.scheduler) {
-        val weekly = FakeWeeklyScheduleRepository(suspendSave = true)
-        val vm = viewModel(weeklyRepo = weekly)
+        val weekly = FakeCalendarPlanRepository(suspendSave = true)
+        val vm = viewModel(calendarPlanRepository = weekly)
         val schedule = WeeklySchedule(listOf(DayRule(1, 2, 18, 0)))
 
         vm.saveSchedule(schedule)
@@ -291,8 +464,8 @@ class CalendarViewModelTest {
   @Test
   fun `rapid clear and clear invoke repository once`() =
       runTest(mainDispatcherRule.testDispatcher.scheduler) {
-        val weekly = FakeWeeklyScheduleRepository(suspendClear = true)
-        val vm = viewModel(weeklyRepo = weekly)
+        val weekly = FakeCalendarPlanRepository(suspendClear = true)
+        val vm = viewModel(calendarPlanRepository = weekly)
 
         vm.clearSchedule()
         vm.clearSchedule()
@@ -308,19 +481,19 @@ class CalendarViewModelTest {
   fun `schedule busy resets after repository failure and cancellation`() =
       runTest(mainDispatcherRule.testDispatcher.scheduler) {
         val failureRepo =
-            FakeWeeklyScheduleRepository(
-                saveResult = ScheduleResult.Failure("Старое расписание сохранено"),
+            FakeCalendarPlanRepository(
+                saveResult = CalendarPlanResult.Failure("Старое расписание сохранено"),
             )
-        val failureVm = viewModel(weeklyRepo = failureRepo)
+        val failureVm = viewModel(calendarPlanRepository = failureRepo)
         failureVm.saveSchedule(WeeklySchedule(listOf(DayRule(1, 2, 18, 0))))
         assertEquals("Старое расписание сохранено", failureVm.events.first())
         assertFalse(failureVm.isScheduleBusy.value)
 
         val cancelledRepo =
-            FakeWeeklyScheduleRepository(
+            FakeCalendarPlanRepository(
                 saveThrowable = CancellationException("cancelled"),
             )
-        val cancelledVm = viewModel(weeklyRepo = cancelledRepo)
+        val cancelledVm = viewModel(calendarPlanRepository = cancelledRepo)
         cancelledVm.saveSchedule(WeeklySchedule(listOf(DayRule(1, 2, 18, 0))))
         runCurrent()
         assertFalse(cancelledVm.isScheduleBusy.value)
@@ -332,20 +505,25 @@ class CalendarViewModelTest {
 
   private fun viewModel(
       finished: List<WorkoutEntity> = emptyList(),
-      adHoc: List<ScheduledWithRoutine> = emptyList(),
+      adHoc: List<CalendarPlanWithRoutine> = emptyList(),
       routines: List<RoutineWithCount> = emptyList(),
       weekly: WeeklySchedule = WeeklySchedule(),
-      calendar: FakeCalendarRepository = FakeCalendarRepository(),
+      calendarPlanRepository: FakeCalendarPlanRepository? = null,
+      migrationGate: CalendarMigrationGate = ReadyGate,
+      cloudStatus: CalendarCloudStatus = FakeCalendarCloudStatus(CalendarCloudState.Available),
       active: FakeActiveWorkoutRepository = FakeActiveWorkoutRepository(),
-      weeklyRepo: FakeWeeklyScheduleRepository = FakeWeeklyScheduleRepository(initial = weekly),
+      savedStateHandle: SavedStateHandle = SavedStateHandle(),
   ): CalendarViewModel =
       CalendarViewModel(
           workoutDao = FakeWorkoutDao(finished),
-          scheduledWorkoutDao = FakeScheduledWorkoutDao(adHoc),
           routineDao = FakeRoutineDao(routines),
-          calendarRepository = calendar,
-          weeklyScheduleRepository = weeklyRepo,
+          calendarPlanRepository =
+              calendarPlanRepository
+                  ?: FakeCalendarPlanRepository(plans = adHoc, initialWeekly = weekly),
+          migrationGate = migrationGate,
+          calendarCloudStatus = cloudStatus,
           activeWorkoutRepository = active,
+          savedStateHandle = savedStateHandle,
       )
 
   /** Keep every `WhileSubscribed` state flow hot so `.value` reflects the latest emission. */
@@ -354,20 +532,33 @@ class CalendarViewModelTest {
     backgroundScope.launch(d) { vm.monthUi.collect {} }
     backgroundScope.launch(d) { vm.daySheet.collect {} }
     backgroundScope.launch(d) { vm.routines.collect {} }
+    backgroundScope.launch(d) { vm.calendarStatus.collect {} }
+  }
+
+  private object ReadyGate : CalendarMigrationGate {
+    override suspend fun ensureReady(): Boolean = true
+  }
+
+  private class MutableGate(
+      var ready: Boolean = false,
+      var error: Throwable? = null,
+  ) : CalendarMigrationGate {
+    override suspend fun ensureReady(): Boolean {
+      error?.let { throw it }
+      return ready
+    }
+  }
+
+  private class FakeCalendarCloudStatus(initial: CalendarCloudState) : CalendarCloudStatus {
+    override val calendarCloudState = MutableStateFlow(initial)
   }
 
   private fun finishedWorkout(id: String, name: String, startedAt: Long) =
       WorkoutEntity(id = id, name = name, startedAt = startedAt, finishedAt = startedAt + 3_600_000)
 
   private fun scheduled(id: Long, routineId: Long, name: String, millis: Long) =
-      ScheduledWithRoutine(
-          scheduled =
-              ScheduledWorkoutEntity(
-                  id = id,
-                  routineId = routineId,
-                  dateTimeMillis = millis,
-                  calendarEventId = "e$id",
-              ),
+      CalendarPlanWithRoutine(
+          plan = CalendarPlanEntity("$id", routineId, millis, zone.id),
           routineName = name,
       )
 
@@ -391,6 +582,25 @@ class CalendarViewModelTest {
     override suspend fun insertSets(sets: List<WorkoutSetEntity>): List<Long> = emptyList()
 
     override suspend fun updateSet(set: WorkoutSetEntity) = Unit
+
+    override suspend fun updateActiveSetNote(workoutId: String, setId: Long, note: String) = 0
+
+    override suspend fun updateActiveWorkoutNote(workoutId: String, note: String) = 0
+
+    override suspend fun updateCompletedStrengthNumbers(
+        setId: Long,
+        weightKg: Double?,
+        reps: Int?,
+    ) = 0
+
+    override suspend fun updateCompletedTimedNumbers(setId: Long, durationSec: Int?) = 0
+
+    override suspend fun updateCompletedCardioNumbers(
+        setId: Long,
+        durationSec: Int?,
+        speedKmh: Double?,
+        inclinePct: Double?,
+    ) = 0
 
     override suspend fun updateWorkoutExercises(exercises: List<WorkoutExerciseEntity>) = Unit
 
@@ -437,17 +647,6 @@ class CalendarViewModelTest {
     override suspend fun deleteWorkoutExercise(id: Long) = Unit
   }
 
-  private class FakeScheduledWorkoutDao(private val all: List<ScheduledWithRoutine>) :
-      ScheduledWorkoutDao {
-    override fun observeAll(): Flow<List<ScheduledWithRoutine>> = MutableStateFlow(all)
-
-    override suspend fun insert(scheduled: ScheduledWorkoutEntity): Long = 0
-
-    override suspend fun delete(id: Long) = Unit
-
-    override suspend fun getById(id: Long): ScheduledWorkoutEntity? = null
-  }
-
   private class FakeRoutineDao(private val list: List<RoutineWithCount>) : RoutineDao {
     override fun observeRoutinesWithCount(): Flow<List<RoutineWithCount>> = MutableStateFlow(list)
 
@@ -471,32 +670,26 @@ class CalendarViewModelTest {
     override suspend fun deleteRoutineExercises(routineId: Long) = Unit
   }
 
-  private class FakeCalendarRepository : CalendarRepository {
-    var scheduleCalls = 0
-      private set
-
-    val cancelledIds = mutableListOf<Long>()
-
-    override suspend fun schedule(routineId: Long, dateTimeMillis: Long): ScheduleResult {
-      scheduleCalls++
-      return ScheduleResult.Success
-    }
-
-    override suspend fun cancel(scheduledId: Long): ScheduleResult {
-      cancelledIds += scheduledId
-      return ScheduleResult.Success
-    }
-  }
-
-  private class FakeWeeklyScheduleRepository(
-      initial: WeeklySchedule = WeeklySchedule(),
-      private val saveResult: ScheduleResult = ScheduleResult.Success,
-      private val clearResult: ScheduleResult = ScheduleResult.Success,
+  private class FakeCalendarPlanRepository(
+      private val plans: List<CalendarPlanWithRoutine> = emptyList(),
+      private val instances: List<ResolvedCalendarInstance> = emptyList(),
+      initialWeekly: WeeklySchedule = WeeklySchedule(),
+      private val saveResult: CalendarPlanResult = CalendarPlanResult.Success,
+      private val clearResult: CalendarPlanResult = CalendarPlanResult.Success,
       private val suspendSave: Boolean = false,
       private val suspendClear: Boolean = false,
       private val saveThrowable: Throwable? = null,
-  ) : WeeklyScheduleRepository {
-    private val state = MutableStateFlow(initial)
+  ) : CalendarPlanRepository {
+    var scheduleCalls = 0
+      private set
+
+    var createResult: CalendarPlanResult = CalendarPlanResult.Success
+    val planCommandIds = mutableListOf<String>()
+
+    val cancelledIds = mutableListOf<String>()
+    val movedPlans = mutableListOf<Pair<String, Long>>()
+    val exceptions = mutableListOf<ExceptionCommand>()
+    val weeklySchedule = MutableStateFlow(initialWeekly)
     var saved: WeeklySchedule? = null
       private set
 
@@ -504,32 +697,112 @@ class CalendarViewModelTest {
       private set
 
     var saveCalls = 0
+      private set
+
     var clearCalls = 0
+      private set
+
     val releaseSave = CompletableDeferred<Unit>()
     val releaseClear = CompletableDeferred<Unit>()
 
-    override fun observe(): Flow<WeeklySchedule> = state
+    override fun observeInstancesIn(
+        range: LocalDateRange,
+        displayZoneSnapshot: ZoneId,
+    ): Flow<CalendarPlanReadState> =
+        if (instances.isNotEmpty()) flowOf(CalendarPlanReadState.Ready(instances))
+        else
+            weeklySchedule.map { weekly ->
+              CalendarPlanReadState.Ready(
+                  CalendarInstances.resolveIn(
+                      plans,
+                      weekly.rules.map { rule ->
+                        CalendarRuleWithRoutine(
+                            CalendarRuleEntity(
+                                "rule-${rule.isoDay}",
+                                rule.routineId,
+                                rule.isoDay,
+                                "%02d:%02d".format(rule.hour, rule.minute),
+                                displayZoneSnapshot.id,
+                                LocalDate.now(displayZoneSnapshot).toString(),
+                            ),
+                            "Программа",
+                        )
+                      },
+                      emptyList(),
+                      range,
+                      displayZoneSnapshot,
+                  )
+              )
+            }
 
-    override suspend fun save(schedule: WeeklySchedule): ScheduleResult {
+    override fun observePlans(): Flow<List<CalendarPlanWithRoutine>> = MutableStateFlow(plans)
+
+    override fun observeRules(): Flow<List<CalendarRuleWithRoutine>> = flowOf(emptyList())
+
+    override fun observeWeeklySchedule(): Flow<WeeklySchedule> = weeklySchedule
+
+    override suspend fun createPlan(
+        commandId: String,
+        routineId: Long,
+        startsAtMillis: Long,
+        zone: ZoneId,
+    ): CalendarPlanResult {
+      scheduleCalls++
+      planCommandIds += commandId
+      return createResult
+    }
+
+    override suspend fun cancelPlan(planId: String): CalendarPlanResult {
+      cancelledIds += planId
+      return CalendarPlanResult.Success
+    }
+
+    override suspend fun movePlan(
+        planId: String,
+        startsAtMillis: Long,
+        zone: ZoneId,
+    ): CalendarPlanResult {
+      movedPlans += planId to startsAtMillis
+      return CalendarPlanResult.Success
+    }
+
+    override suspend fun replaceWeeklySchedule(
+        schedule: WeeklySchedule,
+        zone: ZoneId,
+    ): CalendarPlanResult {
       saveCalls++
       saved = schedule
       if (suspendSave) releaseSave.await()
       saveThrowable?.let { throw it }
-      state.value = schedule
+      if (saveResult is CalendarPlanResult.Success) weeklySchedule.value = schedule
       return saveResult
     }
 
-    override suspend fun clear(): ScheduleResult {
+    override suspend fun clearWeeklySchedule(): CalendarPlanResult {
       clearCalls++
       cleared = true
       if (suspendClear) releaseClear.await()
-      state.value = WeeklySchedule()
+      if (clearResult is CalendarPlanResult.Success) weeklySchedule.value = WeeklySchedule()
       return clearResult
     }
 
-    override suspend fun resumePendingOperation(): WeeklyScheduleRecoveryResult =
-        WeeklyScheduleRecoveryResult.NothingPending
+    override suspend fun setException(
+        ruleId: String,
+        instanceDate: LocalDate,
+        kind: com.valerochka1337.valerochkagym.data.db.entity.CalendarExceptionKind,
+        movedAtMillis: Long?,
+    ): CalendarPlanResult {
+      exceptions += ExceptionCommand(ruleId, instanceDate, kind, movedAtMillis)
+      return CalendarPlanResult.Success
+    }
   }
+
+  private data class ExceptionCommand(
+      val ruleId: String,
+      val instanceDate: LocalDate,
+      val kind: com.valerochka1337.valerochkagym.data.db.entity.CalendarExceptionKind,
+      val movedAtMillis: Long?,
+  )
 
   private class FakeActiveWorkoutRepository : ActiveWorkoutRepository {
     var startFromRoutineCalls = 0

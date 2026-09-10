@@ -12,6 +12,7 @@ import androidx.credentials.exceptions.NoCredentialException
 import com.google.android.gms.auth.api.identity.AuthorizationRequest
 import com.google.android.gms.auth.api.identity.AuthorizationResult
 import com.google.android.gms.auth.api.identity.Identity
+import com.google.android.gms.auth.api.identity.RevokeAccessRequest
 import com.google.android.gms.common.api.Scope
 import com.google.android.gms.tasks.Task
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
@@ -52,6 +53,10 @@ constructor(
   private val credentialManager: CredentialManager by lazy { CredentialManager.create(context) }
 
   override suspend fun signIn(activity: Activity): Result<String> {
+    return selectAccount(activity)
+  }
+
+  override suspend fun selectAccount(activity: Activity): Result<String> {
     val googleIdOption =
         GetGoogleIdOption.Builder()
             .setServerClientId(context.getString(R.string.google_web_client_id))
@@ -62,7 +67,6 @@ constructor(
       val response = credentialManager.getCredential(activity, request)
       val credential = GoogleIdTokenCredential.createFrom(response.credential.data)
       val email = credential.id
-      settingsRepository.setGoogleEmail(email)
       Result.success(email)
     } catch (cancellation: GetCredentialCancellationException) {
       // Пользователь закрыл диалог выбора аккаунта — тихо, без побочных эффектов.
@@ -76,16 +80,20 @@ constructor(
     }
   }
 
+  override suspend fun authorizeForAccount(
+      activity: Activity,
+      expectedEmail: String,
+  ): AuthorizeOutcome = authorizeExpected(activity, expectedEmail)
+
   override suspend fun authorize(activity: Activity): AuthorizeOutcome =
+      authorizeExpected(activity, settingsRepository.settings.first().googleEmail)
+
+  private suspend fun authorizeExpected(
+      activity: Activity,
+      expectedEmail: String?,
+  ): AuthorizeOutcome =
       try {
-        val expectedEmail =
-            settingsRepository.settings
-                .first()
-                .googleEmail
-                ?.trim()
-                ?.lowercase(Locale.ROOT)
-                ?.takeIf(String::isNotEmpty)
-        val result = requestAuthorization(activity, expectedEmail)
+        val result = requestAuthorization(activity, expectedEmail?.normalizeEmail())
         val pendingIntent = result.pendingIntent
         if (result.hasResolution() && pendingIntent != null) {
           AuthorizeOutcome.NeedsConsent(pendingIntent)
@@ -96,6 +104,18 @@ constructor(
         throw c
       } catch (e: Exception) {
         AuthorizeOutcome.Failed(e)
+      }
+
+  override suspend fun revokeCalendarAccess(expectedEmail: String): Result<Unit> =
+      try {
+        Identity.getAuthorizationClient(context)
+            .revokeAccess(buildRevokeRequest(expectedEmail))
+            .await()
+        Result.success(Unit)
+      } catch (c: CancellationException) {
+        throw c
+      } catch (e: Exception) {
+        Result.failure(e)
       }
 
   override suspend fun getAccessToken(): TokenResult =
@@ -127,9 +147,8 @@ constructor(
       throw c
     } catch (_: ClearCredentialException) {
       // Не критично: даже если очистка состояния Credential Manager не удалась,
-      // всё равно стираем сохранённый email — для пользователя это и есть «выход».
+      // Legacy full sign-out is best effort and does not mutate Calendar identity.
     }
-    settingsRepository.setGoogleEmail(null)
   }
 
   internal fun buildAuthorizationRequest(expectedEmail: String?): AuthorizationRequest =
@@ -140,6 +159,12 @@ constructor(
               setAccount(Account(it, GOOGLE_ACCOUNT_TYPE))
             }
           }
+          .build()
+
+  internal fun buildRevokeRequest(expectedEmail: String): RevokeAccessRequest =
+      RevokeAccessRequest.builder()
+          .setScopes(REQUIRED_SCOPES)
+          .setAccount(Account(expectedEmail.normalizeEmail(), GOOGLE_ACCOUNT_TYPE))
           .build()
 
   private suspend fun requestAuthorization(
@@ -155,6 +180,8 @@ constructor(
     const val GOOGLE_ACCOUNT_TYPE = "com.google"
   }
 }
+
+private fun String.normalizeEmail(): String = trim().lowercase(Locale.ROOT)
 
 /** Ожидание результата GMS [Task] в корутине без зависимости от play-services-coroutines. */
 private suspend fun <T> Task<T>.await(): T = suspendCancellableCoroutine { cont ->

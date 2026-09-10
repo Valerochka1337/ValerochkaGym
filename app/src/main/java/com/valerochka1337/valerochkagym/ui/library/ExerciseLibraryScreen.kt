@@ -72,6 +72,7 @@ import com.valerochka1337.valerochkagym.ui.components.GymFilterChip
 import com.valerochka1337.valerochkagym.ui.components.LoadingState
 import com.valerochka1337.valerochkagym.ui.haptics.gymHaptics
 import com.valerochka1337.valerochkagym.ui.navigation.GymWindowWidthClass
+import com.valerochka1337.valerochkagym.ui.profile.AiProfilePromptDialog
 import com.valerochka1337.valerochkagym.ui.theme.GymMotion
 
 internal const val EXERCISE_CATALOG_LIST_TAG = "exercise_catalog_list"
@@ -88,6 +89,7 @@ internal const val EXERCISE_CATALOG_LIST_TAG = "exercise_catalog_list"
 fun ExerciseLibraryScreen(
     onBack: () -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenProfile: () -> Unit = {},
     modifier: Modifier = Modifier,
     windowWidthClass: GymWindowWidthClass = GymWindowWidthClass.Compact,
     exerciseListState: LazyListState = rememberLazyListState(),
@@ -100,6 +102,7 @@ fun ExerciseLibraryScreen(
   val state by viewModel.uiState.collectAsStateWithLifecycle()
   val editor by viewModel.editor.collectAsStateWithLifecycle()
   val aiCreation by viewModel.aiCreation.collectAsStateWithLifecycle()
+  val profilePrompt by viewModel.profilePrompt.collectAsStateWithLifecycle()
   val haptics = gymHaptics()
   var filterSheetOpen by rememberSaveable { mutableStateOf(false) }
   var sortSheetOpen by rememberSaveable { mutableStateOf(false) }
@@ -117,6 +120,7 @@ fun ExerciseLibraryScreen(
       }
     }
   }
+  LaunchedEffect(viewModel, onOpenProfile) { viewModel.openProfile.collect { onOpenProfile() } }
 
   GlowBackground(modifier = modifier) {
     Box(modifier = Modifier.fillMaxSize()) {
@@ -266,11 +270,17 @@ fun ExerciseLibraryScreen(
           haptics.tap()
           viewModel.openManualCreate()
         },
-        onOpenSettings = {
-          viewModel.closeAiCreation()
-          onOpenSettings()
-        },
         onDismiss = viewModel::closeAiCreation,
+    )
+  }
+  profilePrompt?.let { prompt ->
+    AiProfilePromptDialog(
+        token = prompt.token,
+        onVisible = viewModel::acknowledgeProfilePrompt,
+        onFillProfile = viewModel::fillProfileFromPrompt,
+        onContinue = { viewModel.continueAfterProfilePrompt(it) },
+        onDisable = { viewModel.continueAfterProfilePrompt(it, disableFuturePrompts = true) },
+        onDismiss = viewModel::dismissProfilePrompt,
     )
   }
 }

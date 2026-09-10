@@ -12,6 +12,28 @@ data class BackendTokens(
     val expiresIn: Int = 900,
 )
 
+data class GuestTransferState(
+    val phase: GuestSyncPhase,
+    val owner: String?,
+    val mergeId: String?,
+    val initialMergeAcknowledged: Boolean,
+)
+
+data class GuestPreservationFootprint(
+    val records: Int,
+    val baselineRecords: Int,
+    val hasOutbox: Boolean,
+    val hasCatalogJournal: Boolean,
+    val tombstones: Int,
+    val fingerprint: String,
+)
+
+sealed interface GuestClaimResult {
+  data class Claimed(val state: GuestTransferState) : GuestClaimResult
+
+  data class Blocked(val footprint: GuestPreservationFootprint) : GuestClaimResult
+}
+
 @Serializable
 data class CloudRecord(
     val kind: String,

@@ -1,6 +1,7 @@
 package com.valerochka1337.valerochkagym.data.update
 
 import android.Manifest
+import android.app.Application
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageInstaller
@@ -8,7 +9,9 @@ import android.content.pm.PackageManager
 import android.os.Handler
 import android.os.Looper
 import androidx.test.core.app.ApplicationProvider
+import dagger.hilt.internal.GeneratedComponentManager
 import java.io.File
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -17,6 +20,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
+import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
 class AppUpdateManifestTest {
@@ -100,6 +104,7 @@ class AppUpdateManifestTest {
   }
 
   @Test
+  @Config(application = InstallerTestApplication::class)
   fun `installer stages the apk in a package installer session`() = runTest {
     val context = ApplicationProvider.getApplicationContext<Context>()
     val packageInstaller = context.packageManager.packageInstaller
@@ -135,6 +140,29 @@ class AppUpdateManifestTest {
     file.delete()
   }
 
+  @Test
+  @Config(application = InstallerTestApplication::class)
+  fun `system success callback reaches the injected event bus`() = runTest {
+    val context = ApplicationProvider.getApplicationContext<InstallerTestApplication>()
+    val intent =
+        Intent(context, AppUpdateInstallStatusReceiver::class.java).apply {
+          action = AppUpdateInstallStatusReceiver.ACTION_INSTALL_STATUS
+          putExtra(PackageInstaller.EXTRA_STATUS, PackageInstaller.STATUS_SUCCESS)
+        }
+
+    context.sendBroadcast(intent)
+    shadowOf(Looper.getMainLooper()).idle()
+
+    assertEquals(AppUpdateInstallEvent.Succeeded, context.events.events.first())
+  }
+
+  class InstallerTestApplication : Application(), GeneratedComponentManager<Any> {
+    val events = AppUpdateInstallEventBus()
+    private val component = InstallStatusComponent(events)
+
+    override fun generatedComponent(): Any = component
+  }
+
   private fun testRelease(sizeBytes: Long): AppRelease =
       AppRelease(
           tagName = "v9.9.9",
@@ -152,4 +180,11 @@ class AppUpdateManifestTest {
                   sha256 = "a".repeat(64),
               ),
       )
+}
+
+private class InstallStatusComponent(private val events: AppUpdateInstallEventBus) :
+    AppUpdateInstallStatusReceiver_GeneratedInjector {
+  override fun injectAppUpdateInstallStatusReceiver(receiver: AppUpdateInstallStatusReceiver) {
+    receiver.eventBus = events
+  }
 }

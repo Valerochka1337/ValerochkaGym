@@ -418,6 +418,14 @@ private fun SetRow(set: DetailSetUi) {
       color = color,
       modifier = Modifier.padding(vertical = 2.dp),
   )
+  if (set.note.isNotBlank()) {
+    Spacer(Modifier.height(4.dp))
+    Text(
+        text = set.note,
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+  }
 }
 
 @Composable

@@ -336,12 +336,25 @@ class ConfigurationSheetsRepositoryTest : RoomDaoTest() {
   }
 
   private data object FakeGoogleAuth : GoogleAuth {
+    override suspend fun selectAccount(activity: Activity): Result<String> = signIn(activity)
+
+    override suspend fun authorizeForAccount(
+        activity: Activity,
+        expectedEmail: String,
+    ): AuthorizeOutcome = authorize(activity)
+
+    override suspend fun revokeCalendarAccess(expectedEmail: String): Result<Unit> =
+        Result.success(Unit)
+
     override suspend fun signIn(activity: Activity): Result<String> =
         Result.success("user@example.com")
 
     override suspend fun authorize(activity: Activity): AuthorizeOutcome = AuthorizeOutcome.Granted
 
     override suspend fun getAccessToken(): TokenResult = TokenResult.Success("token")
+
+    override suspend fun getAccessTokenForAccount(expectedEmail: String): TokenResult =
+        getAccessToken()
 
     override suspend fun signOut() = Unit
   }

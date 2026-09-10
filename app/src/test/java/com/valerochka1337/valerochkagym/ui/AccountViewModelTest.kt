@@ -2,11 +2,22 @@ package com.valerochka1337.valerochkagym.ui
 
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
+import androidx.work.Configuration
+import androidx.work.testing.WorkManagerTestInitHelper
 import com.valerochka1337.valerochkagym.data.RoomDaoTest
 import com.valerochka1337.valerochkagym.data.backend.*
+import com.valerochka1337.valerochkagym.data.settings.CalendarAccountIdentity
 import com.valerochka1337.valerochkagym.ui.account.AccountViewModel
 import com.valerochka1337.valerochkagym.util.MainDispatcherRule
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.*
@@ -20,9 +31,11 @@ class AccountViewModelTest : RoomDaoTest() {
 
   private class Store : BackendSessionStore {
     override val session = MutableStateFlow<BackendTokens?>(null)
+    val firstSave = CompletableDeferred<BackendTokens?>()
 
     override fun save(tokens: BackendTokens?) {
       session.value = tokens
+      firstSave.complete(tokens)
     }
   }
 
@@ -105,4 +118,248 @@ class AccountViewModelTest : RoomDaoTest() {
         vm.showMode("register")
         assertNull(vm.message.value)
       }
+
+  @Test
+  fun `accepted backend Google session saves preferred email only after sign in`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        WorkManagerTestInitHelper.initializeTestWorkManager(
+            context,
+            Configuration.Builder().build(),
+        )
+        val api =
+            object : BackendTransport {
+              override val json = Json
+
+              override suspend fun public(
+                  method: String,
+                  path: String,
+                  body: JsonElement?,
+              ): JsonElement =
+                  json.encodeToJsonElement(
+                      BackendTokens("user", "backend@example.com", "access", "refresh")
+                  )
+
+              override suspend fun authorized(method: String, path: String, body: JsonElement?) =
+                  error("Unexpected")
+            }
+        val store = Store()
+        val identity = RecordingIdentity { assertNotNull(store.session.value) }
+        val vm =
+            AccountViewModel(
+                api,
+                store,
+                BackendSync(db, api, store),
+                BackendSyncScheduler(context, db),
+                identity,
+            )
+
+        vm.acceptGoogleCredential(" User@Example.COM ", "id-token", "nonce")
+
+        assertEquals("user@example.com", identity.preferredCalendarEmail.value)
+        assertNull(identity.connectedCalendarEmail.value)
+      }
+
+  @Test
+  fun `rejected backend Google credential and password paths do not change Calendar identity`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val api = Api().apply { failure = BackendException(401, "invalid", "Отклонено") }
+        val store = Store()
+        val identity = RecordingIdentity {}
+        val vm =
+            AccountViewModel(
+                api,
+                store,
+                BackendSync(db, api, store),
+                BackendSyncScheduler(context, db),
+                identity,
+            )
+
+        runCatching { vm.acceptGoogleCredential("user@example.com", "bad", "nonce") }
+        vm.submit("register", "password@example.com", "long-password", "")
+        advanceUntilIdle()
+
+        assertNull(identity.preferredCalendarEmail.value)
+        assertNull(identity.connectedCalendarEmail.value)
+      }
+
+  @Test
+  fun `successful registration verification and password login preserve Calendar identity`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val api =
+            object : BackendTransport {
+              override val json = Json
+
+              override suspend fun public(
+                  method: String,
+                  path: String,
+                  body: JsonElement?,
+              ): JsonElement =
+                  if (path == "/auth/login") {
+                    json.encodeToJsonElement(
+                        BackendTokens("user", "backend@example.com", "access", "refresh")
+                    )
+                  } else {
+                    buildJsonObject {}
+                  }
+
+              override suspend fun authorized(
+                  method: String,
+                  path: String,
+                  body: JsonElement?,
+              ) = error("Unexpected")
+            }
+        val store = Store()
+        val identity = RecordingIdentity {}
+        val vm =
+            AccountViewModel(
+                api,
+                store,
+                BackendSync(db, api, store),
+                BackendSyncScheduler(context, db),
+                identity,
+            )
+
+        vm.submit("register", "password@example.com", "long-password", "")
+        advanceUntilIdle()
+        vm.submit("verify", "password@example.com", "", "12345678")
+        advanceUntilIdle()
+        vm.submit("login", "password@example.com", "long-password", "")
+        assertNotNull(store.firstSave.await())
+        advanceUntilIdle()
+
+        assertNotNull(store.session.value)
+        assertNull(identity.preferredCalendarEmail.value)
+        assertNull(identity.connectedCalendarEmail.value)
+      }
+
+  @Test
+  fun `queued account action never adopts a replacement account before dispatch`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        SyncSchema.install(db.openHelper.writableDatabase)
+        db.openHelper.writableDatabase.execSQL(
+            "UPDATE backend_state SET owner='a',phase='OWNED',initialMergeAcknowledged=1 WHERE id=1"
+        )
+        val store = Store().also { it.save(BackendTokens("a", "a@e", "a", "a")) }
+        val calls = mutableListOf<String>()
+        val api =
+            object : BackendTransport {
+              override val json = Json
+
+              override suspend fun public(method: String, path: String, body: JsonElement?) =
+                  error("unused")
+
+              override suspend fun authorized(
+                  method: String,
+                  path: String,
+                  body: JsonElement?,
+              ): JsonElement {
+                calls += path
+                return JsonArray(emptyList())
+              }
+            }
+        val sync = BackendSync(db, api, store)
+        val vm =
+            AccountViewModel(
+                api,
+                store,
+                sync,
+                BackendSyncScheduler(ApplicationProvider.getApplicationContext(), db),
+            )
+        vm.revoke("a-session")
+        db.openHelper.writableDatabase.execSQL(
+            "UPDATE backend_state SET owner='b',phase='CLAIMED',mergeId='b' WHERE id=1"
+        )
+        store.save(BackendTokens("b", "b@e", "b", "b"))
+        advanceUntilIdle()
+        vm.busy.first { !it }
+        assertTrue(calls.isEmpty())
+        assertTrue(vm.sessions.value.isEmpty())
+      }
+
+  @Test
+  fun `revoke chain and result commit finish for A before queued B sign in and never expose A sessions under B`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        SyncSchema.install(db.openHelper.writableDatabase)
+        db.openHelper.writableDatabase.execSQL(
+            "UPDATE backend_state SET owner='a',phase='OWNED',initialMergeAcknowledged=1 WHERE id=1"
+        )
+        val store = Store().also { it.save(BackendTokens("a", "a@e", "a", "a")) }
+        val switched = CompletableDeferred<Unit>()
+        val calls = mutableListOf<Pair<String, String?>>()
+        lateinit var sync: BackendSync
+        val api =
+            object : BackendTransport {
+              override val json = Json
+
+              override suspend fun public(method: String, path: String, body: JsonElement?) =
+                  error("unused")
+
+              override suspend fun authorized(
+                  method: String,
+                  path: String,
+                  body: JsonElement?,
+              ): JsonElement {
+                calls += method to store.session.value?.userId
+                if (method == "DELETE") {
+                  CoroutineScope(currentCoroutineContext()).launch(
+                      start = CoroutineStart.UNDISPATCHED
+                  ) {
+                    sync.signIn(BackendTokens("b", "b@e", "b", "b"))
+                    switched.complete(Unit)
+                  }
+                  return buildJsonObject {}
+                }
+                return json.encodeToJsonElement(
+                    listOf(BackendSession("a-session", "A phone", "date", true))
+                )
+              }
+            }
+        sync = BackendSync(db, api, store)
+        val vm =
+            AccountViewModel(
+                api,
+                store,
+                sync,
+                BackendSyncScheduler(ApplicationProvider.getApplicationContext(), db),
+            )
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.session.collect() }
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.sessions.collect() }
+        vm.revoke("a-session")
+        advanceUntilIdle()
+        switched.await()
+        vm.busy.first { !it }
+        advanceUntilIdle()
+        assertEquals(listOf("DELETE" to "a", "GET" to "a"), calls)
+        assertEquals("b", store.session.value?.userId)
+        assertEquals("b", vm.session.value?.userId)
+        assertTrue(vm.sessions.value.isEmpty())
+      }
+
+  private class RecordingIdentity(private val beforeWrite: () -> Unit) : CalendarAccountIdentity {
+    override val preferredCalendarEmail = MutableStateFlow<String?>(null)
+    override val connectedCalendarEmail = MutableStateFlow<String?>(null)
+
+    override suspend fun setPreferredCalendarEmail(email: String) {
+      beforeWrite()
+      preferredCalendarEmail.value = email
+    }
+
+    override suspend fun setConnectedCalendarEmail(email: String) {
+      connectedCalendarEmail.value = email
+    }
+
+    override suspend fun commitConnectedCalendarEmail(
+        email: String,
+        canCommit: () -> Boolean,
+    ): Boolean {
+      if (!canCommit()) return false
+      connectedCalendarEmail.value = email
+      return true
+    }
+
+    override suspend fun clearConnectedCalendarEmail(expectedEmail: String) = false
+  }
 }

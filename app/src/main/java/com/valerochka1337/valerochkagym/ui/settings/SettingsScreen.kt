@@ -19,7 +19,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -28,13 +27,11 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.ArrowForward
 import androidx.compose.material.icons.automirrored.rounded.VolumeUp
 import androidx.compose.material.icons.rounded.AccountCircle
-import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.CloudUpload
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FitnessCenter
-import androidx.compose.material.icons.rounded.Key
 import androidx.compose.material.icons.rounded.Link
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.PlayCircle
@@ -42,7 +39,6 @@ import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material.icons.rounded.TableChart
 import androidx.compose.material.icons.rounded.Timer
 import androidx.compose.material.icons.rounded.Vibration
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -50,7 +46,6 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.RadioButton
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Switch
@@ -65,22 +60,16 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.valerochka1337.valerochkagym.data.ai.AiModel
 import com.valerochka1337.valerochkagym.data.settings.GymSettings
 import com.valerochka1337.valerochkagym.ui.components.GlowBackground
 import com.valerochka1337.valerochkagym.ui.components.GymCard
@@ -118,6 +107,8 @@ private const val HEART_RATE_REST_HOLD_STEP_SECONDS = 5
 fun SettingsScreen(
     onBack: () -> Unit,
     onOpenGyms: () -> Unit,
+    onOpenProfile: () -> Unit = {},
+    onOpenRelations: () -> Unit = {},
     appUpdateState: AppUpdateUiState,
     onCheckUpdate: () -> Unit,
     onDownloadUpdate: () -> Unit,
@@ -130,6 +121,7 @@ fun SettingsScreen(
   val activity = LocalActivity.current
   val snackbarHostState = remember { SnackbarHostState() }
   var selectedCategory by rememberSaveable { mutableStateOf<SettingsCategory?>(null) }
+  var consentNonce by rememberSaveable { mutableStateOf<String?>(null) }
 
   LaunchedEffect(viewModel) { viewModel.messages.collect { snackbarHostState.showSnackbar(it) } }
 
@@ -139,16 +131,20 @@ fun SettingsScreen(
       ) { result ->
         // Повторяем авторизацию только если пользователь дал согласие; отмена — без повтора,
         // иначе получился бы бесконечный цикл запросов согласия.
-        if (result.resultCode == Activity.RESULT_OK) {
-          activity?.let(viewModel::consentResolved)
+        val nonce = consentNonce ?: return@rememberLauncherForActivityResult
+        activity?.let {
+          viewModel.consentResolved(it, nonce, result.resultCode == Activity.RESULT_OK)
         }
+        consentNonce = null
       }
 
   LaunchedEffect(viewModel) {
-    viewModel.consentRequests.collect { intentSender ->
-      consentLauncher.launch(IntentSenderRequest.Builder(intentSender).build())
+    viewModel.consentRequests.collect { request ->
+      consentNonce = request.operationNonce
+      consentLauncher.launch(IntentSenderRequest.Builder(request.intentSender).build())
     }
   }
+  LaunchedEffect(viewModel, activity) { activity?.let(viewModel::resumePendingCalendarOperation) }
 
   GlowBackground(modifier = modifier) {
     Box(modifier = Modifier.fillMaxSize()) {
@@ -172,6 +168,8 @@ fun SettingsScreen(
                 SettingsCategoryList(
                     onSelect = { selectedCategory = it },
                     onOpenGyms = onOpenGyms,
+                    onOpenProfile = onOpenProfile,
+                    onOpenRelations = onOpenRelations,
                 )
               }
 
@@ -191,26 +189,13 @@ fun SettingsScreen(
 
               SettingsCategory.CONNECTIONS -> {
                 GoogleAccountCard(
-                    email = settings.googleEmail,
+                    preferredEmail = settings.preferredCalendarEmail,
+                    connectedEmail = settings.connectedCalendarEmail,
                     authBusy = state.authBusy,
                     authError = state.authError,
-                    onSignIn = { activity?.let(viewModel::signIn) },
-                    onSignOut = viewModel::signOut,
-                )
-                AiSettingsCard(
-                    baseUrl = settings.aiBaseUrl,
-                    baseUrlError = state.aiBaseUrlError,
-                    keyConfigured = state.aiApiKeyConfigured,
-                    keyPreview = state.aiApiKeyPreview,
-                    selectedModelId = settings.aiModelId,
-                    models = state.aiModels,
-                    modelsLoading = state.aiModelsLoading,
-                    modelsLoadError = state.aiModelsLoadError,
-                    onSaveBaseUrl = viewModel::setAiBaseUrl,
-                    onSaveKey = viewModel::setAiApiKey,
-                    onClear = viewModel::clearAiApiKey,
-                    onSelectModel = viewModel::setAiModel,
-                    onRefreshModels = viewModel::refreshAiModels,
+                    onConnectPreferred = { activity?.let(viewModel::connectPreferred) },
+                    onConnectOther = { activity?.let(viewModel::connectOther) },
+                    onDisconnect = viewModel::disconnectCalendar,
                 )
               }
 
@@ -254,6 +239,16 @@ private fun GymsSettingsCard(onOpen: () -> Unit) {
 }
 
 @Composable
+private fun ProfileSettingsCard(onOpen: () -> Unit) {
+  SettingsNavigationCard(
+      label = "Профиль",
+      supportingText = "Цели, опыт и оборудование",
+      icon = Icons.Rounded.AccountCircle,
+      onClick = onOpen,
+  )
+}
+
+@Composable
 private fun SettingsHeader(title: String, onBack: () -> Unit) {
   Row(
       modifier =
@@ -278,7 +273,12 @@ private fun SettingsHeader(title: String, onBack: () -> Unit) {
 }
 
 @Composable
-private fun SettingsCategoryList(onSelect: (SettingsCategory) -> Unit, onOpenGyms: () -> Unit) {
+private fun SettingsCategoryList(
+    onSelect: (SettingsCategory) -> Unit,
+    onOpenGyms: () -> Unit,
+    onOpenProfile: () -> Unit,
+    onOpenRelations: () -> Unit,
+) {
   SettingsCategory.entries.forEach { category ->
     SettingsNavigationCard(
         label = category.label,
@@ -295,6 +295,19 @@ private fun SettingsCategoryList(onSelect: (SettingsCategory) -> Unit, onOpenGym
     )
     if (category == SettingsCategory.WORKOUT) {
       GymsSettingsCard(onOpen = onOpenGyms)
+    }
+    if (category == SettingsCategory.ACCOUNT) {
+      ProfileSettingsCard(onOpen = onOpenProfile)
+      val haptics = gymHaptics()
+      TextButton(
+          onClick = {
+            haptics.tap()
+            onOpenRelations()
+          },
+          modifier = Modifier.heightIn(min = 48.dp),
+      ) {
+        Text("Связи с тренером")
+      }
     }
   }
 }
@@ -345,15 +358,18 @@ private fun SettingsNavigationCard(
 }
 
 @Composable
-private fun GoogleAccountCard(
-    email: String?,
+internal fun GoogleAccountCard(
+    preferredEmail: String?,
+    connectedEmail: String?,
     authBusy: Boolean,
     authError: String?,
-    onSignIn: () -> Unit,
-    onSignOut: () -> Unit,
+    onConnectPreferred: () -> Unit,
+    onConnectOther: () -> Unit,
+    onDisconnect: () -> Unit,
 ) {
+  val haptics = gymHaptics()
   SectionCard(title = "Google Calendar", icon = Icons.Rounded.AccountCircle) {
-    if (email == null) {
+    if (connectedEmail == null) {
       Text(
           text = "Подключите Google Calendar, чтобы планировать тренировки в календаре.",
           style = MaterialTheme.typography.bodyMedium,
@@ -361,23 +377,66 @@ private fun GoogleAccountCard(
       )
       Spacer(Modifier.height(12.dp))
       PillButton(
-          text = "Войти через Google",
-          onClick = onSignIn,
+          text = "Подключить календарь",
+          onClick = {
+            haptics.tap()
+            onConnectPreferred()
+          },
           enabled = !authBusy,
-          modifier = Modifier.fillMaxWidth(),
+          modifier =
+              Modifier.fillMaxWidth().semantics {
+                contentDescription = "Подключить Google Calendar"
+                stateDescription = "Календарь не подключён"
+              },
       )
     } else {
-      Row(verticalAlignment = Alignment.CenterVertically) {
-        Spacer(Modifier.width(8.dp))
-        Text(
-            text = email,
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
-      }
+      Text("Подключённый аккаунт", style = MaterialTheme.typography.labelMedium)
+      Text(
+          text = connectedEmail,
+          style = MaterialTheme.typography.titleMedium,
+          fontWeight = FontWeight.SemiBold,
+          color = MaterialTheme.colorScheme.onSurface,
+      )
       Spacer(Modifier.height(4.dp))
-      TextButton(onClick = onSignOut, enabled = !authBusy) { Text("Выйти") }
+      TextButton(
+          onClick = {
+            haptics.tap()
+            onDisconnect()
+          },
+          enabled = !authBusy,
+          modifier =
+              Modifier.semantics {
+                contentDescription = "Отключить Google Calendar"
+                stateDescription = "Подключён к $connectedEmail"
+              },
+      ) {
+        Text("Отключить календарь")
+      }
+    }
+    if (preferredEmail != null && preferredEmail != connectedEmail) {
+      Spacer(Modifier.height(8.dp))
+      Text(
+          text = "Предпочтительный аккаунт: $preferredEmail",
+          style = MaterialTheme.typography.bodySmall,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
+      )
+    }
+    Spacer(Modifier.height(4.dp))
+    TextButton(
+        onClick = {
+          haptics.tap()
+          onConnectOther()
+        },
+        enabled = !authBusy,
+        modifier =
+            Modifier.semantics {
+              contentDescription = "Подключить другой Google-аккаунт"
+              stateDescription =
+                  if (connectedEmail == null) "Календарь не подключён"
+                  else "Подключён к $connectedEmail"
+            },
+    ) {
+      Text("Другой аккаунт")
     }
     if (authError != null) {
       Spacer(Modifier.height(8.dp))
@@ -444,252 +503,6 @@ private fun SpreadsheetCard(
     }
   }
 }
-
-/**
- * Настройка AI-генерации: после отправки key удаляется из состояния поля и не возвращается в UI.
- */
-@Composable
-private fun AiSettingsCard(
-    baseUrl: String?,
-    baseUrlError: Boolean,
-    keyConfigured: Boolean,
-    keyPreview: String?,
-    selectedModelId: String?,
-    models: List<AiModel>,
-    modelsLoading: Boolean,
-    modelsLoadError: Boolean,
-    onSaveBaseUrl: (String) -> Unit,
-    onSaveKey: (String) -> Unit,
-    onClear: () -> Unit,
-    onSelectModel: (AiModel) -> Unit,
-    onRefreshModels: () -> Unit,
-) {
-  var showModelPicker by rememberSaveable { mutableStateOf(false) }
-  val focusManager = LocalFocusManager.current
-  SectionCard(title = "Нейросеть", icon = Icons.Rounded.AutoAwesome) {
-    var baseUrlInput by rememberSaveable(baseUrl) { mutableStateOf(baseUrl.orEmpty()) }
-    var keyInput by rememberSaveable { mutableStateOf("") }
-    var keyFieldFocused by remember { mutableStateOf(false) }
-    val showSavedKeyPreview = keyConfigured && keyInput.isEmpty() && !keyFieldFocused
-    val saveKey = {
-      val key = keyInput
-      if (key.isNotBlank()) {
-        keyInput = ""
-        focusManager.clearFocus()
-        onSaveKey(key)
-      }
-    }
-    OutlinedTextField(
-        value = baseUrlInput,
-        onValueChange = { baseUrlInput = it },
-        modifier = Modifier.fillMaxWidth(),
-        singleLine = true,
-        label = { Text("Base URL") },
-        leadingIcon = {
-          Icon(
-              imageVector = Icons.Rounded.Link,
-              contentDescription = null,
-              tint = MaterialTheme.colorScheme.onSurfaceVariant,
-          )
-        },
-        trailingIcon = {
-          IconButton(
-              onClick = { onSaveBaseUrl(baseUrlInput) },
-              enabled = baseUrlInput.trim().isNotEmpty() && baseUrlInput.trim() != baseUrl,
-          ) {
-            Icon(
-                imageVector = Icons.Rounded.Check,
-                contentDescription = "Сохранить Base URL",
-            )
-          }
-        },
-        isError = baseUrlError,
-        keyboardOptions =
-            KeyboardOptions(
-                keyboardType = KeyboardType.Uri,
-                imeAction = ImeAction.Done,
-            ),
-        keyboardActions = KeyboardActions(onDone = { onSaveBaseUrl(baseUrlInput) }),
-        supportingText =
-            if (baseUrlError) {
-              { Text("Некорректный HTTP(S)-адрес") }
-            } else {
-              null
-            },
-    )
-    Spacer(Modifier.height(16.dp))
-    OutlinedTextField(
-        value = if (showSavedKeyPreview) keyPreview ?: FALLBACK_API_KEY_PREVIEW else keyInput,
-        onValueChange = { keyInput = it },
-        modifier = Modifier.fillMaxWidth().onFocusChanged { keyFieldFocused = it.isFocused },
-        singleLine = true,
-        label = { Text("API key") },
-        leadingIcon = {
-          Icon(
-              imageVector = Icons.Rounded.Key,
-              contentDescription = null,
-              tint = MaterialTheme.colorScheme.onSurfaceVariant,
-          )
-        },
-        trailingIcon = {
-          IconButton(
-              onClick = saveKey,
-              enabled = keyInput.trim().isNotEmpty(),
-          ) {
-            Icon(
-                imageVector = Icons.Rounded.Check,
-                contentDescription = "Сохранить API key",
-            )
-          }
-        },
-        visualTransformation =
-            if (showSavedKeyPreview) {
-              VisualTransformation.None
-            } else {
-              PasswordVisualTransformation(mask = '*')
-            },
-        keyboardOptions =
-            KeyboardOptions(
-                keyboardType = KeyboardType.Password,
-                imeAction = ImeAction.Done,
-            ),
-        keyboardActions = KeyboardActions(onDone = { saveKey() }),
-    )
-    if (keyConfigured) {
-      Row(
-          modifier = Modifier.fillMaxWidth(),
-          horizontalArrangement = Arrangement.End,
-      ) {
-        TextButton(
-            onClick = {
-              keyInput = ""
-              onClear()
-            },
-        ) {
-          Text("Удалить ключ")
-        }
-      }
-    }
-    Spacer(Modifier.height(12.dp))
-    val connectionConfigured = baseUrl != null && keyConfigured
-    val modelStatus =
-        when {
-          !connectionConfigured -> "Сначала сохраните адрес и ключ"
-          modelsLoading -> "Загрузка…"
-          selectedModelId != null && models.none { it.id == selectedModelId } -> "Нет в каталоге"
-          selectedModelId == null -> "Выберите из каталога"
-          else -> null
-        }
-    OutlinedButton(
-        onClick = { showModelPicker = true },
-        enabled = connectionConfigured,
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-      Column(modifier = Modifier.weight(1f)) {
-        Text(
-            text = selectedModelId ?: "Модель не выбрана",
-            maxLines = 1,
-            softWrap = false,
-        )
-        modelStatus?.let { status ->
-          Text(
-              text = status,
-              style = MaterialTheme.typography.bodySmall,
-              color = MaterialTheme.colorScheme.onSurfaceVariant,
-              maxLines = 1,
-              softWrap = false,
-          )
-        }
-      }
-    }
-    if (modelsLoadError && connectionConfigured) {
-      Spacer(Modifier.height(8.dp))
-      Text(
-          text = "Не удалось загрузить модели",
-          style = MaterialTheme.typography.bodySmall,
-          color = MaterialTheme.colorScheme.error,
-      )
-      TextButton(onClick = onRefreshModels) { Text("Повторить") }
-    }
-  }
-
-  if (showModelPicker) {
-    ModelPickerDialog(
-        selectedModelId = selectedModelId,
-        models = models,
-        modelsLoading = modelsLoading,
-        onSelect = { model ->
-          showModelPicker = false
-          onSelectModel(model)
-        },
-        onDismiss = { showModelPicker = false },
-    )
-  }
-}
-
-@Composable
-private fun ModelPickerDialog(
-    selectedModelId: String?,
-    models: List<AiModel>,
-    modelsLoading: Boolean,
-    onSelect: (AiModel) -> Unit,
-    onDismiss: () -> Unit,
-) {
-  AlertDialog(
-      onDismissRequest = onDismiss,
-      title = { Text("Модель") },
-      text = {
-        Column(
-            modifier =
-                Modifier.fillMaxWidth()
-                    .heightIn(max = 420.dp)
-                    .verticalScroll(rememberScrollState()),
-        ) {
-          models.forEach { model ->
-            Row(
-                modifier =
-                    Modifier.fillMaxWidth()
-                        .selectable(
-                            selected = model.id == selectedModelId,
-                            role = Role.RadioButton,
-                            onClick = { onSelect(model) },
-                        )
-                        .padding(vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-              RadioButton(
-                  selected = model.id == selectedModelId,
-                  onClick = null,
-              )
-              Spacer(Modifier.width(8.dp))
-              Text(
-                  text = model.id,
-                  style = MaterialTheme.typography.bodyLarge,
-                  color = MaterialTheme.colorScheme.onSurface,
-                  modifier = Modifier.weight(1f),
-              )
-            }
-          }
-          if (modelsLoading || models.isEmpty()) {
-            Text(
-                text =
-                    if (modelsLoading) {
-                      "Загружаю модели…"
-                    } else {
-                      "Список моделей пуст"
-                    },
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 8.dp),
-            )
-          }
-        }
-      },
-      confirmButton = { TextButton(onClick = onDismiss) { Text("Готово") } },
-  )
-}
-
-private const val FALLBACK_API_KEY_PREVIEW = "sk-************"
 
 @Composable
 private fun RestTimerCard(
@@ -936,7 +749,7 @@ private fun AppUpdateCard(
         verticalAlignment = Alignment.CenterVertically,
     ) {
       Text(
-          text = "ValerochkaGym",
+          text = "Yarumo coach",
           style = MaterialTheme.typography.bodyLarge,
           fontWeight = FontWeight.SemiBold,
           color = MaterialTheme.colorScheme.onSurface,

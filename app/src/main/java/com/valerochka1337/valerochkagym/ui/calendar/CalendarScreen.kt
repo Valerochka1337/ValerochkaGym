@@ -30,6 +30,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -54,8 +55,9 @@ import com.valerochka1337.valerochkagym.ui.components.CircleIconButton
 import com.valerochka1337.valerochkagym.ui.components.GlowBackground
 import com.valerochka1337.valerochkagym.ui.components.GymTopBar
 import com.valerochka1337.valerochkagym.ui.theme.GymMotion
+import java.time.Instant
 import java.time.LocalDate
-import java.time.ZoneOffset
+import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
@@ -74,18 +76,24 @@ fun CalendarScreen(
     onStartWorkout: () -> Unit,
     onOpenSchedule: () -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenProposals: () -> Unit = {},
+    onOpenAi: () -> Unit = {},
     modifier: Modifier = Modifier,
     viewModel: CalendarViewModel = hiltViewModel(),
 ) {
+  val haptics = com.valerochka1337.valerochkagym.ui.haptics.gymHaptics()
   val month by viewModel.monthUi.collectAsStateWithLifecycle()
   val sheet by viewModel.daySheet.collectAsStateWithLifecycle()
   val routines by viewModel.routines.collectAsStateWithLifecycle()
+  val calendarStatus by viewModel.calendarStatus.collectAsStateWithLifecycle()
 
   val snackbarHostState = remember { SnackbarHostState() }
 
   // Двухфазное планирование ad-hoc: выбранный день → выбор программы → выбор времени.
   var planningDate by remember { mutableStateOf<LocalDate?>(null) }
   var pickedRoutineId by remember { mutableStateOf<Long?>(null) }
+  var movingAdHoc by remember { mutableStateOf<AdHocUi?>(null) }
+  var movingRecurring by remember { mutableStateOf<RecurringUi?>(null) }
 
   LaunchedEffect(Unit) {
     viewModel.events.collect { message -> snackbarHostState.showSnackbar(message) }
@@ -103,9 +111,33 @@ fun CalendarScreen(
                   icon = Icons.Rounded.DateRange,
                   contentDescription = "Расписание",
                   onClick = onOpenSchedule,
+                  enabled = calendarStatus.editingEnabled,
               )
             },
         )
+
+        TextButton(
+            onClick = {
+              haptics.tap()
+              onOpenProposals()
+            }
+        ) {
+          Text("Предложения тренировок")
+        }
+        TextButton(
+            onClick = {
+              haptics.tap()
+              onOpenAi()
+            }
+        ) {
+          Text("Подготовить тренировку с AI")
+        }
+        CalendarStatusBanner(status = calendarStatus, onRetry = viewModel::retryMigration)
+        month.planMessage?.let { message ->
+          androidx.compose.material3.TextButton(onClick = viewModel::retryMigration) {
+            androidx.compose.material3.Text("$message. Повторить")
+          }
+        }
 
         MonthHeader(
             title = month.title,
@@ -161,7 +193,16 @@ fun CalendarScreen(
         },
         onStartAdHoc = viewModel::startAdHoc,
         onCancelAdHoc = viewModel::cancelAdHoc,
+        onMoveAdHoc = { item ->
+          movingAdHoc = item
+          viewModel.onSheetDismissed()
+        },
         onStartRecurring = viewModel::startRecurring,
+        onCancelRecurring = { item -> viewModel.cancelRecurring(item.ruleId, item.instanceDate) },
+        onMoveRecurring = { item ->
+          movingRecurring = item
+          viewModel.onSheetDismissed()
+        },
         onEditSchedule = {
           viewModel.onSheetDismissed()
           onOpenSchedule()
@@ -170,6 +211,7 @@ fun CalendarScreen(
           planningDate = day.date
           viewModel.onSheetDismissed()
         },
+        editingEnabled = calendarStatus.editingEnabled,
     )
   }
 
@@ -190,10 +232,9 @@ fun CalendarScreen(
   if (date != null && routineId != null) {
     com.valerochka1337.valerochkagym.ui.common.ScheduleTimePickerDialog(
         onConfirm = { hour, minute ->
-          val utcMidnight = date.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
           viewModel.schedule(
               routineId,
-              com.valerochka1337.valerochkagym.ui.common.combineToMillis(utcMidnight, hour, minute),
+              date.atTime(hour, minute).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli(),
           )
           planningDate = null
           pickedRoutineId = null
@@ -203,6 +244,91 @@ fun CalendarScreen(
           pickedRoutineId = null
         },
     )
+  }
+
+  movingAdHoc?.let { item ->
+    com.valerochka1337.valerochkagym.ui.common.ScheduleTimePickerDialog(
+        initialHour = Instant.ofEpochMilli(item.startsAtMillis).atZone(ZoneId.systemDefault()).hour,
+        initialMinute =
+            Instant.ofEpochMilli(item.startsAtMillis).atZone(ZoneId.systemDefault()).minute,
+        onConfirm = { hour, minute ->
+          val date =
+              Instant.ofEpochMilli(item.startsAtMillis).atZone(ZoneId.systemDefault()).toLocalDate()
+          viewModel.moveAdHoc(
+              item.planId,
+              date.atTime(hour, minute).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli(),
+          )
+          movingAdHoc = null
+        },
+        onDismiss = { movingAdHoc = null },
+    )
+  }
+
+  movingRecurring?.let { item ->
+    com.valerochka1337.valerochkagym.ui.common.ScheduleTimePickerDialog(
+        onConfirm = { hour, minute ->
+          viewModel.moveRecurring(
+              item.ruleId,
+              item.instanceDate,
+              item.instanceDate
+                  .atTime(hour, minute)
+                  .atZone(ZoneId.systemDefault())
+                  .toInstant()
+                  .toEpochMilli(),
+          )
+          movingRecurring = null
+        },
+        onDismiss = { movingRecurring = null },
+    )
+  }
+}
+
+@Composable
+internal fun CalendarStatusBanner(
+    status: CalendarStatusUi,
+    onRetry: () -> Unit,
+) {
+  when (val migration = status.migration) {
+    CalendarMigrationUiState.Ready ->
+        when (status.cloud) {
+          com.valerochka1337.valerochkagym.data.backend.CalendarCloudState.Pending ->
+              Text(
+                  text = "Изменения сохранены на устройстве. Синхронизация с сервером ожидается.",
+                  color = MaterialTheme.colorScheme.onSurfaceVariant,
+                  style = MaterialTheme.typography.bodyMedium,
+                  modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp),
+              )
+          com.valerochka1337.valerochkagym.data.backend.CalendarCloudState.Unsupported ->
+              Text(
+                  text =
+                      "Изменения сохранены на устройстве. Сервер пока не поддерживает календарь.",
+                  color = MaterialTheme.colorScheme.onSurfaceVariant,
+                  style = MaterialTheme.typography.bodyMedium,
+                  modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp),
+              )
+          com.valerochka1337.valerochkagym.data.backend.CalendarCloudState.Available -> Unit
+        }
+    CalendarMigrationUiState.Preparing ->
+        Text(
+            text =
+                "Подготавливаем календарь. История тренировок доступна, редактирование появится после подготовки.",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp),
+        )
+    is CalendarMigrationUiState.Error ->
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+          Text(
+              text = migration.message,
+              color = MaterialTheme.colorScheme.error,
+              style = MaterialTheme.typography.bodyMedium,
+              modifier = Modifier.weight(1f),
+          )
+          TextButton(onClick = onRetry) { Text("Повторить") }
+        }
   }
 }
 

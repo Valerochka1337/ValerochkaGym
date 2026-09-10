@@ -1,7 +1,6 @@
 package com.valerochka1337.valerochkagym.ui
 
 import androidx.lifecycle.SavedStateHandle
-import com.valerochka1337.valerochkagym.data.db.PlannedSet
 import com.valerochka1337.valerochkagym.data.db.dao.RoutineDao
 import com.valerochka1337.valerochkagym.data.db.dao.WorkoutDao
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
@@ -19,6 +18,8 @@ import com.valerochka1337.valerochkagym.data.db.relation.RoutineWithCount
 import com.valerochka1337.valerochkagym.data.db.relation.RoutineWithExercises
 import com.valerochka1337.valerochkagym.data.db.relation.WorkoutExerciseWithSets
 import com.valerochka1337.valerochkagym.data.db.relation.WorkoutFull
+import com.valerochka1337.valerochkagym.domain.CompletedWorkoutRoutineCommand
+import com.valerochka1337.valerochkagym.domain.CompletedWorkoutRoutineResult
 import com.valerochka1337.valerochkagym.domain.GymRepository
 import com.valerochka1337.valerochkagym.domain.NoOpGymRepository
 import com.valerochka1337.valerochkagym.domain.PreviousSetsUseCase
@@ -109,46 +110,163 @@ class WorkoutSummaryViewModelTest {
       }
 
   @Test
-  fun `the update-routine dialog appears when the workout diverged from its routine`() =
+  fun `done opens a save choice before changing a replaceable routine`() =
       runTest(mainDispatcherRule.testDispatcher.scheduler) {
-        // Программа без упражнений, тренировка с выполненным подходом — расхождение.
         val viewModel =
             viewModel(
                 fullWorkout(routineId = 7L),
                 routineDao = FakeRoutineDao(routineWithExercises(7L)),
             )
 
-        assertTrue(viewModel.uiState.value.showUpdateRoutineDialog)
+        viewModel.onDone()
+
+        assertTrue(viewModel.uiState.value.showSaveChoice)
+        assertTrue(viewModel.uiState.value.canReplaceRoutine)
       }
 
   @Test
-  fun `dismissing the dialog hides it without touching the routine`() =
+  fun `dismissing the save choice leaves the routine untouched`() =
       runTest(mainDispatcherRule.testDispatcher.scheduler) {
         val routineDao = FakeRoutineDao(routineWithExercises(7L))
         val viewModel = viewModel(fullWorkout(routineId = 7L), routineDao = routineDao)
 
-        viewModel.dismissRoutineUpdate()
+        viewModel.onDone()
+        viewModel.dismissSaveChoice()
 
-        assertFalse(viewModel.uiState.value.showUpdateRoutineDialog)
+        assertFalse(viewModel.uiState.value.showSaveChoice)
         assertTrue(routineDao.replacedExercises.isEmpty())
       }
 
   @Test
-  fun `applying the update rewrites the routine with the performed sets`() =
+  fun `recreated replacement keeps its original fingerprint after a child-only edit`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val handle = SavedStateHandle(mapOf(GymRoutes.WORKOUT_ID_ARG to "w1"))
+        val routineDao =
+            FakeRoutineDao(
+                routineWithExercises(
+                    7L,
+                    listOf(
+                        RoutineExerciseWithExercise(
+                            RoutineExerciseEntity(
+                                routineId = 7L,
+                                exerciseId = 1L,
+                                position = 0,
+                                restSeconds = 90,
+                            ),
+                            ExerciseEntity(
+                                id = 1L,
+                                name = "Жим лёжа",
+                                muscleGroup = MuscleGroup.CHEST,
+                                type = ExerciseType.STRENGTH,
+                            ),
+                        )
+                    ),
+                )
+            )
+        val repository = CapturingReplaceRepository()
+        val first =
+            viewModel(
+                fullWorkout(routineId = 7L),
+                routineDao = routineDao,
+                routineRepository = repository,
+                savedStateHandle = handle,
+            )
+
+        first.onDone()
+        first.chooseReplaceRoutine()
+        testScheduler.advanceUntilIdle()
+        val expected = handle.get<String>("save_as_program_expected_fingerprint")!!
+
+        // A child-only edit deliberately leaves the parent timestamp unchanged.
+        routineDao.routine =
+            routineDao.routine!!.copy(
+                exercises =
+                    routineDao.routine!!.exercises.map {
+                      it.copy(routineExercise = it.routineExercise.copy(restSeconds = 120))
+                    }
+            )
+        val recreated =
+            viewModel(
+                fullWorkout(routineId = 7L),
+                routineDao = routineDao,
+                routineRepository = repository,
+                savedStateHandle = handle,
+            )
+
+        recreated.confirmRoutineReplace()
+        testScheduler.advanceUntilIdle()
+
+        assertEquals(expected, repository.commands.single().expectedSourceFingerprint)
+        assertEquals(
+            "Программа изменилась. Откройте выбор снова.",
+            recreated.uiState.value.saveAsProgramError,
+        )
+      }
+
+  @Test
+  fun `skipping a done choice clears it and emits a single completion event`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val viewModel = viewModel(fullWorkout())
+        val completions = mutableListOf<Unit>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+          viewModel.doneEvents.collect { completions += it }
+        }
+
+        viewModel.onDone()
+        viewModel.skipSavingAndFinish()
+        viewModel.skipSavingAndFinish()
+        testScheduler.advanceUntilIdle()
+
+        assertFalse(viewModel.uiState.value.showSaveChoice)
+        assertEquals(listOf(Unit), completions)
+      }
+
+  @Test
+  fun `saving a new routine from done choice emits completion instead of a snackbar event`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val repository = FakeSaveGymRepository()
+        val viewModel =
+            viewModel(
+                fullWorkout(),
+                saveUseCase =
+                    SaveCompletedWorkoutAsRoutineUseCase(repository, NoOpRoutineUploadScheduler),
+            )
+        val completions = mutableListOf<Unit>()
+        val saves = mutableListOf<Unit>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+          viewModel.doneEvents.collect { completions += it }
+        }
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+          viewModel.saveEvents.collect { saves += it }
+        }
+
+        viewModel.onDone()
+        viewModel.chooseCreateRoutine()
+        viewModel.confirmSaveAsProgram()
+        testScheduler.advanceUntilIdle()
+
+        assertEquals(listOf(Unit), completions)
+        assertTrue(saves.isEmpty())
+      }
+
+  @Test
+  fun `stale replace preparation cannot reopen a choice after choosing create`() =
       runTest(mainDispatcherRule.testDispatcher.scheduler) {
         val routineDao = FakeRoutineDao(routineWithExercises(7L))
         val viewModel = viewModel(fullWorkout(routineId = 7L), routineDao = routineDao)
+        routineDao.blockNextRead = true
 
-        viewModel.applyRoutineUpdate()
+        viewModel.onDone()
+        viewModel.chooseReplaceRoutine()
+        testScheduler.advanceUntilIdle()
+        assertTrue(viewModel.uiState.value.isPreparingReplacement)
 
-        assertFalse(viewModel.uiState.value.showUpdateRoutineDialog)
-        val replaced = routineDao.replacedExercises
-        // Оба упражнения с выполненными подходами, по позиции; plannedSets — фактические.
-        assertEquals(listOf(1L, 2L), replaced.map { it.exerciseId })
-        assertEquals(
-            listOf(PlannedSet(weightKg = 80.0, reps = 8), PlannedSet(weightKg = 80.0, reps = 10)),
-            replaced.first().plannedSets,
-        )
+        viewModel.chooseCreateRoutine()
+        routineDao.releaseBlockedRead.complete(Unit)
+        testScheduler.advanceUntilIdle()
+
+        assertTrue(viewModel.uiState.value.showSaveAsProgramDialog)
+        assertFalse(viewModel.uiState.value.showReplaceRoutineDialog)
       }
 
   @Test
@@ -341,6 +459,7 @@ class WorkoutSummaryViewModelTest {
               NoOpRoutineUploadScheduler,
           ),
       savedStateHandle: SavedStateHandle? = null,
+      routineRepository: GymRepository = NoOpGymRepository,
   ): WorkoutSummaryViewModel {
     val workoutDao = FakeWorkoutDao(full)
     return WorkoutSummaryViewModel(
@@ -352,7 +471,12 @@ class WorkoutSummaryViewModelTest {
                 ),
         workoutDao = workoutDao,
         statsUseCase = WorkoutStatsUseCase(workoutDao),
-        routineUpdateUseCase = RoutineUpdateUseCase(routineDao),
+        routineUpdateUseCase =
+            RoutineUpdateUseCase(
+                routineDao,
+                routineRepository,
+                NoOpRoutineUploadScheduler,
+            ),
         previousSetsUseCase = PreviousSetsUseCase(workoutDao),
         saveCompletedWorkoutAsRoutineUseCase = saveUseCase,
     )
@@ -477,6 +601,25 @@ class WorkoutSummaryViewModelTest {
 
     override suspend fun updateSet(set: WorkoutSetEntity) = Unit
 
+    override suspend fun updateActiveSetNote(workoutId: String, setId: Long, note: String) = 0
+
+    override suspend fun updateActiveWorkoutNote(workoutId: String, note: String) = 0
+
+    override suspend fun updateCompletedStrengthNumbers(
+        setId: Long,
+        weightKg: Double?,
+        reps: Int?,
+    ) = 0
+
+    override suspend fun updateCompletedTimedNumbers(setId: Long, durationSec: Int?) = 0
+
+    override suspend fun updateCompletedCardioNumbers(
+        setId: Long,
+        durationSec: Int?,
+        speedKmh: Double?,
+        inclinePct: Double?,
+    ) = 0
+
     override suspend fun updateWorkoutExercises(exercises: List<WorkoutExerciseEntity>) = Unit
 
     override suspend fun setSetCompleted(setId: Long, completed: Boolean, completedAt: Long?) = Unit
@@ -519,10 +662,18 @@ class WorkoutSummaryViewModelTest {
     override suspend fun deleteWorkoutExercise(id: Long) = Unit
   }
 
-  private class FakeRoutineDao(private val routine: RoutineWithExercises?) : RoutineDao {
+  private class FakeRoutineDao(var routine: RoutineWithExercises?) : RoutineDao {
     val replacedExercises = mutableListOf<RoutineExerciseEntity>()
+    var blockNextRead = false
+    val releaseBlockedRead = CompletableDeferred<Unit>()
 
-    override suspend fun getRoutineWithExercises(id: Long): RoutineWithExercises? = routine
+    override suspend fun getRoutineWithExercises(id: Long): RoutineWithExercises? {
+      if (blockNextRead) {
+        blockNextRead = false
+        releaseBlockedRead.await()
+      }
+      return routine
+    }
 
     override suspend fun getRoutineBySyncId(syncId: String): RoutineEntity? = null
 
@@ -550,6 +701,17 @@ class WorkoutSummaryViewModelTest {
     override suspend fun deleteRoutineExercises(routineId: Long) = Unit
   }
 
+  private class CapturingReplaceRepository : GymRepository by NoOpGymRepository {
+    val commands = mutableListOf<CompletedWorkoutRoutineCommand.Replace>()
+
+    override suspend fun saveCompletedWorkoutRoutine(
+        command: CompletedWorkoutRoutineCommand
+    ): CompletedWorkoutRoutineResult {
+      commands += command as CompletedWorkoutRoutineCommand.Replace
+      return CompletedWorkoutRoutineResult.Conflict
+    }
+  }
+
   private class FakeSaveGymRepository(
       private val result: SaveRoutineConfigurationResult? = null,
   ) : GymRepository by NoOpGymRepository {
@@ -569,6 +731,24 @@ class WorkoutSummaryViewModelTest {
           }
       return SaveRoutineConfigurationResult.Saved(saved.id, saved)
     }
+
+    override suspend fun saveCompletedWorkoutRoutine(
+        command: CompletedWorkoutRoutineCommand
+    ): CompletedWorkoutRoutineResult = saveCreate(command)
+
+    private suspend fun saveCreate(
+        command: CompletedWorkoutRoutineCommand
+    ): CompletedWorkoutRoutineResult {
+      val draft = (command as CompletedWorkoutRoutineCommand.Create).draft
+      return when (val result = saveRoutineConfiguration(draft)) {
+        is SaveRoutineConfigurationResult.Saved ->
+            CompletedWorkoutRoutineResult.Saved(result.routine, replayedWithoutWrite = false)
+        is SaveRoutineConfigurationResult.Conflict ->
+            CompletedWorkoutRoutineResult.AvailabilityConflict(result.exercises)
+        SaveRoutineConfigurationResult.GymNotFound -> CompletedWorkoutRoutineResult.NotFound
+        SaveRoutineConfigurationResult.Failure -> CompletedWorkoutRoutineResult.Failure
+      }
+    }
   }
 
   private class BlockingSaveGymRepository : GymRepository by NoOpGymRepository {
@@ -581,6 +761,20 @@ class WorkoutSummaryViewModelTest {
       drafts += draft
       release.await()
       return SaveRoutineConfigurationResult.Saved(1L, draft.routine)
+    }
+
+    override suspend fun saveCompletedWorkoutRoutine(
+        command: CompletedWorkoutRoutineCommand
+    ): CompletedWorkoutRoutineResult {
+      val draft = (command as CompletedWorkoutRoutineCommand.Create).draft
+      return when (val result = saveRoutineConfiguration(draft)) {
+        is SaveRoutineConfigurationResult.Saved ->
+            CompletedWorkoutRoutineResult.Saved(result.routine, replayedWithoutWrite = false)
+        is SaveRoutineConfigurationResult.Conflict ->
+            CompletedWorkoutRoutineResult.AvailabilityConflict(result.exercises)
+        SaveRoutineConfigurationResult.GymNotFound -> CompletedWorkoutRoutineResult.NotFound
+        SaveRoutineConfigurationResult.Failure -> CompletedWorkoutRoutineResult.Failure
+      }
     }
   }
 
@@ -599,6 +793,20 @@ class WorkoutSummaryViewModelTest {
       firstCommit.complete(Unit)
       release.await()
       return SaveRoutineConfigurationResult.Saved(saved.id, saved)
+    }
+
+    override suspend fun saveCompletedWorkoutRoutine(
+        command: CompletedWorkoutRoutineCommand
+    ): CompletedWorkoutRoutineResult {
+      val draft = (command as CompletedWorkoutRoutineCommand.Create).draft
+      return when (val result = saveRoutineConfiguration(draft)) {
+        is SaveRoutineConfigurationResult.Saved ->
+            CompletedWorkoutRoutineResult.Saved(result.routine, replayedWithoutWrite = false)
+        is SaveRoutineConfigurationResult.Conflict ->
+            CompletedWorkoutRoutineResult.AvailabilityConflict(result.exercises)
+        SaveRoutineConfigurationResult.GymNotFound -> CompletedWorkoutRoutineResult.NotFound
+        SaveRoutineConfigurationResult.Failure -> CompletedWorkoutRoutineResult.Failure
+      }
     }
   }
 }

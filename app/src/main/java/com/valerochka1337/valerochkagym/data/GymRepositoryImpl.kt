@@ -17,6 +17,8 @@ import com.valerochka1337.valerochkagym.data.db.entity.RoutineEntity
 import com.valerochka1337.valerochkagym.data.db.entity.WorkoutExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.WorkoutSetEntity
 import com.valerochka1337.valerochkagym.data.db.entity.withNextUpdatedAt
+import com.valerochka1337.valerochkagym.domain.CompletedWorkoutRoutineCommand
+import com.valerochka1337.valerochkagym.domain.CompletedWorkoutRoutineResult
 import com.valerochka1337.valerochkagym.domain.DeleteGymResult
 import com.valerochka1337.valerochkagym.domain.ExerciseEquipmentRequirements
 import com.valerochka1337.valerochkagym.domain.GymConfiguration
@@ -29,6 +31,7 @@ import com.valerochka1337.valerochkagym.domain.RoutineDeletion
 import com.valerochka1337.valerochkagym.domain.SaveExerciseConfigurationResult
 import com.valerochka1337.valerochkagym.domain.SaveGymResult
 import com.valerochka1337.valerochkagym.domain.SaveRoutineConfigurationResult
+import com.valerochka1337.valerochkagym.domain.completedWorkoutFingerprint
 import com.valerochka1337.valerochkagym.worker.ConfigurationUploadScheduler
 import com.valerochka1337.valerochkagym.worker.NoOpConfigurationUploadScheduler
 import java.util.UUID
@@ -640,6 +643,100 @@ constructor(
       } catch (_: Exception) {
         SaveRoutineConfigurationResult.Failure
       }
+
+  override suspend fun saveCompletedWorkoutRoutine(
+      command: CompletedWorkoutRoutineCommand,
+  ): CompletedWorkoutRoutineResult =
+      try {
+        database.withTransaction {
+          when (command) {
+            is CompletedWorkoutRoutineCommand.Create -> saveCompletedWorkoutRoutineCreate(command)
+            is CompletedWorkoutRoutineCommand.Replace -> saveCompletedWorkoutRoutineReplace(command)
+          }
+        }
+      } catch (cancelled: CancellationException) {
+        throw cancelled
+      } catch (_: Exception) {
+        CompletedWorkoutRoutineResult.Failure
+      }
+
+  private suspend fun saveCompletedWorkoutRoutineCreate(
+      command: CompletedWorkoutRoutineCommand.Create,
+  ): CompletedWorkoutRoutineResult {
+    val draft = command.draft
+    if (draft.exercises.isEmpty() || draft.routine.id != 0L)
+        return CompletedWorkoutRoutineResult.Failure
+    routineDao.getRoutineBySyncId(draft.routine.syncId)?.let { existing ->
+      return CompletedWorkoutRoutineResult.Saved(existing, replayedWithoutWrite = true)
+    }
+    return when (val saved = saveRoutineConfiguration(draft)) {
+      is SaveRoutineConfigurationResult.Saved ->
+          CompletedWorkoutRoutineResult.Saved(saved.routine, replayedWithoutWrite = false)
+      is SaveRoutineConfigurationResult.Conflict ->
+          CompletedWorkoutRoutineResult.AvailabilityConflict(saved.exercises)
+      SaveRoutineConfigurationResult.GymNotFound -> CompletedWorkoutRoutineResult.NotFound
+      SaveRoutineConfigurationResult.Failure -> CompletedWorkoutRoutineResult.Failure
+    }
+  }
+
+  private suspend fun saveCompletedWorkoutRoutineReplace(
+      command: CompletedWorkoutRoutineCommand.Replace,
+  ): CompletedWorkoutRoutineResult {
+    if (command.replacementExercises.isEmpty()) return CompletedWorkoutRoutineResult.Failure
+    val current =
+        routineDao.getRoutineWithExercises(command.sourceRoutineId)
+            ?: return CompletedWorkoutRoutineResult.NotFound
+    val routine = current.routine
+    if (routine.origin != "PERSONAL" || routine.archived)
+        return CompletedWorkoutRoutineResult.ReadOnly
+    if (routine.syncId != command.sourceRoutineSyncId) return CompletedWorkoutRoutineResult.Conflict
+
+    val currentFingerprint = current.completedWorkoutFingerprint()
+    if (currentFingerprint == command.predictedTargetFingerprint) {
+      return CompletedWorkoutRoutineResult.Saved(routine, replayedWithoutWrite = true)
+    }
+    if (
+        currentFingerprint != command.expectedSourceFingerprint ||
+            routine.updatedAt != command.expectedUpdatedAt
+    ) {
+      return CompletedWorkoutRoutineResult.Conflict
+    }
+    val availability = unavailableRoutineExercises(current, command.replacementExercises)
+    if (availability.isNotEmpty())
+        return CompletedWorkoutRoutineResult.AvailabilityConflict(availability)
+
+    val updatedRoutine = routine.withNextUpdatedAt()
+    routineDao.upsertRoutine(updatedRoutine)
+    routineDao.replaceRoutineExercises(
+        routine.id,
+        command.replacementExercises.map { it.copy(id = 0, routineId = routine.id) },
+    )
+    return CompletedWorkoutRoutineResult.Saved(updatedRoutine, replayedWithoutWrite = false)
+  }
+
+  private suspend fun unavailableRoutineExercises(
+      source: com.valerochka1337.valerochkagym.data.db.relation.RoutineWithExercises,
+      replacementExercises:
+          List<com.valerochka1337.valerochkagym.data.db.entity.RoutineExerciseEntity>,
+  ): List<ExerciseEntity> {
+    if (source.gyms.isEmpty()) return emptyList()
+    val requestedIds = replacementExercises.mapTo(linkedSetOf()) { it.exerciseId }
+    val exercises = exerciseDao.getAllOnce().filter { it.id in requestedIds }
+    if (exercises.size != requestedIds.size) return exercises
+    val custom =
+        exerciseDao
+            .getRequirements(exercises.map(ExerciseEntity::id))
+            .groupBy({ it.exerciseId }, { it.equipmentId })
+            .mapValues { it.value.toSet() }
+    val inventories = source.gyms.associate { it.id to gymDao.getGymEquipmentIds(it.id).toSet() }
+    val legacy = source.gyms.associate { it.id to gymDao.getGymExerciseIds(it.id).toSet() }
+    return exercises.filter { exercise ->
+      source.gyms.any { gym ->
+        if (!gym.inventoryConfigured) exercise.id !in legacy.getValue(gym.id)
+        else !covers(gym.id, exercise, inventories.getValue(gym.id), custom[exercise.id])
+      }
+    }
+  }
 
   override suspend fun duplicateRoutine(sourceRoutineId: Long, name: String?): RoutineEntity? =
       try {

@@ -15,13 +15,11 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AutoAwesome
-import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.CircularWavyProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SheetValue
 import androidx.compose.material3.Text
@@ -48,7 +46,6 @@ internal fun AiExerciseCreationSheet(
     onDescriptionChange: (String) -> Unit,
     onGenerate: () -> Unit,
     onCreateManually: () -> Unit,
-    onOpenSettings: () -> Unit,
     onDismiss: () -> Unit,
 ) {
   ModalBottomSheet(
@@ -102,35 +99,6 @@ internal fun AiExerciseCreationSheet(
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.error,
         )
-        if (state.modelUnavailable) {
-          Spacer(Modifier.height(8.dp))
-          OutlinedButton(onClick = onOpenSettings, enabled = !state.isGenerating) {
-            Icon(
-                imageVector = Icons.Rounded.Settings,
-                contentDescription = null,
-            )
-            Spacer(Modifier.width(8.dp))
-            Text("Выбрать другую модель")
-          }
-        }
-      }
-
-      if (!state.aiConfigured) {
-        Spacer(Modifier.height(12.dp))
-        Text(
-            text = "Настройте нейросеть в настройках.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Spacer(Modifier.height(8.dp))
-        OutlinedButton(onClick = onOpenSettings, enabled = !state.isGenerating) {
-          Icon(
-              imageVector = Icons.Rounded.Settings,
-              contentDescription = null,
-          )
-          Spacer(Modifier.width(8.dp))
-          Text("Открыть настройки")
-        }
       }
 
       if (state.isGenerating) {
@@ -157,8 +125,7 @@ internal fun AiExerciseCreationSheet(
       PillButton(
           text = if (state.isGenerating) "Создаю…" else "Создать с ИИ",
           onClick = onGenerate,
-          enabled =
-              !state.isGenerating && state.aiConfigured && state.description.trim().isNotEmpty(),
+          enabled = !state.isGenerating && state.description.trim().isNotEmpty(),
           leadingIcon = Icons.Rounded.AutoAwesome,
           modifier = Modifier.fillMaxWidth(),
       )

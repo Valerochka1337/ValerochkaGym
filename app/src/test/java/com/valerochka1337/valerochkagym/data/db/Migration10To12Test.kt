@@ -23,7 +23,15 @@ class Migration10To12Test {
 
   @Test
   fun `room opens file backed v10 schema through the no op migration`() {
-    MigrationRecoveryFixtures.createCurrentDatabase(context, name).use { sql ->
+    val fixture = MigrationRecoveryFixtures.createCurrentDatabase(context, name)
+    fixture.use {
+      val sql = fixture.database
+      MigrationRecoveryFixtures.removeV23ProfileSchema(sql)
+      MigrationRecoveryFixtures.removeV22WorkoutNotesSchema(sql)
+      MigrationRecoveryFixtures.removeV20HealthAiDisclosureSchema(sql)
+      MigrationRecoveryFixtures.removeV19CalendarPlanSchema(sql)
+      MigrationRecoveryFixtures.removeV18GuestSyncSchema(sql)
+      MigrationRecoveryFixtures.removeV17CalendarAccountSchema(sql)
       MigrationRecoveryFixtures.removeV14EquipmentSchema(sql)
       sql.execSQL("PRAGMA user_version = 10")
     }
@@ -31,7 +39,7 @@ class Migration10To12Test {
     try {
       db.openHelper.writableDatabase.query("PRAGMA user_version").use { cursor ->
         assertEquals(
-            16,
+            fixture.version,
             cursor.run {
               moveToFirst()
               getInt(0)

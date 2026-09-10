@@ -1,0 +1,203 @@
+package com.valerochka1337.valerochkagym.ui.trainingproposal
+
+import androidx.lifecycle.SavedStateHandle
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.valerochka1337.valerochkagym.data.backend.BackendException
+import com.valerochka1337.valerochkagym.data.backend.BackendSessionSnapshot
+import com.valerochka1337.valerochkagym.data.backend.BackendSessionStore
+import com.valerochka1337.valerochkagym.data.backend.BackendSync
+import com.valerochka1337.valerochkagym.data.db.dao.ExerciseDao
+import com.valerochka1337.valerochkagym.data.db.dao.GymDao
+import com.valerochka1337.valerochkagym.data.trainingproposal.*
+import dagger.hilt.android.lifecycle.HiltViewModel
+import javax.inject.Inject
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+
+data class TrainingProposalUiState(
+    val items: List<TrainingProposal> = emptyList(),
+    val nextCursor: String? = null,
+    val editor: ProposalEditor? = null,
+    val loading: Boolean = false,
+    val saving: Boolean = false,
+    val error: String? = null,
+    val exerciseChoices: List<Pair<String, String>> = emptyList(),
+    val gymChoices: List<Pair<String, String>> = emptyList(),
+)
+
+@HiltViewModel
+class TrainingProposalViewModel
+@Inject
+constructor(
+    private val repository: TrainingProposalRepository,
+    private val sessions: BackendSessionStore,
+    private val sync: BackendSync,
+    exercises: ExerciseDao,
+    gyms: GymDao,
+    private val savedState: SavedStateHandle,
+) : ViewModel() {
+  private val mutableState = MutableStateFlow(TrainingProposalUiState())
+  private val edits = Mutex()
+  private var generation = 0L
+  private var load: Job? = null
+  private var bound: BackendSessionSnapshot? = null
+  val uiState =
+      combine(mutableState, exercises.getAll(), gyms.observeGyms()) { state, exerciseList, gymList
+            ->
+            state.copy(
+                exerciseChoices =
+                    exerciseList.filterNot { it.archived }.map { it.syncId to it.name },
+                gymChoices = gymList.filterNot { it.archived }.map { it.syncId to it.name },
+            )
+          }
+          .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), TrainingProposalUiState())
+
+  init {
+    viewModelScope.launch {
+      combine(sessions.session, sync.transfer) { _, _ -> Unit }
+          .collect {
+            if (bound?.let(repository::isCurrent) == false) {
+              generation++
+              load?.cancel()
+              bound = null
+              mutableState.value =
+                  TrainingProposalUiState(error = "Аккаунт изменился. Обновите предложения")
+            }
+          }
+    }
+  }
+
+  fun refresh(more: Boolean = false) {
+    if (more && mutableState.value.loading) return
+    val cursor = if (more) mutableState.value.nextCursor ?: return else null
+    val token = ++generation
+    load?.cancel()
+    mutableState.update {
+      it.copy(loading = true, error = null, items = if (more) it.items else emptyList())
+    }
+    load =
+        viewModelScope.launch {
+          try {
+            val (session, result) = repository.list(cursor)
+            if (token != generation || !repository.isCurrent(session)) return@launch
+            bound = session
+            mutableState.update {
+              it.copy(
+                  loading = false,
+                  items =
+                      (if (more) it.items + result.items else result.items).distinctBy(
+                          TrainingProposal::proposalId
+                      ),
+                  nextCursor = result.nextCursor,
+              )
+            }
+          } catch (error: CancellationException) {
+            throw error
+          } catch (error: Exception) {
+            if (token == generation)
+                mutableState.update { it.copy(loading = false, error = message(error)) }
+          }
+        }
+  }
+
+  fun open(id: String) {
+    savedState["proposalId"] = id
+    val token = ++generation
+    load?.cancel()
+    mutableState.update { it.copy(editor = null, loading = true, saving = false, error = null) }
+    load =
+        viewModelScope.launch {
+          try {
+            val editor = repository.open(id)
+            if (token != generation || !repository.isCurrent(editor.session)) return@launch
+            bound = editor.session
+            mutableState.update { it.copy(editor = editor, loading = false) }
+          } catch (error: CancellationException) {
+            throw error
+          } catch (error: Exception) {
+            if (token == generation)
+                mutableState.update { it.copy(loading = false, error = message(error)) }
+          }
+        }
+  }
+
+  fun updateDraft(draft: ApprovalDraft) {
+    val editor = mutableState.value.editor ?: return
+    if (mutableState.value.saving) return
+    val token = generation
+    mutableState.update { it.copy(editor = editor.copy(draft = draft), error = null) }
+    viewModelScope.launch {
+      edits.withLock {
+        if (token != generation || !repository.isCurrent(editor.session)) return@withLock
+        try {
+          repository.save(editor, draft)
+        } catch (error: CancellationException) {
+          throw error
+        } catch (error: Exception) {
+          if (token == generation) mutableState.update { it.copy(error = message(error)) }
+        }
+      }
+    }
+  }
+
+  fun approve() = decision(true)
+
+  fun reject() = decision(false)
+
+  private fun decision(approve: Boolean) {
+    val editor = mutableState.value.editor ?: return
+    if (mutableState.value.saving) return
+    val token = generation
+    mutableState.update { it.copy(saving = true, error = null) }
+    viewModelScope.launch {
+      edits.withLock {
+        try {
+          if (token != generation || !repository.isCurrent(editor.session)) return@withLock
+          if (approve) repository.approve(editor) else repository.reject(editor)
+          if (token == generation && repository.isCurrent(editor.session))
+              mutableState.update {
+                it.copy(
+                    editor =
+                        editor.copy(
+                            applied = approve,
+                            proposal =
+                                editor.proposal.copy(
+                                    status =
+                                        if (approve) ProposalStatus.APPROVED
+                                        else ProposalStatus.REJECTED
+                                ),
+                        )
+                )
+              }
+        } catch (error: CancellationException) {
+          throw error
+        } catch (error: Exception) {
+          if (token == generation) mutableState.update { it.copy(error = message(error)) }
+        } finally {
+          if (token == generation) mutableState.update { it.copy(saving = false) }
+        }
+      }
+    }
+  }
+
+  private fun message(error: Exception): String =
+      when ((error as? BackendException)?.code) {
+        "active_workout",
+        "workout_active" -> "Завершите тренировку перед применением"
+        "proposal_expired",
+        "proposal_stale",
+        "proposal_version_conflict" -> "Предложение изменилось или устарело. Обновите его"
+        "owner_changed",
+        "unauthorized" -> "Войдите в нужный аккаунт и обновите предложение"
+        "approval_pending",
+        "proposal_operation_conflict" -> "Сначала проверьте ранее отправленное подтверждение"
+        "proposal_revoked" -> "Автор отозвал предложение"
+        "proposal_rejected" -> "Предложение отклонено"
+        else -> "Не удалось завершить действие. Повторите попытку"
+      }
+}

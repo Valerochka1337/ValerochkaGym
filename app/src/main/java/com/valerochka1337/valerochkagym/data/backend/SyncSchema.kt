@@ -1,6 +1,8 @@
 package com.valerochka1337.valerochkagym.data.backend
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 import androidx.sqlite.db.SupportSQLiteDatabase
 
@@ -9,7 +11,18 @@ data class BackendStateEntity(
     @PrimaryKey val id: Int = 1,
     val owner: String? = null,
     val generation: Long = 0,
+    @ColumnInfo(defaultValue = "'GUEST'") val phase: GuestSyncPhase = GuestSyncPhase.GUEST,
+    val mergeId: String? = null,
+    @ColumnInfo(defaultValue = "0") val initialMergeAcknowledged: Boolean = false,
+    val capabilityOwner: String? = null,
+    @ColumnInfo(defaultValue = "''") val acceptedCapabilities: String = "",
 )
+
+enum class GuestSyncPhase {
+  GUEST,
+  CLAIMED,
+  OWNED,
+}
 
 @Entity(tableName = "backend_baseline")
 data class BackendBaselineEntity(@PrimaryKey val key: String, val recordJson: String)
@@ -21,12 +34,44 @@ data class BackendOutboxEntity(
     val requestJson: String,
 )
 
+/** Records a definite server rejection without changing the retained request bytes. */
+@Entity(tableName = "backend_rejected_operations")
+data class BackendRejectedOperationEntity(
+    @PrimaryKey val operationId: String,
+    val owner: String,
+)
+
+@Entity(
+    tableName = "backend_conflict_copies",
+    primaryKeys =
+        ["mergeId", "kind", "originalSyncId", "remoteRevision", "localPayloadFingerprint"],
+    indices = [Index(value = ["localCopySyncId"], unique = true)],
+)
+data class BackendConflictCopyEntity(
+    val mergeId: String,
+    val kind: String,
+    val originalSyncId: String,
+    val remoteRevision: Long,
+    val localPayloadFingerprint: String,
+    val localCopySyncId: String,
+)
+
 object SyncSchema {
   val trackedTables =
       arrayOf(
           "exercises",
           "exercise_muscles",
           "exercise_equipment",
+          "exercise_personal_hints",
+          "profiles",
+          "profile_equipment",
+          // These only wake the existing serialized worker; PortableData deliberately excludes them
+          // from the generic /sync request.
+          "health_logical_records",
+          "health_record_versions",
+          "health_head_history",
+          "health_metric_identities",
+          "health_sync_outbox",
           "gyms",
           "gym_exercises",
           "gym_equipment",
@@ -39,6 +84,9 @@ object SyncSchema {
           "workout_gyms",
           "body_measurements",
           "scheduled_workouts",
+          "calendar_plans",
+          "calendar_rules",
+          "calendar_exceptions",
       )
 
   fun create(db: SupportSQLiteDatabase) {
@@ -56,12 +104,17 @@ object SyncSchema {
 
   fun install(db: SupportSQLiteDatabase) {
     db.execSQL("INSERT OR IGNORE INTO backend_state(id,owner,generation) VALUES (1,NULL,0)")
-    trackedTables.forEach { table ->
-      listOf("INSERT", "UPDATE", "DELETE").forEach { operation ->
-        db.execSQL(
-            "CREATE TRIGGER IF NOT EXISTS backend_${table}_${operation.lowercase()} AFTER $operation ON $table BEGIN UPDATE backend_state SET generation=generation+1 WHERE id=1; END"
-        )
-      }
-    }
+    trackedTables
+        .filter { table ->
+          db.query("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", arrayOf(table))
+              .use { it.moveToFirst() }
+        }
+        .forEach { table ->
+          listOf("INSERT", "UPDATE", "DELETE").forEach { operation ->
+            db.execSQL(
+                "CREATE TRIGGER IF NOT EXISTS backend_${table}_${operation.lowercase()} AFTER $operation ON $table BEGIN UPDATE backend_state SET generation=generation+1 WHERE id=1; END"
+            )
+          }
+        }
   }
 }

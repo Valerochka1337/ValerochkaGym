@@ -25,7 +25,6 @@ import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.MonitorWeight
 import androidx.compose.material.icons.rounded.PhotoCamera
 import androidx.compose.material.icons.rounded.PhotoLibrary
-import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Straighten
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularWavyProgressIndicator
@@ -64,6 +63,7 @@ import com.valerochka1337.valerochkagym.ui.components.GymCard
 import com.valerochka1337.valerochkagym.ui.components.NumberField
 import com.valerochka1337.valerochkagym.ui.components.PillButton
 import com.valerochka1337.valerochkagym.ui.haptics.gymHaptics
+import com.valerochka1337.valerochkagym.ui.profile.AiProfilePromptDialog
 import java.io.File
 import java.time.Instant
 import java.time.ZoneOffset
@@ -74,10 +74,12 @@ import java.util.UUID
 fun MeasurementEditorScreen(
     onBack: () -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenProfile: () -> Unit = {},
     modifier: Modifier = Modifier,
     viewModel: MeasurementEditorViewModel = hiltViewModel(),
 ) {
   val state by viewModel.uiState.collectAsStateWithLifecycle()
+  val profilePrompt by viewModel.profilePrompt.collectAsStateWithLifecycle()
   val haptics = gymHaptics()
   val context = LocalContext.current
   var showDatePicker by remember { mutableStateOf(false) }
@@ -112,6 +114,8 @@ fun MeasurementEditorScreen(
       }
 
   LaunchedEffect(Unit) { viewModel.finished.collect { onBack() } }
+  LaunchedEffect(viewModel) { viewModel.openImportSources.collect { showImportSources = true } }
+  LaunchedEffect(viewModel, onOpenProfile) { viewModel.openProfile.collect { onOpenProfile() } }
 
   GlowBackground(modifier = modifier) {
     Column(modifier = Modifier.fillMaxSize()) {
@@ -151,12 +155,9 @@ fun MeasurementEditorScreen(
             state = state,
             onScan = {
               haptics.tap()
-              showImportSources = true
+              viewModel.requestInBodyImport()
             },
-            onOpenSettings = {
-              haptics.tap()
-              onOpenSettings()
-            },
+            onDisclosureChange = viewModel::setHealthAiDisclosureEnabled,
         )
         DateCard(
             measuredAt = state.measuredAt,
@@ -238,10 +239,6 @@ fun MeasurementEditorScreen(
               PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
           )
         },
-        onOpenSettings = {
-          showImportSources = false
-          onOpenSettings()
-        },
         onDismiss = { showImportSources = false },
     )
   }
@@ -278,6 +275,16 @@ fun MeasurementEditorScreen(
           }
         },
         dismissButton = { TextButton(onClick = { showDeleteDialog = false }) { Text("Отмена") } },
+    )
+  }
+  profilePrompt?.let { prompt ->
+    AiProfilePromptDialog(
+        token = prompt.token,
+        onVisible = viewModel::acknowledgeProfilePrompt,
+        onFillProfile = viewModel::fillProfileFromPrompt,
+        onContinue = { viewModel.continueAfterProfilePrompt(it) },
+        onDisable = { viewModel.continueAfterProfilePrompt(it, disableFuturePrompts = true) },
+        onDismiss = viewModel::dismissProfilePrompt,
     )
   }
 }
@@ -452,10 +459,10 @@ private fun DateCard(measuredAt: Long, enabled: Boolean, onPickDate: () -> Unit)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun InBodyImportCard(
+internal fun InBodyImportCard(
     state: MeasurementEditorUiState,
     onScan: () -> Unit,
-    onOpenSettings: () -> Unit,
+    onDisclosureChange: (Boolean) -> Unit,
 ) {
   GymCard(modifier = Modifier.fillMaxWidth()) {
     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -485,14 +492,6 @@ private fun InBodyImportCard(
           style = MaterialTheme.typography.bodySmall,
           color = MaterialTheme.colorScheme.error,
       )
-      if (state.inBodyScanModelUnavailable) {
-        Spacer(Modifier.height(8.dp))
-        OutlinedButton(onClick = onOpenSettings) {
-          Icon(Icons.Rounded.Settings, contentDescription = null)
-          Spacer(Modifier.width(8.dp))
-          Text("Выбрать другую модель")
-        }
-      }
     }
     if (state.isScanningInBody) {
       Spacer(Modifier.height(14.dp))
@@ -514,25 +513,29 @@ private fun InBodyImportCard(
       }
     }
     Spacer(Modifier.height(14.dp))
-    if (state.isAiConfigured) {
-      PillButton(
-          text = if (state.isScanningInBody) "Распознаю…" else "Выбрать фото листа",
-          onClick = onScan,
-          enabled = !state.isBusy,
-          leadingIcon = Icons.Rounded.PhotoCamera,
-          modifier = Modifier.fillMaxWidth(),
-      )
-    } else {
+    OutlinedButton(
+        onClick = { onDisclosureChange(!state.healthAiDisclosureEnabled) },
+        enabled =
+            state.healthAiDisclosureEnabled ||
+                (!state.isScanningInBody && !state.isUpdatingHealthAiDisclosure),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
       Text(
-          text = "Настройте нейросеть в настройках.",
-          style = MaterialTheme.typography.bodySmall,
-          color = MaterialTheme.colorScheme.onSurfaceVariant,
+          if (state.healthAiDisclosureEnabled) {
+            "Отозвать разрешение на фото"
+          } else {
+            "Разрешить обработку фото"
+          },
       )
-      Spacer(Modifier.height(8.dp))
-      OutlinedButton(onClick = onOpenSettings, modifier = Modifier.fillMaxWidth()) {
-        Text("Открыть настройки")
-      }
     }
+    Spacer(Modifier.height(10.dp))
+    PillButton(
+        text = if (state.isScanningInBody) "Распознаю…" else "Выбрать фото листа",
+        onClick = onScan,
+        enabled = !state.isBusy,
+        leadingIcon = Icons.Rounded.PhotoCamera,
+        modifier = Modifier.fillMaxWidth(),
+    )
   }
 }
 
@@ -542,7 +545,6 @@ private fun InBodyImportSourceSheet(
     state: MeasurementEditorUiState,
     onTakePhoto: () -> Unit,
     onPickGallery: () -> Unit,
-    onOpenSettings: () -> Unit,
     onDismiss: () -> Unit,
 ) {
   ModalBottomSheet(
@@ -563,34 +565,23 @@ private fun InBodyImportSourceSheet(
           fontWeight = FontWeight.SemiBold,
           color = MaterialTheme.colorScheme.onSurface,
       )
-      if (!state.isAiConfigured) {
-        Text(
-            text = "Настройте нейросеть в настройках.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        OutlinedButton(onClick = onOpenSettings, modifier = Modifier.fillMaxWidth()) {
-          Text("Открыть настройки")
-        }
-      } else {
-        OutlinedButton(
-            onClick = onTakePhoto,
-            enabled = !state.isBusy,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-          Icon(Icons.Rounded.PhotoCamera, contentDescription = null)
-          Spacer(Modifier.width(8.dp))
-          Text("Снять фото")
-        }
-        OutlinedButton(
-            onClick = onPickGallery,
-            enabled = !state.isBusy,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-          Icon(Icons.Rounded.PhotoLibrary, contentDescription = null)
-          Spacer(Modifier.width(8.dp))
-          Text("Выбрать из галереи")
-        }
+      OutlinedButton(
+          onClick = onTakePhoto,
+          enabled = !state.isBusy,
+          modifier = Modifier.fillMaxWidth(),
+      ) {
+        Icon(Icons.Rounded.PhotoCamera, contentDescription = null)
+        Spacer(Modifier.width(8.dp))
+        Text("Снять фото")
+      }
+      OutlinedButton(
+          onClick = onPickGallery,
+          enabled = !state.isBusy,
+          modifier = Modifier.fillMaxWidth(),
+      ) {
+        Icon(Icons.Rounded.PhotoLibrary, contentDescription = null)
+        Spacer(Modifier.width(8.dp))
+        Text("Выбрать из галереи")
       }
       TextButton(onClick = onDismiss, modifier = Modifier.align(Alignment.End)) { Text("Отмена") }
     }

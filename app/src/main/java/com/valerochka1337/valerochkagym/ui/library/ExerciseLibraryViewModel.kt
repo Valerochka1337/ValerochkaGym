@@ -3,7 +3,6 @@ package com.valerochka1337.valerochkagym.ui.library
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.valerochka1337.valerochkagym.data.ai.AiApiConfigurationProvider
 import com.valerochka1337.valerochkagym.data.ai.ExerciseAiGenerationResult
 import com.valerochka1337.valerochkagym.data.ai.ExerciseAiGenerator
 import com.valerochka1337.valerochkagym.data.db.LocalEquipmentCatalog
@@ -17,6 +16,9 @@ import com.valerochka1337.valerochkagym.data.db.entity.MuscleGroup
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleLoad
 import com.valerochka1337.valerochkagym.data.db.entity.group
 import com.valerochka1337.valerochkagym.data.db.entity.withNextUpdatedAt
+import com.valerochka1337.valerochkagym.data.profile.AiProfilePromptDecision
+import com.valerochka1337.valerochkagym.data.profile.AiProfilePromptGate
+import com.valerochka1337.valerochkagym.data.profile.AiProfilePromptKind
 import com.valerochka1337.valerochkagym.di.ComputeDispatcher
 import com.valerochka1337.valerochkagym.domain.ExerciseCatalogEquipmentFilter
 import com.valerochka1337.valerochkagym.domain.ExerciseCatalogFacetCounts
@@ -35,6 +37,7 @@ import com.valerochka1337.valerochkagym.domain.NewExerciseConfiguration
 import com.valerochka1337.valerochkagym.domain.NoOpGymRepository
 import com.valerochka1337.valerochkagym.domain.SaveExerciseConfigurationResult
 import com.valerochka1337.valerochkagym.ui.navigation.GymRoutes
+import com.valerochka1337.valerochkagym.ui.profile.AiProfilePromptUi
 import com.valerochka1337.valerochkagym.worker.ConfigurationUploadScheduler
 import com.valerochka1337.valerochkagym.worker.NoOpConfigurationUploadScheduler
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -106,9 +109,7 @@ data class ExerciseEditorState(
 data class ExerciseAiCreationState(
     val description: String = "",
     val isGenerating: Boolean = false,
-    val aiConfigured: Boolean = false,
     val error: String? = null,
-    val modelUnavailable: Boolean = false,
 )
 
 data class SavedExerciseResult(
@@ -120,14 +121,6 @@ data class SavedExerciseResult(
 private object NoOpExerciseAiGenerator : ExerciseAiGenerator {
   override suspend fun generate(description: String): ExerciseAiGenerationResult =
       ExerciseAiGenerationResult.Failure("Настройте нейросеть в настройках")
-}
-
-private object NoOpAiApiConfigurationProvider : AiApiConfigurationProvider {
-  override val isConfigured = MutableStateFlow(false)
-
-  override suspend fun connection() = null
-
-  override suspend fun requestConfiguration() = null
 }
 
 /**
@@ -144,8 +137,6 @@ constructor(
     private val exerciseDao: ExerciseDao,
     private val exerciseMuscleDao: ExerciseMuscleDao,
     private val exerciseAiGenerator: ExerciseAiGenerator = NoOpExerciseAiGenerator,
-    private val aiApiConfigurationProvider: AiApiConfigurationProvider =
-        NoOpAiApiConfigurationProvider,
     private val savedStateHandle: SavedStateHandle = SavedStateHandle(),
     private val gymRepository: GymRepository = NoOpGymRepository,
     private val catalogRepository: ExerciseCatalogRepository? = null,
@@ -153,6 +144,7 @@ constructor(
     private val computeDispatcher: CoroutineDispatcher = Dispatchers.Default,
     private val configurationUploadScheduler: ConfigurationUploadScheduler =
         NoOpConfigurationUploadScheduler,
+    private val aiProfilePromptGate: AiProfilePromptGate? = null,
 ) : ViewModel() {
 
   private val selectedGymIds: Set<String> =
@@ -209,9 +201,13 @@ constructor(
       )
   private val _editor = MutableStateFlow<ExerciseEditorState?>(null)
   private val _aiCreation = MutableStateFlow<ExerciseAiCreationState?>(null)
-  private val aiConfigured = MutableStateFlow(false)
   private var generationJob: Job? = null
   private var generationId = 0L
+  private var promptRequestId = 0L
+  private val _profilePrompt = MutableStateFlow<AiProfilePromptUi?>(null)
+  val profilePrompt: StateFlow<AiProfilePromptUi?> = _profilePrompt.asStateFlow()
+  private val _openProfile = Channel<Unit>(Channel.BUFFERED)
+  val openProfile = _openProfile.receiveAsFlow()
 
   private val _savedExercise = Channel<SavedExerciseResult>(Channel.BUFFERED)
 
@@ -270,15 +266,6 @@ constructor(
               started = SharingStarted.WhileSubscribed(5_000),
               initialValue = ExerciseLibraryUiState(),
           )
-
-  init {
-    viewModelScope.launch {
-      aiApiConfigurationProvider.isConfigured.collect { configured ->
-        aiConfigured.value = configured
-        _aiCreation.update { state -> state?.copy(aiConfigured = configured) }
-      }
-    }
-  }
 
   fun onQueryChange(value: String) {
     _query.value = value
@@ -364,23 +351,22 @@ constructor(
 
   fun openCreate() {
     closeAiCreation()
-    _aiCreation.value = ExerciseAiCreationState(aiConfigured = aiConfigured.value)
+    _aiCreation.value = ExerciseAiCreationState()
   }
 
   fun onAiDescriptionChange(value: String) {
     _aiCreation.update { state ->
-      state
-          ?.takeUnless { it.isGenerating }
-          ?.copy(
-              description = value,
-              error = null,
-              modelUnavailable = false,
-          )
+      state?.takeUnless { it.isGenerating }?.copy(description = value, error = null)
     }
   }
 
   /** Закрывает первичную шторку и прекращает сетевой запрос, если он ещё идёт. */
   fun closeAiCreation() {
+    promptRequestId++
+    _profilePrompt.value?.let { prompt ->
+      viewModelScope.launch { aiProfilePromptGate?.cancel(prompt.token) }
+    }
+    _profilePrompt.value = null
     generationId++
     generationJob?.cancel()
     generationJob = null
@@ -395,10 +381,79 @@ constructor(
 
   fun generateAiExercise() {
     val state = _aiCreation.value ?: return
-    if (state.isGenerating || !state.aiConfigured || state.description.trim().isEmpty()) return
+    if (state.isGenerating || state.description.trim().isEmpty()) return
+    val requestId = ++promptRequestId
+    _aiCreation.value = state.copy(isGenerating = true, error = null)
+    viewModelScope.launch {
+      val decision =
+          if (aiProfilePromptGate == null) AiProfilePromptDecision.Proceed
+          else aiProfilePromptGate.request(AiProfilePromptKind.EXERCISE)
+      if (requestId != promptRequestId) {
+        (decision as? AiProfilePromptDecision.Show)?.let { aiProfilePromptGate?.cancel(it.token) }
+        return@launch
+      }
+      when (decision) {
+        AiProfilePromptDecision.Proceed -> {
+          _aiCreation.update { it?.copy(isGenerating = false) }
+          startAiGeneration()
+        }
+        AiProfilePromptDecision.Busy ->
+            _aiCreation.update {
+              it?.copy(isGenerating = false, error = "Подождите ответа на предложение")
+            }
+        AiProfilePromptDecision.Stale ->
+            _aiCreation.update {
+              it?.copy(isGenerating = false, error = "Список устарел, попробуйте ещё раз")
+            }
+        is AiProfilePromptDecision.Show -> {
+          _aiCreation.update { it?.copy(isGenerating = false) }
+          _profilePrompt.value = AiProfilePromptUi(decision.token, decision.kind)
+        }
+      }
+    }
+  }
 
+  fun acknowledgeProfilePrompt(token: String) {
+    viewModelScope.launch { aiProfilePromptGate?.acknowledgeVisible(token) }
+  }
+
+  fun continueAfterProfilePrompt(token: String, disableFuturePrompts: Boolean = false) {
+    viewModelScope.launch {
+      if (_profilePrompt.value?.token != token) return@launch
+      val consumed = aiProfilePromptGate?.consume(token, disableFuturePrompts) != false
+      val stillCurrent = _profilePrompt.value?.token == token
+      if (stillCurrent) _profilePrompt.value = null
+      if (consumed && stillCurrent) {
+        startAiGeneration()
+      }
+    }
+  }
+
+  fun fillProfileFromPrompt(token: String) {
+    viewModelScope.launch {
+      if (_profilePrompt.value?.token != token) return@launch
+      val consumed = aiProfilePromptGate?.consume(token, disableFuturePrompts = false) != false
+      val stillCurrent = _profilePrompt.value?.token == token
+      if (stillCurrent) _profilePrompt.value = null
+      if (consumed && stillCurrent) {
+        _openProfile.send(Unit)
+      }
+    }
+  }
+
+  fun dismissProfilePrompt(token: String) {
+    viewModelScope.launch {
+      if (_profilePrompt.value?.token != token) return@launch
+      aiProfilePromptGate?.cancel(token)
+      if (_profilePrompt.value?.token == token) _profilePrompt.value = null
+    }
+  }
+
+  private fun startAiGeneration() {
+    val state = _aiCreation.value ?: return
+    if (state.isGenerating || state.description.trim().isEmpty()) return
     val currentGenerationId = ++generationId
-    _aiCreation.value = state.copy(isGenerating = true, error = null, modelUnavailable = false)
+    _aiCreation.value = state.copy(isGenerating = true, error = null)
     generationJob =
         viewModelScope.launch {
           when (val result = exerciseAiGenerator.generate(state.description)) {
@@ -406,7 +461,6 @@ constructor(
                 showGenerationFailure(
                     generationId = currentGenerationId,
                     message = result.message,
-                    modelUnavailable = result.modelUnavailable,
                 )
             is ExerciseAiGenerationResult.New -> {
               if (currentGenerationId != generationId) return@launch
@@ -427,12 +481,21 @@ constructor(
                 openExistingFromGeneration(
                     generationId = currentGenerationId,
                     exerciseId = result.exerciseId,
+                    isCurrent = result.isCurrent,
                 )
           }
         }
   }
 
-  private suspend fun openExistingFromGeneration(generationId: Long, exerciseId: Long) {
+  private suspend fun openExistingFromGeneration(
+      generationId: Long,
+      exerciseId: Long,
+      isCurrent: suspend () -> Boolean,
+  ) {
+    if (!isCurrent()) {
+      showGenerationFailure(generationId, "Список устарел, попробуйте ещё раз")
+      return
+    }
     val exercise = exerciseDao.getById(exerciseId)
     if (exercise == null) {
       showGenerationFailure(generationId, "Упражнение больше не найдено")
@@ -448,6 +511,10 @@ constructor(
         if (gymRepository === NoOpGymRepository) ExerciseEquipmentRequirements.ExplicitNone
         else gymRepository.requirementsFor(exercise)
     if (generationId != this.generationId) return
+    if (!isCurrent()) {
+      showGenerationFailure(generationId, "Список устарел, попробуйте ещё раз")
+      return
+    }
     _aiCreation.value = null
     _editor.value =
         ExerciseEditorState(
@@ -462,19 +529,9 @@ constructor(
         )
   }
 
-  private fun showGenerationFailure(
-      generationId: Long,
-      message: String,
-      modelUnavailable: Boolean = false,
-  ) {
+  private fun showGenerationFailure(generationId: Long, message: String) {
     if (generationId != this.generationId) return
-    _aiCreation.update { state ->
-      state?.copy(
-          isGenerating = false,
-          error = message,
-          modelUnavailable = modelUnavailable,
-      )
-    }
+    _aiCreation.update { state -> state?.copy(isGenerating = false, error = message) }
   }
 
   private fun emptyEditorState(): ExerciseEditorState =

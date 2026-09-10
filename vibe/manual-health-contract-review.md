@@ -1,0 +1,15 @@
+# T-001 — независимая проверка root
+
+## Итог после исправлений
+
+Принят контракт SHA-256 `33d74a1de76f9e444e02972f463a915b6e29c338c4c76bbac3aea4ce2305f5c0`. Три замечания ниже закрыты отдельной change revision и immutable head history с as-of-H paging, equality/replay до проверки текущего отчёта и общим preservation preflight смены владельца. Дополнительно зафиксированы отказ при missing-head/nonzero-base и запрет forward/cyclic parents. Root независимо проверил duplicate-key parsing, Draft202012 schema, 9 valid fixtures, canonical request schemas/vector hashes и итоговый SHA. Проверка семантических invalid/race fixtures обязательна при backend реализации; код ещё не принят. Android predecessor фиксируется перед своей реализацией, не блокируя backend контракт.
+
+## Первоначальные замечания
+
+Проверяемый SHA: `2b8e469ac0ed8b1a0d15b6360613b62aa1344ee2554ebf0a8760b2771b7ea6ae`. Статус: требует уточнений перед backend реализацией; это проверка контракта, не выполненного кода.
+
+1. **P1 — cursor/head-only mutation.** `serverSequence` присваивается только новым immutable versions, но head CAS может выбрать уже существующую версию без новой version. Нужен отдельно определённый health change revision/event journal: такая смена head обязана попасть в changes. Frozen high watermark должен восстанавливать head именно на H, даже если после первой страницы он изменился. Зафиксировать immutable head history или материализованный snapshot, стабильный порядок обеих коллекций и тест head-only change + mutation между страницами. Нельзя просто читать current heads и фильтровать по текущей revision.
+2. **P1 — historical equal-version retry after report tombstone.** `sameVersionRetry`/`differentOperation` обещают тот же serverSequence для равной версии, но `observationReportTarget` требует живой CONFIRMED report для любой операции. Если отчёт уже tombstoned, новая operation с ранее принятой неизменной observation не должна отвергать существующий аудит. Разделить equality/replay уже сохранённой immutable version и проверку ссылок для новой версии/нового head intent; добавить эту матрицу и exact response-loss replay после удаления отчёта.
+3. **P1 — local-only data on A→B.** `ownerSwitch` безусловно purges local audit/outboxes, тогда как `physicalDelete` разрешён только после отдельного подтверждения full erase; health sync может быть выключена, а OWNED уже установлен. В этом случае purge уничтожает единственную копию. Заморозить общий owner-switch preflight с guest-sync: если есть неACK данные/точный outbox/локальные health versions, до отдельного явного решения об удалении либо их сохранения переход не выполняется. Не включать sync consent автоматически, не переносить A в B, не считать token loss гостевым режимом. Проверять отсутствие любых purge/token replacement при отказе/смерти процесса и stale confirmation fingerprint. Это также требует узкого дополнения guest-sync плана до его реализации.
+
+Остальная структура соответствует принятому направлению: отдельные очереди, скрытый staging, owner-scoped consent receipts, отсутствие копии body_measurements, typed observation/null fields и canonical raw-byte retry.

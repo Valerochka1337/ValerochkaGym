@@ -6,6 +6,7 @@ import com.valerochka1337.valerochkagym.data.db.PlannedSet
 import com.valerochka1337.valerochkagym.data.db.dao.GymDao
 import com.valerochka1337.valerochkagym.data.db.dao.RoutineDao
 import com.valerochka1337.valerochkagym.data.db.dao.WorkoutDao
+import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
 import com.valerochka1337.valerochkagym.data.db.entity.WorkoutEntity
 import com.valerochka1337.valerochkagym.data.db.entity.WorkoutExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.WorkoutSetEntity
@@ -13,6 +14,8 @@ import com.valerochka1337.valerochkagym.data.db.relation.WorkoutExerciseWithSets
 import com.valerochka1337.valerochkagym.data.db.relation.WorkoutFull
 import com.valerochka1337.valerochkagym.domain.ActiveWorkoutRepository
 import com.valerochka1337.valerochkagym.domain.ActiveWorkoutUnavailableException
+import com.valerochka1337.valerochkagym.domain.CompletedSetEditResult
+import com.valerochka1337.valerochkagym.domain.NoteSaveResult
 import com.valerochka1337.valerochkagym.domain.RoutineGymConflictException
 import java.util.UUID
 import javax.inject.Inject
@@ -21,6 +24,7 @@ import kotlinx.coroutines.flow.map
 
 /** Имя тренировки без программы. */
 private const val EMPTY_WORKOUT_NAME = "Тренировка"
+private const val MAX_NOTE_CODE_POINTS = 2_000
 
 class ActiveWorkoutRepositoryImpl
 @Inject
@@ -83,6 +87,7 @@ constructor(
                         workoutExerciseId = workoutExerciseId,
                         setIndex = index,
                         isCompleted = false,
+                        note = "",
                     ) ?: planned.toSet(workoutExerciseId, index)
                   }
               if (sets.isNotEmpty()) workoutDao.insertSets(sets)
@@ -114,7 +119,51 @@ constructor(
 
   override suspend fun getSet(setId: Long): WorkoutSetEntity? = workoutDao.getSet(setId)
 
-  override suspend fun updateSet(set: WorkoutSetEntity) = workoutDao.updateSet(set)
+  override suspend fun updateSet(set: WorkoutSetEntity) =
+      database.withTransaction {
+        // Numeric/completion mutators may hold an older entity while a note editor saves. The
+        // note has its own guarded write and must never be erased by that stale snapshot.
+        val current = workoutDao.getSet(set.id) ?: return@withTransaction
+        workoutDao.updateSet(set.copy(note = current.note))
+      }
+
+  override suspend fun saveWorkoutNote(workoutId: String, text: String): NoteSaveResult {
+    val note = text.trim()
+    if (note.codePointCount(0, note.length) > MAX_NOTE_CODE_POINTS) return NoteSaveResult.TooLong
+    return if (workoutDao.updateActiveWorkoutNote(workoutId, note) == 1) NoteSaveResult.Saved
+    else NoteSaveResult.MissingOrInactive
+  }
+
+  override suspend fun saveSetNote(workoutId: String, setId: Long, text: String): NoteSaveResult {
+    val note = text.trim()
+    if (note.codePointCount(0, note.length) > MAX_NOTE_CODE_POINTS) return NoteSaveResult.TooLong
+    return if (workoutDao.updateActiveSetNote(workoutId, setId, note) == 1) NoteSaveResult.Saved
+    else NoteSaveResult.MissingOrInactive
+  }
+
+  override suspend fun updateCompletedSetNumbers(
+      set: WorkoutSetEntity,
+      type: ExerciseType,
+  ): CompletedSetEditResult {
+    val changed =
+        when (type) {
+          ExerciseType.STRENGTH ->
+              workoutDao.updateCompletedStrengthNumbers(set.id, set.weightKg, set.reps)
+          ExerciseType.TIMED -> workoutDao.updateCompletedTimedNumbers(set.id, set.durationSec)
+          ExerciseType.CARDIO ->
+              workoutDao.updateCompletedCardioNumbers(
+                  set.id,
+                  set.durationSec,
+                  set.speedKmh,
+                  set.inclinePct,
+              )
+        }
+    return if (changed == 1) {
+      CompletedSetEditResult.Saved
+    } else {
+      CompletedSetEditResult.MissingOrInactive
+    }
+  }
 
   override suspend fun toggleSetCompleted(setId: Long, completed: Boolean) =
       workoutDao.setSetCompleted(setId, completed, completedAt = if (completed) now() else null)
@@ -133,6 +182,7 @@ constructor(
                 durationSec = last?.durationSec,
                 speedKmh = last?.speedKmh,
                 inclinePct = last?.inclinePct,
+                note = "",
                 isCompleted = false,
             ),
         )
@@ -237,7 +287,8 @@ private fun WorkoutSetEntity.isBlank(): Boolean =
         reps == null &&
         durationSec == null &&
         speedKmh == null &&
-        inclinePct == null
+        inclinePct == null &&
+        note.isBlank()
 
 private fun PlannedSet.toSet(workoutExerciseId: Long, setIndex: Int): WorkoutSetEntity =
     WorkoutSetEntity(

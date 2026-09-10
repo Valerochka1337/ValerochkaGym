@@ -37,6 +37,17 @@ class GoogleAuthManagerTest {
   }
 
   @Test
+  fun `revoke request targets normalized account and calendar events scope only`() {
+    val request = manager.buildRevokeRequest(" Owner@Example.COM ")
+
+    assertEquals("owner@example.com", request.account?.name)
+    assertEquals(
+        listOf("https://www.googleapis.com/auth/calendar.events"),
+        request.scopes.map { it.scopeUri },
+    )
+  }
+
+  @Test
   fun `email normalization stays stable in turkish locale`() {
     val previousLocale = Locale.getDefault()
     try {

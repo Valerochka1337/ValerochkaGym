@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
+import com.valerochka1337.valerochkagym.data.calendar.CalendarMigrationGate
 import com.valerochka1337.valerochkagym.data.schedule.WeeklyScheduleRecoveryResult
 import com.valerochka1337.valerochkagym.data.schedule.WeeklyScheduleRepository
 import dagger.assisted.Assisted
@@ -16,9 +17,13 @@ constructor(
     @Assisted appContext: Context,
     @Assisted params: WorkerParameters,
     private val repository: WeeklyScheduleRepository,
+    private val migrationGate: CalendarMigrationGate,
 ) : CoroutineWorker(appContext, params) {
   override suspend fun doWork(): Result =
-      when (repository.resumePendingOperation()) {
+      when (
+          if (migrationGate.ensureReady()) repository.resumePendingOperation()
+          else WeeklyScheduleRecoveryResult.Paused("Подготовка календаря ещё не завершена")
+      ) {
         WeeklyScheduleRecoveryResult.Completed,
         WeeklyScheduleRecoveryResult.NothingPending,
         is WeeklyScheduleRecoveryResult.Paused,

@@ -3,22 +3,26 @@ package com.valerochka1337.valerochkagym.ui.settings
 import android.app.Activity
 import android.content.IntentSender
 import android.net.Uri
+import androidx.credentials.exceptions.GetCredentialCancellationException
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.valerochka1337.valerochkagym.data.ai.AiModel
-import com.valerochka1337.valerochkagym.data.ai.AiModelCatalog
-import com.valerochka1337.valerochkagym.data.ai.normalizeAiBaseUrl
 import com.valerochka1337.valerochkagym.data.backup.ClearDataUseCase
 import com.valerochka1337.valerochkagym.data.backup.DatabaseExporter
 import com.valerochka1337.valerochkagym.data.backup.ExportResult
 import com.valerochka1337.valerochkagym.data.google.AuthorizeOutcome
 import com.valerochka1337.valerochkagym.data.google.GoogleAuth
 import com.valerochka1337.valerochkagym.data.google.ImportResult
+import com.valerochka1337.valerochkagym.data.google.TokenResult
 import com.valerochka1337.valerochkagym.data.google.WorkoutImportRepository
 import com.valerochka1337.valerochkagym.data.google.spreadsheetIdFrom
-import com.valerochka1337.valerochkagym.data.settings.AiApiKeyStore
+import com.valerochka1337.valerochkagym.data.schedule.WeeklySchedule
+import com.valerochka1337.valerochkagym.data.schedule.WeeklyScheduleRecoveryResult
+import com.valerochka1337.valerochkagym.data.schedule.WeeklyScheduleRepository
+import com.valerochka1337.valerochkagym.data.settings.CalendarAccountIdentity
 import com.valerochka1337.valerochkagym.data.settings.GymSettings
 import com.valerochka1337.valerochkagym.data.settings.SettingsRepository
+import com.valerochka1337.valerochkagym.data.settings.normalizeCalendarEmail
 import com.valerochka1337.valerochkagym.ui.theme.AccentColor
 import com.valerochka1337.valerochkagym.ui.theme.PaletteMode
 import com.valerochka1337.valerochkagym.ui.theme.ThemeMode
@@ -30,8 +34,8 @@ import com.valerochka1337.valerochkagym.worker.RoutineUploadScheduler
 import com.valerochka1337.valerochkagym.worker.UploadScheduler
 import com.valerochka1337.valerochkagym.worker.WeeklyScheduleRecoveryScheduler
 import dagger.hilt.android.lifecycle.HiltViewModel
+import java.util.UUID
 import javax.inject.Inject
-import kotlin.time.Duration.Companion.milliseconds
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
@@ -40,10 +44,10 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeoutOrNull
 
 /** Шаг изменения отдыха по умолчанию и его нижняя граница (в секундах). */
 private const val MIN_REST_SECONDS = 15
@@ -51,10 +55,28 @@ private const val MIN_HEART_RATE_REST_THRESHOLD_BPM = 40
 private const val MAX_HEART_RATE_REST_THRESHOLD_BPM = 220
 private const val MIN_HEART_RATE_REST_HOLD_SECONDS = 5
 private const val MAX_HEART_RATE_REST_HOLD_SECONDS = 60
-internal const val AI_MODEL_CATALOG_TIMEOUT_MILLIS = 12_000L
 
 /** Сообщение об ошибке настройки OAuth-доступа. */
 private const val AUTH_ERROR_MESSAGE = "Не удалось настроить доступ — попробуйте ещё раз"
+private const val AUTH_KIND_KEY = "calendar_auth_kind"
+private const val AUTH_TARGET_KEY = "calendar_auth_target"
+private const val AUTH_NONCE_KEY = "calendar_auth_nonce"
+private const val AUTH_BUSY_KEY = "calendar_auth_busy"
+
+data class CalendarConsentRequest(val intentSender: IntentSender, val operationNonce: String)
+
+private enum class PendingCalendarAction {
+  SELECT_OTHER,
+  AUTHORIZE_PREFERRED,
+  AUTHORIZE_OTHER,
+  DISCONNECT,
+}
+
+private data class CalendarOperation(
+    val kind: PendingCalendarAction,
+    val target: String?,
+    val nonce: String,
+)
 
 /** Совместимый с прямыми unit-тестами no-op; Hilt всегда внедряет реальный планировщик. */
 private object NoOpMeasurementUploadScheduler : MeasurementUploadScheduler {
@@ -70,66 +92,39 @@ private object NoOpWeeklyScheduleRecoveryScheduler : WeeklyScheduleRecoverySched
   override fun enqueue() = Unit
 }
 
-/** Совместимая с прямыми unit-тестами заглушка для API key. */
-private object NoOpAiApiKeyStore : AiApiKeyStore {
-  override val isConfigured = MutableStateFlow(false)
+private object NoOpWeeklyScheduleRepository : WeeklyScheduleRepository {
+  override fun observe() = MutableStateFlow(WeeklySchedule())
 
-  override suspend fun save(value: String) = Unit
+  override suspend fun save(schedule: WeeklySchedule) =
+      com.valerochka1337.valerochkagym.data.google.ScheduleResult.Success
 
-  override suspend fun read(): String? = null
+  override suspend fun clear() = com.valerochka1337.valerochkagym.data.google.ScheduleResult.Success
 
-  override suspend fun preview(): String? = null
+  override suspend fun resumePendingOperation() = WeeklyScheduleRecoveryResult.NothingPending
 
-  override suspend fun clear() = Unit
+  override suspend fun hasRecoverableWorkForAccount(email: String) = true
 }
-
-/** Не делает сетевой запрос в прямых unit-тестах без Hilt. */
-private object NoOpAiModelCatalog : AiModelCatalog {
-  override suspend fun getModels(): List<AiModel> = emptyList()
-}
-
-private data class AiModelsUiState(
-    val models: List<AiModel> = emptyList(),
-    val isLoading: Boolean = false,
-    val hasLoadError: Boolean = false,
-)
-
-private data class AiApiKeyUiState(
-    val isConfigured: Boolean,
-    val preview: String?,
-)
 
 private data class SettingsInputErrors(
     val spreadsheet: Boolean,
-    val aiBaseUrl: Boolean,
 )
 
 private data class SettingsAuxiliaryState(
     val authBusy: Boolean,
     val inputErrors: SettingsInputErrors,
     val authError: String?,
-    val aiApiKeyConfigured: Boolean,
-    val aiApiKeyPreview: String?,
-    val aiModels: AiModelsUiState,
 )
 
 /**
  * Состояние экрана настроек. [settings] == null — ещё не загружено (не мигаем пустой формой).
  * [authBusy] — идёт вход/выход через Google. [spreadsheetError] — последний ввод ссылки/ID не
- * распознан. [aiApiKeyConfigured] сообщает только факт наличия ключа, а [aiApiKeyPreview] —
- * безопасную маску с последними четырьмя символами; полный ключ в UI не попадает. [authError] — не
- * удалось войти или настроить доступ (показываем и сбрасываем при повторной попытке).
+ * распознан. [authError] — не удалось войти или настроить доступ (показываем и сбрасываем при
+ * повторной попытке).
  */
 data class SettingsUiState(
     val settings: GymSettings? = null,
     val authBusy: Boolean = false,
     val spreadsheetError: Boolean = false,
-    val aiBaseUrlError: Boolean = false,
-    val aiApiKeyConfigured: Boolean = false,
-    val aiApiKeyPreview: String? = null,
-    val aiModels: List<AiModel> = emptyList(),
-    val aiModelsLoading: Boolean = false,
-    val aiModelsLoadError: Boolean = false,
     val authError: String? = null,
 )
 
@@ -151,52 +146,34 @@ constructor(
     private val measurementUploadScheduler: MeasurementUploadScheduler =
         NoOpMeasurementUploadScheduler,
     private val routineUploadScheduler: RoutineUploadScheduler = NoOpRoutineUploadScheduler,
-    private val aiApiKeyStore: AiApiKeyStore = NoOpAiApiKeyStore,
-    private val aiModelCatalog: AiModelCatalog = NoOpAiModelCatalog,
     private val configurationUploadScheduler: ConfigurationUploadScheduler =
         NoOpConfigurationUploadScheduler,
     private val weeklyScheduleRecoveryScheduler: WeeklyScheduleRecoveryScheduler =
         NoOpWeeklyScheduleRecoveryScheduler,
+    private val weeklyScheduleRepository: WeeklyScheduleRepository = NoOpWeeklyScheduleRepository,
+    private val calendarIdentity: CalendarAccountIdentity = settingsRepository,
+    private val savedStateHandle: SavedStateHandle = SavedStateHandle(),
 ) : ViewModel() {
 
-  private val authBusy = MutableStateFlow(false)
+  private val authBusy = MutableStateFlow(savedStateHandle[AUTH_BUSY_KEY] ?: false)
   private val spreadsheetError = MutableStateFlow(false)
-  private val aiBaseUrlError = MutableStateFlow(false)
   private val authError = MutableStateFlow<String?>(null)
-  private val aiApiKeyPreview = MutableStateFlow<String?>(null)
-  private val aiModels = MutableStateFlow(AiModelsUiState())
+  private val calendarOperationLock = Any()
+  private var runningCalendarAttemptNonce: String? = null
+  private var resolvingConsentNonce: String? = null
 
-  private val inputErrors =
-      combine(
-          spreadsheetError,
-          aiBaseUrlError,
-      ) { sheetError, baseUrlError ->
-        SettingsInputErrors(spreadsheet = sheetError, aiBaseUrl = baseUrlError)
-      }
-
-  private val aiApiKeyState =
-      combine(
-          aiApiKeyStore.isConfigured,
-          aiApiKeyPreview,
-      ) { isConfigured, preview ->
-        AiApiKeyUiState(isConfigured = isConfigured, preview = preview)
-      }
+  private val inputErrors = spreadsheetError.map { SettingsInputErrors(spreadsheet = it) }
 
   private val settingsAuxiliaryState: Flow<SettingsAuxiliaryState> =
       combine(
           authBusy,
           inputErrors,
           authError,
-          aiApiKeyState,
-          aiModels,
-      ) { busy, currentInputErrors, currentAuthError, keyState, models ->
+      ) { busy, currentInputErrors, currentAuthError ->
         SettingsAuxiliaryState(
             authBusy = busy,
             inputErrors = currentInputErrors,
             authError = currentAuthError,
-            aiApiKeyConfigured = keyState.isConfigured,
-            aiApiKeyPreview = keyState.preview,
-            aiModels = models,
         )
       }
 
@@ -209,12 +186,6 @@ constructor(
                 settings = settings,
                 authBusy = auxiliary.authBusy,
                 spreadsheetError = auxiliary.inputErrors.spreadsheet,
-                aiBaseUrlError = auxiliary.inputErrors.aiBaseUrl,
-                aiApiKeyConfigured = auxiliary.aiApiKeyConfigured,
-                aiApiKeyPreview = auxiliary.aiApiKeyPreview,
-                aiModels = auxiliary.aiModels.models,
-                aiModelsLoading = auxiliary.aiModels.isLoading,
-                aiModelsLoadError = auxiliary.aiModels.hasLoadError,
                 authError = auxiliary.authError,
             )
           }
@@ -224,69 +195,313 @@ constructor(
               initialValue = SettingsUiState(),
           )
 
-  init {
-    viewModelScope.launch {
-      aiApiKeyPreview.value = aiApiKeyStore.preview()
-      val settings = settingsRepository.settings.first()
-      if (settings.aiBaseUrl != null && aiApiKeyStore.isConfigured.first()) {
-        loadAiModels()
-      }
-    }
-  }
-
-  private val _consentRequests = Channel<IntentSender>(Channel.CONFLATED)
+  private val _consentRequests = Channel<CalendarConsentRequest>(Channel.CONFLATED)
 
   /** Запросы согласия на OAuth-доступ, которые экран должен запустить через launcher. */
-  val consentRequests: Flow<IntentSender> = _consentRequests.receiveAsFlow()
+  val consentRequests: Flow<CalendarConsentRequest> = _consentRequests.receiveAsFlow()
 
   private val _messages = Channel<String>(Channel.BUFFERED)
 
   /** Короткие уведомления для snackbar (например, результат «Выгрузить всё»). */
   val messages: Flow<String> = _messages.receiveAsFlow()
 
-  fun signIn(activity: Activity) {
-    viewModelScope.launch {
-      authBusy.value = true
-      authError.value = null
-      try {
-        val result = googleAuth.signIn(activity)
-        if (result.isSuccess) {
-          requestAuthorize(activity)
-        } else {
-          authError.value = AUTH_ERROR_MESSAGE
+  fun connectPreferred(activity: Activity) {
+    val operation = beginCalendarOperation(PendingCalendarAction.AUTHORIZE_PREFERRED) ?: return
+    launchCalendarAttempt(operation) {
+      val target = normalizeCalendarEmail(calendarIdentity.preferredCalendarEmail.first())
+      if (!isCurrent(operation)) return@launchCalendarAttempt
+      if (target == null) {
+        selectOtherAndAuthorize(activity, operation)
+      } else {
+        val targeted = updateCurrent(operation, PendingCalendarAction.AUTHORIZE_PREFERRED, target)
+        if (targeted != null) requestAuthorize(activity, targeted)
+      }
+    }
+  }
+
+  fun connectOther(activity: Activity) {
+    val operation = beginCalendarOperation(PendingCalendarAction.SELECT_OTHER) ?: return
+    launchCalendarAttempt(operation) { selectOtherAndAuthorize(activity, operation) }
+  }
+
+  /** Reissues only the exact target saved before Activity-result recreation. */
+  fun resumePendingCalendarOperation(activity: Activity) {
+    val operation = claimSavedCalendarOperation() ?: return clearMalformedSavedOperation()
+    launchCalendarAttempt(operation, alreadyClaimed = true) {
+      when (operation.kind) {
+        PendingCalendarAction.SELECT_OTHER -> selectOtherAndAuthorize(activity, operation)
+        PendingCalendarAction.AUTHORIZE_PREFERRED,
+        PendingCalendarAction.AUTHORIZE_OTHER -> {
+          if (operation.target == null) failCurrent(operation)
+          else requestAuthorize(activity, operation)
         }
-      } finally {
-        authBusy.value = false
+        PendingCalendarAction.DISCONNECT -> disconnectCalendar(operation)
       }
     }
   }
 
-  fun signOut() {
+  fun consentResolved(activity: Activity, operationNonce: String, granted: Boolean) {
+    if (!granted) {
+      val operation =
+          readSavedCalendarOperation(operationNonce)
+              ?: run {
+                clearMalformedSavedOperation()
+                return
+              }
+      completeCurrent(operation)
+      return
+    }
+    val operation =
+        claimSavedCalendarOperation(operationNonce, isConsentResult = true)
+            ?: run {
+              clearMalformedSavedOperation()
+              return
+            }
+    launchCalendarAttempt(operation, alreadyClaimed = true) {
+      if (operation.target == null) failCurrent(operation)
+      else requestAuthorize(activity, operation)
+    }
+  }
+
+  fun disconnectCalendar() {
+    val operation = beginCalendarOperation(PendingCalendarAction.DISCONNECT) ?: return
+    launchCalendarAttempt(operation) { disconnectCalendar(operation) }
+  }
+
+  private fun launchCalendarAttempt(
+      operation: CalendarOperation,
+      alreadyClaimed: Boolean = false,
+      block: suspend () -> Unit,
+  ) {
+    if (!alreadyClaimed && !claimAttempt(operation)) return
     viewModelScope.launch {
-      authBusy.value = true
       try {
-        googleAuth.signOut()
+        block()
+      } catch (cancellation: CancellationException) {
+        completeCurrent(operation)
+        throw cancellation
+      } catch (cancellation: GetCredentialCancellationException) {
+        completeCurrent(operation)
+      } catch (_: Exception) {
+        failCurrent(operation)
       } finally {
-        authBusy.value = false
+        releaseAttempt(operation)
       }
     }
   }
 
-  /** Повторный запрос доступа после того, как пользователь прошёл экран согласия. */
-  fun consentResolved(activity: Activity) {
-    viewModelScope.launch {
-      authError.value = null
-      requestAuthorize(activity)
+  private suspend fun selectOtherAndAuthorize(activity: Activity, operation: CalendarOperation) {
+    if (!isCurrent(operation)) return
+    val result = googleAuth.selectAccount(activity)
+    if (!isCurrent(operation)) return
+    val selected =
+        result.getOrElse { error ->
+          if (error is GetCredentialCancellationException) {
+            completeCurrent(operation)
+            return
+          }
+          return failCurrent(operation)
+        }
+    val target = normalizeCalendarEmail(selected) ?: return failCurrent(operation)
+    val targeted = updateCurrent(operation, PendingCalendarAction.AUTHORIZE_OTHER, target) ?: return
+    if (!isCurrent(targeted)) return
+    calendarIdentity.setPreferredCalendarEmail(target)
+    if (!isCurrent(targeted)) return
+    requestAuthorize(activity, targeted)
+  }
+
+  private suspend fun requestAuthorize(activity: Activity, operation: CalendarOperation) {
+    val target = operation.target ?: return failCurrent(operation)
+    if (!isCurrent(operation)) return
+    when (val outcome = googleAuth.authorizeForAccount(activity, target)) {
+      is AuthorizeOutcome.NeedsConsent -> {
+        if (!isCurrent(operation)) return
+        val consentOperation = renewForConsent(operation) ?: return
+        try {
+          _consentRequests.send(
+              CalendarConsentRequest(outcome.pendingIntent.intentSender, consentOperation.nonce)
+          )
+        } catch (cancellation: CancellationException) {
+          completeCurrent(consentOperation)
+          throw cancellation
+        }
+        if (!isCurrent(consentOperation)) return
+      }
+      is AuthorizeOutcome.Failed -> failCurrent(operation)
+      AuthorizeOutcome.Granted -> {
+        if (!isCurrent(operation)) return
+        when (val token = googleAuth.getAccessTokenForAccount(target)) {
+          is TokenResult.Success -> {
+            if (!isCurrent(operation)) return
+            val shouldWake = weeklyScheduleRepository.hasRecoverableWorkForAccount(target)
+            if (!isCurrent(operation)) return
+            val committed =
+                calendarIdentity.commitConnectedCalendarEmail(target) { completeCurrent(operation) }
+            if (committed && shouldWake) {
+              weeklyScheduleRecoveryScheduler.wake()
+            }
+          }
+          TokenResult.NeedsConsent -> failCurrent(operation)
+          is TokenResult.Failed -> failCurrent(operation)
+        }
+      }
     }
   }
 
-  private suspend fun requestAuthorize(activity: Activity) {
-    when (val outcome = googleAuth.authorize(activity)) {
-      is AuthorizeOutcome.NeedsConsent -> _consentRequests.send(outcome.pendingIntent.intentSender)
-      is AuthorizeOutcome.Failed -> authError.value = AUTH_ERROR_MESSAGE
-      AuthorizeOutcome.Granted -> {
-        weeklyScheduleRecoveryScheduler.wake()
-        // Training data is synchronized by BackendSync; this OAuth grant is Calendar-only.
+  private suspend fun disconnectCalendar(operation: CalendarOperation) {
+    val target =
+        operation.target
+            ?: normalizeCalendarEmail(calendarIdentity.connectedCalendarEmail.first()).also {
+              if (!isCurrent(operation)) return
+            }
+    if (target == null) {
+      completeCurrent(operation)
+      return
+    }
+    val targeted = updateCurrent(operation, PendingCalendarAction.DISCONNECT, target) ?: return
+    if (!isCurrent(targeted)) return
+    val result = googleAuth.revokeCalendarAccess(target)
+    if (!isCurrent(targeted)) return
+    if (result.isFailure) return failCurrent(targeted)
+    if (!isCurrent(targeted)) return
+    calendarIdentity.clearConnectedCalendarEmail(target)
+    if (!isCurrent(targeted)) return
+    completeCurrent(targeted)
+  }
+
+  private fun beginCalendarOperation(kind: PendingCalendarAction): CalendarOperation? =
+      synchronized(calendarOperationLock) {
+        if (authBusy.value || savedStateHandle.get<Boolean>(AUTH_BUSY_KEY) == true) return null
+        val operation = CalendarOperation(kind, null, UUID.randomUUID().toString())
+        persistOperation(operation)
+        authError.value = null
+        operation
+      }
+
+  private fun claimSavedCalendarOperation(
+      expectedNonce: String? = null,
+      isConsentResult: Boolean = false,
+  ): CalendarOperation? =
+      synchronized(calendarOperationLock) {
+        val operation = readSavedOperation()
+        if (operation == null || expectedNonce?.let { it != operation.nonce } == true) {
+          return null
+        }
+        if (isConsentResult && resolvingConsentNonce == operation.nonce) return null
+        if (runningCalendarAttemptNonce != null && runningCalendarAttemptNonce != operation.nonce) {
+          return null
+        }
+        if (!isConsentResult && runningCalendarAttemptNonce == operation.nonce) return null
+        runningCalendarAttemptNonce = operation.nonce
+        if (isConsentResult) resolvingConsentNonce = operation.nonce
+        operation
+      }
+
+  private fun readSavedCalendarOperation(expectedNonce: String): CalendarOperation? =
+      synchronized(calendarOperationLock) {
+        readSavedOperation()?.takeIf { it.nonce == expectedNonce }
+      }
+
+  private fun claimAttempt(operation: CalendarOperation): Boolean =
+      synchronized(calendarOperationLock) {
+        if (!isCurrentLocked(operation) || runningCalendarAttemptNonce == operation.nonce) {
+          false
+        } else {
+          runningCalendarAttemptNonce = operation.nonce
+          true
+        }
+      }
+
+  private fun releaseAttempt(operation: CalendarOperation) =
+      synchronized(calendarOperationLock) {
+        if (runningCalendarAttemptNonce == operation.nonce) runningCalendarAttemptNonce = null
+      }
+
+  private fun updateCurrent(
+      operation: CalendarOperation,
+      kind: PendingCalendarAction,
+      target: String,
+  ): CalendarOperation? =
+      synchronized(calendarOperationLock) {
+        if (!isCurrentLocked(operation)) return null
+        CalendarOperation(kind, target, operation.nonce).also(::persistOperation)
+      }
+
+  /** A fresh nonce makes a repeated result for an earlier consent request safely stale. */
+  private fun renewForConsent(operation: CalendarOperation): CalendarOperation? =
+      synchronized(calendarOperationLock) {
+        if (!isCurrentLocked(operation)) return null
+        CalendarOperation(operation.kind, operation.target, UUID.randomUUID().toString()).also {
+            consentOperation ->
+          persistOperation(consentOperation)
+          if (runningCalendarAttemptNonce == operation.nonce) {
+            runningCalendarAttemptNonce = consentOperation.nonce
+          }
+          if (resolvingConsentNonce == operation.nonce) resolvingConsentNonce = null
+        }
+      }
+
+  private fun isCurrent(operation: CalendarOperation): Boolean =
+      synchronized(calendarOperationLock) { isCurrentLocked(operation) }
+
+  private fun isCurrentLocked(operation: CalendarOperation): Boolean =
+      savedStateHandle.get<Boolean>(AUTH_BUSY_KEY) == true &&
+          savedStateHandle.get<String>(AUTH_NONCE_KEY) == operation.nonce
+
+  private fun completeCurrent(operation: CalendarOperation): Boolean =
+      synchronized(calendarOperationLock) {
+        if (!isCurrentLocked(operation)) return false
+        clearPersistedOperation()
+        true
+      }
+
+  private fun failCurrent(operation: CalendarOperation) {
+    synchronized(calendarOperationLock) {
+      if (!isCurrentLocked(operation)) return
+      authError.value = AUTH_ERROR_MESSAGE
+      clearPersistedOperation()
+    }
+  }
+
+  private fun persistOperation(operation: CalendarOperation) {
+    savedStateHandle[AUTH_KIND_KEY] = operation.kind.name
+    if (operation.target == null) savedStateHandle.remove<String>(AUTH_TARGET_KEY)
+    else savedStateHandle[AUTH_TARGET_KEY] = operation.target
+    savedStateHandle[AUTH_NONCE_KEY] = operation.nonce
+    savedStateHandle[AUTH_BUSY_KEY] = true
+    authBusy.value = true
+  }
+
+  private fun readSavedOperation(): CalendarOperation? {
+    if (savedStateHandle.get<Boolean>(AUTH_BUSY_KEY) != true) return null
+    val kind =
+        savedStateHandle.get<String>(AUTH_KIND_KEY)?.let {
+          runCatching { PendingCalendarAction.valueOf(it) }.getOrNull()
+        } ?: return null
+    val nonce =
+        savedStateHandle.get<String>(AUTH_NONCE_KEY)?.takeIf(String::isNotBlank) ?: return null
+    return CalendarOperation(kind, savedStateHandle[AUTH_TARGET_KEY], nonce)
+  }
+
+  private fun clearPersistedOperation() {
+    val nonce = savedStateHandle.get<String>(AUTH_NONCE_KEY)
+    savedStateHandle.remove<String>(AUTH_KIND_KEY)
+    savedStateHandle.remove<String>(AUTH_TARGET_KEY)
+    savedStateHandle.remove<String>(AUTH_NONCE_KEY)
+    savedStateHandle[AUTH_BUSY_KEY] = false
+    authBusy.value = false
+    if (runningCalendarAttemptNonce == nonce) runningCalendarAttemptNonce = null
+    if (resolvingConsentNonce == nonce) resolvingConsentNonce = null
+  }
+
+  private fun clearMalformedSavedOperation() {
+    synchronized(calendarOperationLock) {
+      if (
+          savedStateHandle.get<Boolean>(AUTH_BUSY_KEY) == true &&
+              readSavedOperation() == null &&
+              runningCalendarAttemptNonce == null
+      ) {
+        clearPersistedOperation()
       }
     }
   }
@@ -303,102 +518,6 @@ constructor(
       settingsRepository.setSpreadsheetId(id)
       importHistory()
     }
-  }
-
-  /** Проверяет и сохраняет HTTP(S) base URL; при смене сервера выбор модели сбрасывается. */
-  fun setAiBaseUrl(raw: String) {
-    val normalized = normalizeAiBaseUrl(raw)
-    if (normalized == null) {
-      aiBaseUrlError.value = true
-      return
-    }
-    aiBaseUrlError.value = false
-    viewModelScope.launch {
-      try {
-        settingsRepository.setAiBaseUrl(normalized)
-        _messages.send("Адрес сохранён")
-        if (aiApiKeyStore.isConfigured.first()) loadAiModels()
-      } catch (_: Exception) {
-        _messages.send("Не удалось сохранить адрес")
-      }
-    }
-  }
-
-  /** Сохраняет API key и возвращает в UI только безопасную маску. */
-  fun setAiApiKey(raw: String) {
-    val key = raw.trim()
-    if (key.isEmpty()) {
-      viewModelScope.launch { _messages.send("Введите API key") }
-      return
-    }
-    viewModelScope.launch {
-      try {
-        aiApiKeyStore.save(key)
-        aiApiKeyPreview.value = aiApiKeyStore.preview()
-        _messages.send("API key сохранён")
-        if (settingsRepository.settings.first().aiBaseUrl != null) loadAiModels()
-      } catch (_: Exception) {
-        _messages.send("Не удалось сохранить API key")
-      }
-    }
-  }
-
-  /** Удаляет ключ с устройства, не затрагивая остальные настройки. */
-  fun clearAiApiKey() {
-    viewModelScope.launch {
-      try {
-        aiApiKeyStore.clear()
-        aiApiKeyPreview.value = null
-        aiModels.value = AiModelsUiState()
-        _messages.send("API key удалён")
-      } catch (_: Exception) {
-        _messages.send("Не удалось удалить API key")
-      }
-    }
-  }
-
-  /** Обновляет авторизованный каталог моделей текущего сервера. */
-  fun refreshAiModels() {
-    viewModelScope.launch { loadAiModels() }
-  }
-
-  private suspend fun loadAiModels() {
-    val settings = settingsRepository.settings.first()
-    if (settings.aiBaseUrl == null || !aiApiKeyStore.isConfigured.first()) {
-      aiModels.value = AiModelsUiState()
-      return
-    }
-    // Не даём выбрать модель из каталога прежнего сервера или прежнего ключа во время reload.
-    aiModels.value = AiModelsUiState(isLoading = true)
-    try {
-      val models =
-          withTimeoutOrNull(AI_MODEL_CATALOG_TIMEOUT_MILLIS.milliseconds) {
-            aiModelCatalog.getModels()
-          }
-      if (models.isNullOrEmpty()) {
-        aiModels.value =
-            aiModels.value.copy(
-                isLoading = false,
-                hasLoadError = true,
-            )
-        return
-      }
-      aiModels.value = AiModelsUiState(models = models)
-    } catch (e: CancellationException) {
-      throw e
-    } catch (_: Exception) {
-      aiModels.value =
-          aiModels.value.copy(
-              isLoading = false,
-              hasLoadError = true,
-          )
-    }
-  }
-
-  /** Сохраняет модель, которую сервер вернул для выписанного ключа. */
-  fun setAiModel(model: AiModel) {
-    if (model.id.isBlank()) return
-    viewModelScope.launch { settingsRepository.setAiModel(model) }
   }
 
   /** Разово восстанавливает все app-managed данные из таблицы и уведомляет о результате. */
