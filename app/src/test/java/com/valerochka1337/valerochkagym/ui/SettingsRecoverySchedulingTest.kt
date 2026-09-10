@@ -57,9 +57,8 @@ class SettingsRecoverySchedulingTest {
   fun `connect chooses an account even when app sign in has saved a preference`() =
       runTest(mainDispatcherRule.testDispatcher.scheduler) {
         val auth = SwitchingGoogleAuth(null)
-        val identity = FakeIdentity(null).apply {
-          preferredCalendarEmail.value = "login@example.com"
-        }
+        val identity =
+            FakeIdentity(null).apply { preferredCalendarEmail.value = "login@example.com" }
         val vm = model(auth, identity)
         val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
 
@@ -76,9 +75,7 @@ class SettingsRecoverySchedulingTest {
   @Test
   fun `cancelled account picker preserves connection without requesting access`() =
       runTest(mainDispatcherRule.testDispatcher.scheduler) {
-        val auth = SwitchingGoogleAuth(
-            null, Result.failure(GetCredentialCancellationException())
-        )
+        val auth = SwitchingGoogleAuth(null, Result.failure(GetCredentialCancellationException()))
         val identity = FakeIdentity("a@example.com")
         val vm = model(auth, identity)
         backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
@@ -501,8 +498,7 @@ class SettingsRecoverySchedulingTest {
 
     override suspend fun signIn(activity: Activity) = Result.success("b@example.com")
 
-    override suspend fun selectAccount(activity: Activity) =
-        selection.also { selectCalls++ }
+    override suspend fun selectAccount(activity: Activity) = selection.also { selectCalls++ }
 
     override suspend fun authorize(activity: Activity): AuthorizeOutcome = AuthorizeOutcome.Granted
 

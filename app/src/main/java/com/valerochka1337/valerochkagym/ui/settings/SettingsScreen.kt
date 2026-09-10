@@ -367,7 +367,8 @@ internal fun GoogleAccountCard(
   SectionCard(title = "Google Calendar", icon = Icons.Rounded.AccountCircle) {
     if (connectedEmail == null) {
       Text(
-          text = "Выберите Google-аккаунт для календаря. Он может отличаться от аккаунта входа в приложение.",
+          text =
+              "Выберите Google-аккаунт для календаря. Он может отличаться от аккаунта входа в приложение.",
           style = MaterialTheme.typography.bodyMedium,
           color = MaterialTheme.colorScheme.onSurfaceVariant,
       )
