@@ -145,7 +145,8 @@ fun WorkoutsScreen(
               }
           routines.isEmpty() ->
               FadeInContent(modifier = Modifier.weight(1f)) {
-                EmptyState(
+                EmptyWorkoutsState(
+                    onStartEmpty = viewModel::startEmpty,
                     onCreateRoutine = onCreateRoutine,
                     modifier = Modifier.fillMaxSize(),
                 )
@@ -443,7 +444,8 @@ private fun RoutineCardMenu(
 }
 
 @Composable
-private fun EmptyState(
+internal fun EmptyWorkoutsState(
+    onStartEmpty: () -> Unit,
     onCreateRoutine: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -453,22 +455,24 @@ private fun EmptyState(
       verticalArrangement = Arrangement.Center,
   ) {
     Text(
-        text = "Создайте первую программу",
+        text = "Начните первую тренировку",
         style = MaterialTheme.typography.titleMedium,
         color = MaterialTheme.colorScheme.onSurface,
     )
     Spacer(Modifier.height(8.dp))
     Text(
-        text = "Соберите список упражнений с подходами, чтобы быстро начинать тренировку.",
+        text = "Добавляйте упражнения во время тренировки или заранее создайте программу.",
         style = MaterialTheme.typography.bodyMedium,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
     Spacer(Modifier.height(20.dp))
     PillButton(
-        text = "Новая программа",
-        onClick = onCreateRoutine,
-        leadingIcon = Icons.Default.Add,
+        text = "Начать без программы",
+        onClick = onStartEmpty,
+        modifier = Modifier.fillMaxWidth(),
     )
+    Spacer(Modifier.height(8.dp))
+    TextButton(onClick = onCreateRoutine) { Text("Создать программу") }
   }
 }
 

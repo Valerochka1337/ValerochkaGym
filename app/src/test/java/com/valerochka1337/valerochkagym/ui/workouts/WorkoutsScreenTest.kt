@@ -1,10 +1,12 @@
 package com.valerochka1337.valerochkagym.ui.workouts
 
 import android.app.Application
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
@@ -14,6 +16,7 @@ import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.unit.Density
 import com.valerochka1337.valerochkagym.ui.theme.GymTheme
 import org.junit.Assert.assertEquals
 import org.junit.Rule
@@ -27,6 +30,28 @@ import org.robolectric.annotation.Config
 class WorkoutsScreenTest {
 
   @get:Rule val compose = createComposeRule()
+
+  @Test
+  fun `empty catalog starts a workout without creating a program`() {
+    var starts = 0
+    var creates = 0
+    compose.setContent {
+      CompositionLocalProvider(
+          LocalDensity provides Density(LocalDensity.current.density, fontScale = 2f),
+      ) {
+        GymTheme {
+          EmptyWorkoutsState(onStartEmpty = { starts++ }, onCreateRoutine = { creates++ })
+        }
+      }
+    }
+
+    compose.onNodeWithText("Начать без программы").performClick()
+    assertEquals(1, starts)
+    assertEquals(0, creates)
+    compose.onNodeWithText("Создать программу").performClick()
+    assertEquals(1, starts)
+    assertEquals(1, creates)
+  }
 
   @Test
   fun `collapsing templates keeps the selected standard routine`() {
