@@ -14,6 +14,7 @@ import androidx.test.core.app.ApplicationProvider
 import com.valerochka1337.valerochkagym.data.RoomDaoTest
 import com.valerochka1337.valerochkagym.data.backend.*
 import com.valerochka1337.valerochkagym.ui.account.AccountForm
+import com.valerochka1337.valerochkagym.ui.account.AccountGate
 import com.valerochka1337.valerochkagym.ui.account.AccountViewModel
 import com.valerochka1337.valerochkagym.ui.theme.GymTheme
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -30,7 +31,7 @@ class AccountFormComposeTest : RoomDaoTest() {
   private val calls = mutableListOf<String>()
   private var googleClicks = 0
 
-  private fun render() {
+  private fun accountViewModel(): AccountViewModel {
     val store =
         object : BackendSessionStore {
           override val session = MutableStateFlow<BackendTokens?>(null)
@@ -58,13 +59,16 @@ class AccountFormComposeTest : RoomDaoTest() {
               body: JsonElement?,
           ): JsonElement = error("Unexpected")
         }
-    val vm =
-        AccountViewModel(
-            api,
-            store,
-            BackendSync(db, api, store),
-            BackendSyncScheduler(ApplicationProvider.getApplicationContext<Context>(), db),
-        )
+    return AccountViewModel(
+        api,
+        store,
+        BackendSync(db, api, store),
+        BackendSyncScheduler(ApplicationProvider.getApplicationContext<Context>(), db),
+    )
+  }
+
+  private fun render() {
+    val vm = accountViewModel()
     compose.setContent {
       val density = LocalDensity.current
       CompositionLocalProvider(LocalDensity provides Density(density.density, fontScale = 2f)) {
@@ -75,6 +79,20 @@ class AccountFormComposeTest : RoomDaoTest() {
         }
       }
     }
+  }
+
+  @Test
+  fun `account gate shows Yarumo coach and login action at large font scale`() {
+    val vm = accountViewModel()
+    compose.setContent {
+      val density = LocalDensity.current
+      CompositionLocalProvider(LocalDensity provides Density(density.density, fontScale = 2f)) {
+        GymTheme { AccountGate(content = {}, vm = vm) }
+      }
+    }
+
+    compose.onNodeWithText("Yarumo coach").assertIsDisplayed()
+    compose.onNodeWithText("Войти").performScrollTo().assertIsDisplayed()
   }
 
   @Test

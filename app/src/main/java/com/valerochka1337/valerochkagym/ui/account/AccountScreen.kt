@@ -31,8 +31,10 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.valerochka1337.valerochkagym.ui.components.GymCard
 
 @Composable
-fun AccountGate(content: @Composable () -> Unit) {
-  val vm: AccountViewModel = hiltViewModel()
+fun AccountGate(
+    vm: AccountViewModel = hiltViewModel(),
+    content: @Composable () -> Unit,
+) {
   val session by vm.session.collectAsStateWithLifecycle()
   if (session != null) key(session!!.userId) { content() }
   else
@@ -50,7 +52,7 @@ fun AccountGate(content: @Composable () -> Unit) {
               Modifier.widthIn(max = 480.dp).fillMaxWidth(),
               verticalArrangement = Arrangement.spacedBy(8.dp),
           ) {
-            Text("ValerochkaGym", style = MaterialTheme.typography.headlineLarge)
+            Text("Yarumo coach", style = MaterialTheme.typography.headlineLarge)
             Text(
                 "Ваши тренировки. Ваш прогресс.",
                 style = MaterialTheme.typography.bodyLarge,

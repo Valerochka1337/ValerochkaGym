@@ -61,7 +61,7 @@ class PostUpdateRelaunchTest {
         notification.extras.getCharSequence(Notification.EXTRA_TITLE),
     )
     assertEquals(
-        "Нажмите, чтобы открыть ValerochkaGym",
+        "Нажмите, чтобы открыть Yarumo coach",
         notification.extras.getCharSequence(Notification.EXTRA_TEXT),
     )
     val contentIntent = requireNotNull(notification.contentIntent)

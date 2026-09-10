@@ -52,7 +52,7 @@ constructor(
       Notification.Builder(context, CHANNEL_ID)
           .setSmallIcon(R.drawable.ic_notification_gym)
           .setContentTitle("Обновление установлено")
-          .setContentText("Нажмите, чтобы открыть ValerochkaGym")
+          .setContentText("Нажмите, чтобы открыть Yarumo coach")
           .setContentIntent(openAppPendingIntent())
           .setAutoCancel(true)
           .build()

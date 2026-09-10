@@ -1,4 +1,4 @@
-# ValerochkaGym — дизайн-система (актуальная)
+# Yarumo coach — дизайн-система (актуальная)
 
 Дата актуализации: 2026-09-01 (Material You, светлая/системная тема, adaptive layout и
 accessibility-контракт). Это
@@ -46,6 +46,20 @@ accessibility-контракт). Это
 | Хаптика | `ui/haptics/GymHaptics.kt` (`gymHaptics()`) |
 | Общие компоненты | `ui/components/` |
 | Навигация, переходы, навбар | `ui/navigation/GymNavGraph.kt`, `ui/navigation/MainScaffold.kt` |
+| Бренд лаунчера | `docs/branding/yarumo-coach/`, adaptive resources `mipmap-anydpi/` |
+
+Пользовательское имя продукта — **Yarumo coach**. Лаунчер использует утверждённый знак без
+уменьшенного wordmark: неизменённый квадратный PNG лежит в `drawable-nodpi`, а adaptive foreground
+ставит его по центру через равные inset 15%; themed-иконка и notification — читаемые одноцветные
+vector-маски того же знака. Все четыре `activity-alias` сохраняют имена, порядок и дефолтное
+состояние из Manifest; они намеренно показывают одинаковый знак, поскольку палитра продолжает
+менять цвета интерфейса, а не знак лаунчера. Legacy density PNG остаются для совместимости, но
+при minSdk 36 не выбираются вместо adaptive resource.
+
+Технические `ValerochkaGym`-идентификаторы не являются UI-копирайтом: package/namespace, тема,
+storage, UUID namespace, OAuth-конфигурация, GitHub owner/repository и имя update asset сохраняются
+для обновления поверх установленного приложения. Правила и внешняя Google OAuth-console проверка
+зафиксированы в `README.md`.
 
 ---
 

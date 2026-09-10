@@ -936,7 +936,7 @@ private fun AppUpdateCard(
         verticalAlignment = Alignment.CenterVertically,
     ) {
       Text(
-          text = "ValerochkaGym",
+          text = "Yarumo coach",
           style = MaterialTheme.typography.bodyLarge,
           fontWeight = FontWeight.SemiBold,
           color = MaterialTheme.colorScheme.onSurface,
