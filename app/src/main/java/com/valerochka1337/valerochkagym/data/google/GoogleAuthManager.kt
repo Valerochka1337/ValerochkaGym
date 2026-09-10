@@ -61,6 +61,7 @@ constructor(
         GetGoogleIdOption.Builder()
             .setServerClientId(context.getString(R.string.google_web_client_id))
             .setFilterByAuthorizedAccounts(false)
+            .setAutoSelectEnabled(false)
             .build()
     val request = GetCredentialRequest.Builder().addCredentialOption(googleIdOption).build()
     return try {

@@ -36,12 +36,10 @@ class SettingsScreenTest {
         GymTheme {
           Column(Modifier.verticalScroll(rememberScrollState())) {
             GoogleAccountCard(
-                preferredEmail = "preferred@example.com",
                 connectedEmail = "owner@example.com",
                 authBusy = false,
                 authError = null,
-                onConnectPreferred = {},
-                onConnectOther = {},
+                onConnect = {},
                 onDisconnect = {},
             )
           }
@@ -50,11 +48,7 @@ class SettingsScreenTest {
     }
 
     compose.onNodeWithText("owner@example.com").performScrollTo().assertIsDisplayed()
-    compose
-        .onNodeWithText("Предпочтительный аккаунт: preferred@example.com")
-        .performScrollTo()
-        .assertIsDisplayed()
-    compose.onNodeWithText("Другой аккаунт").performScrollTo().assertIsEnabled()
+    compose.onNodeWithText("Сменить аккаунт").performScrollTo().assertIsEnabled()
     compose.onNodeWithText("Отключить календарь").performScrollTo().assertIsEnabled()
   }
 
@@ -63,19 +57,17 @@ class SettingsScreenTest {
     compose.setContent {
       GymTheme {
         GoogleAccountCard(
-            preferredEmail = null,
             connectedEmail = null,
             authBusy = true,
             authError = null,
-            onConnectPreferred = {},
-            onConnectOther = {},
+            onConnect = {},
             onDisconnect = {},
         )
       }
     }
 
     compose.onNodeWithText("Подключить календарь").assertIsNotEnabled()
-    compose.onNodeWithText("Другой аккаунт").assertIsNotEnabled()
+    compose.onNodeWithText("Сменить аккаунт").assertDoesNotExist()
   }
 
   @Test
@@ -84,12 +76,10 @@ class SettingsScreenTest {
     compose.setContent {
       GymTheme {
         GoogleAccountCard(
-            preferredEmail = "preferred@example.com",
             connectedEmail = null,
             authBusy = false,
             authError = null,
-            onConnectPreferred = {},
-            onConnectOther = {},
+            onConnect = {},
             onDisconnect = {},
         )
       }
@@ -101,7 +91,7 @@ class SettingsScreenTest {
           it.fetchSemanticsNode().config[SemanticsProperties.StateDescription],
       )
     }
-    compose.onNodeWithContentDescription("Подключить другой Google-аккаунт").assertIsEnabled()
+    compose.onNodeWithContentDescription("Подключить другой Google-аккаунт").assertDoesNotExist()
   }
 
   @Test
@@ -110,12 +100,10 @@ class SettingsScreenTest {
     compose.setContent {
       GymTheme {
         GoogleAccountCard(
-            preferredEmail = "preferred@example.com",
             connectedEmail = "owner@example.com",
             authBusy = false,
             authError = null,
-            onConnectPreferred = {},
-            onConnectOther = {},
+            onConnect = {},
             onDisconnect = {},
         )
       }

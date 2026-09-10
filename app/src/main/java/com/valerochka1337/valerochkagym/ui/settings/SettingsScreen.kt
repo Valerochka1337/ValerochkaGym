@@ -189,12 +189,10 @@ fun SettingsScreen(
 
               SettingsCategory.CONNECTIONS -> {
                 GoogleAccountCard(
-                    preferredEmail = settings.preferredCalendarEmail,
                     connectedEmail = settings.connectedCalendarEmail,
                     authBusy = state.authBusy,
                     authError = state.authError,
-                    onConnectPreferred = { activity?.let(viewModel::connectPreferred) },
-                    onConnectOther = { activity?.let(viewModel::connectOther) },
+                    onConnect = { activity?.let(viewModel::connectCalendar) },
                     onDisconnect = viewModel::disconnectCalendar,
                 )
               }
@@ -359,19 +357,17 @@ private fun SettingsNavigationCard(
 
 @Composable
 internal fun GoogleAccountCard(
-    preferredEmail: String?,
     connectedEmail: String?,
     authBusy: Boolean,
     authError: String?,
-    onConnectPreferred: () -> Unit,
-    onConnectOther: () -> Unit,
+    onConnect: () -> Unit,
     onDisconnect: () -> Unit,
 ) {
   val haptics = gymHaptics()
   SectionCard(title = "Google Calendar", icon = Icons.Rounded.AccountCircle) {
     if (connectedEmail == null) {
       Text(
-          text = "Подключите Google Calendar, чтобы планировать тренировки в календаре.",
+          text = "Выберите Google-аккаунт для календаря. Он может отличаться от аккаунта входа в приложение.",
           style = MaterialTheme.typography.bodyMedium,
           color = MaterialTheme.colorScheme.onSurfaceVariant,
       )
@@ -380,7 +376,7 @@ internal fun GoogleAccountCard(
           text = "Подключить календарь",
           onClick = {
             haptics.tap()
-            onConnectPreferred()
+            onConnect()
           },
           enabled = !authBusy,
           modifier =
@@ -413,30 +409,22 @@ internal fun GoogleAccountCard(
         Text("Отключить календарь")
       }
     }
-    if (preferredEmail != null && preferredEmail != connectedEmail) {
-      Spacer(Modifier.height(8.dp))
-      Text(
-          text = "Предпочтительный аккаунт: $preferredEmail",
-          style = MaterialTheme.typography.bodySmall,
-          color = MaterialTheme.colorScheme.onSurfaceVariant,
-      )
-    }
-    Spacer(Modifier.height(4.dp))
-    TextButton(
-        onClick = {
-          haptics.tap()
-          onConnectOther()
-        },
-        enabled = !authBusy,
-        modifier =
-            Modifier.semantics {
-              contentDescription = "Подключить другой Google-аккаунт"
-              stateDescription =
-                  if (connectedEmail == null) "Календарь не подключён"
-                  else "Подключён к $connectedEmail"
-            },
-    ) {
-      Text("Другой аккаунт")
+    if (connectedEmail != null) {
+      Spacer(Modifier.height(4.dp))
+      TextButton(
+          onClick = {
+            haptics.tap()
+            onConnect()
+          },
+          enabled = !authBusy,
+          modifier =
+              Modifier.semantics {
+                contentDescription = "Подключить другой Google-аккаунт"
+                stateDescription = "Подключён к $connectedEmail"
+              },
+      ) {
+        Text("Сменить аккаунт")
+      }
     }
     if (authError != null) {
       Spacer(Modifier.height(8.dp))
