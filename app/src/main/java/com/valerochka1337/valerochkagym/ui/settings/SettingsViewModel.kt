@@ -205,21 +205,8 @@ constructor(
   /** Короткие уведомления для snackbar (например, результат «Выгрузить всё»). */
   val messages: Flow<String> = _messages.receiveAsFlow()
 
-  fun connectPreferred(activity: Activity) {
-    val operation = beginCalendarOperation(PendingCalendarAction.AUTHORIZE_PREFERRED) ?: return
-    launchCalendarAttempt(operation) {
-      val target = normalizeCalendarEmail(calendarIdentity.preferredCalendarEmail.first())
-      if (!isCurrent(operation)) return@launchCalendarAttempt
-      if (target == null) {
-        selectOtherAndAuthorize(activity, operation)
-      } else {
-        val targeted = updateCurrent(operation, PendingCalendarAction.AUTHORIZE_PREFERRED, target)
-        if (targeted != null) requestAuthorize(activity, targeted)
-      }
-    }
-  }
-
-  fun connectOther(activity: Activity) {
+  /** Every connection starts with an explicit account choice, independent of app sign-in. */
+  fun connectCalendar(activity: Activity) {
     val operation = beginCalendarOperation(PendingCalendarAction.SELECT_OTHER) ?: return
     launchCalendarAttempt(operation) { selectOtherAndAuthorize(activity, operation) }
   }

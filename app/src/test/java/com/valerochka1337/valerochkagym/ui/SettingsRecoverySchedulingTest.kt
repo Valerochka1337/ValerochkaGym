@@ -5,6 +5,7 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import androidx.credentials.exceptions.GetCredentialCancellationException
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.mutablePreferencesOf
@@ -31,6 +32,8 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -49,6 +52,44 @@ import org.robolectric.annotation.Config
 class SettingsRecoverySchedulingTest {
 
   @get:Rule val mainDispatcherRule = MainDispatcherRule()
+
+  @Test
+  fun `connect chooses an account even when app sign in has saved a preference`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val auth = SwitchingGoogleAuth(null)
+        val identity =
+            FakeIdentity(null).apply { preferredCalendarEmail.value = "login@example.com" }
+        val vm = model(auth, identity)
+        val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
+
+        vm.connectCalendar(activity)
+        runCurrent()
+
+        assertEquals(1, auth.selectCalls)
+        assertEquals(listOf("b@example.com"), auth.authorizedTargets)
+        assertEquals(listOf("b@example.com"), auth.tokenTargets)
+        assertEquals("b@example.com", identity.connectedCalendarEmail.value)
+        assertEquals(0, auth.signOutCalls)
+      }
+
+  @Test
+  fun `cancelled account picker preserves connection without requesting access`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val auth = SwitchingGoogleAuth(null, Result.failure(GetCredentialCancellationException()))
+        val identity = FakeIdentity("a@example.com")
+        val vm = model(auth, identity)
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
+        val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
+
+        vm.connectCalendar(activity)
+        runCurrent()
+
+        assertEquals("a@example.com", identity.connectedCalendarEmail.value)
+        assertEquals(emptyList<String>(), auth.authorizedTargets)
+        assertEquals(emptyList<String>(), auth.tokenTargets)
+        assertFalse(vm.uiState.value.authBusy)
+        assertNull(vm.uiState.value.authError)
+      }
 
   @Test
   fun `successful consent schedules paused weekly recovery without an app restart`() =
@@ -75,7 +116,7 @@ class SettingsRecoverySchedulingTest {
             )
         val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
 
-        viewModel.connectOther(activity)
+        viewModel.connectCalendar(activity)
         runCurrent()
         assertEquals(0, recovery.enqueues)
         assertEquals(0, recovery.wakes)
@@ -105,8 +146,8 @@ class SettingsRecoverySchedulingTest {
         val vm = model(auth, identity)
         val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
 
-        vm.connectOther(activity)
-        vm.connectOther(activity)
+        vm.connectCalendar(activity)
+        vm.connectCalendar(activity)
         runCurrent()
         assertEquals(1, auth.selectCalls)
         assertEquals("a@example.com", identity.connectedCalendarEmail.value)
@@ -133,7 +174,7 @@ class SettingsRecoverySchedulingTest {
         val vm = model(SwitchingGoogleAuth(consent), identity)
         val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
 
-        vm.connectOther(activity)
+        vm.connectCalendar(activity)
         runCurrent()
         val request = vm.consentRequests.first()
         vm.consentResolved(activity, "stale", granted = true)
@@ -179,7 +220,7 @@ class SettingsRecoverySchedulingTest {
         val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
         val first = model(auth, identity, saved)
 
-        first.connectPreferred(activity)
+        first.connectCalendar(activity)
         runCurrent()
         first.consentRequests.first()
         identity.preferredCalendarEmail.value = "c@example.com"
@@ -209,7 +250,7 @@ class SettingsRecoverySchedulingTest {
         val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
         val first = model(auth, identity, saved)
 
-        first.connectPreferred(activity)
+        first.connectCalendar(activity)
         runCurrent()
         first.consentRequests.first()
         val recreated = model(auth, identity, saved)
@@ -241,7 +282,7 @@ class SettingsRecoverySchedulingTest {
 
         vm.disconnectCalendar()
         vm.disconnectCalendar()
-        vm.connectOther(activity)
+        vm.connectCalendar(activity)
         runCurrent()
 
         assertEquals(listOf("a@example.com"), auth.revoked)
@@ -250,7 +291,7 @@ class SettingsRecoverySchedulingTest {
 
         gate.complete(Unit)
         runCurrent()
-        vm.connectOther(activity)
+        vm.connectCalendar(activity)
         runCurrent()
 
         assertEquals(1, auth.selectCalls)
@@ -279,13 +320,13 @@ class SettingsRecoverySchedulingTest {
               }
           val vm = model(auth, identity)
 
-          vm.connectPreferred(activity)
+          vm.connectCalendar(activity)
           runCurrent()
           val request = vm.consentRequests.first()
           vm.consentResolved(activity, request.operationNonce, granted = true)
           runCurrent()
           vm.consentResolved(activity, request.operationNonce, granted = false)
-          vm.connectOther(activity)
+          vm.connectCalendar(activity)
           runCurrent()
 
           assertEquals("b@example.com", identity.connectedCalendarEmail.value)
@@ -324,14 +365,14 @@ class SettingsRecoverySchedulingTest {
         val vm = model(FinalWriteGoogleAuth(consent), identity)
         val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
 
-        vm.connectPreferred(activity)
+        vm.connectCalendar(activity)
         runCurrent()
         val request = vm.consentRequests.first()
         vm.consentResolved(activity, request.operationNonce, granted = true)
         identity.accountAFinalWrite.await()
 
         vm.consentResolved(activity, request.operationNonce, granted = false)
-        vm.connectOther(activity)
+        vm.connectCalendar(activity)
         runCurrent()
         assertEquals("b@example.com", identity.connectedCalendarEmail.value)
 
@@ -419,8 +460,7 @@ class SettingsRecoverySchedulingTest {
   private class AlwaysConsentGoogleAuth(private val consent: PendingIntent) : GoogleAuth {
     val authorizedTargets = mutableListOf<String>()
 
-    override suspend fun selectAccount(activity: Activity) =
-        Result.failure<String>(IllegalStateException())
+    override suspend fun selectAccount(activity: Activity) = Result.success("b@example.com")
 
     override suspend fun signIn(activity: Activity) =
         Result.failure<String>(IllegalStateException())
@@ -445,7 +485,12 @@ class SettingsRecoverySchedulingTest {
     override suspend fun signOut() = Unit
   }
 
-  private class SwitchingGoogleAuth(private val consent: PendingIntent?) : GoogleAuth {
+  private class SwitchingGoogleAuth(
+      private val consent: PendingIntent?,
+      private val selection: Result<String> = Result.success("b@example.com"),
+  ) : GoogleAuth {
+    val authorizedTargets = mutableListOf<String>()
+    val tokenTargets = mutableListOf<String>()
     var authorizeCalls = 0
     var selectCalls = 0
     var signOutCalls = 0
@@ -453,22 +498,23 @@ class SettingsRecoverySchedulingTest {
 
     override suspend fun signIn(activity: Activity) = Result.success("b@example.com")
 
-    override suspend fun selectAccount(activity: Activity) =
-        Result.success("b@example.com").also { selectCalls++ }
+    override suspend fun selectAccount(activity: Activity) = selection.also { selectCalls++ }
 
     override suspend fun authorize(activity: Activity): AuthorizeOutcome = AuthorizeOutcome.Granted
 
     override suspend fun authorizeForAccount(
         activity: Activity,
         expectedEmail: String,
-    ): AuthorizeOutcome =
-        if (consent != null && authorizeCalls++ == 0) AuthorizeOutcome.NeedsConsent(consent)
-        else AuthorizeOutcome.Granted
+    ): AuthorizeOutcome {
+      authorizedTargets += expectedEmail
+      return if (consent != null && authorizeCalls++ == 0) AuthorizeOutcome.NeedsConsent(consent)
+      else AuthorizeOutcome.Granted
+    }
 
     override suspend fun getAccessToken() = TokenResult.Success("token")
 
     override suspend fun getAccessTokenForAccount(expectedEmail: String) =
-        TokenResult.Success("token")
+        TokenResult.Success("token").also { tokenTargets += expectedEmail }
 
     override suspend fun revokeCalendarAccess(expectedEmail: String): Result<Unit> =
         Result.success(Unit).also { revoked += expectedEmail }
@@ -526,7 +572,10 @@ class SettingsRecoverySchedulingTest {
     private var accountAAuthorizeCalls = 0
     val tokenTargets = mutableListOf<String>()
 
-    override suspend fun selectAccount(activity: Activity) = Result.success("b@example.com")
+    private var selections = 0
+
+    override suspend fun selectAccount(activity: Activity) =
+        Result.success(if (selections++ == 0) "a@example.com" else "b@example.com")
 
     override suspend fun authorizeForAccount(
         activity: Activity,
@@ -660,7 +709,10 @@ class SettingsRecoverySchedulingTest {
   private class FinalWriteGoogleAuth(private val consent: PendingIntent) : GoogleAuth {
     private var accountAAuthorizeCalls = 0
 
-    override suspend fun selectAccount(activity: Activity) = Result.success("b@example.com")
+    private var selections = 0
+
+    override suspend fun selectAccount(activity: Activity) =
+        Result.success(if (selections++ == 0) "a@example.com" else "b@example.com")
 
     override suspend fun authorizeForAccount(
         activity: Activity,
