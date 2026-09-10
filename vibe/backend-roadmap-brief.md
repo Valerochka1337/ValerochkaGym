@@ -1,7 +1,7 @@
 # Backend: исследованные контракты глобального плана
 
 Gate R, backend_release_discovery, 10.09.2026. Checkout backend:
-`/private/tmp/yarumo-backend-delivery`, repo `Valerochka1337/ValerochkaGymBackend`, база dba59ae.
+`/Users/raul/ItmoProjects/ValerochkaGymBackend`, repo `Valerochka1337/ValerochkaGymBackend`, база dba59ae.
 
 Существуют шесть JSONB kinds exercise/gym/routine/workout/measurement/schedule,
 атомарный revision sync, operationId ledger и tombstones. RecordValidator и SQL CHECK ограничивают

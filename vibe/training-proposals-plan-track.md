@@ -31,7 +31,7 @@ Status values: `pending | in_progress | done | blocked`.
 
 ## Deviations
 
-None. Current Room version observed during planning is 16, but the actual predecessor N belongs to the Android Room writer after CAL-01/guest-sync integration. Backend implementation ownership is maintained in the known backend plan/tracker at `/private/tmp/yarumo-backend-delivery`; no invented manifest path remains.
+None. Current Room version observed during planning is 16, but the actual predecessor N belongs to the Android Room writer after CAL-01/guest-sync integration. Backend implementation ownership is maintained in the known backend plan/tracker at `/Users/raul/ItmoProjects/ValerochkaGymBackend`; no invented manifest path remains.
 
 ## Findings
 

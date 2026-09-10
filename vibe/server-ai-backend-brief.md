@@ -1,6 +1,6 @@
 # AI-01 backend — Gate R, рекомендуемый контракт
 
-10.09.2026. Read-only исследование `/private/tmp/yarumo-backend-delivery`, после CAL-01
+10.09.2026. Read-only исследование `/Users/raul/ItmoProjects/ValerochkaGymBackend`, после CAL-01
 `c73c411`. Код/backend-файлы, Git, Gradle, production и реальные `.env` не изменялись.
 Это конкретная рекомендация для Gate P, не заявление о готовности production AI.
 Согласованный объём: перенос существующих генерации упражнения и распознавания фото InBody.

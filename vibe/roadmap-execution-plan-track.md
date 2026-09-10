@@ -43,7 +43,7 @@
 | 06 / #10 | fix/permission-recovery | done_local | 455f05a; full1035tests0failures/1skip,debugPASS,T/VPASS;34/1.3.26 |
 | 07 / #48 | feat/yarumo-rebrand | done_local | a1dc851; full1041tests0failures1skip/debug/R8PASS; strictT/VPASS;35/1.3.27; canonical emulator34→35 and accessibilityPASS; signedrelease awaitsCI |
 | 08 / #43 | feat/google-account-calendar | done_local |5c96376; full1083tests0failures/errors1skip/debugPASS; T/V PASS after final-write and legacy-fixture repairs;36/1.3.28, Room17 |
-| 11–12 / #51 | feat/guest-sync | in_progress | Gate P strict recheck PASS; actual-source T001 PASS; next migration17→18, sole Android writer starts after#43 |
+| 11–12 / #51 | feat/guest-sync | done_local | 52bfd43; final1110tests0failures/errors1skip/debugPASS; strict boundary rechecks PASS; Room18,37/1.3.29 |
 | CAL-01 server slice | backend feat/calendar-plan-contract | done_local | c73c411; full check/bootJar PASS, 44 tests 0 failures; strict PASS; upstream push/deploy blocked READ rights; Android Room slice ждёт этап12 |
 | AI-01 server slice | backend feat/server-ai-drafts | done_local | a5b567a; Gate T/V PASS; full check/bootJar64tests0failures;15 Python delivery tests PASS; READ rights block upstream; Android slice ждёт12 |
 | 10 / #9 server slice | backend feat/workout-notes-contract | done_local | f26de34; Gate T/V PASS; full68tests0failures/check/bootJarPASS; Android slice waits12/CAL01 |
@@ -51,13 +51,14 @@
 | 14–15 / #50 server slice | backend feat/basic-profile-contract | done_local | 03a0c1d; Gate T/V PASS; full72tests0failures/check/bootJarPASS; Android follows notes/current schema |
 | PLAN-01 server slice | backend feat/training-proposals | blocked_partial | safe subset commit7f27801; narrow independent review PASS; root96tests0failures/errors/skips/check bootJarPASS; edited-preview approval remains auto-review blocked, full AC not accepted |
 | 17 / manual health server slice | backend feat/manual-health-ledger | done_local |8bc1fae; migration011, canonical fixture parity, final120tests0failures/errors/skips/checkbootJarPASS; independentT/V PASS after4fixes; no release claimed |
+| 23 / coach-relations server slice | backend feat/coach-relations | done_local | 650baf2; independent T/V PASS; root check/bootJar139tests0failures/errors/skips PASS; fixturef5960d8a…501460; Android stage23/PLAN01 edited preview incomplete |
 
 Agent routing for stage08: environment rejected both new named implementer and original implementer follow-up with `agent thread limit reached`. Reused an available default Sol/high agent as the sole Android writer; ownership, targeted Gate I and independent T/V remain mandatory. Backend has its own separate checkout/writer. This changes routing only, not acceptance criteria.
 
 ## Инфраструктура и релиз
 
 - Backend найден: `Valerochka1337/ValerochkaGymBackend`, main `dba59ae`; отдельный checkout
-  `/private/tmp/yarumo-backend-delivery`. Последний deployment до начала работ прошёл успешно:
+  `/Users/raul/ItmoProjects/ValerochkaGymBackend`. Последний deployment до начала работ прошёл успешно:
   https://github.com/Valerochka1337/ValerochkaGymBackend/actions/runs/34318221584.
 - Android main требует PR и статус `Build and test`; approving review не обязателен.
   Публикация final integration пойдёт через PR, а не обход защиты main.
@@ -78,15 +79,17 @@ Agent routing for stage08: environment rejected both new named implementer and o
 
 ## Текущий внешний блокер
 
-Перехват 10.09.2026: оба checkout и dirty-наборы сверены с `roadmap-handoff.md`;
-Android остаётся `feat/google-account-calendar` (36/1.3.28), backend —
-`feat/training-proposals`. Новые исполнители назначены с отдельным владением checkout;
-единственный Android writer сохраняет Room/миграции/версию. Последний fix batch #43
-проходит повторный targeted Gate I; прежние PASS не заменяют его проверку.
-Backend full gate ранее завершился 96 tests / 1 failure (backup Liquibase count,
-expected 10 / actual 11); исправление и повторная проверка в работе.
-Отдельный automatic approval block edited-preview PLAN01 сохраняется; запрос по
-конкретному патчу отправлен вновь, разрешение не предполагается из общей автономии.
+Перехват 10.09.2026: #43 завершён локально (5c96376, полный1083/0fail/1skip,
+debug PASS); backend backup fixture исправлен и safe PLAN01 subset сохранён
+(7f27801, полный96/0fail/check bootJar PASS). Backend manual-health ledger также
+принят локально (8bc1fae, полный120/0fail/check bootJar PASS).
+Android сейчас `feat/guest-sync`, база6745e99, один writer завершает регрессии
+конфликтов/смены владельца и durable definite-409 recovery; Gate I ещё не завершён.
+Backend `feat/coach-relations` от eaa5081; Gate P PASS, production implementation
+начата отдельным writer. Android T/V выявили5P1+2P2 и coverage gaps; единый fix batch
+передан исходному writer, полного guest прогoна пока нет.
+Отдельный automatic approval block edited-preview PLAN01 сохраняется; ответ по
+конкретному патчу не получен, разрешение не предполагается из общей автономии.
 Новые публикации и успешный итоговый релиз пока не подтверждены.
 
 Backend GitHub: viewerPermission READ; SSH dry-run push отказан аккаунту rurkk. Android
@@ -101,3 +104,15 @@ permissions: pull=true, push=false, admin=false. Доступ через дру�
 Публикация backend: единственный уже подключённый gh аккаунт rurkk, READ; репозиторий публичный.
 После завершения кода допустим обычный fork + upstream PR для публикации, без обхода прав.
 Это не даёт merge/deploy права upstream и не считается успешным production release.
+
+## Latest user steering
+
+10.09.2026: пользователь уточнил расположение backend checkout и поручил пока
+продолжать локальную работу; write access к GitHub выдаст отдельно. Не выполнять
+push/PR/deploy до снятия этой паузы. Локальные feature branches/commits и проверки
+продолжаются; backend checkout /Users/raul/ItmoProjects/ValerochkaGymBackend сохранён.
+
+Guest sync сохранён52bfd43. Следующий Android этап CAL-01 от принятой Room18,
+единственный writer назначается после локального docs commit; ожидаемая Room19,
+версия38/1.3.30. Backend coach650baf2 принят локально; следующий calendar-AI пока
+только планируется в новом checkout, не принят и не реализован.

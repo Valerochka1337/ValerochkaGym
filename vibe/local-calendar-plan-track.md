@@ -12,7 +12,7 @@ Android writer копирует эти же байты в `app/src/test/resource
 |---|---|---|---|---|---|
 | T-001 | done | Root contract owner | — | AC-001–007 | Canonical vibe fixture и backend fixture совпадают, SHA-256 выше; Android test-resource copy обязательна перед T-002. |
 | T-002 | pending | Android Room writer | T-001 | AC-001–006 | Targeted Android calendar/backend tests pass; Room migration and gated local source compile. |
-| T-003 | in_progress | Backend writer | T-001 | AC-004,005,007 | Отдельный checkout /private/tmp/yarumo-backend-delivery, feat/calendar-plan-contract; backend integration tests + bootJar обязательны. |
+| T-003 | done_local | Backend writer | T-001 | AC-004,005,007 | Отдельный checkout /Users/raul/ItmoProjects/ValerochkaGymBackend, feat/calendar-plan-contract; backend integration tests + bootJar обязательны. |
 | T-004 | pending | Android Room writer | T-002,T-003 fixture | AC-001–007 | Real Room/migration/fault/DST/guest/capability/owner/legacy-bridge regressions pass. |
 | T-005 | pending | Android Room writer | T-004 | AC-001–007 | One Android version increment and compile evidence. |
 | T-006 | pending | Independent tester + Sol/high reviewer | T-003,T-005 | AC-001–007 | Consolidated Gate T/V verdict; no open P0/P1. |
@@ -49,3 +49,12 @@ Android writer копирует эти же байты в `app/src/test/resource
 - CAL-02 must supply deterministic Google external identity and same-owner reconciliation before any external event operation is re-enabled.
 - Legacy schedule projection remains synchronized for old clients; bridge behavior must not use UI suppression as a data-loss shortcut.
 - A server that ignores the capability header leaves calendar changes locally dirty by design.
+
+## Takeover preflight 10.09.2026
+
+Read-only researcher сверил принятую модель с #43 и текущим guest-sync. В план
+добавлены точные deltas: stable Room18 dependency, 18→19, coexistence старой
+owner-link таблицы, migration-before-weekly-adoption, identity regressions и
+RoomDaoTest setup. Новый продуктовый scope не добавлен. Android T-002 pending.
+Backend T-003 фактически завершён локально ранее: c73c411, Gate T/V PASS,
+full check/bootJar44tests0failures; публикация upstream ограничена READ правами.

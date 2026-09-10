@@ -2,23 +2,45 @@
 
 ## Продолжение после перехвата (актуальнее исторического состояния ниже)
 
+По запросу пользователя backend checkout перемещён в
+`/Users/raul/ItmoProjects/ValerochkaGymBackend`, рядом с Android. Git HEAD650baf2 и
+ветка feat/coach-relations сохранены, status clean после переноса. Старый временный
+checkout больше не существует; не создавать его снова. Пока работаем локально.
+
+
 Последнее обновление: #43 **done_local 5c96376**, version36/1.3.28 Room17,
 full1083tests0failures/errors1skip/debugPASS. После двух final-write P1 и старого
 миграционного fixture исправления independent T/V/narrow reviews PASS. Логи:
 `/private/tmp/yarumo-calendar-final-unit-rerun.log`, `/private/tmp/yarumo-calendar-final-debug.log`.
 Серверное здоровье **done_local 8bc1fae** на feat/manual-health-ledger, migration011,
 full120tests0failures/errors/skips/checkbootJarPASS;4reviewfindings исправлены и перепроверены.
-Android следующий этап — feat/guest-sync, actual-source T001 PASS, migration17→18.
-Backend coach-relations пока только готовится planner, implementation не начата.
-PLAN01 edited-preview patch остаётся отдельно заблокированным; новых публикаций нет.
+Guest sync **done_local52bfd43**, Room18,37/1.3.29. Final full1110tests0failures/
+errors1skip (6m14s) и debugPASS(12s). ПятьP1/дваP2 review исправлены; после двух
+неполных writerpasses root закрыл composite account-action и недостающие tests,
+отдельный Sol/high narrowreviewPASS. Full обнаружил исторический DDL leak в14→15,
+исправлен восстановлением SyncSchema.create и независимым narrow migrationPASS.
+Логи `/private/tmp/yarumo-guest-final-unit-rerun.log` и
+`/private/tmp/yarumo-guest-final-debug.log`. Следующий CAL-01 Android отRoom18→19;
+старая Room17 account-link table сохраняется рядом с новой UUID-link.
 
-- Checkout/ветки/dirty-наборы сверены; Android `origin/main` по-прежнему `cc590a4`, backend `origin/main` `dba59ae`.
-- Backend backup assertion исправлен на11 и дополнен точным сравнением всей Liquibase history до dump/после restore. Targeted1test PASS, независимый Sol/high narrow review PASS, root `check bootJar` **96tests/0failures/errors/skips PASS**, log `/private/tmp/yarumo-training-proposals-takeover-check.log`.
-- Safe PLAN01 subset сохранён в **7f27801**, ветка `feat/training-proposals` сохранена. Edited-preview equality/патч не изменены: отдельный запрос разрешения отправлен в текущей задаче, ответа пока нет. Полная PLAN01 приёмка остаётся заблокированной.
-- Backend теперь на **feat/manual-health-ledger** от7f27801. План manual-health получил independent Sol/high repair PASS; sole backend writer начал T001–005, next migration определяется по actual master (ожидается011). Текущую backend работу не перезаписывать.
-- Android #43 остаётся незавершённым на36/1.3.28. Повторный Settings targeted нашёл реальный duplicate resume/consent regression expected2/actual3; sole Android writer исправляет вместе с malformed SavedState и adaptive semantics. Новых итоговых T/V/full PASS ещё нет.
-- Guest-access plan strict narrow recheck PASS, tracker обновлён; реализация ждёт своих dependencies.
-- GitHub права перечитаны: Android push=true, backend push=false. Новых push/deploy/release пока нет.
+Backend coach **done_local650baf2**, migration012, independentT/V PASS,
+root checkbootJar139tests0failures/errors/skips PASS (50s), log
+`/private/tmp/yarumo-coach-final-check.log`. В новом постоянном checkout planner
+`calendar_ai_plan` готовит только backendcalendarAI21 plan/fixture. Production
+writer сейчас не работает; запрещённый edited-preview patch остаётсянетронутым.
+Актуальная coach fixture f5960d8a8fd269518aa6347b18607a778e4eff7f64aa5ecd9a2dc529aa501460.
+
+PLAN01 edited-preview patch остаётся отдельно заблокированным; ответа на конкретный
+запрос нет. Safe subset7f27801: backup assertion11 + exactLiquibasehistory equality,
+root96tests0failures/checkbootJar PASS. Патч не применялся, `git apply --check` PASS.
+Androidorigin/main cc590a4, backendorigin/main dba59ae при последней проверке.
+GitHub Androidpush=true, backendpush=false; публикации/deploy/release этойработы нет.
+Guest-access strict narrow GateP PASS, implementation ждётdependencies.
+
+Шесть старых зависших Gradle daemons/testexecutor пар этого checkout (старше2часов)
+проверены по daemonлогам завершённых/оборванных клиентов и остановлены root по точным
+PID после неуспешногоTERM; повторныйps подтвердил отсутствиеGradle. ЧужиеJVM нетронуты.
+Root последнийGradlesession24851 успешно завершён. Новый запуск согласовать с solewriter.
 
 ## Поручение и границы
 
@@ -44,7 +66,7 @@ PLAN01 edited-preview patch остаётся отдельно заблокиро
 
 Android: `/Users/raul/ItmoProjects/ValerochkaGym`.
 
-Backend: `/private/tmp/yarumo-backend-delivery`. Это важный отдельный checkout с неопубликованными commits и dirty PLAN01; не удалять и не пересоздавать его.
+Backend: `/Users/raul/ItmoProjects/ValerochkaGymBackend`. Это важный отдельный checkout с неопубликованными commits и dirty PLAN01; не удалять и не пересоздавать его.
 
 Android состояние на передачу:
 
@@ -194,3 +216,10 @@ CLI issueexports: `/private/tmp/yarumo-issues-replan.json`, `/tmp/yarumo-issues.
 ## Состояние исполнителей при передаче
 
 Все прежние subagents подтвердили безопасную остановку. Backend writer —24focusedPASS/healthdocsrepairpending; Googlewriter —unverifiedlatestfixbatch безпроцессов; reviewer —backendsafesubsetPASS/guestplanrepairssaved; researcher —readonlycompleted. Rootfullbackendsession42881закрыта с96tests/1failure. Старыеagentsне должныпродолжатьзаписьпараллельносновойзадачей. Новыйагентназначаетвладельцевзаново иначинаетспроверкиGitstatus/файловэтогоhandoff, а не сreset/reclone.
+
+## Latest steering
+
+Пользователь поручил пока работать локально, GitHub write access выдаст отдельно.
+Затем явно попросил перенести backend рядом с приложением; mv выполнен и HEAD/status
+проверены. Не публиковать/не создавать fork/PR до снятия текущей паузы. Продолжать
+остальную локальную реализацию и проверки, сохраняя отдельные feature commits.
