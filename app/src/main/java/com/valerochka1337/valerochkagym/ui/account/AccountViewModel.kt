@@ -16,7 +16,10 @@ import com.valerochka1337.valerochkagym.data.settings.normalizeCalendarEmail
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.*
 
@@ -31,13 +34,33 @@ constructor(
     private val calendarIdentity: CalendarAccountIdentity = NoOpCalendarAccountIdentity,
 ) : ViewModel() {
   val mode = MutableStateFlow("login")
-  val session = tokens.session
+  val session =
+      combine(tokens.session, sync.transfer) { current, state ->
+            current?.takeIf {
+              it.userId == state.owner &&
+                  state.phase in setOf(GuestSyncPhase.CLAIMED, GuestSyncPhase.OWNED)
+            }
+          }
+          .stateIn(
+              viewModelScope,
+              SharingStarted.WhileSubscribed(5_000),
+              tokens.session.value?.takeIf {
+                it.userId == sync.transfer.value.owner &&
+                    sync.transfer.value.phase in setOf(GuestSyncPhase.CLAIMED, GuestSyncPhase.OWNED)
+              },
+          )
   val status = sync.status
   val conflict = sync.conflict
   val catalogConflict = sync.catalogConflict
+  val transfer = sync.transfer
   val busy = MutableStateFlow(false)
   val message = MutableStateFlow<String?>(null)
-  val sessions = MutableStateFlow<List<BackendSession>>(emptyList())
+  private val sessionResults = MutableStateFlow<Pair<String, List<BackendSession>>?>(null)
+  val sessions =
+      combine(sessionResults, session) { result, current ->
+            result?.takeIf { it.first == current?.userId }?.second ?: emptyList()
+          }
+          .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
   private fun task(block: suspend () -> Unit) {
     if (busy.value) return
@@ -61,6 +84,8 @@ constructor(
   private suspend fun accept(value: JsonElement) {
     val session = api.json.decodeFromJsonElement<BackendTokens>(value)
     sync.signIn(session)
+    sessionResults.value = null
+    message.value = null
     scheduler.enqueue()
   }
 
@@ -148,27 +173,36 @@ constructor(
 
   fun logout(all: Boolean = false) = task {
     sync.signOut(all)
-    sessions.value = emptyList()
+    sessionResults.value = null
     mode.value = "login"
   }
 
-  fun loadSessions() = task {
-    sessions.value = api.json.decodeFromJsonElement(api.authorized("GET", "/sessions"))
+  private fun accountTask(
+      requests: List<Pair<String, String>>,
+      commit: (String, JsonElement) -> Unit,
+  ) {
+    val expectedOwner = session.value?.userId ?: return
+    task { sync.accountRequests(expectedOwner, requests) { commit(expectedOwner, it) } }
   }
 
-  fun revoke(id: String) = task {
-    api.authorized("DELETE", "/sessions/$id")
-    sessions.value = api.json.decodeFromJsonElement(api.authorized("GET", "/sessions"))
-  }
+  fun loadSessions() =
+      accountTask(listOf("GET" to "/sessions")) { owner, result ->
+        sessionResults.value = owner to api.json.decodeFromJsonElement(result)
+      }
 
-  fun deletionCode() = task {
-    api.authorized("POST", "/me/delete-code")
-    message.value = "Введите код из письма, чтобы удалить аккаунт"
-  }
+  fun revoke(id: String) =
+      accountTask(listOf("DELETE" to "/sessions/$id", "GET" to "/sessions")) { owner, result ->
+        sessionResults.value = owner to api.json.decodeFromJsonElement(result)
+      }
+
+  fun deletionCode() =
+      accountTask(listOf("POST" to "/me/delete-code")) { _, _ ->
+        message.value = "Введите код из письма, чтобы удалить аккаунт"
+      }
 
   fun delete(code: String) = task {
     sync.deleteAccount(code)
-    sessions.value = emptyList()
+    sessionResults.value = null
     mode.value = "login"
     message.value = "Аккаунт удалён"
   }

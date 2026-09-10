@@ -10,7 +10,14 @@ import com.valerochka1337.valerochkagym.data.settings.CalendarAccountIdentity
 import com.valerochka1337.valerochkagym.ui.account.AccountViewModel
 import com.valerochka1337.valerochkagym.util.MainDispatcherRule
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.*
@@ -226,6 +233,109 @@ class AccountViewModelTest : RoomDaoTest() {
         assertNotNull(store.session.value)
         assertNull(identity.preferredCalendarEmail.value)
         assertNull(identity.connectedCalendarEmail.value)
+      }
+
+  @Test
+  fun `queued account action never adopts a replacement account before dispatch`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        SyncSchema.install(db.openHelper.writableDatabase)
+        db.openHelper.writableDatabase.execSQL(
+            "UPDATE backend_state SET owner='a',phase='OWNED',initialMergeAcknowledged=1 WHERE id=1"
+        )
+        val store = Store().also { it.save(BackendTokens("a", "a@e", "a", "a")) }
+        val calls = mutableListOf<String>()
+        val api =
+            object : BackendTransport {
+              override val json = Json
+
+              override suspend fun public(method: String, path: String, body: JsonElement?) =
+                  error("unused")
+
+              override suspend fun authorized(
+                  method: String,
+                  path: String,
+                  body: JsonElement?,
+              ): JsonElement {
+                calls += path
+                return JsonArray(emptyList())
+              }
+            }
+        val sync = BackendSync(db, api, store)
+        val vm =
+            AccountViewModel(
+                api,
+                store,
+                sync,
+                BackendSyncScheduler(ApplicationProvider.getApplicationContext(), db),
+            )
+        vm.revoke("a-session")
+        db.openHelper.writableDatabase.execSQL(
+            "UPDATE backend_state SET owner='b',phase='CLAIMED',mergeId='b' WHERE id=1"
+        )
+        store.save(BackendTokens("b", "b@e", "b", "b"))
+        advanceUntilIdle()
+        vm.busy.first { !it }
+        assertTrue(calls.isEmpty())
+        assertTrue(vm.sessions.value.isEmpty())
+      }
+
+  @Test
+  fun `revoke chain and result commit finish for A before queued B sign in and never expose A sessions under B`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        SyncSchema.install(db.openHelper.writableDatabase)
+        db.openHelper.writableDatabase.execSQL(
+            "UPDATE backend_state SET owner='a',phase='OWNED',initialMergeAcknowledged=1 WHERE id=1"
+        )
+        val store = Store().also { it.save(BackendTokens("a", "a@e", "a", "a")) }
+        val switched = CompletableDeferred<Unit>()
+        val calls = mutableListOf<Pair<String, String?>>()
+        lateinit var sync: BackendSync
+        val api =
+            object : BackendTransport {
+              override val json = Json
+
+              override suspend fun public(method: String, path: String, body: JsonElement?) =
+                  error("unused")
+
+              override suspend fun authorized(
+                  method: String,
+                  path: String,
+                  body: JsonElement?,
+              ): JsonElement {
+                calls += method to store.session.value?.userId
+                if (method == "DELETE") {
+                  CoroutineScope(currentCoroutineContext()).launch(
+                      start = CoroutineStart.UNDISPATCHED
+                  ) {
+                    sync.signIn(BackendTokens("b", "b@e", "b", "b"))
+                    switched.complete(Unit)
+                  }
+                  return buildJsonObject {}
+                }
+                return json.encodeToJsonElement(
+                    listOf(BackendSession("a-session", "A phone", "date", true))
+                )
+              }
+            }
+        sync = BackendSync(db, api, store)
+        val vm =
+            AccountViewModel(
+                api,
+                store,
+                sync,
+                BackendSyncScheduler(ApplicationProvider.getApplicationContext(), db),
+            )
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.session.collect() }
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.sessions.collect() }
+        vm.revoke("a-session")
+        advanceUntilIdle()
+        switched.await()
+        vm.busy.first { !it }
+        advanceUntilIdle()
+        assertEquals(listOf("DELETE" to "a", "GET" to "a"), calls)
+        assertEquals("b", store.session.value?.userId)
+        assertEquals("b", vm.session.value?.userId)
+        assertTrue(vm.sessions.value.isEmpty())
       }
 
   private class RecordingIdentity(private val beforeWrite: () -> Unit) : CalendarAccountIdentity {

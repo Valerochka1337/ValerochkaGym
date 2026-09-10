@@ -1,6 +1,8 @@
 package com.valerochka1337.valerochkagym.data.backend
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 import androidx.sqlite.db.SupportSQLiteDatabase
 
@@ -9,7 +11,16 @@ data class BackendStateEntity(
     @PrimaryKey val id: Int = 1,
     val owner: String? = null,
     val generation: Long = 0,
+    @ColumnInfo(defaultValue = "'GUEST'") val phase: GuestSyncPhase = GuestSyncPhase.GUEST,
+    val mergeId: String? = null,
+    @ColumnInfo(defaultValue = "0") val initialMergeAcknowledged: Boolean = false,
 )
+
+enum class GuestSyncPhase {
+  GUEST,
+  CLAIMED,
+  OWNED,
+}
 
 @Entity(tableName = "backend_baseline")
 data class BackendBaselineEntity(@PrimaryKey val key: String, val recordJson: String)
@@ -19,6 +30,28 @@ data class BackendOutboxEntity(
     @PrimaryKey val id: Int = 1,
     val owner: String,
     val requestJson: String,
+)
+
+/** Records a definite server rejection without changing the retained request bytes. */
+@Entity(tableName = "backend_rejected_operations")
+data class BackendRejectedOperationEntity(
+    @PrimaryKey val operationId: String,
+    val owner: String,
+)
+
+@Entity(
+    tableName = "backend_conflict_copies",
+    primaryKeys =
+        ["mergeId", "kind", "originalSyncId", "remoteRevision", "localPayloadFingerprint"],
+    indices = [Index(value = ["localCopySyncId"], unique = true)],
+)
+data class BackendConflictCopyEntity(
+    val mergeId: String,
+    val kind: String,
+    val originalSyncId: String,
+    val remoteRevision: Long,
+    val localPayloadFingerprint: String,
+    val localCopySyncId: String,
 )
 
 object SyncSchema {

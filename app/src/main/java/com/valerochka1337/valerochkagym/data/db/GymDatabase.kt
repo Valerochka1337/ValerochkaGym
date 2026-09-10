@@ -5,6 +5,7 @@ import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import com.valerochka1337.valerochkagym.data.backend.GuestMergeDao
 import com.valerochka1337.valerochkagym.data.db.dao.BodyMeasurementDao
 import com.valerochka1337.valerochkagym.data.db.dao.CalendarEventAccountLinkDao
 import com.valerochka1337.valerochkagym.data.db.dao.ConfigurationTombstoneDao
@@ -43,6 +44,8 @@ import java.util.UUID
             com.valerochka1337.valerochkagym.data.backend.BackendStateEntity::class,
             com.valerochka1337.valerochkagym.data.backend.BackendBaselineEntity::class,
             com.valerochka1337.valerochkagym.data.backend.BackendOutboxEntity::class,
+            com.valerochka1337.valerochkagym.data.backend.BackendRejectedOperationEntity::class,
+            com.valerochka1337.valerochkagym.data.backend.BackendConflictCopyEntity::class,
             com.valerochka1337.valerochkagym.data.backend.CatalogStateEntity::class,
             com.valerochka1337.valerochkagym.data.backend.CatalogRecordEntity::class,
             com.valerochka1337.valerochkagym.data.backend.CatalogEquipmentEntity::class,
@@ -65,7 +68,7 @@ import java.util.UUID
             WorkoutGymEntity::class,
             WorkoutSetEntity::class,
         ],
-    version = 17,
+    version = 18,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -83,6 +86,8 @@ abstract class GymDatabase : RoomDatabase() {
   abstract fun muscleLoadUpgradeNoticeDao(): MuscleLoadUpgradeNoticeDao
 
   abstract fun gymDao(): GymDao
+
+  abstract fun guestMergeDao(): GuestMergeDao
 
   abstract fun routineDao(): RoutineDao
 
@@ -684,6 +689,29 @@ abstract class GymDatabase : RoomDatabase() {
           }
         }
 
+    val MIGRATION_17_18: Migration =
+        object : Migration(17, 18) {
+          override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE backend_state ADD COLUMN phase TEXT NOT NULL DEFAULT 'GUEST'")
+            db.execSQL("ALTER TABLE backend_state ADD COLUMN mergeId TEXT")
+            db.execSQL(
+                "ALTER TABLE backend_state ADD COLUMN initialMergeAcknowledged INTEGER NOT NULL DEFAULT 0"
+            )
+            db.execSQL(
+                "UPDATE backend_state SET phase=CASE WHEN owner IS NULL THEN 'GUEST' ELSE 'OWNED' END, initialMergeAcknowledged=CASE WHEN owner IS NULL THEN 0 ELSE 1 END"
+            )
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS backend_conflict_copies (mergeId TEXT NOT NULL,kind TEXT NOT NULL,originalSyncId TEXT NOT NULL,remoteRevision INTEGER NOT NULL,localPayloadFingerprint TEXT NOT NULL,localCopySyncId TEXT NOT NULL,PRIMARY KEY(mergeId,kind,originalSyncId,remoteRevision,localPayloadFingerprint))"
+            )
+            db.execSQL(
+                "CREATE UNIQUE INDEX IF NOT EXISTS index_backend_conflict_copies_localCopySyncId ON backend_conflict_copies(localCopySyncId)"
+            )
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS backend_rejected_operations (operationId TEXT NOT NULL,owner TEXT NOT NULL,PRIMARY KEY(operationId))"
+            )
+          }
+        }
+
     val MIGRATION_14_15: Migration =
         object : Migration(14, 15) {
           override fun migrate(db: SupportSQLiteDatabase) {
@@ -710,6 +738,7 @@ abstract class GymDatabase : RoomDatabase() {
             MIGRATION_14_15,
             MIGRATION_15_16,
             MIGRATION_16_17,
+            MIGRATION_17_18,
         )
   }
 }

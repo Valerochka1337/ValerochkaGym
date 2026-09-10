@@ -26,6 +26,7 @@ class Migration10To12Test {
     val fixture = MigrationRecoveryFixtures.createCurrentDatabase(context, name)
     fixture.use {
       val sql = fixture.database
+      MigrationRecoveryFixtures.removeV18GuestSyncSchema(sql)
       MigrationRecoveryFixtures.removeV17CalendarAccountSchema(sql)
       MigrationRecoveryFixtures.removeV14EquipmentSchema(sql)
       sql.execSQL("PRAGMA user_version = 10")

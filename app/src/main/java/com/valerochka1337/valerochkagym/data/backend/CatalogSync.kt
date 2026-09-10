@@ -19,7 +19,7 @@ class CatalogSync(private val database: GymDatabase, private val api: BackendTra
   private fun active() =
       db.query("SELECT 1 FROM workouts WHERE finishedAt IS NULL LIMIT 1").use { it.moveToFirst() }
 
-  suspend fun refresh(resolve: String? = null) {
+  suspend fun refresh(resolve: String? = null, ownerGuard: (() -> Unit)? = null) {
     val snapshot =
         try {
           api.json.decodeFromJsonElement<StandardSnapshot>(api.public("GET", "/catalog"))
@@ -30,6 +30,7 @@ class CatalogSync(private val database: GymDatabase, private val api: BackendTra
         }
     var conflict = false
     database.withTransaction {
+      ownerGuard?.invoke()
       if (active())
           throw BackendException(
               409,
@@ -147,6 +148,7 @@ class CatalogSync(private val database: GymDatabase, private val api: BackendTra
           "UPDATE catalog_state SET revision=?,active=?,pendingSnapshot=NULL,applying=0,bootstrapped=1 WHERE id=1",
           arrayOf(snapshot.revision, if (snapshot.active) 1 else 0),
       )
+      ownerGuard?.invoke()
     }
     if (conflict)
         throw BackendException(

@@ -134,4 +134,30 @@ class AccountFormComposeTest : RoomDaoTest() {
     compose.onNodeWithText("Забыли пароль?").performScrollTo().performClick()
     compose.onNodeWithText("Продолжить с Google").assertDoesNotExist()
   }
+
+  @Test
+  fun `claimed transfer recovery explains the required account at large font scale`() {
+    com.valerochka1337.valerochkagym.data.backend.SyncSchema.install(db.openHelper.writableDatabase)
+    db.openHelper.writableDatabase.execSQL(
+        "UPDATE backend_state SET owner='user-b',phase='CLAIMED',mergeId='merge-b' WHERE id=1"
+    )
+    val vm = accountViewModel()
+    compose.setContent {
+      val density = LocalDensity.current
+      CompositionLocalProvider(LocalDensity provides Density(density.density, fontScale = 2f)) {
+        GymTheme {
+          Column(Modifier.verticalScroll(rememberScrollState())) {
+            AccountForm(vm, onGoogleSignIn = {})
+          }
+        }
+      }
+    }
+
+    compose
+        .onNodeWithText(
+            "Перенос данных ожидает входа в тот же аккаунт, с которым начали перенос. Войдите в него, чтобы продолжить."
+        )
+        .performScrollTo()
+        .assertIsDisplayed()
+  }
 }

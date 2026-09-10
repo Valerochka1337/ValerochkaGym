@@ -101,6 +101,7 @@ internal object MigrationRecoveryFixtures {
     // The fixture starts from Room's current schema, then reconstructs the historical recovery
     // surface. v13's review column intentionally remains because MIGRATION_12_13 must tolerate
     // interrupted vendor restores that already carried it; v14's inventory-only objects must not.
+    removeV18GuestSyncSchema(db)
     removeV17CalendarAccountSchema(db)
     removeV14EquipmentSchema(db)
     db.execSQL(
@@ -222,6 +223,13 @@ internal object MigrationRecoveryFixtures {
     db.execSQL("DROP TRIGGER IF EXISTS calendar_event_account_links_validate_insert")
     db.execSQL("DROP TRIGGER IF EXISTS calendar_event_account_links_immutable")
     db.execSQL("DROP TABLE IF EXISTS calendar_event_account_links")
+  }
+
+  fun removeV18GuestSyncSchema(db: SupportSQLiteDatabase) {
+    db.execSQL("DROP TABLE IF EXISTS backend_conflict_copies")
+    db.execSQL("ALTER TABLE backend_state DROP COLUMN initialMergeAcknowledged")
+    db.execSQL("ALTER TABLE backend_state DROP COLUMN mergeId")
+    db.execSQL("ALTER TABLE backend_state DROP COLUMN phase")
   }
 
   fun seedVariantData(db: SupportSQLiteDatabase) {
