@@ -5,6 +5,7 @@ import androidx.hilt.work.HiltWorker
 import androidx.room.InvalidationTracker
 import androidx.work.*
 import com.valerochka1337.valerochkagym.data.db.GymDatabase
+import com.valerochka1337.valerochkagym.data.health.HealthLedgerSync
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -19,10 +20,12 @@ constructor(
     @Assisted context: Context,
     @Assisted params: WorkerParameters,
     private val sync: BackendSync,
+    private val health: HealthLedgerSync,
 ) : CoroutineWorker(context, params) {
   override suspend fun doWork(): Result =
       try {
         sync.run()
+        health.replayPending()
         Result.success()
       } catch (e: Exception) {
         if (e is kotlinx.coroutines.CancellationException) throw e

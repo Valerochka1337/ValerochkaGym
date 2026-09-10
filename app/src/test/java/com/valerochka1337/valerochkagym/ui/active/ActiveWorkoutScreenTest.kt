@@ -24,6 +24,7 @@ import com.valerochka1337.valerochkagym.data.db.entity.WorkoutExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.WorkoutSetEntity
 import com.valerochka1337.valerochkagym.data.db.relation.WorkoutExerciseWithSets
 import com.valerochka1337.valerochkagym.data.db.relation.WorkoutFull
+import com.valerochka1337.valerochkagym.domain.ExercisePersonalHint
 import com.valerochka1337.valerochkagym.service.RestTimerState
 import com.valerochka1337.valerochkagym.service.heartrate.HeartRateConnectionState
 import com.valerochka1337.valerochkagym.service.heartrate.HeartRateReading
@@ -46,6 +47,141 @@ import org.robolectric.annotation.GraphicsMode
 class ActiveWorkoutScreenTest {
 
   @get:Rule val composeRule = createComposeRule()
+
+  @Test
+  fun `active screen exposes a set note and its edit action`() {
+    val workout =
+        workoutWithIncompleteExercises()
+            .copy(
+                exercises =
+                    workoutWithIncompleteExercises().exercises.map { exercise ->
+                      exercise.copy(
+                          sets =
+                              exercise.sets.map { set ->
+                                if (set.id == FIRST_SET_ID) set.copy(note = "Не спешить") else set
+                              },
+                      )
+                    },
+            )
+    composeRule.setContent {
+      GymTheme {
+        ActiveWorkoutContent(
+            state = ActiveWorkoutUiState(loading = false, workout = workout),
+            elapsedSeconds = MutableStateFlow(0L),
+            restTimer = MutableStateFlow<RestTimerState?>(null),
+            heartRateState =
+                MutableStateFlow<HeartRateConnectionState>(HeartRateConnectionState.Idle),
+            heartRateReading = MutableStateFlow<HeartRateReading?>(null),
+            setActions = noOpSetActions(),
+            onDeleteExercise = {},
+            onReorderExercises = {},
+            onAddExercise = {},
+            onExerciseClick = {},
+            onFinish = {},
+            onDiscard = {},
+            onAddRestSeconds = {},
+            onSkipRest = {},
+            onScanHeartRate = {},
+            onConnectHeartRate = {},
+            onCancelHeartRateSelection = {},
+        )
+      }
+    }
+
+    composeRule.onNodeWithText("Не спешить").assertIsDisplayed()
+    composeRule.onAllNodesWithText("Заметка к подходу").assertCountEquals(3)
+  }
+
+  @Test
+  fun `set note remains reachable at font scale two`() {
+    val workout =
+        workoutWithIncompleteExercises()
+            .copy(
+                exercises =
+                    workoutWithIncompleteExercises().exercises.map { exercise ->
+                      exercise.copy(
+                          sets =
+                              exercise.sets.map { set ->
+                                if (set.id == FIRST_SET_ID) set.copy(note = "Не спешить") else set
+                              },
+                      )
+                    },
+            )
+    composeRule.setContent {
+      CompositionLocalProvider(LocalDensity provides Density(density = 1f, fontScale = 2f)) {
+        GymTheme {
+          ActiveWorkoutContent(
+              state = ActiveWorkoutUiState(loading = false, workout = workout),
+              elapsedSeconds = MutableStateFlow(0L),
+              restTimer = MutableStateFlow<RestTimerState?>(null),
+              heartRateState =
+                  MutableStateFlow<HeartRateConnectionState>(HeartRateConnectionState.Idle),
+              heartRateReading = MutableStateFlow<HeartRateReading?>(null),
+              setActions = noOpSetActions(),
+              onDeleteExercise = {},
+              onReorderExercises = {},
+              onAddExercise = {},
+              onExerciseClick = {},
+              onFinish = {},
+              onDiscard = {},
+              onAddRestSeconds = {},
+              onSkipRest = {},
+              onScanHeartRate = {},
+              onConnectHeartRate = {},
+              onCancelHeartRateSelection = {},
+          )
+        }
+      }
+    }
+
+    composeRule.onNodeWithText("Не спешить").assertIsDisplayed()
+    composeRule.onAllNodesWithText("Заметка к подходу").assertCountEquals(3)
+  }
+
+  @Test
+  fun `active hint exposes edit and unpin actions before the first set`() {
+    val edited = mutableListOf<Long>()
+    val unpinned = mutableListOf<Long>()
+    val workout = workoutWithIncompleteExercises()
+    composeRule.setContent {
+      GymTheme {
+        ActiveWorkoutContent(
+            state =
+                ActiveWorkoutUiState(
+                    loading = false,
+                    workout = workout,
+                    hintsByExercise = mapOf(111L to ExercisePersonalHint("Лопатки вместе", 1L)),
+                ),
+            elapsedSeconds = MutableStateFlow(0L),
+            restTimer = MutableStateFlow<RestTimerState?>(null),
+            heartRateState =
+                MutableStateFlow<HeartRateConnectionState>(HeartRateConnectionState.Idle),
+            heartRateReading = MutableStateFlow<HeartRateReading?>(null),
+            setActions =
+                noOpSetActions(
+                    editPersonalHint = { edited += it },
+                    unpinPersonalHint = { unpinned += it },
+                ),
+            onDeleteExercise = {},
+            onReorderExercises = {},
+            onAddExercise = {},
+            onExerciseClick = {},
+            onFinish = {},
+            onDiscard = {},
+            onAddRestSeconds = {},
+            onSkipRest = {},
+            onScanHeartRate = {},
+            onConnectHeartRate = {},
+            onCancelHeartRateSelection = {},
+        )
+      }
+    }
+
+    composeRule.onNodeWithText("Изменить подсказку").performClick()
+    composeRule.onNodeWithText("Убрать подсказку").performClick()
+    assertEquals(listOf(111L), edited)
+    assertEquals(listOf(111L), unpinned)
+  }
 
   @Test
   fun `one completion button follows the focused set`() {
@@ -421,7 +557,10 @@ class ActiveWorkoutScreenTest {
     }
   }
 
-  private fun noOpSetActions() =
+  private fun noOpSetActions(
+      editPersonalHint: (Long) -> Unit = {},
+      unpinPersonalHint: (Long) -> Unit = {},
+  ) =
       SetActions(
           stepWeight = { _, _ -> },
           stepReps = { _, _ -> },
@@ -437,6 +576,8 @@ class ActiveWorkoutScreenTest {
           uncomplete = { _ -> },
           addSet = { _ -> },
           deleteSet = { _ -> },
+          editPersonalHint = editPersonalHint,
+          unpinPersonalHint = unpinPersonalHint,
       )
 
   private fun assertAddSetIsAvailable() {

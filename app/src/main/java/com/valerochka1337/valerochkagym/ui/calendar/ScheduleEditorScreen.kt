@@ -78,6 +78,8 @@ fun ScheduleEditorScreen(
   val schedule by viewModel.weeklySchedule.collectAsStateWithLifecycle()
   val routines by viewModel.routines.collectAsStateWithLifecycle()
   val isScheduleBusy by viewModel.isScheduleBusy.collectAsStateWithLifecycle()
+  val calendarStatus by viewModel.calendarStatus.collectAsStateWithLifecycle()
+  val editingEnabled = calendarStatus.editingEnabled
 
   val drafts = remember { mutableStateMapOf<Int, DayDraft>() }
   val editedDays = remember { mutableStateMapOf<Int, Boolean>() }
@@ -153,6 +155,7 @@ fun ScheduleEditorScreen(
                 title = WEEKDAY_FULL[iso - 1],
                 draft = draft,
                 routineName = draft.routineId?.let { routineNames[it] },
+                enabled = editingEnabled,
                 onToggle = { enabled ->
                   markEdited(iso)
                   drafts[iso] = draft.copy(enabled = enabled)
@@ -163,13 +166,16 @@ fun ScheduleEditorScreen(
           }
 
           Spacer(Modifier.height(8.dp))
-          ScheduleClearButton(enabled = !isScheduleBusy, onClick = viewModel::clearSchedule)
+          ScheduleClearButton(
+              enabled = editingEnabled && !isScheduleBusy,
+              onClick = viewModel::clearSchedule,
+          )
           Spacer(Modifier.height(80.dp))
         }
       }
 
       ScheduleSaveButton(
-          enabled = !isScheduleBusy,
+          enabled = editingEnabled && !isScheduleBusy,
           onClick = {
             val rules =
                 (1..7).mapNotNull { iso ->
@@ -248,6 +254,7 @@ private fun DayRow(
     title: String,
     draft: DayDraft,
     routineName: String?,
+    enabled: Boolean,
     onToggle: (Boolean) -> Unit,
     onPickRoutine: () -> Unit,
     onPickTime: () -> Unit,
@@ -264,7 +271,7 @@ private fun DayRow(
           color = MaterialTheme.colorScheme.onSurface,
           modifier = Modifier.weight(1f),
       )
-      Switch(checked = draft.enabled, onCheckedChange = onToggle)
+      Switch(checked = draft.enabled, onCheckedChange = if (enabled) onToggle else null)
     }
     if (draft.enabled) {
       Spacer(Modifier.height(10.dp))
@@ -283,7 +290,7 @@ private fun DayRow(
                 Modifier.weight(1f)
                     .heightIn(min = 48.dp)
                     .wrapContentHeight(Alignment.CenterVertically)
-                    .clickable(onClick = onPickRoutine),
+                    .clickable(enabled = enabled, onClick = onPickRoutine),
         )
         Text(
             text = "%02d:%02d".format(draft.hour, draft.minute),
@@ -292,7 +299,7 @@ private fun DayRow(
             modifier =
                 Modifier.heightIn(min = 48.dp)
                     .wrapContentHeight(Alignment.CenterVertically)
-                    .clickable(onClick = onPickTime),
+                    .clickable(enabled = enabled, onClick = onPickTime),
         )
       }
     }

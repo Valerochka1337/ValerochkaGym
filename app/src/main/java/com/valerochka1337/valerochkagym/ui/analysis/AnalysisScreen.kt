@@ -2,11 +2,13 @@ package com.valerochka1337.valerochkagym.ui.analysis
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -16,9 +18,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -35,15 +34,22 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.valerochka1337.valerochkagym.R
+import com.valerochka1337.valerochkagym.data.db.entity.Muscle
+import com.valerochka1337.valerochkagym.domain.HealthRecordKind
+import com.valerochka1337.valerochkagym.domain.analysis.AnalysisPeriod
 import com.valerochka1337.valerochkagym.ui.components.GlowBackground
+import com.valerochka1337.valerochkagym.ui.components.GymFilterChip
 import com.valerochka1337.valerochkagym.ui.components.GymTopBar
 import com.valerochka1337.valerochkagym.ui.components.PillButton
 import com.valerochka1337.valerochkagym.ui.haptics.gymHaptics
+import com.valerochka1337.valerochkagym.ui.health.HealthAnalysisScreen
+import java.time.LocalDate
 
 private enum class AnalysisSection(val label: String) {
   OVERVIEW("Обзор"),
   LOAD("Нагрузка"),
   PROGRESS("Прогресс"),
+  HEALTH("Здоровье"),
 }
 
 /**
@@ -62,12 +68,13 @@ fun AnalysisScreen(
     onOpenSettings: () -> Unit,
     onOpenMeasurements: () -> Unit,
     onExerciseClick: (Long) -> Unit,
+    onOpenHealthDetail: (String) -> Unit = {},
+    onCreateHealth: (HealthRecordKind) -> Unit = {},
+    onOpenMeasurement: (String) -> Unit = {},
     modifier: Modifier = Modifier,
     viewModel: AnalysisViewModel = hiltViewModel(),
 ) {
   val state by viewModel.uiState.collectAsStateWithLifecycle()
-  val haptics = gymHaptics()
-  var section by rememberSaveable { mutableStateOf(AnalysisSection.OVERVIEW) }
   var upgradeMessage by rememberSaveable { mutableStateOf<String?>(null) }
   LaunchedEffect(viewModel) {
     viewModel.messages.collect {
@@ -76,6 +83,48 @@ fun AnalysisScreen(
     }
   }
 
+  AnalysisScreenContent(
+      state,
+      onOpenSettings,
+      onOpenMeasurements,
+      onExerciseClick,
+      modifier = modifier,
+      upgradeMessage = upgradeMessage,
+      onPeriodSelected = viewModel::onPeriodSelected,
+      onCustomRangeSelected = viewModel::onCustomRangeSelected,
+      onMuscleClicked = viewModel::onMuscleClicked,
+      onSelectorMuscleSelected = viewModel::onSelectorMuscleSelected,
+      onExerciseSelected = viewModel::onExerciseSelected,
+      onWeeklyMetricSelected = viewModel::onWeeklyMetricSelected,
+      onWeekSelected = viewModel::onWeekSelected,
+      onSessionSelected = viewModel::onSessionSelected,
+      healthContent = {
+        HealthAnalysisScreen(onOpenHealthDetail, onCreateHealth, onOpenMeasurement)
+      },
+  )
+}
+
+@Composable
+@OptIn(ExperimentalMaterial3Api::class)
+internal fun AnalysisScreenContent(
+    state: AnalysisUiState,
+    onOpenSettings: () -> Unit,
+    onOpenMeasurements: () -> Unit,
+    onExerciseClick: (Long) -> Unit,
+    modifier: Modifier = Modifier,
+    upgradeMessage: String? = null,
+    onPeriodSelected: (AnalysisPeriod) -> Unit = {},
+    onCustomRangeSelected: (LocalDate, LocalDate) -> Unit = { _, _ -> },
+    onMuscleClicked: (Muscle?) -> Unit = {},
+    onSelectorMuscleSelected: (Muscle) -> Unit = {},
+    onExerciseSelected: (Long) -> Unit = {},
+    onWeeklyMetricSelected: (WeeklyMetric) -> Unit = {},
+    onWeekSelected: (Int?) -> Unit = {},
+    onSessionSelected: (Int?) -> Unit = {},
+    healthContent: @Composable () -> Unit,
+) {
+  val haptics = gymHaptics()
+  var section by rememberSaveable { mutableStateOf(AnalysisSection.OVERVIEW) }
   GlowBackground(modifier = modifier) {
     Column(modifier = Modifier.fillMaxSize()) {
       GymTopBar(
@@ -115,35 +164,37 @@ fun AnalysisScreen(
               range = state.report.range,
               onPeriodSelected = {
                 haptics.tap()
-                viewModel.onPeriodSelected(it)
+                onPeriodSelected(it)
               },
               onCustomRangeSelected = { start, endInclusive ->
                 haptics.tap()
-                viewModel.onCustomRangeSelected(start, endInclusive)
+                onCustomRangeSelected(start, endInclusive)
               },
           )
         }
         item {
-          SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-            AnalysisSection.entries.forEachIndexed { index, item ->
-              SegmentedButton(
+          FlowRow(
+              modifier = Modifier.fillMaxWidth(),
+              horizontalArrangement = Arrangement.spacedBy(8.dp),
+              verticalArrangement = Arrangement.spacedBy(8.dp),
+          ) {
+            AnalysisSection.entries.forEach { item ->
+              GymFilterChip(
                   selected = section == item,
+                  label = item.label,
+                  modifier = Modifier.heightIn(min = 48.dp),
                   onClick = {
                     haptics.tap()
                     section = item
                   },
-                  shape =
-                      SegmentedButtonDefaults.itemShape(
-                          index = index,
-                          count = AnalysisSection.entries.size,
-                      ),
-              ) {
-                Text(item.label)
-              }
+              )
             }
           }
         }
-        if (state.loading && !state.report.hasData) {
+
+        if (section == AnalysisSection.HEALTH) {
+          item { healthContent() }
+        } else if (state.loading && !state.report.hasData) {
           item {
             Column(
                 modifier = Modifier.fillMaxWidth().padding(40.dp),
@@ -196,14 +247,14 @@ fun AnalysisScreen(
               item {
                 MuscleHeatmapCard(
                     state = state,
-                    onMuscleClicked = viewModel::onMuscleClicked,
-                    onSelectorSelected = viewModel::onSelectorMuscleSelected,
+                    onMuscleClicked = onMuscleClicked,
+                    onSelectorSelected = onSelectorMuscleSelected,
                 )
               }
               item {
                 MuscleVolumeCard(
                     state = state,
-                    onMuscleClicked = viewModel::onMuscleClicked,
+                    onMuscleClicked = onMuscleClicked,
                 )
               }
               item { MuscleFrequencyCard(state) }
@@ -214,15 +265,15 @@ fun AnalysisScreen(
               item {
                 WeeklyVolumeCard(
                     state = state,
-                    onMetricSelected = viewModel::onWeeklyMetricSelected,
-                    onWeekSelected = viewModel::onWeekSelected,
+                    onMetricSelected = onWeeklyMetricSelected,
+                    onWeekSelected = onWeekSelected,
                 )
               }
               item {
                 ExerciseProgressCard(
                     state = state,
-                    onExerciseSelected = viewModel::onExerciseSelected,
-                    onSessionSelected = viewModel::onSessionSelected,
+                    onExerciseSelected = onExerciseSelected,
+                    onSessionSelected = onSessionSelected,
                     onExerciseClick = {
                       haptics.tap()
                       onExerciseClick(it)
@@ -230,6 +281,7 @@ fun AnalysisScreen(
                 )
               }
             }
+            AnalysisSection.HEALTH -> Unit
           }
         }
       }

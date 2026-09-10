@@ -72,6 +72,31 @@ class RoutineUpdateUseCaseTest : RoomDaoTest() {
   }
 
   @Test
+  fun `hasDiverged ignores a completed set note`() = runTest {
+    val squat = addExercise("Присед")
+    val routineId = addRoutine("День A")
+    addRoutineExercise(
+        routineId,
+        squat.id,
+        position = 0,
+        plannedSets = listOf(PlannedSet(100.0, 5)),
+    )
+    val workout =
+        workoutFull(
+            routineId,
+            listOf(
+                exerciseWithSets(
+                    squat,
+                    position = 0,
+                    sets = listOf(completed(0, 100.0, 5).copy(note = "Колени наружу")),
+                ),
+            ),
+        )
+
+    assertFalse(useCase.hasDiverged(workout))
+  }
+
+  @Test
   fun `hasDiverged is true when a set weight changes`() = runTest {
     val squat = addExercise("Присед")
     val routineId = addRoutine("День A")

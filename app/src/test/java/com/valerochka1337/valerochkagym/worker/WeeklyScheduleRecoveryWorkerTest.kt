@@ -6,6 +6,7 @@ import androidx.work.ListenableWorker
 import androidx.work.WorkerFactory
 import androidx.work.WorkerParameters
 import androidx.work.testing.TestListenableWorkerBuilder
+import com.valerochka1337.valerochkagym.data.calendar.CalendarMigrationGate
 import com.valerochka1337.valerochkagym.data.google.ScheduleResult
 import com.valerochka1337.valerochkagym.data.schedule.WeeklySchedule
 import com.valerochka1337.valerochkagym.data.schedule.WeeklyScheduleRecoveryResult
@@ -40,9 +41,22 @@ class WeeklyScheduleRecoveryWorkerTest {
     assertEquals(ListenableWorker.Result.success(), result)
   }
 
-  private fun worker(result: WeeklyScheduleRecoveryResult): WeeklyScheduleRecoveryWorker {
+  @Test
+  fun `pending calendar migration never calls the legacy recovery repository`() = runTest {
+    val repository = FakeRepository(WeeklyScheduleRecoveryResult.Completed)
+    val result = worker(repository, PendingGate).doWork()
+    assertEquals(ListenableWorker.Result.success(), result)
+    assertEquals(0, repository.resumeCalls)
+  }
+
+  private fun worker(result: WeeklyScheduleRecoveryResult): WeeklyScheduleRecoveryWorker =
+      worker(FakeRepository(result), ReadyGate)
+
+  private fun worker(
+      repository: FakeRepository,
+      gate: CalendarMigrationGate,
+  ): WeeklyScheduleRecoveryWorker {
     val context = ApplicationProvider.getApplicationContext<Context>()
-    val repository = FakeRepository(result)
     return TestListenableWorkerBuilder<WeeklyScheduleRecoveryWorker>(context)
         .setWorkerFactory(
             object : WorkerFactory() {
@@ -51,7 +65,7 @@ class WeeklyScheduleRecoveryWorkerTest {
                   workerClassName: String,
                   workerParameters: WorkerParameters,
               ): ListenableWorker =
-                  WeeklyScheduleRecoveryWorker(appContext, workerParameters, repository)
+                  WeeklyScheduleRecoveryWorker(appContext, workerParameters, repository, gate)
             }
         )
         .build()
@@ -60,12 +74,25 @@ class WeeklyScheduleRecoveryWorkerTest {
   private class FakeRepository(
       private val recovery: WeeklyScheduleRecoveryResult,
   ) : WeeklyScheduleRepository {
+    var resumeCalls = 0
+
     override fun observe(): Flow<WeeklySchedule> = flowOf(WeeklySchedule())
 
     override suspend fun save(schedule: WeeklySchedule): ScheduleResult = ScheduleResult.Success
 
     override suspend fun clear(): ScheduleResult = ScheduleResult.Success
 
-    override suspend fun resumePendingOperation(): WeeklyScheduleRecoveryResult = recovery
+    override suspend fun resumePendingOperation(): WeeklyScheduleRecoveryResult {
+      resumeCalls++
+      return recovery
+    }
+  }
+
+  private object ReadyGate : CalendarMigrationGate {
+    override suspend fun ensureReady(): Boolean = true
+  }
+
+  private object PendingGate : CalendarMigrationGate {
+    override suspend fun ensureReady(): Boolean = false
   }
 }

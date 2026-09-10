@@ -41,6 +41,68 @@ class ActiveWorkoutRepositoryTest : RoomDaoTest() {
     repository = ActiveWorkoutRepositoryImpl(db, workoutDao, routineDao)
   }
 
+  @Test
+  fun `set note is guarded by active workout and survives a stale numeric entity save`() = runTest {
+    val exercise = addExercise("Заметка")
+    val workoutId = repository.startEmpty()
+    val section = repository.addExercise(workoutId, exercise)
+    val stale = workoutDao.getSetsForWorkoutExercise(section).single()
+
+    assertEquals(NoteSaveResult.Saved, repository.saveSetNote(workoutId, stale.id, "  cue  "))
+    repository.updateSet(stale.copy(reps = 8))
+
+    assertEquals("cue", workoutDao.getSet(stale.id)?.note)
+    assertEquals(
+        NoteSaveResult.TooLong,
+        repository.saveSetNote(workoutId, stale.id, "x".repeat(2001)),
+    )
+    repository.finish(workoutId)
+    assertEquals(
+        NoteSaveResult.MissingOrInactive,
+        repository.saveSetNote(workoutId, stale.id, "later"),
+    )
+  }
+
+  @Test
+  fun `notes only incomplete set survives finish while copied history remains incomplete`() =
+      runTest {
+        val exercise = addExercise("Подсказка")
+        val workoutId = repository.startEmpty()
+        val section = repository.addExercise(workoutId, exercise)
+        val set = workoutDao.getSetsForWorkoutExercise(section).single()
+
+        assertEquals(NoteSaveResult.Saved, repository.saveSetNote(workoutId, set.id, "наблюдение"))
+        repository.finish(workoutId)
+
+        val saved = workoutFull(workoutId).exercises.single().sets.single()
+        assertFalse(saved.isCompleted)
+        assertEquals("наблюдение", saved.note)
+      }
+
+  @Test
+  fun `set note stays on its row through reorder while duplicate is empty and cascade removes it`() =
+      runTest {
+        val firstExercise = addExercise("Первое")
+        val secondExercise = addExercise("Второе")
+        val workoutId = repository.startEmpty()
+        val firstSection = repository.addExercise(workoutId, firstExercise)
+        val secondSection = repository.addExercise(workoutId, secondExercise)
+        val noted = workoutDao.getSetsForWorkoutExercise(firstSection).single()
+        assertEquals(
+            NoteSaveResult.Saved,
+            repository.saveSetNote(workoutId, noted.id, "только этот"),
+        )
+
+        repository.addSet(firstSection)
+        repository.reorderExercises(workoutId, listOf(secondSection, firstSection))
+
+        val rows = workoutDao.getSetsForWorkoutExercise(firstSection)
+        assertEquals("только этот", rows.single { it.id == noted.id }.note)
+        assertEquals("", rows.single { it.id != noted.id }.note)
+        repository.deleteExercise(firstSection)
+        assertEquals(null, workoutDao.getSet(noted.id))
+      }
+
   // region startFromRoutine
 
   @Test

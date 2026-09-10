@@ -1,0 +1,112 @@
+{
+  "bounds": {
+    "birthDate": [
+      "1900-01-01",
+      "today UTC real ISO date"
+    ],
+    "equipmentIds": "unique sorted canonical equipment catalog IDs; empty unknown",
+    "manualConstraints": {
+      "blank": null,
+      "maxCodePoints": 2000,
+      "trimmed": true
+    },
+    "plannedSessionsPerWeek": [
+      1,
+      7
+    ],
+    "preferredSessionDurationMinutes": [
+      10,
+      240
+    ],
+    "updatedAt": "nonnegative int64 epoch milliseconds UTC"
+  },
+  "capability": "profile",
+  "capabilityLoss": "preserve dirty and ACKed clean Room/children/baseline/outbox; omission never deletion; reacceptance full refresh",
+  "cases": [
+    "owner-id-mismatch",
+    "guest-claim-rekey-transaction",
+    "profile-tombstone-capable",
+    "profile-tombstone-incapable",
+    "accepted-clean-to-missing-to-accepted",
+    "leap-birthdate-age-UTC",
+    "pending-before-visible-death",
+    "visible-before-consume-death",
+    "consume-before-effect-death"
+  ],
+  "conflict": "server singleton snapshot wins",
+  "delete": "deleted=true forbidden before ledger/revision; clear via empty snapshot; Android incoming tombstone preserves Room,children,baseline,outbox and reports invalid response",
+  "emptyPayload": {
+    "birthDate": null,
+    "equipmentIds": [],
+    "experienceLevel": null,
+    "manualConstraints": null,
+    "plannedSessionsPerWeek": null,
+    "preferredSessionDurationMinutes": null,
+    "schemaVersion": 1,
+    "sex": null,
+    "syncId": "9e27b903-8c27-34a4-82fa-164c43cf1212",
+    "trainingGoal": null,
+    "updatedAt": 0
+  },
+  "enums": {
+    "experienceLevel": [
+      "BEGINNER",
+      "INTERMEDIATE",
+      "ADVANCED"
+    ],
+    "sex": [
+      "FEMALE",
+      "MALE",
+      "PREFER_NOT_TO_SAY"
+    ],
+    "trainingGoal": [
+      "STRENGTH",
+      "MUSCLE_GAIN",
+      "FAT_LOSS",
+      "GENERAL_FITNESS",
+      "ENDURANCE",
+      "OTHER"
+    ]
+  },
+  "identity": {
+    "algorithm": "UUID.nameUUIDFromBytes(UTF8(ValerochkaGym.profile.v1:+authenticatedOwnerId))",
+    "expectedUuid": "9e27b903-8c27-34a4-82fa-164c43cf1212",
+    "owner": "owner-7",
+    "source": "ValerochkaGym.profile.v1:owner-7"
+  },
+  "kind": "profile",
+  "prompt": {
+    "intervalHours": 72,
+    "processDeath": "clear pending, preserve shown timestamp, no automatic AI; explicit re-entry",
+    "protocol": "reserve token; visible UI acknowledgment records time; consume before Fill/Continue/Disable; stale callback no-op",
+    "requiredUsefulFields": [
+      "trainingGoal",
+      "experienceLevel"
+    ],
+    "scope": "current owner; separate guest"
+  },
+  "providerProjection": {
+    "ageYears": "server computed at request UTC date, nullable",
+    "forbidden": [
+      "birthDate",
+      "syncId",
+      "ownerId"
+    ],
+    "profileFields": "only task-relevant saved context; missing remains unknown"
+  },
+  "requiredPayloadFields": [
+    "birthDate",
+    "equipmentIds",
+    "experienceLevel",
+    "manualConstraints",
+    "plannedSessionsPerWeek",
+    "preferredSessionDurationMinutes",
+    "schemaVersion",
+    "sex",
+    "syncId",
+    "trainingGoal",
+    "updatedAt"
+  ],
+  "schemaVersion": 1,
+  "unknown": "explicit JSON null, no inferred default"
+}

@@ -21,6 +21,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.*
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -29,15 +30,84 @@ import okhttp3.RequestBody.Companion.toRequestBody
 interface BackendTransport {
   val json: Json
 
+  /** Accepted optional capabilities for the current server response chain. */
+  val acceptedCapabilities: Set<String>
+    get() = emptySet()
+
   suspend fun public(method: String, path: String, body: JsonElement? = null): JsonElement
 
   suspend fun authorized(method: String, path: String, body: JsonElement? = null): JsonElement
+
+  /** Additional request headers for owner-scoped optional backend features. */
+  suspend fun authorized(
+      method: String,
+      path: String,
+      body: JsonElement? = null,
+      headers: Map<String, String>,
+  ): JsonElement = authorized(method, path, body)
+
+  /**
+   * Legacy JSON convenience for non-owner-sensitive callers. Owner-sensitive flows must consume a
+   * response-bound [BackendResponse] from a production transport and reject a null owner.
+   */
+  suspend fun authorizedResponse(
+      method: String,
+      path: String,
+      body: JsonElement? = null,
+      headers: Map<String, String> = emptyMap(),
+      retryOnUnauthorized: Boolean = true,
+  ): BackendResponse {
+    val response = authorized(method, path, body, headers)
+    return BackendResponse(
+        body = response,
+        rawBody = json.encodeToString(JsonElement.serializer(), response).encodeToByteArray(),
+        acceptedCapabilities = acceptedCapabilities,
+        owner = null,
+    )
+  }
+
+  /** Sends previously journaled bytes verbatim; unsupported transports fail closed. */
+  suspend fun authorizedRawResponse(
+      method: String,
+      path: String,
+      rawBody: ByteArray,
+      headers: Map<String, String> = emptyMap(),
+      expectedOwner: String? = null,
+      expectedSessionEpoch: Long? = null,
+      retryOnUnauthorized: Boolean = false,
+      maxResponseBytes: Int? = null,
+  ): BackendResponse = throw UnsupportedOperationException("Raw backend transport is required")
 }
+
+data class BackendResponse(
+    val body: JsonElement,
+    val rawBody: ByteArray,
+    val acceptedCapabilities: Set<String>,
+    val owner: String?,
+    /** Snapshot of the authenticated session that dispatched this exact request. */
+    val sessionEpoch: Long = 0L,
+)
+
+data class BackendSessionSnapshot(val tokens: BackendTokens, val epoch: Long)
 
 interface BackendSessionStore {
   val session: kotlinx.coroutines.flow.StateFlow<BackendTokens?>
 
   fun save(tokens: BackendTokens?)
+
+  /** Monotonically changes on every save, including A → B → A with equal token values. */
+  val sessionEpoch: Long
+    get() = 0L
+
+  /** The production implementation returns tokens and epoch under one lock. */
+  fun snapshot(): BackendSessionSnapshot? =
+      session.value?.let { BackendSessionSnapshot(it, sessionEpoch) }
+
+  fun replaceIfCurrent(expectedRefreshToken: String, replacement: BackendTokens?): Boolean {
+    if (session.value?.refreshToken != expectedRefreshToken) return false
+    save(replacement)
+    return true
+  }
 }
 
 @Singleton
@@ -46,7 +116,14 @@ class BackendTokenStore @Inject constructor(@ApplicationContext context: Context
   private val file = AtomicFile(File(context.noBackupFilesDir, "backend-session.bin"))
   private val json = Json { ignoreUnknownKeys = true }
   private val state = MutableStateFlow(load())
+  private var epoch = 0L
   override val session = state.asStateFlow()
+  override val sessionEpoch: Long
+    @Synchronized get() = epoch
+
+  @Synchronized
+  override fun snapshot(): BackendSessionSnapshot? =
+      state.value?.let { BackendSessionSnapshot(it, epoch) }
 
   private fun key(): SecretKey {
     val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
@@ -78,7 +155,10 @@ class BackendTokenStore @Inject constructor(@ApplicationContext context: Context
       }
 
   @Synchronized
-  fun replaceIfCurrent(expectedRefreshToken: String, replacement: BackendTokens?): Boolean {
+  override fun replaceIfCurrent(
+      expectedRefreshToken: String,
+      replacement: BackendTokens?,
+  ): Boolean {
     if (state.value?.refreshToken != expectedRefreshToken) return false
     save(replacement)
     return true
@@ -100,42 +180,81 @@ class BackendTokenStore @Inject constructor(@ApplicationContext context: Context
         throw e
       }
     }
+    epoch++
     state.value = tokens
   }
 }
 
 @Singleton
-class BackendApi @Inject constructor(private val tokens: BackendTokenStore) : BackendTransport {
+class BackendApi @Inject constructor(private val tokens: BackendSessionStore) : BackendTransport {
+  internal constructor(
+      tokens: BackendSessionStore,
+      client: OkHttpClient,
+      baseUrl: String,
+  ) : this(tokens) {
+    this.client = client
+    this.baseUrl = baseUrl.toHttpUrl().toString().ensureTrailingSlash()
+  }
+
   override val json = Json {
     ignoreUnknownKeys = true
     encodeDefaults = true
     explicitNulls = true
   }
-  private val client =
-      OkHttpClient.Builder()
-          .connectTimeout(15, TimeUnit.SECONDS)
-          .callTimeout(90, TimeUnit.SECONDS)
-          .retryOnConnectionFailure(false)
-          .build()
+  private var client = defaultClient()
+  private var baseUrl = DEFAULT_BASE_URL
   private val refreshMutex = Mutex()
 
   private fun execute(
       method: String,
       path: String,
-      body: JsonElement?,
+      body: ByteArray?,
       token: String?,
-  ): JsonElement {
+      headers: Map<String, String> = emptyMap(),
+      owner: String? = null,
+      sessionEpoch: Long = 0L,
+      maxResponseBytes: Int = DEFAULT_MAX_RESPONSE_BYTES,
+  ): BackendResponse {
+    val requestedCapabilities =
+        (setOf(
+                "calendar-plans",
+                "exercise-hint",
+                "annotated-workout-writes",
+                "profile",
+                "health-ledger-v1",
+            ) +
+                headers["X-Gym-Capabilities"]
+                    .orEmpty()
+                    .split(',')
+                    .map(String::trim)
+                    .filter(String::isNotEmpty))
+            .sorted()
+            .joinToString(",")
     val request =
         Request.Builder()
-            .url("https://api.valerochkagym.tech/v1$path")
+            .url("${baseUrl}v1$path")
             .header("X-Gym-Sync-Version", "2")
+            .header("X-Gym-Capabilities", requestedCapabilities)
             .method(
                 method,
                 if (method in setOf("GET", "HEAD")) null
-                else (body?.toString() ?: "{}").toRequestBody("application/json".toMediaType()),
+                else
+                    (body ?: "{}".encodeToByteArray()).toRequestBody(
+                        "application/json".toMediaType()
+                    ),
             )
     if (token != null) request.header("Authorization", "Bearer $token")
+    headers
+        .filterKeys { it != "X-Gym-Capabilities" }
+        .forEach { (name, value) -> request.header(name, value) }
     client.newCall(request.build()).execute().use { response ->
+      val accepted =
+          response
+              .header("X-Gym-Capabilities")
+              ?.split(',')
+              ?.map(String::trim)
+              ?.filter(String::isNotEmpty)
+              ?.toSet() ?: emptySet()
       val bytes =
           response.body.byteStream().use { input ->
             val out = java.io.ByteArrayOutputStream()
@@ -145,7 +264,7 @@ class BackendApi @Inject constructor(private val tokens: BackendTokenStore) : Ba
               val read = input.read(buffer)
               if (read < 0) break
               size += read
-              if (size > 20 * 1024 * 1024)
+              if (size > maxResponseBytes)
                   throw BackendException(413, "response_too_large", "Ответ сервера слишком большой")
               out.write(buffer, 0, read)
             }
@@ -165,34 +284,92 @@ class BackendApi @Inject constructor(private val tokens: BackendTokenStore) : Ba
             error?.get("message")?.jsonPrimitive?.content ?: "Сервер недоступен. Повторите позже",
         )
       }
-      return parsed
+      return BackendResponse(parsed, bytes, accepted, owner, sessionEpoch)
     }
   }
 
   override suspend fun public(method: String, path: String, body: JsonElement?): JsonElement =
-      withContext(Dispatchers.IO) { execute(method, path, body, null) }
+      withContext(Dispatchers.IO) {
+        execute(method, path, body?.toString()?.encodeToByteArray(), null).body
+      }
 
   override suspend fun authorized(method: String, path: String, body: JsonElement?): JsonElement =
+      authorized(method, path, body, emptyMap())
+
+  override suspend fun authorized(
+      method: String,
+      path: String,
+      body: JsonElement?,
+      headers: Map<String, String>,
+  ): JsonElement = authorizedResponse(method, path, body, headers).body
+
+  override suspend fun authorizedResponse(
+      method: String,
+      path: String,
+      body: JsonElement?,
+      headers: Map<String, String>,
+      retryOnUnauthorized: Boolean,
+  ): BackendResponse =
+      authorizedRawResponse(
+          method = method,
+          path = path,
+          rawBody = (body?.toString() ?: "{}").encodeToByteArray(),
+          headers = headers,
+          retryOnUnauthorized = retryOnUnauthorized,
+      )
+
+  override suspend fun authorizedRawResponse(
+      method: String,
+      path: String,
+      rawBody: ByteArray,
+      headers: Map<String, String>,
+      expectedOwner: String?,
+      expectedSessionEpoch: Long?,
+      retryOnUnauthorized: Boolean,
+      maxResponseBytes: Int?,
+  ): BackendResponse =
       withContext(Dispatchers.IO) {
-        val session =
-            tokens.session.value ?: throw BackendException(401, "unauthorized", "Войдите в аккаунт")
+        val dispatch =
+            tokens.snapshot() ?: throw BackendException(401, "unauthorized", "Войдите в аккаунт")
+        val session = dispatch.tokens
+        val epoch = dispatch.epoch
+        if (
+            (expectedOwner != null && session.userId != expectedOwner) ||
+                (expectedSessionEpoch != null && epoch != expectedSessionEpoch)
+        )
+            throw BackendException(401, "owner_changed", "Аккаунт изменился")
+        if (tokens.snapshot() != dispatch) {
+          throw BackendException(401, "owner_changed", "Аккаунт изменился")
+        }
         try {
-          execute(method, path, body, session.accessToken)
+          execute(
+              method,
+              path,
+              rawBody,
+              session.accessToken,
+              headers,
+              session.userId,
+              epoch,
+              maxResponseBytes ?: DEFAULT_MAX_RESPONSE_BYTES,
+          )
         } catch (e: BackendException) {
-          if (e.status != 401) throw e
+          if (e.status != 401 || !retryOnUnauthorized) throw e
           refreshMutex.withLock {
-            val current = tokens.session.value ?: throw e
+            val current = tokens.snapshot()?.tokens ?: throw e
             if (current.userId != session.userId) throw e
             if (current.accessToken == session.accessToken) {
               try {
                 val updated =
                     json.decodeFromJsonElement<BackendTokens>(
                         execute(
-                            "POST",
-                            "/auth/refresh",
-                            buildJsonObject { put("refreshToken", current.refreshToken) },
-                            null,
-                        )
+                                "POST",
+                                "/auth/refresh",
+                                buildJsonObject { put("refreshToken", current.refreshToken) }
+                                    .toString()
+                                    .encodeToByteArray(),
+                                null,
+                            )
+                            .body
                     )
                 // Never restore a session which the user logged out of while the request was in
                 // flight.
@@ -203,8 +380,39 @@ class BackendApi @Inject constructor(private val tokens: BackendTokenStore) : Ba
               }
             }
           }
-          val refreshed = tokens.session.value?.takeIf { it.userId == session.userId } ?: throw e
-          execute(method, path, body, refreshed.accessToken)
+          val refreshedDispatch = tokens.snapshot() ?: throw e
+          val refreshed = refreshedDispatch.tokens.takeIf { it.userId == session.userId } ?: throw e
+          val refreshedEpoch = refreshedDispatch.epoch
+          if (
+              (expectedOwner != null && refreshed.userId != expectedOwner) ||
+                  (expectedSessionEpoch != null && refreshedEpoch != expectedSessionEpoch)
+          )
+              throw e
+          if (tokens.snapshot() != refreshedDispatch) throw e
+          execute(
+              method,
+              path,
+              rawBody,
+              refreshed.accessToken,
+              headers,
+              refreshed.userId,
+              refreshedEpoch,
+              maxResponseBytes ?: DEFAULT_MAX_RESPONSE_BYTES,
+          )
         }
       }
+
+  private companion object {
+    const val DEFAULT_BASE_URL = "https://api.valerochkagym.tech/"
+    const val DEFAULT_MAX_RESPONSE_BYTES = 20 * 1024 * 1024
+
+    fun defaultClient(): OkHttpClient =
+        OkHttpClient.Builder()
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .callTimeout(90, TimeUnit.SECONDS)
+            .retryOnConnectionFailure(false)
+            .build()
+  }
 }
+
+private fun String.ensureTrailingSlash(): String = if (endsWith('/')) this else "$this/"

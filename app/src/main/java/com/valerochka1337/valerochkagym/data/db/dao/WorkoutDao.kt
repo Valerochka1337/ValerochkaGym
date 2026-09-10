@@ -46,6 +46,20 @@ interface WorkoutDao {
 
   @Update suspend fun updateSet(set: WorkoutSetEntity)
 
+  @Query(
+      """
+        UPDATE workout_sets SET note=:note WHERE id=:setId
+        AND EXISTS (
+          SELECT 1 FROM workout_exercises we JOIN workouts w ON w.id=we.workoutId
+          WHERE we.id=workout_sets.workoutExerciseId AND w.id=:workoutId AND w.finishedAt IS NULL
+        )
+      """,
+  )
+  suspend fun updateActiveSetNote(workoutId: String, setId: Long, note: String): Int
+
+  @Query("UPDATE workouts SET note=:note WHERE id=:workoutId AND finishedAt IS NULL")
+  suspend fun updateActiveWorkoutNote(workoutId: String, note: String): Int
+
   /** Обновляет несколько строк упражнений одним вызовом Room. Транзакцию задаёт репозиторий. */
   @Update suspend fun updateWorkoutExercises(exercises: List<WorkoutExerciseEntity>)
 

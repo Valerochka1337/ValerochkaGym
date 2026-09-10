@@ -1,5 +1,21 @@
 # Передача полной реализации roadmap — 10.09.2026
 
+## Новое ограничение объёма — завершить только начатое
+
+Владелец поручил завершить частично готовые функции без начала новых. Актуальные
+границы и порядок: [partial-completion-plan.md](partial-completion-plan.md),
+приёмка: [partial-completion-plan-track.md](partial-completion-plan-track.md).
+Прежнее поручение выполнить все 31 этап не является текущим объёмом.
+CAL-02, рекомендации, питание и другие не начатые функции отложены.
+Публикация/деплой остаются на паузе. Edited-preview PLAN-01 отдельно ожидает ответа
+на конкретный запрос разрешения, повторно заданный в текущей задаче.
+
+Проверка текущего checkout выявила более новое состояние backend: `feat/calendar-ai`,
+HEAD `91905b4`, незакоммиченная реализация calendar-AI, в том числе migration013 и
+проверки capture. Её завершение входит в начатую работу. Android остаётся на
+`feat/local-calendar` с известными незакоммиченными CAL-01 изменениями; версия
+38/1.3.30 уже поднята один раз. Новая приёмка пока не объявлена.
+
 ## Продолжение после перехвата (актуальнее исторического состояния ниже)
 
 По запросу пользователя backend checkout перемещён в
@@ -20,14 +36,23 @@ errors1skip (6m14s) и debugPASS(12s). ПятьP1/дваP2 review исправл
 отдельный Sol/high narrowreviewPASS. Full обнаружил исторический DDL leak в14→15,
 исправлен восстановлением SyncSchema.create и независимым narrow migrationPASS.
 Логи `/private/tmp/yarumo-guest-final-unit-rerun.log` и
-`/private/tmp/yarumo-guest-final-debug.log`. Следующий CAL-01 Android отRoom18→19;
-старая Room17 account-link table сохраняется рядом с новой UUID-link.
+`/private/tmp/yarumo-guest-final-debug.log`. CAL-01 Android в работе на
+`feat/local-calendar` от `c2b6bf6`, Room18→19, версия38/1.3.30. Единственный writer
+`calendar_complete` перехватил app/** от остановленного `local_calendar_impl` и
+завершает quarantine facade старого weekly repository и явные состояния UI.
+Durable migration, capability/claim, bridge/command identity и1→19 прошли целевые
+проверки; оставшиеся reference/temporal/account-link/active регрессии и Gate I ещё
+не приняты. Старая Room17 account-link table сохраняется рядом с новой UUID-link.
 
 Backend coach **done_local650baf2**, migration012, independentT/V PASS,
 root checkbootJar139tests0failures/errors/skips PASS (50s), log
-`/private/tmp/yarumo-coach-final-check.log`. В новом постоянном checkout planner
-`calendar_ai_plan` готовит только backendcalendarAI21 plan/fixture. Production
-writer сейчас не работает; запрещённый edited-preview patch остаётсянетронутым.
+`/private/tmp/yarumo-coach-final-check.log`. В новом постоянном checkout
+Calendar-AI21 Gate P принят после узких исправлений и независимого recheck.
+Fixture SHA `42714ea6086c8d7349543cfdb3d11cfac86d04fe67b15ec743ff388f4e31b18e`;
+root JSON Schema/semantic validator102 assertions PASS. План сохранён91905b4
+на новой локальной ветке `feat/calendar-ai`; единственный backend writer
+`calendar_ai_impl` реализует T-001–T-004. Runtime gates ещё не пройдены.
+Edited-preview patch не применялся и остаётся отдельно заблокированным.
 Актуальная coach fixture f5960d8a8fd269518aa6347b18607a778e4eff7f64aa5ecd9a2dc529aa501460.
 
 PLAN01 edited-preview patch остаётся отдельно заблокированным; ответа на конкретный
@@ -216,6 +241,20 @@ CLI issueexports: `/private/tmp/yarumo-issues-replan.json`, `/tmp/yarumo-issues.
 ## Состояние исполнителей при передаче
 
 Все прежние subagents подтвердили безопасную остановку. Backend writer —24focusedPASS/healthdocsrepairpending; Googlewriter —unverifiedlatestfixbatch безпроцессов; reviewer —backendsafesubsetPASS/guestplanrepairssaved; researcher —readonlycompleted. Rootfullbackendsession42881закрыта с96tests/1failure. Старыеagentsне должныпродолжатьзаписьпараллельносновойзадачей. Новыйагентназначаетвладельцевзаново иначинаетспроверкиGitstatus/файловэтогоhandoff, а не сreset/reclone.
+
+## Current active work
+
+Android current branch `feat/local-calendar`, base `c2b6bf6` (accepted guest52bfd43).
+Local integration `feat/roadmap-delivery` also c2b6bf6. CAS fast-forward was first
+misread/rejected by automatic review; read-only ancestry proof + explicit new/old
+SHA arguments accepted the retry, no rejection bypass. Sole Android writer
+`local_calendar_impl` owns app/** and local-calendar tracker, expected18→19 and
+38/1.3.30. Canonical CAL fixture copied exact bytes; no Gradle/root app edits while
+writer active. UI must have one Room-authoritative path, no test-only Google fallback.
+
+Backend HEAD650baf2 remains clean except three calendar-AI planning documents;
+`calendar_ai_plan_review` performs strict Gate P. No calendar-AI code accepted yet.
+Planner ownership is those three documents only in the new permanent checkout.
 
 ## Latest steering
 

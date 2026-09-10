@@ -14,6 +14,8 @@ data class BackendStateEntity(
     @ColumnInfo(defaultValue = "'GUEST'") val phase: GuestSyncPhase = GuestSyncPhase.GUEST,
     val mergeId: String? = null,
     @ColumnInfo(defaultValue = "0") val initialMergeAcknowledged: Boolean = false,
+    val capabilityOwner: String? = null,
+    @ColumnInfo(defaultValue = "''") val acceptedCapabilities: String = "",
 )
 
 enum class GuestSyncPhase {
@@ -60,6 +62,16 @@ object SyncSchema {
           "exercises",
           "exercise_muscles",
           "exercise_equipment",
+          "exercise_personal_hints",
+          "profiles",
+          "profile_equipment",
+          // These only wake the existing serialized worker; PortableData deliberately excludes them
+          // from the generic /sync request.
+          "health_logical_records",
+          "health_record_versions",
+          "health_head_history",
+          "health_metric_identities",
+          "health_sync_outbox",
           "gyms",
           "gym_exercises",
           "gym_equipment",
@@ -72,6 +84,9 @@ object SyncSchema {
           "workout_gyms",
           "body_measurements",
           "scheduled_workouts",
+          "calendar_plans",
+          "calendar_rules",
+          "calendar_exceptions",
       )
 
   fun create(db: SupportSQLiteDatabase) {
@@ -89,12 +104,17 @@ object SyncSchema {
 
   fun install(db: SupportSQLiteDatabase) {
     db.execSQL("INSERT OR IGNORE INTO backend_state(id,owner,generation) VALUES (1,NULL,0)")
-    trackedTables.forEach { table ->
-      listOf("INSERT", "UPDATE", "DELETE").forEach { operation ->
-        db.execSQL(
-            "CREATE TRIGGER IF NOT EXISTS backend_${table}_${operation.lowercase()} AFTER $operation ON $table BEGIN UPDATE backend_state SET generation=generation+1 WHERE id=1; END"
-        )
-      }
-    }
+    trackedTables
+        .filter { table ->
+          db.query("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", arrayOf(table))
+              .use { it.moveToFirst() }
+        }
+        .forEach { table ->
+          listOf("INSERT", "UPDATE", "DELETE").forEach { operation ->
+            db.execSQL(
+                "CREATE TRIGGER IF NOT EXISTS backend_${table}_${operation.lowercase()} AFTER $operation ON $table BEGIN UPDATE backend_state SET generation=generation+1 WHERE id=1; END"
+            )
+          }
+        }
   }
 }

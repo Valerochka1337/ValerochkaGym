@@ -10,6 +10,10 @@ import com.valerochka1337.valerochkagym.domain.ActiveWorkoutUnavailableException
 import com.valerochka1337.valerochkagym.domain.CompleteSetUseCase
 import com.valerochka1337.valerochkagym.domain.CompletedSetEditResult
 import com.valerochka1337.valerochkagym.domain.CompletedSetNumbers
+import com.valerochka1337.valerochkagym.domain.ExercisePersonalHint
+import com.valerochka1337.valerochkagym.domain.ExercisePersonalHintRepository
+import com.valerochka1337.valerochkagym.domain.HintEditTarget
+import com.valerochka1337.valerochkagym.domain.NoteSaveResult
 import com.valerochka1337.valerochkagym.domain.PreviousSetsUseCase
 import com.valerochka1337.valerochkagym.domain.RoutineGymConflictException
 import com.valerochka1337.valerochkagym.domain.WorkoutSetMutator
@@ -38,7 +42,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
@@ -56,7 +63,36 @@ data class ActiveWorkoutUiState(
     val workout: WorkoutFull? = null,
     val previousByExercise: Map<Long, String> = emptyMap(),
     val completedSetEdit: CompletedSetEditDraft? = null,
+    val noteEdit: WorkoutNoteEditDraft? = null,
+    val personalHintEdit: ActivePersonalHintEditDraft? = null,
+    val hintsByExercise: Map<Long, ExercisePersonalHint> = emptyMap(),
     val isFinishing: Boolean = false,
+)
+
+/** A note draft is scoped to stable Room ids so a delayed result cannot affect another target. */
+data class WorkoutNoteEditDraft(
+    val workoutId: String,
+    val setId: Long?,
+    val token: Long,
+    val text: String,
+    val isSubmitting: Boolean = false,
+    val error: String? = null,
+)
+
+data class ActivePersonalHintEditDraft(
+    val target: HintEditTarget,
+    val token: Long,
+    val text: String,
+    val isSubmitting: Boolean = false,
+    val error: String? = null,
+)
+
+private data class ActiveWorkoutBaseState(
+    val workout: WorkoutFull?,
+    val previousByExercise: Map<Long, String>,
+    val loaded: Boolean,
+    val completedSetEdit: CompletedSetEditDraft?,
+    val isFinishing: Boolean,
 )
 
 /** Immutable, saveable numeric draft for a completed set. Submission feedback is process-local. */
@@ -104,6 +140,7 @@ constructor(
     private val uploadScheduler: UploadScheduler,
     private val heartRateMonitor: HeartRateMonitor,
     private val savedStateHandle: SavedStateHandle,
+    private val personalHintRepository: ExercisePersonalHintRepository,
     private val permissionRecoveryController: PermissionRecoveryController? = null,
 ) : ViewModel() {
 
@@ -121,9 +158,15 @@ constructor(
   private val consumedPermissionActionTokens = mutableSetOf<String>()
   private val loadingPrevious = mutableSetOf<Long>()
   private val completedSetEdit = MutableStateFlow(savedCompletedSetEdit())
+  private val noteEdit = MutableStateFlow(savedNoteEdit())
+  private val personalHintEdit = MutableStateFlow(savedPersonalHintEdit())
   private var restoredDraftNeedsValidation = completedSetEdit.value != null
   private var nextCompletedSetEditToken =
       savedStateHandle.get<Long>(COMPLETED_SET_EDIT_EPOCH) ?: completedSetEdit.value?.token ?: 0L
+  private var nextNoteEditToken =
+      savedStateHandle.get<Long>(NOTE_EDIT_EPOCH) ?: noteEdit.value?.token ?: 0L
+  private var nextPersonalHintEditToken =
+      savedStateHandle.get<Long>(PERSONAL_HINT_EDIT_EPOCH) ?: personalHintEdit.value?.token ?: 0L
 
   private val activeWorkout: StateFlow<WorkoutFull?> =
       repository
@@ -132,8 +175,28 @@ constructor(
             loaded.value = true
             ensurePreviousLoaded(workout)
             validateRestoredCompletedSetEdit(workout)
+            validateRestoredNoteEdit(workout)
           }
           .stateIn(viewModelScope, SharingStarted.WhileSubscribed(SUBSCRIPTION_TIMEOUT_MS), null)
+
+  private val hintsByExercise: StateFlow<Map<Long, ExercisePersonalHint>> =
+      activeWorkout
+          .flatMapLatest { workout ->
+            val ids = workout?.exercises?.map { it.exercise.id }?.distinct().orEmpty()
+            if (ids.isEmpty()) {
+              flowOf(emptyMap())
+            } else {
+              combine(ids.map { id -> personalHintRepository.observe(id).map { id to it } }) { rows
+                ->
+                rows.mapNotNull { (id, hint) -> hint?.let { id to it } }.toMap()
+              }
+            }
+          }
+          .stateIn(
+              viewModelScope,
+              SharingStarted.WhileSubscribed(SUBSCRIPTION_TIMEOUT_MS),
+              emptyMap(),
+          )
 
   private val tickerFlow: Flow<Long> = flow {
     while (true) {
@@ -142,7 +205,7 @@ constructor(
     }
   }
 
-  val uiState: StateFlow<ActiveWorkoutUiState> =
+  private val baseUiState: StateFlow<ActiveWorkoutBaseState> =
       combine(
               activeWorkout,
               previousSummaries,
@@ -150,12 +213,42 @@ constructor(
               completedSetEdit,
               isFinishing,
           ) { workout, previous, isLoaded, edit, finishing ->
-            ActiveWorkoutUiState(
-                loading = !isLoaded,
+            ActiveWorkoutBaseState(
                 workout = workout,
                 previousByExercise = previous,
+                loaded = isLoaded,
                 completedSetEdit = edit,
                 isFinishing = finishing,
+            )
+          }
+          .stateIn(
+              scope = viewModelScope,
+              started = SharingStarted.WhileSubscribed(SUBSCRIPTION_TIMEOUT_MS),
+              initialValue =
+                  ActiveWorkoutBaseState(
+                      workout = null,
+                      previousByExercise = emptyMap(),
+                      loaded = false,
+                      completedSetEdit = null,
+                      isFinishing = false,
+                  ),
+          )
+
+  val uiState: StateFlow<ActiveWorkoutUiState> =
+      combine(baseUiState, noteEdit, personalHintEdit, hintsByExercise) {
+              base,
+              note,
+              hintEdit,
+              hints ->
+            ActiveWorkoutUiState(
+                loading = !base.loaded,
+                workout = base.workout,
+                previousByExercise = base.previousByExercise,
+                completedSetEdit = base.completedSetEdit,
+                noteEdit = note,
+                personalHintEdit = hintEdit,
+                hintsByExercise = hints,
+                isFinishing = base.isFinishing,
             )
           }
           .stateIn(
@@ -315,6 +408,122 @@ constructor(
     clearCompletedSetEdit()
   }
 
+  fun openWorkoutNote() {
+    val workout = activeWorkout.value ?: return
+    openNoteEdit(workout.workout.id, null, workout.workout.note)
+  }
+
+  fun openSetNote(setId: Long) {
+    val workout = activeWorkout.value ?: return
+    val set =
+        workout.exercises
+            .asSequence()
+            .flatMap { it.sets.asSequence() }
+            .firstOrNull { it.id == setId } ?: return
+    openNoteEdit(workout.workout.id, set.id, set.note)
+  }
+
+  fun updateNote(text: String) = updateNoteEdit { it.copy(text = text, error = null) }
+
+  fun cancelNoteEdit() = clearNoteEdit()
+
+  fun saveNoteEdit() {
+    val draft = noteEdit.value ?: return
+    if (draft.isSubmitting) return
+    val text = draft.text.trim()
+    if (text.codePointCount(0, text.length) > MAX_NOTE_CODE_POINTS) {
+      updateNoteEdit { it.copy(error = NOTE_TOO_LONG_MESSAGE) }
+      return
+    }
+    updateNoteEdit { it.copy(text = text, isSubmitting = true, error = null) }
+    viewModelScope.launch {
+      val result =
+          if (draft.setId == null) repository.saveWorkoutNote(draft.workoutId, text)
+          else repository.saveSetNote(draft.workoutId, draft.setId, text)
+      if (noteEdit.value?.token != draft.token) return@launch
+      when (result) {
+        NoteSaveResult.Saved -> clearNoteEdit()
+        NoteSaveResult.MissingOrInactive ->
+            updateNoteEdit { it.copy(isSubmitting = false, error = NOTE_UNAVAILABLE_MESSAGE) }
+        NoteSaveResult.TooLong ->
+            updateNoteEdit { it.copy(isSubmitting = false, error = NOTE_TOO_LONG_MESSAGE) }
+      }
+    }
+  }
+
+  fun openPersonalHintEdit(exerciseId: Long) {
+    if (activeWorkout.value?.exercises?.any { it.exercise.id == exerciseId } != true) return
+    val token = ++nextPersonalHintEditToken
+    viewModelScope.launch {
+      val target =
+          personalHintRepository.editTarget(exerciseId)
+              ?: run {
+                clearPersonalHintEdit()
+                return@launch
+              }
+      if (token != nextPersonalHintEditToken) return@launch
+      if (activeWorkout.value?.exercises?.any { it.exercise.id == exerciseId } != true)
+          return@launch
+      savedStateHandle[PERSONAL_HINT_EDIT_EPOCH] = token
+      updatePersonalHintEdit(
+          ActivePersonalHintEditDraft(
+              target = target,
+              token = token,
+              text = hintsByExercise.value[exerciseId]?.text.orEmpty(),
+          ),
+      )
+    }
+  }
+
+  fun updatePersonalHintEdit(text: String) = updatePersonalHintEdit {
+    it.copy(text = text, error = null)
+  }
+
+  fun cancelPersonalHintEdit() = clearPersonalHintEdit()
+
+  fun savePersonalHintEdit() {
+    val draft = personalHintEdit.value ?: return
+    if (draft.isSubmitting) return
+    val text = draft.text.trim()
+    if (text.codePointCount(0, text.length) > MAX_NOTE_CODE_POINTS) {
+      updatePersonalHintEdit { it.copy(error = HINT_TOO_LONG_MESSAGE) }
+      return
+    }
+    updatePersonalHintEdit { it.copy(text = text, isSubmitting = true, error = null) }
+    viewModelScope.launch {
+      when (personalHintRepository.save(draft.target, text)) {
+        NoteSaveResult.Saved,
+        NoteSaveResult.MissingOrInactive -> {
+          if (personalHintEdit.value?.token == draft.token) clearPersonalHintEdit()
+        }
+        NoteSaveResult.TooLong -> {
+          if (personalHintEdit.value?.token == draft.token) {
+            updatePersonalHintEdit { it.copy(isSubmitting = false, error = HINT_TOO_LONG_MESSAGE) }
+          }
+        }
+      }
+    }
+  }
+
+  fun unpinPersonalHint(exerciseId: Long) {
+    if (activeWorkout.value?.exercises?.any { it.exercise.id == exerciseId } != true) return
+    val token = ++nextPersonalHintEditToken
+    clearPersonalHintEdit()
+    viewModelScope.launch {
+      val target =
+          personalHintRepository.editTarget(exerciseId)
+              ?: run {
+                clearPersonalHintEdit()
+                return@launch
+              }
+      if (token != nextPersonalHintEditToken) return@launch
+      if (activeWorkout.value?.exercises?.any { it.exercise.id == exerciseId } != true)
+          return@launch
+      val result = personalHintRepository.unpin(target)
+      if (result == NoteSaveResult.MissingOrInactive) clearPersonalHintEdit()
+    }
+  }
+
   fun saveCompletedSetEdit() {
     val draft = completedSetEdit.value ?: return
     if (draft.isSubmitting) return
@@ -460,6 +669,102 @@ constructor(
     }
   }
 
+  private fun openNoteEdit(workoutId: String, setId: Long?, text: String) {
+    val token = ++nextNoteEditToken
+    savedStateHandle[NOTE_EDIT_EPOCH] = token
+    updateNoteEdit(
+        WorkoutNoteEditDraft(workoutId = workoutId, setId = setId, token = token, text = text)
+    )
+  }
+
+  private fun validateRestoredNoteEdit(workout: WorkoutFull?) {
+    val draft = noteEdit.value ?: return
+    val stillExists =
+        workout?.workout?.id == draft.workoutId &&
+            (draft.setId == null ||
+                workout.exercises.any { exercise -> exercise.sets.any { it.id == draft.setId } })
+    if (!stillExists) clearNoteEdit()
+  }
+
+  private fun updateNoteEdit(transform: (WorkoutNoteEditDraft) -> WorkoutNoteEditDraft) {
+    val current = noteEdit.value ?: return
+    updateNoteEdit(transform(current))
+  }
+
+  private fun updateNoteEdit(draft: WorkoutNoteEditDraft) {
+    noteEdit.value = draft
+    savedStateHandle[NOTE_EDIT_WORKOUT_ID] = draft.workoutId
+    savedStateHandle[NOTE_EDIT_SET_ID] = draft.setId
+    savedStateHandle[NOTE_EDIT_TOKEN] = draft.token
+    savedStateHandle[NOTE_EDIT_TEXT] = draft.text
+  }
+
+  private fun clearNoteEdit() {
+    noteEdit.value = null
+    listOf(NOTE_EDIT_WORKOUT_ID, NOTE_EDIT_SET_ID, NOTE_EDIT_TOKEN, NOTE_EDIT_TEXT).forEach { key ->
+      savedStateHandle.remove<Any?>(key)
+    }
+  }
+
+  private fun savedNoteEdit(): WorkoutNoteEditDraft? {
+    val workoutId = savedStateHandle.get<String>(NOTE_EDIT_WORKOUT_ID) ?: return null
+    val token = savedStateHandle.get<Long>(NOTE_EDIT_TOKEN) ?: return null
+    return WorkoutNoteEditDraft(
+        workoutId = workoutId,
+        setId = savedStateHandle.get(NOTE_EDIT_SET_ID),
+        token = token,
+        text = savedStateHandle[NOTE_EDIT_TEXT] ?: "",
+    )
+  }
+
+  private fun updatePersonalHintEdit(
+      transform: (ActivePersonalHintEditDraft) -> ActivePersonalHintEditDraft,
+  ) {
+    val current = personalHintEdit.value ?: return
+    updatePersonalHintEdit(transform(current))
+  }
+
+  private fun updatePersonalHintEdit(draft: ActivePersonalHintEditDraft) {
+    personalHintEdit.value = draft
+    savedStateHandle[PERSONAL_HINT_EDIT_EXERCISE_ID] = draft.target.exerciseId
+    savedStateHandle[PERSONAL_HINT_EDIT_SYNC_ID] = draft.target.exerciseSyncId
+    savedStateHandle[PERSONAL_HINT_EDIT_OWNER_SCOPE] = draft.target.ownerScope
+    savedStateHandle[PERSONAL_HINT_EDIT_SESSION_EPOCH] = draft.target.sessionEpoch
+    savedStateHandle[PERSONAL_HINT_EDIT_TOKEN] = draft.token
+    savedStateHandle[PERSONAL_HINT_EDIT_TEXT] = draft.text
+  }
+
+  private fun clearPersonalHintEdit() {
+    personalHintEdit.value = null
+    listOf(
+            PERSONAL_HINT_EDIT_EXERCISE_ID,
+            PERSONAL_HINT_EDIT_SYNC_ID,
+            PERSONAL_HINT_EDIT_OWNER_SCOPE,
+            PERSONAL_HINT_EDIT_SESSION_EPOCH,
+            PERSONAL_HINT_EDIT_TOKEN,
+            PERSONAL_HINT_EDIT_TEXT,
+        )
+        .forEach { key -> savedStateHandle.remove<Any?>(key) }
+  }
+
+  private fun savedPersonalHintEdit(): ActivePersonalHintEditDraft? {
+    val exerciseId = savedStateHandle.get<Long>(PERSONAL_HINT_EDIT_EXERCISE_ID) ?: return null
+    val syncId = savedStateHandle.get<String>(PERSONAL_HINT_EDIT_SYNC_ID) ?: return null
+    val epoch = savedStateHandle.get<Long>(PERSONAL_HINT_EDIT_SESSION_EPOCH) ?: return null
+    val token = savedStateHandle.get<Long>(PERSONAL_HINT_EDIT_TOKEN) ?: return null
+    return ActivePersonalHintEditDraft(
+        target =
+            HintEditTarget(
+                exerciseId = exerciseId,
+                exerciseSyncId = syncId,
+                ownerScope = savedStateHandle.get(PERSONAL_HINT_EDIT_OWNER_SCOPE),
+                sessionEpoch = epoch,
+            ),
+        token = token,
+        text = savedStateHandle[PERSONAL_HINT_EDIT_TEXT] ?: "",
+    )
+  }
+
   private fun updateCompletedSetEdit(transform: (CompletedSetEditDraft) -> CompletedSetEditDraft) {
     val current = completedSetEdit.value ?: return
     updateCompletedSetEdit(transform(current))
@@ -577,3 +882,19 @@ private const val COMPLETED_SET_EDIT_DURATION = "completed_set_edit_duration"
 private const val COMPLETED_SET_EDIT_SPEED = "completed_set_edit_speed"
 private const val COMPLETED_SET_EDIT_INCLINE = "completed_set_edit_incline"
 private const val COMPLETED_SET_EDIT_EPOCH = "completed_set_edit_epoch"
+private const val NOTE_EDIT_WORKOUT_ID = "note_edit_workout_id"
+private const val NOTE_EDIT_SET_ID = "note_edit_set_id"
+private const val NOTE_EDIT_TOKEN = "note_edit_token"
+private const val NOTE_EDIT_TEXT = "note_edit_text"
+private const val NOTE_EDIT_EPOCH = "note_edit_epoch"
+private const val MAX_NOTE_CODE_POINTS = 2_000
+private const val NOTE_TOO_LONG_MESSAGE = "Заметка не длиннее 2000 символов"
+private const val NOTE_UNAVAILABLE_MESSAGE = "Тренировка уже недоступна для заметки"
+private const val PERSONAL_HINT_EDIT_EXERCISE_ID = "active_personal_hint_edit_exercise_id"
+private const val PERSONAL_HINT_EDIT_SYNC_ID = "active_personal_hint_edit_sync_id"
+private const val PERSONAL_HINT_EDIT_OWNER_SCOPE = "active_personal_hint_edit_owner_scope"
+private const val PERSONAL_HINT_EDIT_SESSION_EPOCH = "active_personal_hint_edit_session_epoch"
+private const val PERSONAL_HINT_EDIT_TOKEN = "active_personal_hint_edit_token"
+private const val PERSONAL_HINT_EDIT_TEXT = "active_personal_hint_edit_text"
+private const val PERSONAL_HINT_EDIT_EPOCH = "active_personal_hint_edit_epoch"
+private const val HINT_TOO_LONG_MESSAGE = "Подсказка не длиннее 2000 символов"

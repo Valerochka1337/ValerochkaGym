@@ -229,6 +229,10 @@ class ExerciseCatalogRepositoryImplTest {
 
     override suspend fun updateSet(set: WorkoutSetEntity) = Unit
 
+    override suspend fun updateActiveSetNote(workoutId: String, setId: Long, note: String) = 0
+
+    override suspend fun updateActiveWorkoutNote(workoutId: String, note: String) = 0
+
     override suspend fun updateCompletedStrengthNumbers(
         setId: Long,
         weightKg: Double?,

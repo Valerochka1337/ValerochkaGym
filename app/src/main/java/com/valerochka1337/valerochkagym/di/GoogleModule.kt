@@ -1,5 +1,9 @@
 package com.valerochka1337.valerochkagym.di
 
+import com.valerochka1337.valerochkagym.data.calendar.CalendarLegacyMigration
+import com.valerochka1337.valerochkagym.data.calendar.CalendarMigrationGate
+import com.valerochka1337.valerochkagym.data.calendar.CalendarPlanRepository
+import com.valerochka1337.valerochkagym.data.calendar.RoomCalendarPlanRepository
 import com.valerochka1337.valerochkagym.data.google.AccountBoundGoogleAuth
 import com.valerochka1337.valerochkagym.data.google.CalendarRepository
 import com.valerochka1337.valerochkagym.data.google.CalendarRepositoryImpl
@@ -24,6 +28,14 @@ import javax.inject.Singleton
 @InstallIn(SingletonComponent::class)
 @Suppress("unused")
 abstract class GoogleModule {
+
+  @Binds
+  @Singleton
+  abstract fun bindCalendarPlanRepository(impl: RoomCalendarPlanRepository): CalendarPlanRepository
+
+  @Binds
+  @Singleton
+  abstract fun bindCalendarMigrationGate(impl: CalendarLegacyMigration): CalendarMigrationGate
 
   @Binds @Singleton abstract fun bindGoogleAuth(impl: GoogleAuthManager): GoogleAuth
 

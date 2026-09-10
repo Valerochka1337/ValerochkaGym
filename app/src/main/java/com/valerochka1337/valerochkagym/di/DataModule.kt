@@ -11,10 +11,16 @@ import com.valerochka1337.valerochkagym.data.db.GymDatabase
 import com.valerochka1337.valerochkagym.data.db.GymDatabaseCallback
 import com.valerochka1337.valerochkagym.data.db.dao.BodyMeasurementDao
 import com.valerochka1337.valerochkagym.data.db.dao.CalendarEventAccountLinkDao
+import com.valerochka1337.valerochkagym.data.db.dao.CalendarPlanDao
 import com.valerochka1337.valerochkagym.data.db.dao.ConfigurationTombstoneDao
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseDao
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseMuscleDao
+import com.valerochka1337.valerochkagym.data.db.dao.ExercisePersonalHintDao
 import com.valerochka1337.valerochkagym.data.db.dao.GymDao
+import com.valerochka1337.valerochkagym.data.db.dao.HealthAiConsentDao
+import com.valerochka1337.valerochkagym.data.db.dao.HealthDao
+import com.valerochka1337.valerochkagym.data.db.dao.HealthSyncDao
+import com.valerochka1337.valerochkagym.data.db.dao.ProfileDao
 import com.valerochka1337.valerochkagym.data.db.dao.RoutineDao
 import com.valerochka1337.valerochkagym.data.db.dao.ScheduledWorkoutDao
 import com.valerochka1337.valerochkagym.data.db.dao.WorkoutDao
@@ -34,10 +40,6 @@ import kotlinx.coroutines.SupervisorJob
 
 private val Context.settingsDataStore: DataStore<Preferences> by
     preferencesDataStore(name = "settings")
-private val Context.aiApiSecretsDataStore: DataStore<Preferences> by
-    preferencesDataStore(
-        name = "ai_secrets",
-    )
 private val Context.weeklyScheduleOperationsDataStore: DataStore<Preferences> by
     preferencesDataStore(
         name = "weekly_schedule_operations",
@@ -83,16 +85,32 @@ object DataModule {
       database.calendarEventAccountLinkDao()
 
   @Provides
+  fun provideCalendarPlanDao(database: GymDatabase): CalendarPlanDao = database.calendarPlanDao()
+
+  @Provides
   fun provideConfigurationTombstoneDao(database: GymDatabase): ConfigurationTombstoneDao =
       database.configurationTombstoneDao()
 
   @Provides fun provideExerciseDao(database: GymDatabase): ExerciseDao = database.exerciseDao()
 
   @Provides
+  fun provideExercisePersonalHintDao(database: GymDatabase): ExercisePersonalHintDao =
+      database.exercisePersonalHintDao()
+
+  @Provides
   fun provideExerciseMuscleDao(database: GymDatabase): ExerciseMuscleDao =
       database.exerciseMuscleDao()
 
   @Provides fun provideGymDao(database: GymDatabase): GymDao = database.gymDao()
+
+  @Provides
+  fun provideHealthAiConsentDao(database: GymDatabase): HealthAiConsentDao =
+      database.healthAiConsentDao()
+
+  @Provides fun provideHealthDao(database: GymDatabase): HealthDao = database.healthDao()
+
+  @Provides
+  fun provideHealthSyncDao(database: GymDatabase): HealthSyncDao = database.healthSyncDao()
 
   @Provides fun provideRoutineDao(database: GymDatabase): RoutineDao = database.routineDao()
 
@@ -101,6 +119,8 @@ object DataModule {
   @Provides
   fun provideMuscleLoadUpgradeNoticeDao(database: GymDatabase) =
       database.muscleLoadUpgradeNoticeDao()
+
+  @Provides fun provideProfileDao(database: GymDatabase): ProfileDao = database.profileDao()
 
   @Provides
   fun provideScheduledWorkoutDao(database: GymDatabase): ScheduledWorkoutDao =
@@ -116,13 +136,6 @@ object DataModule {
   fun provideMuscleLoadUpgradeNotice(
       implementation: RoomMuscleLoadUpgradeNotice,
   ): MuscleLoadUpgradeNotice = implementation
-
-  @Provides
-  @Singleton
-  @AiApiSecrets
-  fun provideAiApiSecretsDataStore(
-      @ApplicationContext context: Context,
-  ): DataStore<Preferences> = context.aiApiSecretsDataStore
 
   @Provides
   @Singleton

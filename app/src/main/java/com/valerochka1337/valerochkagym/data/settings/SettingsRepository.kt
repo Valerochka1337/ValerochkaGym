@@ -6,17 +6,29 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
-import com.valerochka1337.valerochkagym.data.ai.AiModel
 import com.valerochka1337.valerochkagym.ui.theme.AccentColor
 import com.valerochka1337.valerochkagym.ui.theme.PaletteMode
 import com.valerochka1337.valerochkagym.ui.theme.ThemeMode
 import java.io.IOException
+import java.util.Base64
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+
+/** Durable, owner-scoped state for the optional pre-AI profile prompt. */
+data class AiProfilePromptState(
+    val disabled: Boolean = false,
+    val lastShownAtMillis: Long? = null,
+    val reservationToken: String? = null,
+    val kind: String? = null,
+    val config: String? = null,
+    val processMarker: String? = null,
+)
 
 data class GymSettings(
     val googleEmail: String? = null,
@@ -41,10 +53,12 @@ data class GymSettings(
     val heartRateRestThresholdBpm: Int = DEFAULT_HEART_RATE_REST_THRESHOLD_BPM,
     /** Сколько секунд пульс должен непрерывно держаться не выше порога. */
     val heartRateRestHoldSeconds: Int = DEFAULT_HEART_RATE_REST_HOLD_SECONDS,
-    /** HTTP(S) base URL пользовательского OpenAI-совместимого сервера с завершающим `/`. */
-    val aiBaseUrl: String? = null,
-    /** Модель, общая для генерации упражнений и распознавания фото InBody. */
-    val aiModelId: String? = null,
+    /** Immediate local privacy block for the existing InBody AI action. */
+    val healthAiDisclosureEnabled: Boolean = false,
+    /** Versioned acknowledgement for storing newly confirmed manual health entries locally. */
+    val localHealthStorageAcknowledgedVersion: Int = 0,
+    /** Separate transfer choice; it never grants the existing AI disclosure. */
+    val healthBackendSyncEnabled: Boolean = false,
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
     val paletteMode: PaletteMode = PaletteMode.SYSTEM,
     val accent: AccentColor = AccentColor.DEFAULT,
@@ -78,8 +92,10 @@ constructor(
     val HEART_RATE_REST_ENABLED = booleanPreferencesKey("heart_rate_rest_enabled")
     val HEART_RATE_REST_THRESHOLD_BPM = intPreferencesKey("heart_rate_rest_threshold_bpm")
     val HEART_RATE_REST_HOLD_SECONDS = intPreferencesKey("heart_rate_rest_hold_seconds")
-    val AI_BASE_URL = stringPreferencesKey("ai_base_url")
-    val AI_MODEL_ID = stringPreferencesKey("ai_model_id")
+    val HEALTH_AI_DISCLOSURE_ENABLED = booleanPreferencesKey("health_ai_disclosure_enabled")
+    val LOCAL_HEALTH_STORAGE_ACKNOWLEDGED_VERSION =
+        intPreferencesKey("local_health_storage_acknowledged_version")
+    val HEALTH_BACKEND_SYNC_ENABLED = booleanPreferencesKey("health_backend_sync_enabled")
     val THEME_MODE = stringPreferencesKey("theme_mode")
     val PALETTE_MODE = stringPreferencesKey("palette_mode")
     val ACCENT_COLOR = stringPreferencesKey("accent_color")
@@ -119,8 +135,10 @@ constructor(
                             MIN_HEART_RATE_REST_HOLD_SECONDS,
                             MAX_HEART_RATE_REST_HOLD_SECONDS,
                         ),
-                aiBaseUrl = prefs[Keys.AI_BASE_URL]?.takeIf { it.isNotBlank() },
-                aiModelId = prefs[Keys.AI_MODEL_ID]?.takeIf { it.isNotBlank() },
+                healthAiDisclosureEnabled = prefs[Keys.HEALTH_AI_DISCLOSURE_ENABLED] ?: false,
+                localHealthStorageAcknowledgedVersion =
+                    prefs[Keys.LOCAL_HEALTH_STORAGE_ACKNOWLEDGED_VERSION] ?: 0,
+                healthBackendSyncEnabled = prefs[Keys.HEALTH_BACKEND_SYNC_ENABLED] ?: false,
                 themeMode = ThemeMode.fromId(prefs[Keys.THEME_MODE]),
                 paletteMode = PaletteMode.fromId(prefs[Keys.PALETTE_MODE]),
                 accent = AccentColor.fromId(prefs[Keys.ACCENT_COLOR]),
@@ -214,19 +232,20 @@ constructor(
             )
       }
 
-  suspend fun setAiBaseUrl(value: String) =
+  suspend fun setHealthAiDisclosureEnabled(value: Boolean) =
+      dataStore.edit { prefs -> prefs[Keys.HEALTH_AI_DISCLOSURE_ENABLED] = value }
+
+  suspend fun setLocalHealthStorageAcknowledgedVersion(value: Int) =
       dataStore.edit { prefs ->
-        require(value.isNotBlank()) { "Base URL не должен быть пустым" }
-        val previous = prefs[Keys.AI_BASE_URL]
-        prefs[Keys.AI_BASE_URL] = value
-        if (previous != value) prefs.remove(Keys.AI_MODEL_ID)
+        prefs[Keys.LOCAL_HEALTH_STORAGE_ACKNOWLEDGED_VERSION] =
+            maxOf(
+                prefs[Keys.LOCAL_HEALTH_STORAGE_ACKNOWLEDGED_VERSION] ?: 0,
+                value.coerceAtLeast(0),
+            )
       }
 
-  suspend fun setAiModel(value: AiModel) =
-      dataStore.edit { prefs ->
-        require(value.id.isNotBlank()) { "ID модели не должен быть пустым" }
-        prefs[Keys.AI_MODEL_ID] = value.id.trim()
-      }
+  suspend fun setHealthBackendSyncEnabled(value: Boolean) =
+      dataStore.edit { prefs -> prefs[Keys.HEALTH_BACKEND_SYNC_ENABLED] = value }
 
   suspend fun setAccent(value: AccentColor) =
       dataStore.edit { prefs -> prefs[Keys.ACCENT_COLOR] = value.id }
@@ -248,6 +267,158 @@ constructor(
           prefs[Keys.IGNORED_UPDATE_TAG] = value
         }
       }
+
+  suspend fun aiProfilePromptState(scope: String): AiProfilePromptState =
+      dataStore.data
+          .catch { error -> if (error is IOException) emit(emptyPreferences()) else throw error }
+          .map { it.toAiProfilePromptState(promptKeys(scope)) }
+          .first()
+
+  /**
+   * Atomically clears an orphan from another process and reserves a prompt if it is still due. A
+   * reservation deliberately does not update [AiProfilePromptState.lastShownAtMillis].
+   */
+  suspend fun reserveAiProfilePrompt(
+      scope: String,
+      token: String,
+      kind: String,
+      config: String,
+      processMarker: String,
+      nowMillis: Long,
+      cooldownMillis: Long,
+  ): Boolean {
+    val keys = promptKeys(scope)
+    var reserved = false
+    dataStore.edit { prefs ->
+      val pendingToken = prefs[keys.reservationToken]
+      if (pendingToken != null && prefs[keys.processMarker] != processMarker) {
+        prefs.clearPromptReservation(keys)
+      }
+      val lastShown = prefs[keys.lastShownAtMillis]
+      val due = lastShown == null || nowMillis - lastShown >= cooldownMillis
+      if (prefs[keys.disabled] != true && prefs[keys.reservationToken] == null && due) {
+        prefs[keys.reservationToken] = token
+        prefs[keys.kind] = kind
+        prefs[keys.config] = config
+        prefs[keys.processMarker] = processMarker
+        reserved = true
+      }
+    }
+    return reserved
+  }
+
+  /** Records the timestamp only once the prompt is actually visible to the user. */
+  suspend fun acknowledgeAiProfilePrompt(
+      scope: String,
+      token: String,
+      processMarker: String,
+      shownAtMillis: Long,
+  ): Boolean {
+    val keys = promptKeys(scope)
+    var acknowledged = false
+    dataStore.edit { prefs ->
+      if (
+          prefs[keys.reservationToken] == token &&
+              prefs[keys.processMarker] == processMarker &&
+              prefs[keys.config] == "1:reserved"
+      ) {
+        prefs[keys.lastShownAtMillis] = shownAtMillis
+        prefs[keys.config] = "1:shown"
+        acknowledged = true
+      }
+    }
+    return acknowledged
+  }
+
+  /** Consumes the current reservation before its live continuation may run. */
+  suspend fun consumeAiProfilePrompt(
+      scope: String,
+      token: String,
+      processMarker: String,
+      disable: Boolean,
+  ): Boolean =
+      mutateAiProfilePrompt(scope, token, processMarker) { prefs, keys ->
+        if (disable) prefs[keys.disabled] = true
+        prefs.clearPromptReservation(keys)
+      }
+
+  /** Cancelling an unshown or shown dialog never alters its already-acknowledged timestamp. */
+  suspend fun cancelAiProfilePrompt(scope: String, token: String, processMarker: String): Boolean =
+      mutateAiProfilePrompt(scope, token, processMarker) { prefs, keys ->
+        prefs.clearPromptReservation(keys)
+      }
+
+  suspend fun setAiProfilePromptDisabled(scope: String, disabled: Boolean) {
+    dataStore.edit { prefs -> prefs[promptKeys(scope).disabled] = disabled }
+  }
+
+  /** A new process has no live continuation, so an older pending decision must be discarded. */
+  suspend fun clearAiProfilePromptOrphan(scope: String, processMarker: String) {
+    val keys = promptKeys(scope)
+    dataStore.edit { prefs ->
+      if (prefs[keys.reservationToken] != null && prefs[keys.processMarker] != processMarker) {
+        prefs.clearPromptReservation(keys)
+      }
+    }
+  }
+
+  private suspend fun mutateAiProfilePrompt(
+      scope: String,
+      token: String,
+      processMarker: String,
+      mutation: (androidx.datastore.preferences.core.MutablePreferences, PromptKeys) -> Unit,
+  ): Boolean {
+    val keys = promptKeys(scope)
+    var mutated = false
+    dataStore.edit { prefs ->
+      if (prefs[keys.reservationToken] == token && prefs[keys.processMarker] == processMarker) {
+        mutation(prefs, keys)
+        mutated = true
+      }
+    }
+    return mutated
+  }
+
+  private data class PromptKeys(
+      val disabled: Preferences.Key<Boolean>,
+      val lastShownAtMillis: Preferences.Key<Long>,
+      val reservationToken: Preferences.Key<String>,
+      val kind: Preferences.Key<String>,
+      val config: Preferences.Key<String>,
+      val processMarker: Preferences.Key<String>,
+  )
+
+  private fun promptKeys(scope: String): PromptKeys {
+    val encoded = Base64.getUrlEncoder().withoutPadding().encodeToString(scope.toByteArray())
+    val prefix = "ai_profile_prompt.$encoded"
+    return PromptKeys(
+        disabled = booleanPreferencesKey("$prefix.disabled"),
+        lastShownAtMillis = longPreferencesKey("$prefix.last_shown_at"),
+        reservationToken = stringPreferencesKey("$prefix.reservation_token"),
+        kind = stringPreferencesKey("$prefix.kind"),
+        config = stringPreferencesKey("$prefix.config"),
+        processMarker = stringPreferencesKey("$prefix.process_marker"),
+    )
+  }
+
+  private fun Preferences.toAiProfilePromptState(keys: PromptKeys): AiProfilePromptState =
+      AiProfilePromptState(
+          disabled = this[keys.disabled] ?: false,
+          lastShownAtMillis = this[keys.lastShownAtMillis],
+          reservationToken = this[keys.reservationToken],
+          kind = this[keys.kind],
+          config = this[keys.config],
+          processMarker = this[keys.processMarker],
+      )
+
+  private fun androidx.datastore.preferences.core.MutablePreferences.clearPromptReservation(
+      keys: PromptKeys
+  ) {
+    remove(keys.reservationToken)
+    remove(keys.kind)
+    remove(keys.config)
+    remove(keys.processMarker)
+  }
 
   private companion object {
     const val MIN_HEART_RATE_REST_THRESHOLD_BPM = 40

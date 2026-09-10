@@ -1,0 +1,264 @@
+package com.valerochka1337.valerochkagym.data.profile
+
+import com.valerochka1337.valerochkagym.data.RoomDaoTest
+import com.valerochka1337.valerochkagym.data.backend.BackendSessionStore
+import com.valerochka1337.valerochkagym.data.backend.BackendSync
+import com.valerochka1337.valerochkagym.data.backend.BackendTokens
+import com.valerochka1337.valerochkagym.data.backend.BackendTransport
+import com.valerochka1337.valerochkagym.data.db.LocalEquipmentCatalog
+import com.valerochka1337.valerochkagym.data.db.entity.ProfileEntity
+import com.valerochka1337.valerochkagym.data.db.entity.ProfileEquipmentPreferenceEntity
+import com.valerochka1337.valerochkagym.domain.BasicProfile
+import com.valerochka1337.valerochkagym.domain.ExperienceLevel
+import com.valerochka1337.valerochkagym.domain.ProfileSaveResult
+import com.valerochka1337.valerochkagym.domain.ProfileSex
+import com.valerochka1337.valerochkagym.domain.TrainingGoal
+import com.valerochka1337.valerochkagym.service.WallClock
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class ProfileRepositoryImplTest : RoomDaoTest() {
+  private class Store(initial: BackendTokens? = null) : BackendSessionStore {
+    override val session = MutableStateFlow(initial)
+    private var epoch = 0L
+    override val sessionEpoch: Long
+      get() = epoch
+
+    override fun save(tokens: BackendTokens?) {
+      epoch++
+      session.value = tokens
+    }
+  }
+
+  private object Server : BackendTransport {
+    override val json = Json
+
+    override suspend fun public(method: String, path: String, body: JsonElement?) = error("unused")
+
+    override suspend fun authorized(method: String, path: String, body: JsonElement?) =
+        error("unused")
+  }
+
+  private fun repository(
+      store: Store,
+      now: Long = 1_800_000_000_000L,
+  ): Pair<ProfileRepositoryImpl, BackendSync> {
+    val sync = BackendSync(db, Server, store)
+    return ProfileRepositoryImpl(db, db.profileDao(), sync, store, WallClock { now }) to sync
+  }
+
+  @Test
+  fun `empty guest editor remains valid without creating a profile row`() = runTest {
+    val (repository, _) = repository(Store())
+
+    val snapshot = repository.openEditor()
+
+    assertEquals(BasicProfile(), snapshot?.profile)
+    assertEquals(0, tableCount("profiles"))
+  }
+
+  @Test
+  fun `guest profile rekeys to deterministic owner identity during claim`() = runTest {
+    val store = Store()
+    val (repository, sync) = repository(store)
+    val equipment = LocalEquipmentCatalog.entries.take(2).map { it.id }.toSet()
+    assertEquals(2, equipment.size)
+    val guest = requireNotNull(repository.openEditor())
+    assertEquals(
+        ProfileSaveResult.Saved,
+        repository.save(
+            guest.target,
+            BasicProfile(trainingGoal = TrainingGoal.STRENGTH, equipmentIds = equipment),
+        ),
+    )
+
+    sync.claim("owner-7")
+    store.save(BackendTokens("owner-7", "owner@example.com", "access", "refresh"))
+
+    val profile = requireNotNull(db.profileDao().get("owner-7"))
+    assertEquals("9e27b903-8c27-34a4-82fa-164c43cf1212", profile.syncId)
+    assertEquals(equipment.sorted(), db.profileDao().equipmentIds("owner-7"))
+    assertNull(db.profileDao().get("GUEST"))
+    assertEquals(emptyList<String>(), db.profileDao().equipmentIds("GUEST"))
+  }
+
+  @Test
+  fun `stale guest editor cannot save into claimed owner scope`() = runTest {
+    val store = Store()
+    val (repository, sync) = repository(store)
+    val guest = requireNotNull(repository.openEditor())
+
+    sync.claim("user-a")
+    store.save(BackendTokens("user-a", "a@example.com", "access", "refresh"))
+
+    assertEquals(
+        ProfileSaveResult.StaleTarget,
+        repository.save(guest.target, BasicProfile(trainingGoal = TrainingGoal.ENDURANCE)),
+    )
+    assertNull(db.profileDao().get("user-a"))
+    assertNull(repository.observe(guest.target).first())
+  }
+
+  @Test
+  fun `save rejects future birth date and unknown equipment`() = runTest {
+    val (repository, _) = repository(Store())
+    val target = requireNotNull(repository.openEditor()).target
+
+    assertEquals(
+        ProfileSaveResult.Invalid,
+        repository.save(target, BasicProfile(birthDate = "2030-01-01")),
+    )
+    assertEquals(
+        ProfileSaveResult.Invalid,
+        repository.save(target, BasicProfile(equipmentIds = setOf("not-catalog"))),
+    )
+    assertEquals(
+        ProfileSaveResult.Invalid,
+        repository.save(target, BasicProfile(birthDate = "1899-12-31")),
+    )
+    assertEquals(
+        ProfileSaveResult.Invalid,
+        repository.save(target, BasicProfile(birthDate = "not-an-ISO-date")),
+    )
+    assertEquals(
+        ProfileSaveResult.Invalid,
+        repository.save(target, BasicProfile(birthDate = "+02000-02-29")),
+    )
+    assertEquals(
+        ProfileSaveResult.Invalid,
+        repository.save(target, BasicProfile(plannedSessionsPerWeek = 0)),
+    )
+    assertEquals(
+        ProfileSaveResult.Invalid,
+        repository.save(target, BasicProfile(preferredSessionDurationMinutes = 241)),
+    )
+    assertTrue(db.profileDao().get("GUEST") == null)
+  }
+
+  @Test
+  fun `saving replaces equipment children and retains an explicitly empty profile`() = runTest {
+    val (repository, _) = repository(Store())
+    val target = requireNotNull(repository.openEditor()).target
+    val equipment = LocalEquipmentCatalog.entries.take(2).map { it.id }.toSet()
+    assertEquals(2, equipment.size)
+
+    assertEquals(
+        ProfileSaveResult.Saved,
+        repository.save(
+            target,
+            BasicProfile(
+                trainingGoal = TrainingGoal.MUSCLE_GAIN,
+                plannedSessionsPerWeek = 7,
+                preferredSessionDurationMinutes = 240,
+                equipmentIds = equipment,
+            ),
+        ),
+    )
+    assertEquals(equipment.sorted(), db.profileDao().equipmentIds("GUEST"))
+
+    assertEquals(ProfileSaveResult.Saved, repository.save(target, BasicProfile()))
+    assertNull(db.profileDao().get("GUEST")?.trainingGoal)
+    assertEquals(emptyList<String>(), db.profileDao().equipmentIds("GUEST"))
+  }
+
+  @Test
+  fun `profile validation accepts boundary values and rejects overlong Unicode constraints`() =
+      runTest {
+        val (repository, _) = repository(Store())
+        val target = requireNotNull(repository.openEditor()).target
+        val withinLimit = "🚀".repeat(2_000)
+
+        assertEquals(
+            ProfileSaveResult.Saved,
+            repository.save(
+                target,
+                BasicProfile(
+                    birthDate = "1900-01-01",
+                    plannedSessionsPerWeek = 1,
+                    preferredSessionDurationMinutes = 10,
+                    manualConstraints = withinLimit,
+                ),
+            ),
+        )
+        assertEquals(
+            ProfileSaveResult.Invalid,
+            repository.save(target, BasicProfile(plannedSessionsPerWeek = 8)),
+        )
+        assertEquals(
+            ProfileSaveResult.Invalid,
+            repository.save(target, BasicProfile(preferredSessionDurationMinutes = 9)),
+        )
+        assertEquals(
+            ProfileSaveResult.Invalid,
+            repository.save(target, BasicProfile(manualConstraints = "🚀".repeat(2_001))),
+        )
+        assertEquals(
+            ProfileSaveResult.Saved,
+            repository.save(target, BasicProfile(manualConstraints = "  \n  ")),
+        )
+        assertNull(db.profileDao().get("GUEST")?.manualConstraints)
+
+        TrainingGoal.entries.forEach { goal ->
+          assertEquals(
+              ProfileSaveResult.Saved,
+              repository.save(target, BasicProfile(trainingGoal = goal)),
+          )
+        }
+        ProfileSex.entries.forEach { sex ->
+          assertEquals(ProfileSaveResult.Saved, repository.save(target, BasicProfile(sex = sex)))
+        }
+        ExperienceLevel.entries.forEach { experience ->
+          assertEquals(
+              ProfileSaveResult.Saved,
+              repository.save(target, BasicProfile(experienceLevel = experience)),
+          )
+        }
+      }
+
+  @Test
+  fun `claim keeps existing owner profile instead of merging the guest singleton`() = runTest {
+    val store = Store()
+    val (repository, sync) = repository(store)
+    val guestEquipment = LocalEquipmentCatalog.entries.take(2).map { it.id }.toSet()
+    val ownerEquipment = LocalEquipmentCatalog.entries.drop(2).take(2).map { it.id }.toSet()
+    assertEquals(2, guestEquipment.size)
+    assertEquals(2, ownerEquipment.size)
+    val guest = requireNotNull(repository.openEditor())
+    assertEquals(
+        ProfileSaveResult.Saved,
+        repository.save(
+            guest.target,
+            BasicProfile(trainingGoal = TrainingGoal.STRENGTH, equipmentIds = guestEquipment),
+        ),
+    )
+    db.profileDao()
+        .upsert(
+            ProfileEntity(
+                scope = "owner-b",
+                syncId = "server-authoritative-owner-b",
+                trainingGoal = TrainingGoal.ENDURANCE.name,
+                updatedAt = 7,
+            ),
+        )
+    db.profileDao()
+        .upsertEquipment(
+            ownerEquipment.sorted().map { ProfileEquipmentPreferenceEntity("owner-b", it) }
+        )
+
+    sync.claim("owner-b")
+
+    assertNull(db.profileDao().get("GUEST"))
+    val owner = requireNotNull(db.profileDao().get("owner-b"))
+    assertEquals("server-authoritative-owner-b", owner.syncId)
+    assertEquals(TrainingGoal.ENDURANCE.name, owner.trainingGoal)
+    assertEquals(ownerEquipment.sorted(), db.profileDao().equipmentIds("owner-b"))
+    assertEquals(emptyList<String>(), db.profileDao().equipmentIds("GUEST"))
+  }
+}

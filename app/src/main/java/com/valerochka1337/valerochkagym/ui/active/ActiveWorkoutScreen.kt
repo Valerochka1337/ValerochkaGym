@@ -56,6 +56,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
@@ -196,6 +197,15 @@ fun ActiveWorkoutScreen(
             updateCompletedIncline = viewModel::updateCompletedSetIncline,
             saveCompletedEdit = viewModel::saveCompletedSetEdit,
             cancelCompletedEdit = viewModel::cancelCompletedSetEdit,
+            editNote = viewModel::openSetNote,
+            updateNote = viewModel::updateNote,
+            saveNoteEdit = viewModel::saveNoteEdit,
+            cancelNoteEdit = viewModel::cancelNoteEdit,
+            editPersonalHint = viewModel::openPersonalHintEdit,
+            unpinPersonalHint = viewModel::unpinPersonalHint,
+            updatePersonalHint = viewModel::updatePersonalHintEdit,
+            savePersonalHint = viewModel::savePersonalHintEdit,
+            cancelPersonalHint = viewModel::cancelPersonalHintEdit,
             uncomplete = viewModel::uncompleteSet,
             addSet = viewModel::addSet,
             deleteSet = viewModel::deleteSet,
@@ -226,6 +236,7 @@ fun ActiveWorkoutScreen(
                   onScanHeartRate = ::startHeartRateSearch,
                   onConnectHeartRate = viewModel::connectHeartRate,
                   onCancelHeartRateSelection = viewModel::cancelHeartRateSelection,
+                  onEditWorkoutNote = viewModel::openWorkoutNote,
               )
             }
 
@@ -290,6 +301,15 @@ internal class SetActions(
     val updateCompletedIncline: (String) -> Unit = {},
     val saveCompletedEdit: () -> Unit = {},
     val cancelCompletedEdit: () -> Unit = {},
+    val editNote: (Long) -> Unit = {},
+    val updateNote: (String) -> Unit = {},
+    val saveNoteEdit: () -> Unit = {},
+    val cancelNoteEdit: () -> Unit = {},
+    val editPersonalHint: (Long) -> Unit = {},
+    val unpinPersonalHint: (Long) -> Unit = {},
+    val updatePersonalHint: (String) -> Unit = {},
+    val savePersonalHint: () -> Unit = {},
+    val cancelPersonalHint: () -> Unit = {},
 )
 
 @Composable
@@ -311,6 +331,7 @@ internal fun ActiveWorkoutContent(
     onScanHeartRate: () -> Unit,
     onConnectHeartRate: (HeartRateDevice) -> Unit,
     onCancelHeartRateSelection: () -> Unit,
+    onEditWorkoutNote: () -> Unit = {},
 ) {
   val workout = state.workout ?: return
   val roomExercises = workout.exercises
@@ -398,6 +419,7 @@ internal fun ActiveWorkoutContent(
   Column(modifier = Modifier.fillMaxSize()) {
     ActiveWorkoutHeader(
         name = workout.workout.name,
+        note = workout.workout.note,
         elapsedSeconds = elapsedSeconds,
         currentNumber = currentNumber,
         total = exercises.size,
@@ -409,6 +431,7 @@ internal fun ActiveWorkoutContent(
         isFinishing = state.isFinishing,
         onFinish = requestFinish,
         onDiscard = { showDiscardDialog = true },
+        onEditNote = onEditWorkoutNote,
     )
 
     LazyColumn(
@@ -459,6 +482,7 @@ internal fun ActiveWorkoutContent(
                       .semantics { customActions = moveActions },
               exercise = exercise,
               previous = state.previousByExercise[exercise.exercise.id].orEmpty(),
+              hint = state.hintsByExercise[exercise.exercise.id]?.text,
               actions = setActions,
               activeSetId = activeSetId,
               showAddSet =
@@ -588,6 +612,22 @@ internal fun ActiveWorkoutContent(
           setActions.cancelCompletedEdit()
           setActions.uncomplete(draft.setId)
         },
+    )
+  }
+  state.noteEdit?.let { draft ->
+    WorkoutNoteEditDialog(
+        draft = draft,
+        onTextChange = setActions.updateNote,
+        onSave = setActions.saveNoteEdit,
+        onCancel = setActions.cancelNoteEdit,
+    )
+  }
+  state.personalHintEdit?.let { draft ->
+    ActivePersonalHintEditDialog(
+        draft = draft,
+        onTextChange = setActions.updatePersonalHint,
+        onSave = setActions.savePersonalHint,
+        onCancel = setActions.cancelPersonalHint,
     )
   }
 }
@@ -829,6 +869,7 @@ private fun RestPillSide(
 @Composable
 private fun ActiveWorkoutHeader(
     name: String,
+    note: String,
     elapsedSeconds: StateFlow<Long>,
     currentNumber: Int,
     total: Int,
@@ -840,6 +881,7 @@ private fun ActiveWorkoutHeader(
     isFinishing: Boolean,
     onFinish: () -> Unit,
     onDiscard: () -> Unit,
+    onEditNote: () -> Unit,
 ) {
   // Собираем таймер только здесь, чтобы посекундный тик не рекомпозил список подходов.
   val elapsed by elapsedSeconds.collectAsStateWithLifecycle()
@@ -888,6 +930,13 @@ private fun ActiveWorkoutHeader(
             onDismissRequest = { menuExpanded = false },
         ) {
           DropdownMenuItem(
+              text = { Text("Заметка к тренировке") },
+              onClick = {
+                menuExpanded = false
+                onEditNote()
+              },
+          )
+          DropdownMenuItem(
               text = {
                 Text(
                     text = "Отменить тренировку",
@@ -919,6 +968,14 @@ private fun ActiveWorkoutHeader(
         )
       }
     }
+    if (note.isNotBlank()) {
+      Text(
+          text = note,
+          style = MaterialTheme.typography.bodySmall,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
+          modifier = Modifier.padding(top = 4.dp),
+      )
+    }
   }
 }
 
@@ -927,6 +984,7 @@ private fun ActiveWorkoutHeader(
 private fun ExerciseSection(
     exercise: WorkoutExerciseWithSets,
     previous: String,
+    hint: String?,
     actions: SetActions,
     activeSetId: Long?,
     showAddSet: Boolean,
@@ -968,6 +1026,13 @@ private fun ExerciseSection(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
           }
+          if (!hint.isNullOrBlank()) {
+            Text(
+                text = hint,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+          }
         }
       }
       dragHandle()
@@ -981,6 +1046,17 @@ private fun ExerciseSection(
     }
 
     Spacer(Modifier.height(8.dp))
+
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+      TextButton(onClick = { actions.editPersonalHint(exercise.exercise.id) }) {
+        Text(if (hint.isNullOrBlank()) "Добавить подсказку" else "Изменить подсказку")
+      }
+      if (!hint.isNullOrBlank()) {
+        TextButton(onClick = { actions.unpinPersonalHint(exercise.exercise.id) }) {
+          Text("Убрать подсказку")
+        }
+      }
+    }
 
     exercise.sets.forEach { set ->
       when {
@@ -1005,6 +1081,14 @@ private fun ExerciseSection(
 
         else -> FutureSetPill(set = set, type = type)
       }
+      if (set.note.isNotBlank()) {
+        Text(
+            text = set.note,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+      }
+      TextButton(onClick = { actions.editNote(set.id) }) { Text("Заметка к подходу") }
       Spacer(Modifier.height(8.dp))
     }
 
@@ -1611,3 +1695,81 @@ private fun Double?.toField(): String =
     }
 
 private fun Int?.toField(): String = this?.toString() ?: ""
+
+@Composable
+private fun WorkoutNoteEditDialog(
+    draft: WorkoutNoteEditDraft,
+    onTextChange: (String) -> Unit,
+    onSave: () -> Unit,
+    onCancel: () -> Unit,
+) {
+  AlertDialog(
+      onDismissRequest = { if (!draft.isSubmitting) onCancel() },
+      title = { Text(if (draft.setId == null) "Заметка к тренировке" else "Заметка к подходу") },
+      text = {
+        Column {
+          OutlinedTextField(
+              value = draft.text,
+              onValueChange = onTextChange,
+              label = { Text("Заметка") },
+              supportingText = { Text("До 2000 символов") },
+              isError = draft.error != null,
+              enabled = !draft.isSubmitting,
+              modifier = Modifier.fillMaxWidth(),
+          )
+          draft.error?.let {
+            Text(
+                text = it,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+          }
+        }
+      },
+      confirmButton = {
+        TextButton(onClick = onSave, enabled = !draft.isSubmitting) { Text("Сохранить") }
+      },
+      dismissButton = {
+        TextButton(onClick = onCancel, enabled = !draft.isSubmitting) { Text("Отмена") }
+      },
+  )
+}
+
+@Composable
+private fun ActivePersonalHintEditDialog(
+    draft: ActivePersonalHintEditDraft,
+    onTextChange: (String) -> Unit,
+    onSave: () -> Unit,
+    onCancel: () -> Unit,
+) {
+  AlertDialog(
+      onDismissRequest = { if (!draft.isSubmitting) onCancel() },
+      title = { Text("Моя подсказка") },
+      text = {
+        Column {
+          OutlinedTextField(
+              value = draft.text,
+              onValueChange = onTextChange,
+              label = { Text("Подсказка") },
+              supportingText = { Text("До 2000 символов") },
+              isError = draft.error != null,
+              enabled = !draft.isSubmitting,
+              modifier = Modifier.fillMaxWidth(),
+          )
+          draft.error?.let {
+            Text(
+                text = it,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+          }
+        }
+      },
+      confirmButton = {
+        TextButton(onClick = onSave, enabled = !draft.isSubmitting) { Text("Сохранить") }
+      },
+      dismissButton = {
+        TextButton(onClick = onCancel, enabled = !draft.isSubmitting) { Text("Отмена") }
+      },
+  )
+}

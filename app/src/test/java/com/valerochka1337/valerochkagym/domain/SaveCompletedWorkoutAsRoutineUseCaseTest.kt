@@ -101,6 +101,43 @@ class SaveCompletedWorkoutAsRoutineUseCaseTest {
   }
 
   @Test
+  fun `a note-only incomplete set cannot create a routine`() = runTest {
+    val repository = FakeGymRepository()
+    val source =
+        workout()
+            .copy(
+                exercises =
+                    listOf(
+                        section(
+                            sectionId = 22,
+                            exercise = exercise(9, "Тяга"),
+                            position = 0,
+                            sets =
+                                listOf(
+                                    set(
+                                        index = 0,
+                                        weight = 40.0,
+                                        reps = 8,
+                                        completed = false,
+                                        note = "Следить за спиной",
+                                    )
+                                ),
+                        ),
+                    ),
+            )
+
+    val result =
+        SaveCompletedWorkoutAsRoutineUseCase(repository, NoOpRoutineUploadScheduler)(
+            source,
+            "Заметка",
+            "operation-note-only",
+        )
+
+    assertEquals(SaveCompletedWorkoutAsRoutineResult.Failure, result)
+    assertTrue(repository.drafts.isEmpty())
+  }
+
+  @Test
   fun `only a saved configuration schedules its fresh routine once`() = runTest {
     val scheduler = FakeRoutineUploadScheduler()
     val repository = FakeGymRepository()
@@ -293,6 +330,7 @@ class SaveCompletedWorkoutAsRoutineUseCaseTest {
       speed: Double? = null,
       incline: Double? = null,
       completed: Boolean,
+      note: String = "",
   ) =
       WorkoutSetEntity(
           workoutExerciseId = 9,
@@ -303,6 +341,7 @@ class SaveCompletedWorkoutAsRoutineUseCaseTest {
           speedKmh = speed,
           inclinePct = incline,
           isCompleted = completed,
+          note = note,
       )
 
   private class FakeGymRepository(

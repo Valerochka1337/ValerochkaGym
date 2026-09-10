@@ -1,0 +1,1176 @@
+{
+  "errors": {
+    "ai_busy": 503,
+    "ai_context_stale": 409,
+    "ai_context_too_large": 409,
+    "ai_invalid_response": 502,
+    "ai_timeout": 504,
+    "ai_unavailable": 503,
+    "invalid_image": 400,
+    "payload_too_large": 413
+  },
+  "limits": {
+    "connectTimeoutMillis": 5000,
+    "contextBytes": 1048576,
+    "deadlineMillis": 45000,
+    "decodedImageBytes": 6291456,
+    "imageMaxDimension": 3072,
+    "maxCompletionTokens": 2048,
+    "maxInFlight": 2,
+    "providerResponseBytes": 262144,
+    "requestBodyBytes": 10485760
+  },
+  "paths": {
+    "exercise": "POST /v1/ai/exercise-drafts",
+    "inbody": "POST /v1/ai/inbody-drafts",
+    "status": "GET /v1/ai/status"
+  },
+  "provider": {
+    "exerciseOutputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "result": {
+          "anyOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "exerciseId": {
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+                  "type": "string"
+                },
+                "kind": {
+                  "enum": [
+                    "EXISTING"
+                  ],
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "exerciseId"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "enum": [
+                    "NEW"
+                  ],
+                  "type": "string"
+                },
+                "muscles": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "contribution": {
+                        "enum": [
+                          0,
+                          50,
+                          100
+                        ],
+                        "type": "integer"
+                      },
+                      "muscle": {
+                        "enum": [
+                          "UPPER_CHEST",
+                          "LOWER_CHEST",
+                          "FRONT_DELTS",
+                          "SIDE_DELTS",
+                          "REAR_DELTS",
+                          "ROTATOR_CUFF",
+                          "SERRATUS_ANTERIOR",
+                          "BICEPS",
+                          "TRICEPS",
+                          "FOREARMS",
+                          "ABS",
+                          "OBLIQUES",
+                          "HIP_FLEXORS",
+                          "ADDUCTORS",
+                          "QUADS",
+                          "TIBIALIS_ANTERIOR",
+                          "CALVES",
+                          "HAMSTRINGS",
+                          "GLUTES",
+                          "HIP_ABDUCTORS",
+                          "LOWER_BACK",
+                          "LATS",
+                          "UPPER_BACK",
+                          "TRAPS",
+                          "NECK"
+                        ],
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "muscle",
+                      "contribution"
+                    ],
+                    "type": "object"
+                  },
+                  "minItems": 1,
+                  "type": "array"
+                },
+                "name": {
+                  "maxLength": 200,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "type": {
+                  "enum": [
+                    "STRENGTH",
+                    "TIMED",
+                    "CARDIO"
+                  ],
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "name",
+                "type",
+                "muscles"
+              ],
+              "type": "object"
+            }
+          ]
+        }
+      },
+      "required": [
+        "result"
+      ],
+      "type": "object"
+    },
+    "imageDataUriPrefix": "data:image/jpeg;base64,",
+    "inbodyOutputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "result": {
+          "additionalProperties": false,
+          "properties": {
+            "draft": {
+              "additionalProperties": false,
+              "properties": {
+                "basalMetabolicRateKcal": {
+                  "minimum": 0,
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "bodyFatMassKg": {
+                  "minimum": 0,
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "bodyFatPercentage": {
+                  "maximum": 100,
+                  "minimum": 0,
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "bodyMassIndex": {
+                  "minimum": 0,
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "fatFreeMassKg": {
+                  "minimum": 0,
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "inBodyScore": {
+                  "minimum": 0,
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "measuredDate": {
+                  "format": "date",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "measuredTime": {
+                  "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "mineralsKg": {
+                  "minimum": 0,
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "proteinKg": {
+                  "minimum": 0,
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "recommendedCalorieIntakeKcal": {
+                  "minimum": 0,
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "segments": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "LEFT_ARM": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "fatMassKg": {
+                          "minimum": 0,
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "fatPercentage": {
+                          "minimum": 0,
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "leanMassKg": {
+                          "minimum": 0,
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "leanPercentage": {
+                          "minimum": 0,
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "leanMassKg",
+                        "leanPercentage",
+                        "fatMassKg",
+                        "fatPercentage"
+                      ],
+                      "type": "object"
+                    },
+                    "LEFT_LEG": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "fatMassKg": {
+                          "minimum": 0,
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "fatPercentage": {
+                          "minimum": 0,
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "leanMassKg": {
+                          "minimum": 0,
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "leanPercentage": {
+                          "minimum": 0,
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "leanMassKg",
+                        "leanPercentage",
+                        "fatMassKg",
+                        "fatPercentage"
+                      ],
+                      "type": "object"
+                    },
+                    "RIGHT_ARM": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "fatMassKg": {
+                          "minimum": 0,
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "fatPercentage": {
+                          "minimum": 0,
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "leanMassKg": {
+                          "minimum": 0,
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "leanPercentage": {
+                          "minimum": 0,
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "leanMassKg",
+                        "leanPercentage",
+                        "fatMassKg",
+                        "fatPercentage"
+                      ],
+                      "type": "object"
+                    },
+                    "RIGHT_LEG": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "fatMassKg": {
+                          "minimum": 0,
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "fatPercentage": {
+                          "minimum": 0,
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "leanMassKg": {
+                          "minimum": 0,
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "leanPercentage": {
+                          "minimum": 0,
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "leanMassKg",
+                        "leanPercentage",
+                        "fatMassKg",
+                        "fatPercentage"
+                      ],
+                      "type": "object"
+                    },
+                    "TRUNK": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "fatMassKg": {
+                          "minimum": 0,
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "fatPercentage": {
+                          "minimum": 0,
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "leanMassKg": {
+                          "minimum": 0,
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "leanPercentage": {
+                          "minimum": 0,
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "leanMassKg",
+                        "leanPercentage",
+                        "fatMassKg",
+                        "fatPercentage"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "LEFT_ARM",
+                    "RIGHT_ARM",
+                    "TRUNK",
+                    "LEFT_LEG",
+                    "RIGHT_LEG"
+                  ],
+                  "type": "object"
+                },
+                "skeletalMuscleMassKg": {
+                  "minimum": 0,
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "totalBodyWaterLiters": {
+                  "minimum": 0,
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "visceralFatLevel": {
+                  "minimum": 0,
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "waistHipRatio": {
+                  "minimum": 0,
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "weightKg": {
+                  "minimum": 0,
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "measuredDate",
+                "measuredTime",
+                "weightKg",
+                "skeletalMuscleMassKg",
+                "bodyFatPercentage",
+                "bodyFatMassKg",
+                "waistHipRatio",
+                "totalBodyWaterLiters",
+                "proteinKg",
+                "mineralsKg",
+                "bodyMassIndex",
+                "fatFreeMassKg",
+                "visceralFatLevel",
+                "inBodyScore",
+                "basalMetabolicRateKcal",
+                "recommendedCalorieIntakeKcal",
+                "segments"
+              ],
+              "type": "object"
+            },
+            "kind": {
+              "enum": [
+                "INBODY"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "draft"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "result"
+      ],
+      "type": "object"
+    },
+    "max_completion_tokens": 2048,
+    "method": "POST",
+    "models": {
+      "text": "AI_TEXT_MODEL",
+      "vision": "AI_VISION_MODEL"
+    },
+    "n": 1,
+    "path": "/v1/chat/completions",
+    "responseExtraction": "choices[0].message.content JSON; exactly one assistant choice, completed non-refusal output",
+    "responseFormatType": "json_schema",
+    "store": false,
+    "stream": false,
+    "strict": true
+  },
+  "schemaVersion": 1,
+  "schemas": {
+    "exerciseRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "maxLength": 2000,
+          "minLength": 1,
+          "type": "string"
+        },
+        "expectedCatalogRevision": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "expectedRevision": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "requestId": {
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "requestId",
+        "expectedRevision",
+        "expectedCatalogRevision",
+        "description"
+      ],
+      "type": "object"
+    },
+    "exerciseResponse": {
+      "additionalProperties": false,
+      "properties": {
+        "context": {
+          "additionalProperties": false,
+          "properties": {
+            "catalogRevision": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "revision": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "revision",
+            "catalogRevision"
+          ],
+          "type": "object"
+        },
+        "requestId": {
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+          "type": "string"
+        },
+        "result": {
+          "anyOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "exerciseId": {
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+                  "type": "string"
+                },
+                "kind": {
+                  "enum": [
+                    "EXISTING"
+                  ],
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "exerciseId"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "enum": [
+                    "NEW"
+                  ],
+                  "type": "string"
+                },
+                "muscles": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "contribution": {
+                        "enum": [
+                          0,
+                          50,
+                          100
+                        ],
+                        "type": "integer"
+                      },
+                      "muscle": {
+                        "enum": [
+                          "UPPER_CHEST",
+                          "LOWER_CHEST",
+                          "FRONT_DELTS",
+                          "SIDE_DELTS",
+                          "REAR_DELTS",
+                          "ROTATOR_CUFF",
+                          "SERRATUS_ANTERIOR",
+                          "BICEPS",
+                          "TRICEPS",
+                          "FOREARMS",
+                          "ABS",
+                          "OBLIQUES",
+                          "HIP_FLEXORS",
+                          "ADDUCTORS",
+                          "QUADS",
+                          "TIBIALIS_ANTERIOR",
+                          "CALVES",
+                          "HAMSTRINGS",
+                          "GLUTES",
+                          "HIP_ABDUCTORS",
+                          "LOWER_BACK",
+                          "LATS",
+                          "UPPER_BACK",
+                          "TRAPS",
+                          "NECK"
+                        ],
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "muscle",
+                      "contribution"
+                    ],
+                    "type": "object"
+                  },
+                  "minItems": 1,
+                  "type": "array"
+                },
+                "name": {
+                  "maxLength": 200,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "type": {
+                  "enum": [
+                    "STRENGTH",
+                    "TIMED",
+                    "CARDIO"
+                  ],
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "name",
+                "type",
+                "muscles"
+              ],
+              "type": "object"
+            }
+          ]
+        }
+      },
+      "required": [
+        "requestId",
+        "context",
+        "result"
+      ],
+      "type": "object"
+    },
+    "inbodyRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "expectedCatalogRevision": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "expectedRevision": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "image": {
+          "additionalProperties": false,
+          "properties": {
+            "base64": {
+              "maxLength": 8388608,
+              "type": "string"
+            },
+            "mediaType": {
+              "enum": [
+                "image/jpeg"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "mediaType",
+            "base64"
+          ],
+          "type": "object"
+        },
+        "requestId": {
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "requestId",
+        "expectedRevision",
+        "expectedCatalogRevision",
+        "image"
+      ],
+      "type": "object"
+    },
+    "inbodyResponse": {
+      "additionalProperties": false,
+      "properties": {
+        "context": {
+          "additionalProperties": false,
+          "properties": {
+            "catalogRevision": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "revision": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "revision",
+            "catalogRevision"
+          ],
+          "type": "object"
+        },
+        "requestId": {
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+          "type": "string"
+        },
+        "result": {
+          "additionalProperties": false,
+          "properties": {
+            "draft": {
+              "additionalProperties": false,
+              "properties": {
+                "basalMetabolicRateKcal": {
+                  "minimum": 0,
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "bodyFatMassKg": {
+                  "minimum": 0,
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "bodyFatPercentage": {
+                  "maximum": 100,
+                  "minimum": 0,
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "bodyMassIndex": {
+                  "minimum": 0,
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "fatFreeMassKg": {
+                  "minimum": 0,
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "inBodyScore": {
+                  "minimum": 0,
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "measuredDate": {
+                  "format": "date",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "measuredTime": {
+                  "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "mineralsKg": {
+                  "minimum": 0,
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "proteinKg": {
+                  "minimum": 0,
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "recommendedCalorieIntakeKcal": {
+                  "minimum": 0,
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "segments": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "LEFT_ARM": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "fatMassKg": {
+                          "minimum": 0,
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "fatPercentage": {
+                          "minimum": 0,
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "leanMassKg": {
+                          "minimum": 0,
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "leanPercentage": {
+                          "minimum": 0,
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "leanMassKg",
+                        "leanPercentage",
+                        "fatMassKg",
+                        "fatPercentage"
+                      ],
+                      "type": "object"
+                    },
+                    "LEFT_LEG": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "fatMassKg": {
+                          "minimum": 0,
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "fatPercentage": {
+                          "minimum": 0,
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "leanMassKg": {
+                          "minimum": 0,
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "leanPercentage": {
+                          "minimum": 0,
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "leanMassKg",
+                        "leanPercentage",
+                        "fatMassKg",
+                        "fatPercentage"
+                      ],
+                      "type": "object"
+                    },
+                    "RIGHT_ARM": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "fatMassKg": {
+                          "minimum": 0,
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "fatPercentage": {
+                          "minimum": 0,
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "leanMassKg": {
+                          "minimum": 0,
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "leanPercentage": {
+                          "minimum": 0,
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "leanMassKg",
+                        "leanPercentage",
+                        "fatMassKg",
+                        "fatPercentage"
+                      ],
+                      "type": "object"
+                    },
+                    "RIGHT_LEG": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "fatMassKg": {
+                          "minimum": 0,
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "fatPercentage": {
+                          "minimum": 0,
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "leanMassKg": {
+                          "minimum": 0,
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "leanPercentage": {
+                          "minimum": 0,
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "leanMassKg",
+                        "leanPercentage",
+                        "fatMassKg",
+                        "fatPercentage"
+                      ],
+                      "type": "object"
+                    },
+                    "TRUNK": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "fatMassKg": {
+                          "minimum": 0,
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "fatPercentage": {
+                          "minimum": 0,
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "leanMassKg": {
+                          "minimum": 0,
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "leanPercentage": {
+                          "minimum": 0,
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "leanMassKg",
+                        "leanPercentage",
+                        "fatMassKg",
+                        "fatPercentage"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "LEFT_ARM",
+                    "RIGHT_ARM",
+                    "TRUNK",
+                    "LEFT_LEG",
+                    "RIGHT_LEG"
+                  ],
+                  "type": "object"
+                },
+                "skeletalMuscleMassKg": {
+                  "minimum": 0,
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "totalBodyWaterLiters": {
+                  "minimum": 0,
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "visceralFatLevel": {
+                  "minimum": 0,
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "waistHipRatio": {
+                  "minimum": 0,
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "weightKg": {
+                  "minimum": 0,
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "measuredDate",
+                "measuredTime",
+                "weightKg",
+                "skeletalMuscleMassKg",
+                "bodyFatPercentage",
+                "bodyFatMassKg",
+                "waistHipRatio",
+                "totalBodyWaterLiters",
+                "proteinKg",
+                "mineralsKg",
+                "bodyMassIndex",
+                "fatFreeMassKg",
+                "visceralFatLevel",
+                "inBodyScore",
+                "basalMetabolicRateKcal",
+                "recommendedCalorieIntakeKcal",
+                "segments"
+              ],
+              "type": "object"
+            },
+            "kind": {
+              "enum": [
+                "INBODY"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "draft"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "requestId",
+        "context",
+        "result"
+      ],
+      "type": "object"
+    }
+  },
+  "semantics": [
+    "All UUIDs canonical lowercase; owner derived from authentication.",
+    "Muscles unique with at least one nonzero contribution.",
+    "All numeric values finite; empty OCR draft rejected; null means unrecognized.",
+    "Existing UUID resolves only to current-owner or active-public catalog then same-owner synced local ID.",
+    "Provider output contains result only; server adds requestId and verified context revisions.",
+    "requestId is attempt correlation, not provider-call idempotency.",
+    "No writes or raw image/prompt/result persistence during draft actions."
+  ],
+  "status": {
+    "available": {
+      "actions": [
+        "EXERCISE_DRAFT",
+        "INBODY_PHOTO_DRAFT"
+      ],
+      "availability": "AVAILABLE",
+      "schemaVersion": 1
+    },
+    "unconfigured": {
+      "actions": [],
+      "availability": "UNCONFIGURED",
+      "schemaVersion": 1
+    }
+  }
+}

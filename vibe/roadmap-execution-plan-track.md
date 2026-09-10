@@ -1,5 +1,20 @@
 # Выполнение глобального плана
 
+## Ограничение объёма владельцем — 10.09.2026
+
+Текущий запрос заменяет прежнее поручение выполнить весь roadmap: завершить только уже
+частично реализованные функции и не начинать новые. Исполнение и зависимости — в
+[partial-completion-plan.md](partial-completion-plan.md), текущая приёмка — в
+[partial-completion-plan-track.md](partial-completion-plan-track.md).
+
+В работе: CAL-01, Android существующих AI exercise/InBody, заметки, базовый профиль,
+ручное здоровье, предложения и связи с тренером; также уже начатый backend calendar-AI
+и его клиентский сценарий. CAL-02 Google-синхронизация, новый вид месяца, рекомендации,
+питание, расширенные метрики, импорты здоровья и социальный backlog не начинаются.
+Работа локальная, публикация/деплой не разрешены текущим запросом. Отдельное решение
+по ранее отклонённому edited-preview патчу запрошено; до ответа патч остаётся заблокирован.
+Ни исследование, ни планирование сами по себе не повышают число принятых этапов.
+
 Старт: 10.09.2026. Основание: владелец поручил автономно реализовать все активные доработки,
 разрешать детали без вопросов, опубликовать результат в GitHub и проверить успешный релиз.
 Объём: [глобальный план](github-issues-implementation-plan.md); социальные #54–62 и лимиты #63
@@ -45,6 +60,8 @@
 | 08 / #43 | feat/google-account-calendar | done_local |5c96376; full1083tests0failures/errors1skip/debugPASS; T/V PASS after final-write and legacy-fixture repairs;36/1.3.28, Room17 |
 | 11–12 / #51 | feat/guest-sync | done_local | 52bfd43; final1110tests0failures/errors1skip/debugPASS; strict boundary rechecks PASS; Room18,37/1.3.29 |
 | CAL-01 server slice | backend feat/calendar-plan-contract | done_local | c73c411; full check/bootJar PASS, 44 tests 0 failures; strict PASS; upstream push/deploy blocked READ rights; Android Room slice ждёт этап12 |
+| CAL-01 Android slice | feat/partial-completion (после feat/local-calendar) | done_local | Room19;38/1.3.30; independent T/V PASS; full1127tests/0fail/0errors/1skip, debugPASS; контрольныйAPK /private/tmp/yarumo-cal01-v38-debug.apk; изменения локально без commit |
+| Calendar-AI server slice | backend feat/calendar-ai | done_local | independent T/V PASS; root check/bootJar PASS166tests/0fail/0errors/0skip; изменения локально без commit/deploy; Android client pending |
 | AI-01 server slice | backend feat/server-ai-drafts | done_local | a5b567a; Gate T/V PASS; full check/bootJar64tests0failures;15 Python delivery tests PASS; READ rights block upstream; Android slice ждёт12 |
 | 10 / #9 server slice | backend feat/workout-notes-contract | done_local | f26de34; Gate T/V PASS; full68tests0failures/check/bootJarPASS; Android slice waits12/CAL01 |
 
@@ -83,11 +100,15 @@ Agent routing for stage08: environment rejected both new named implementer and o
 debug PASS); backend backup fixture исправлен и safe PLAN01 subset сохранён
 (7f27801, полный96/0fail/check bootJar PASS). Backend manual-health ledger также
 принят локально (8bc1fae, полный120/0fail/check bootJar PASS).
-Android сейчас `feat/guest-sync`, база6745e99, один writer завершает регрессии
-конфликтов/смены владельца и durable definite-409 recovery; Gate I ещё не завершён.
-Backend `feat/coach-relations` от eaa5081; Gate P PASS, production implementation
-начата отдельным writer. Android T/V выявили5P1+2P2 и coverage gaps; единый fix batch
-передан исходному writer, полного guest прогoна пока нет.
+Guest-sync принят локально: `52bfd43`, полный1110/0fail/1skip и debug PASS;
+интеграция `feat/roadmap-delivery` указывает на `c2b6bf6`. Android сейчас
+`feat/local-calendar` от этой базы. Единственный Room writer завершает CAL-01:
+Room19 и версия38/1.3.30 подготовлены, но Gate I ещё открыт по durable migration,
+capability/owner, legacy bridge и остальной матрице T-004. Полный прогон текущего
+CAL-01 не запускался; прошедшие целевые тесты не заменяют эти проверки.
+Backend coach-relations принят локально: `650baf2`, независимые T/V PASS,
+полный139/0fail/check bootJar PASS. Следующий calendar-AI план исправляется по
+Gate P; production-код этого этапа пока не меняется.
 Отдельный automatic approval block edited-preview PLAN01 сохраняется; ответ по
 конкретному патчу не получен, разрешение не предполагается из общей автономии.
 Новые публикации и успешный итоговый релиз пока не подтверждены.
@@ -112,7 +133,9 @@ permissions: pull=true, push=false, admin=false. Доступ через дру�
 push/PR/deploy до снятия этой паузы. Локальные feature branches/commits и проверки
 продолжаются; backend checkout /Users/raul/ItmoProjects/ValerochkaGymBackend сохранён.
 
-Guest sync сохранён52bfd43. Следующий Android этап CAL-01 от принятой Room18,
-единственный writer назначается после локального docs commit; ожидаемая Room19,
-версия38/1.3.30. Backend coach650baf2 принят локально; следующий calendar-AI пока
-только планируется в новом checkout, не принят и не реализован.
+Guest sync сохранён52bfd43. CAL-01 реализуется единственным Android writer
+на feat/local-calendar: Room19, версия38/1.3.30. Целевые проверки durable migration,
+capability/claim прошли; legacy bridge, идентичность команд/правил и последующие
+независимые T/V остаются открыты. Backend coach650baf2 принят локально;
+calendar-AI план пока не принят: повторное ревью выявило семь конкретных P1,
+контракт исправляется узким пакетом. Production-код calendar-AI ещё не менялся.

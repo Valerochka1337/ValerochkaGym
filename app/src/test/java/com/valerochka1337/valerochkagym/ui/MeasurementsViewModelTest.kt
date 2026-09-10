@@ -12,6 +12,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -159,6 +160,9 @@ class MeasurementsViewModelTest {
       measurements.value =
           measurements.value.map { if (it.id == measurement.id) measurement else it }
     }
+
+    override fun observeByIds(ids: Set<String>) =
+        observeAll().map { rows -> rows.filter { it.id in ids } }
 
     override fun observeAll(): Flow<List<BodyMeasurementEntity>> = measurements
 

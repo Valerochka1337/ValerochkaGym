@@ -68,3 +68,18 @@ root не принимает без Gate P: тип сам по себе не д�
 необоснованным физиологическим запретом.
 
 Backend: `AiContextReader`, `AiActionService`, provider/schema validator/controller DTO, internal TrainingProposalAiCreator; backend tests с fake provider и барьерами. Android: AI-01 repository/readiness, calendar VM/action, profile gate, PLAN-01 preview; никаких новых Room сущностей без отдельной необходимости. Контракт AI-01 расширяется аддитивно: старые exercise/InBody схемы не переопределяются. Один writer на backend, один на Android после backend acceptance; общий DTO/fixture сначала. Root final unit/debug, server check/bootJar и строгий T/V обязательны.
+
+## Последующее уточнение root для Gate P
+
+Ранжирование по goal preference относится только к порядку полного контекста
+кандидатов. В нём допустимы группы предпочитаемых типов как явно описанная продуктовая
+эвристика. Запрет обязательного prefix относится к выбору готового черновика:
+AI не обязан выбирать первые N кандидатов или фиксированный seed; другие разрешённые
+типы не исключаются. Детерминированно тестируется порядок контекста, а не обещание
+физиологического результата или точного состава ответа модели.
+
+Provider не генерирует weight/speed/incline. Вес добавляется из факта того же
+упражнения или null; speed/incline остаются неизвестными null до пользовательской
+правки. Ограничения остальных полей — только инженерный envelope черновика.
+Current Android экспортирует legacy weightKg; optional actualWeightKg — правило
+совместимости backend с будущим/другим клиентом, не утверждение о текущем producer.

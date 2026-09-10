@@ -2,6 +2,8 @@ package com.valerochka1337.valerochkagym.data
 
 import androidx.room.withTransaction
 import com.valerochka1337.valerochkagym.data.backend.*
+import com.valerochka1337.valerochkagym.data.calendar.CalendarMigrationGate
+import com.valerochka1337.valerochkagym.data.db.LocalEquipmentCatalog
 import com.valerochka1337.valerochkagym.data.db.entity.*
 import java.io.IOException
 import java.util.UUID
@@ -33,14 +35,26 @@ class BackendSyncTest : RoomDaoTest() {
         MutableStateFlow<BackendTokens?>(
             BackendTokens("user-a", "a@example.com", "access", "refresh")
         )
+    private var epoch = 0L
+    override val sessionEpoch: Long
+      get() = epoch
 
     override fun save(tokens: BackendTokens?) {
+      epoch++
       session.value = tokens
     }
   }
 
+  private object PendingGate : CalendarMigrationGate {
+    override suspend fun ensureReady(): Boolean = false
+  }
+
   private class Server : BackendTransport {
     override val json = Json { encodeDefaults = true }
+    var accepted: Set<String> = emptySet()
+    override val acceptedCapabilities: Set<String>
+      get() = accepted
+
     val records = linkedMapOf<String, CloudRecord>()
     val operations = mutableMapOf<String, Pair<CloudPush, CloudAck>>()
     var revision = 0L
@@ -51,9 +65,11 @@ class BackendSyncTest : RoomDaoTest() {
     var afterCommit: (suspend () -> Unit)? = null
     var beforePost: (suspend () -> Unit)? = null
     var beforeGet: (suspend () -> Unit)? = null
+    var onGet: (suspend (Int) -> Unit)? = null
     var beforeCatalog: (suspend () -> Unit)? = null
     var getReads = 0
     var postAttempts = 0
+    val rawPosts = mutableListOf<ByteArray>()
 
     override suspend fun public(method: String, path: String, body: JsonElement?): JsonElement =
         json.encodeToJsonElement(catalog).also {
@@ -68,6 +84,7 @@ class BackendSyncTest : RoomDaoTest() {
     override suspend fun authorized(method: String, path: String, body: JsonElement?): JsonElement {
       if (method == "GET") {
         getReads++
+        onGet?.invoke(getReads)
         beforeGet?.also {
           beforeGet = null
           it()
@@ -111,7 +128,848 @@ class BackendSyncTest : RoomDaoTest() {
       }
       return json.encodeToJsonElement(ack)
     }
+
+    override suspend fun authorizedRawResponse(
+        method: String,
+        path: String,
+        rawBody: ByteArray,
+        headers: Map<String, String>,
+        expectedOwner: String?,
+        expectedSessionEpoch: Long?,
+        retryOnUnauthorized: Boolean,
+        maxResponseBytes: Int?,
+    ): BackendResponse {
+      rawPosts += rawBody
+      return BackendResponse(
+          body = authorized(method, path, json.parseToJsonElement(rawBody.decodeToString())),
+          rawBody = byteArrayOf(),
+          acceptedCapabilities = accepted,
+          owner = expectedOwner,
+          sessionEpoch = expectedSessionEpoch ?: 0L,
+      )
+    }
   }
+
+  private suspend fun finishedWorkoutSet(id: String, note: String): Long {
+    val exerciseId =
+        db.exerciseDao().insert(exercise("00000000-0000-0000-0000-00000000${id.takeLast(4)}"))
+    insertWorkout(id, finishedAt = 2)
+    val section = insertWorkoutExercise(id, exerciseId)
+    val setId = insertSet(section, 0)
+    db.workoutDao().updateSet(db.workoutDao().getSet(setId)!!.copy(note = note))
+    return setId
+  }
+
+  private suspend fun baselineWorkout(
+      server: Server,
+      sync: BackendSync,
+      id: String,
+      note: String,
+  ): Long {
+    SyncSchema.install(raw)
+    val setId = finishedWorkoutSet(id, note)
+    sync.claim("user-a")
+    sync.run()
+    return setId
+  }
+
+  private suspend fun baselineHint(
+      server: Server,
+      sync: BackendSync,
+      syncId: String,
+      text: String,
+  ): Long {
+    SyncSchema.install(raw)
+    val exerciseId = db.exerciseDao().insert(exercise(syncId))
+    db.exercisePersonalHintDao().upsert(ExercisePersonalHintEntity(syncId, text, 1))
+    sync.claim("user-a")
+    sync.run()
+    return exerciseId
+  }
+
+  private fun profileId(owner: String = "user-a"): String =
+      UUID.nameUUIDFromBytes("ValerochkaGym.profile.v1:$owner".encodeToByteArray()).toString()
+
+  private suspend fun baselineProfile(server: Server, sync: BackendSync): String {
+    SyncSchema.install(raw)
+    val id = profileId()
+    val equipment = LocalEquipmentCatalog.entries.take(2).map { it.id }
+    check(equipment.size == 2)
+    sync.claim("user-a")
+    db.profileDao()
+        .upsert(
+            ProfileEntity(
+                scope = "user-a",
+                syncId = id,
+                trainingGoal = "STRENGTH",
+                updatedAt = 1,
+            ),
+        )
+    db.profileDao()
+        .upsertEquipment(equipment.map { ProfileEquipmentPreferenceEntity("user-a", it) })
+    sync.run()
+    return id
+  }
+
+  private fun hasSetNote(payload: JsonObject): Boolean =
+      payload["exercises"]?.jsonArray.orEmpty().any { section ->
+        section.jsonObject["sets"]?.jsonArray.orEmpty().any { "note" in it.jsonObject }
+      }
+
+  @Test
+  fun `clean profile survives a capability downgrade and accepts a later full server refresh`() =
+      runTest {
+        val server = Server().apply { accepted = setOf("profile") }
+        val sync = BackendSync(db, server, Store())
+        val id = baselineProfile(server, sync)
+        val posts = server.postAttempts
+        val baseline =
+            raw.query(
+                    "SELECT recordJson FROM backend_baseline WHERE `key`=?",
+                    arrayOf("profile:$id"),
+                )
+                .use {
+                  assertTrue(it.moveToFirst())
+                  it.getString(0)
+                }
+
+        server.accepted = emptySet()
+        sync.run()
+        assertEquals(posts, server.postAttempts)
+        assertEquals("STRENGTH", db.profileDao().get("user-a")?.trainingGoal)
+        assertEquals(2, db.profileDao().equipmentIds("user-a").size)
+        assertEquals(
+            baseline,
+            raw.query(
+                    "SELECT recordJson FROM backend_baseline WHERE `key`=?",
+                    arrayOf("profile:$id"),
+                )
+                .use {
+                  assertTrue(it.moveToFirst())
+                  it.getString(0)
+                },
+        )
+
+        val remote = requireNotNull(server.records["profile:$id"])
+        server.revision++
+        server.records[remote.key] =
+            remote.copy(
+                revision = server.revision,
+                payload =
+                    JsonObject(
+                        requireNotNull(remote.payload) +
+                            ("trainingGoal" to JsonPrimitive("ENDURANCE"))
+                    ),
+            )
+        server.accepted = setOf("profile")
+        sync.run()
+
+        assertEquals("ENDURANCE", db.profileDao().get("user-a")?.trainingGoal)
+        assertEquals(2, db.profileDao().equipmentIds("user-a").size)
+      }
+
+  @Test
+  fun `profile tombstone is rejected before absent capability can alter local rows or durable bytes`() =
+      runTest {
+        val server = Server().apply { accepted = setOf("profile") }
+        val sync = BackendSync(db, server, Store())
+        val id = baselineProfile(server, sync)
+        db.profileDao()
+            .upsert(
+                requireNotNull(db.profileDao().get("user-a"))
+                    .copy(trainingGoal = "OTHER", updatedAt = 2)
+            )
+        server.failBeforeCommit = true
+        try {
+          sync.run()
+          fail("Offline dispatch must retain the profile request")
+        } catch (_: IOException) {}
+        val outbox =
+            raw.query("SELECT requestJson FROM backend_outbox WHERE id=1").use {
+              assertTrue(it.moveToFirst())
+              it.getString(0)
+            }
+        val baseline =
+            raw.query(
+                    "SELECT recordJson FROM backend_baseline WHERE `key`=?",
+                    arrayOf("profile:$id"),
+                )
+                .use {
+                  assertTrue(it.moveToFirst())
+                  it.getString(0)
+                }
+        server.revision++
+        server.records["profile:$id"] = CloudRecord("profile", id, server.revision, deleted = true)
+
+        listOf(setOf("profile"), emptySet()).forEach { accepted ->
+          server.accepted = accepted
+          val error = runCatching { sync.run() }.exceptionOrNull() as BackendException
+
+          assertEquals("profile_tombstone_invalid", error.code)
+          assertEquals("OTHER", db.profileDao().get("user-a")?.trainingGoal)
+          assertEquals(2, db.profileDao().equipmentIds("user-a").size)
+          assertEquals(
+              baseline,
+              raw.query(
+                      "SELECT recordJson FROM backend_baseline WHERE `key`=?",
+                      arrayOf("profile:$id"),
+                  )
+                  .use {
+                    assertTrue(it.moveToFirst())
+                    it.getString(0)
+                  },
+          )
+          assertEquals(
+              outbox,
+              raw.query("SELECT requestJson FROM backend_outbox WHERE id=1").use {
+                assertTrue(it.moveToFirst())
+                it.getString(0)
+              },
+          )
+        }
+      }
+
+  @Test
+  fun `remote profile with an unknown field is rejected before baseline or retained bytes change`() =
+      runTest {
+        val server = Server().apply { accepted = setOf("profile") }
+        val sync = BackendSync(db, server, Store())
+        val id = baselineProfile(server, sync)
+        val payload = PortableData(raw).snapshot().getValue("profile:$id")
+        val exact =
+            Json.encodeToString(
+                CloudPush(
+                    "invalid-profile-shape-pending",
+                    listOf(CloudChange("profile", id, 1, false, payload)),
+                ),
+            )
+        raw.execSQL(
+            "INSERT INTO backend_outbox(id,owner,requestJson) VALUES(1,'user-a',?)",
+            arrayOf(exact),
+        )
+        val baseline =
+            raw.query(
+                    "SELECT recordJson FROM backend_baseline WHERE `key`=?",
+                    arrayOf("profile:$id"),
+                )
+                .use {
+                  assertTrue(it.moveToFirst())
+                  it.getString(0)
+                }
+        val posts = server.postAttempts
+        val remote = requireNotNull(server.records["profile:$id"])
+        server.revision++
+        server.records[remote.key] =
+            remote.copy(
+                revision = server.revision,
+                payload =
+                    JsonObject(requireNotNull(remote.payload) + ("unexpected" to JsonPrimitive(1))),
+            )
+
+        val error = runCatching { sync.run() }.exceptionOrNull() as BackendException
+
+        assertEquals("profile_payload_invalid", error.code)
+        assertEquals(posts, server.postAttempts)
+        assertEquals("STRENGTH", db.profileDao().get("user-a")?.trainingGoal)
+        assertEquals(2, db.profileDao().equipmentIds("user-a").size)
+        assertEquals(
+            baseline,
+            raw.query(
+                    "SELECT recordJson FROM backend_baseline WHERE `key`=?",
+                    arrayOf("profile:$id"),
+                )
+                .use {
+                  assertTrue(it.moveToFirst())
+                  it.getString(0)
+                },
+        )
+        assertEquals(
+            exact,
+            raw.query("SELECT requestJson FROM backend_outbox WHERE id=1").use {
+              assertTrue(it.moveToFirst())
+              it.getString(0)
+            },
+        )
+      }
+
+  @Test
+  fun `dirty profile stays local without creating an outbox while capability is unavailable`() =
+      runTest {
+        val server = Server().apply { accepted = setOf("profile") }
+        val sync = BackendSync(db, server, Store())
+        baselineProfile(server, sync)
+        val posts = server.postAttempts
+        db.profileDao()
+            .upsert(
+                requireNotNull(db.profileDao().get("user-a"))
+                    .copy(trainingGoal = "OTHER", updatedAt = 2)
+            )
+
+        server.accepted = emptySet()
+        db.bodyMeasurementDao().insert(BodyMeasurementEntity("compatible-profile-downgrade", 3))
+        sync.run()
+
+        assertEquals(posts + 1, server.postAttempts)
+        assertEquals(0, tableCount("backend_outbox"))
+        assertEquals("OTHER", db.profileDao().get("user-a")?.trainingGoal)
+        assertEquals(2, db.profileDao().equipmentIds("user-a").size)
+        val sent = server.operations.values.last().first.changes
+        assertTrue(sent.any { it.kind == "measurement" })
+        assertTrue(sent.none { it.kind == "profile" })
+      }
+
+  @Test
+  fun `profile outbox bytes remain immutable while profile capability is unavailable`() = runTest {
+    val server = Server().apply { accepted = setOf("profile") }
+    val sync = BackendSync(db, server, Store())
+    val id = baselineProfile(server, sync)
+    server.rawPosts.clear()
+    val payload = PortableData(raw).snapshot().getValue("profile:$id")
+    val exact =
+        "{ \"operationId\" : \"profile-whitespace\", \"changes\" : [ ${Json.encodeToString(CloudChange("profile", id, 1, false, payload))} ], \"catalogRevision\" : null }"
+    raw.execSQL(
+        "INSERT INTO backend_outbox(id,owner,requestJson) VALUES(1,'user-a',?)",
+        arrayOf(exact),
+    )
+
+    server.accepted = emptySet()
+    db.bodyMeasurementDao().insert(BodyMeasurementEntity("queued-after-profile", 2))
+    sync.run()
+    assertTrue(server.rawPosts.isEmpty())
+    assertEquals(
+        exact,
+        raw.query("SELECT requestJson FROM backend_outbox WHERE id=1").use {
+          assertTrue(it.moveToFirst())
+          it.getString(0)
+        },
+    )
+
+    server.accepted = setOf("profile")
+    sync.run()
+    assertTrue(server.rawPosts.first().contentEquals(exact.encodeToByteArray()))
+    assertTrue(server.operations.values.any { (_, ack) -> ack.revision >= 1 })
+    assertNotNull(server.records["measurement:queued-after-profile"])
+  }
+
+  @Test
+  fun `absent annotation capability sends an empty current and baseline as legacy projection`() =
+      runTest {
+        val server = Server()
+        val sync = BackendSync(db, server, Store())
+        server.accepted = emptySet()
+
+        baselineWorkout(server, sync, "empty-empty", "")
+
+        val change = server.operations.values.single().first.changes.single { it.kind == "workout" }
+        assertFalse(hasSetNote(requireNotNull(change.payload)))
+      }
+
+  @Test
+  fun `absent annotation capability retains a nonempty current note over empty baseline`() =
+      runTest {
+        val server = Server()
+        val sync = BackendSync(db, server, Store())
+        server.accepted = setOf("annotated-workout-writes")
+        val setId = baselineWorkout(server, sync, "current-note", "")
+        val posts = server.postAttempts
+
+        db.workoutDao().updateSet(db.workoutDao().getSet(setId)!!.copy(note = "local"))
+        server.accepted = emptySet()
+        sync.run()
+
+        assertEquals(posts, server.postAttempts)
+        assertTrue(
+            PortableData(raw)
+                .snapshot()
+                .getValue("workout:current-note")
+                .toString()
+                .contains("local")
+        )
+      }
+
+  @Test
+  fun `absent annotation capability retains an empty current note over nonempty baseline`() =
+      runTest {
+        val server = Server()
+        val sync = BackendSync(db, server, Store())
+        server.accepted = setOf("annotated-workout-writes")
+        val setId = baselineWorkout(server, sync, "baseline-note", "acknowledged")
+        val posts = server.postAttempts
+
+        db.workoutDao().updateSet(db.workoutDao().getSet(setId)!!.copy(note = ""))
+        server.accepted = emptySet()
+        sync.run()
+
+        assertEquals(posts, server.postAttempts)
+        raw.query("SELECT recordJson FROM backend_baseline WHERE `key`='workout:baseline-note'")
+            .use {
+              assertTrue(it.moveToFirst())
+              assertTrue(it.getString(0).contains("acknowledged"))
+            }
+      }
+
+  @Test
+  fun `absent annotation capability retains a changed nonempty note over nonempty baseline`() =
+      runTest {
+        val server = Server()
+        val sync = BackendSync(db, server, Store())
+        server.accepted = setOf("annotated-workout-writes")
+        val setId = baselineWorkout(server, sync, "both-notes", "acknowledged")
+        val posts = server.postAttempts
+
+        db.workoutDao().updateSet(db.workoutDao().getSet(setId)!!.copy(note = "new local"))
+        server.accepted = emptySet()
+        sync.run()
+
+        assertEquals(posts, server.postAttempts)
+      }
+
+  @Test
+  fun `clean acknowledged hint survives capability downgrade and refreshes when accepted again`() =
+      runTest {
+        val server = Server()
+        val sync = BackendSync(db, server, Store())
+        val id = "00000000-0000-0000-0000-000000000201"
+        server.accepted = setOf("exercise-hint")
+        baselineHint(server, sync, id, "acknowledged")
+
+        server.accepted = emptySet()
+        sync.run()
+        assertEquals("acknowledged", db.exercisePersonalHintDao().get(id)?.text)
+        raw.query(
+                "SELECT recordJson FROM backend_baseline WHERE `key`=?",
+                arrayOf("exercise_hint:$id"),
+            )
+            .use {
+              assertTrue(it.moveToFirst())
+              assertTrue(it.getString(0).contains("acknowledged"))
+            }
+
+        server.revision++
+        server.records["exercise_hint:$id"] =
+            CloudRecord(
+                "exercise_hint",
+                id,
+                server.revision,
+                payload =
+                    buildJsonObject {
+                      put("text", "server")
+                      put("updatedAt", 2)
+                    },
+            )
+        server.accepted = setOf("exercise-hint")
+        sync.run()
+        assertEquals("server", db.exercisePersonalHintDao().get(id)?.text)
+      }
+
+  @Test
+  fun `dirty hidden hint stays local while compatible measurement still sends`() = runTest {
+    val server = Server()
+    val sync = BackendSync(db, server, Store())
+    val id = "00000000-0000-0000-0000-000000000202"
+    server.accepted = setOf("exercise-hint")
+    baselineHint(server, sync, id, "acknowledged")
+    db.exercisePersonalHintDao().upsert(ExercisePersonalHintEntity(id, "local", 2))
+    db.bodyMeasurementDao().insert(BodyMeasurementEntity("compatible", 3))
+    val posts = server.postAttempts
+
+    server.accepted = emptySet()
+    sync.run()
+
+    assertEquals(posts + 1, server.postAttempts)
+    assertEquals("local", db.exercisePersonalHintDao().get(id)?.text)
+    val sent = server.operations.values.last().first
+    assertTrue(sent.changes.any { it.kind == "measurement" })
+    assertFalse(sent.changes.any { it.kind == "exercise_hint" })
+  }
+
+  @Test
+  fun `server hint replacement and tombstone win without touching its exercise`() = runTest {
+    val server = Server()
+    val sync = BackendSync(db, server, Store())
+    val id = "00000000-0000-0000-0000-000000000203"
+    server.accepted = setOf("exercise-hint")
+    val exerciseId = baselineHint(server, sync, id, "acknowledged")
+
+    server.revision++
+    server.records["exercise_hint:$id"] =
+        CloudRecord(
+            "exercise_hint",
+            id,
+            server.revision,
+            payload =
+                buildJsonObject {
+                  put("text", "server")
+                  put("updatedAt", 2)
+                },
+        )
+    sync.run()
+    assertEquals("server", db.exercisePersonalHintDao().get(id)?.text)
+    assertEquals(id, db.exerciseDao().getById(exerciseId)?.syncId)
+
+    server.revision++
+    server.records["exercise_hint:$id"] =
+        CloudRecord("exercise_hint", id, server.revision, deleted = true)
+    sync.run()
+    assertEquals(null, db.exercisePersonalHintDao().get(id))
+    assertEquals(id, db.exerciseDao().getById(exerciseId)?.syncId)
+  }
+
+  @Test
+  fun `owner replacement clears private hints with the prior account cache`() = runTest {
+    val server = Server()
+    val sync = BackendSync(db, server, Store())
+    val id = "00000000-0000-0000-0000-000000000204"
+    server.accepted = setOf("exercise-hint")
+    baselineHint(server, sync, id, "acknowledged")
+
+    sync.claim("user-b")
+
+    assertEquals(null, db.exercisePersonalHintDao().get(id))
+  }
+
+  @Test
+  fun `annotation tombstone with noted baseline stays held when capability is absent`() = runTest {
+    val server = Server()
+    val sync = BackendSync(db, server, Store())
+    server.accepted = setOf("annotated-workout-writes")
+    baselineWorkout(server, sync, "tombstone-note", "acknowledged")
+    val posts = server.postAttempts
+
+    db.workoutDao().deleteWorkout("tombstone-note")
+    server.accepted = emptySet()
+    sync.run()
+
+    assertEquals(posts, server.postAttempts)
+    raw.query("SELECT recordJson FROM backend_baseline WHERE `key`='workout:tombstone-note'").use {
+      assertTrue(it.moveToFirst())
+      assertTrue(it.getString(0).contains("acknowledged"))
+    }
+  }
+
+  @Test
+  fun `downgrade holds lost mixed hint and annotation bytes until capability reaccepts`() =
+      runTest {
+        val server = Server()
+        val sync = BackendSync(db, server, Store())
+        val hintId = "00000000-0000-0000-0000-000000000205"
+        SyncSchema.install(raw)
+        val exerciseId = db.exerciseDao().insert(exercise(hintId))
+        db.exercisePersonalHintDao().upsert(ExercisePersonalHintEntity(hintId, "cue", 1))
+        insertWorkout("retry", finishedAt = 2)
+        val section = insertWorkoutExercise("retry", exerciseId)
+        val setId = insertSet(section, 0)
+        db.workoutDao().updateSet(db.workoutDao().getSet(setId)!!.copy(note = "annotation"))
+        sync.claim("user-a")
+        server.accepted = setOf("exercise-hint", "annotated-workout-writes")
+        server.loseNextResponse = true
+
+        try {
+          sync.run()
+          fail("The lost response must retain the durable request for retry")
+        } catch (_: IOException) {}
+
+        val retained =
+            raw.query("SELECT requestJson FROM backend_outbox WHERE id=1").use {
+              assertTrue(it.moveToFirst())
+              it.getString(0)
+            }
+        val retainedBytes = retained.encodeToByteArray()
+        assertTrue(server.rawPosts.single().contentEquals(retainedBytes))
+
+        server.accepted = emptySet()
+        db.bodyMeasurementDao().insert(BodyMeasurementEntity("compatible-after-downgrade", 2))
+        sync.run()
+
+        assertEquals(1, server.rawPosts.size)
+        raw.query("SELECT requestJson FROM backend_outbox WHERE id=1").use {
+          assertTrue(it.moveToFirst())
+          assertTrue(it.getString(0).encodeToByteArray().contentEquals(retainedBytes))
+        }
+        assertTrue(server.operations.values.flatMap { it.first.changes }.none { it.deleted })
+
+        server.accepted = setOf("exercise-hint", "annotated-workout-writes")
+        sync.run()
+
+        assertEquals(3, server.rawPosts.size)
+        assertTrue(server.rawPosts[1].contentEquals(retainedBytes))
+        assertTrue(server.operations.values.flatMap { it.first.changes }.none { it.deleted })
+        assertNotNull(server.records["measurement:compatible-after-downgrade"])
+        assertEquals(0, tableCount("backend_outbox"))
+      }
+
+  @Test
+  fun `durable outbox replays noncanonical whitespace bytes before its first dispatch`() = runTest {
+    val server = Server()
+    val sync = BackendSync(db, server, Store())
+    SyncSchema.install(raw)
+    sync.claim("user-a")
+    val exact =
+        "{ \"operationId\" : \"whitespace-sentinel\", \"changes\" : [ ], \"catalogRevision\" : null }"
+    raw.execSQL(
+        "INSERT INTO backend_outbox(id,owner,requestJson) VALUES(1,'user-a',?)",
+        arrayOf(exact),
+    )
+
+    sync.run()
+
+    assertEquals("whitespace-sentinel", server.operations.keys.single())
+    assertTrue(server.rawPosts.single().contentEquals(exact.encodeToByteArray()))
+    assertEquals(0, tableCount("backend_outbox"))
+  }
+
+  @Test
+  fun `AI readiness returns only the final acknowledged personal revision`() = runTest {
+    SyncSchema.install(raw)
+    val server = Server()
+    val sync = BackendSync(db, server, Store())
+    sync.claim("user-a")
+
+    val ready = sync.awaitAiReady()
+
+    val receipt = ready as SyncReady.Ready
+    assertEquals("user-a", receipt.owner)
+    assertEquals(server.revision, receipt.revision)
+    assertTrue(server.getReads >= 3)
+  }
+
+  @Test
+  fun `AI readiness rejects a generation change during final acknowledgement`() = runTest {
+    SyncSchema.install(raw)
+    val server = Server()
+    val sync = BackendSync(db, server, Store())
+    sync.claim("user-a")
+    server.onGet = { read ->
+      if (read == 4) {
+        raw.execSQL("UPDATE backend_state SET generation=generation+1 WHERE id=1")
+      }
+    }
+
+    assertEquals(SyncReady.Blocked, sync.awaitAiReady())
+  }
+
+  @Test
+  fun `AI readiness current check rejects an A to B to A session without HTTP`() = runTest {
+    SyncSchema.install(raw)
+    val server = Server()
+    val store = Store()
+    val sync = BackendSync(db, server, store)
+    sync.claim("user-a")
+    val ready = sync.awaitAiReady() as SyncReady.Ready
+    val readsAfterReady = server.getReads
+
+    store.save(BackendTokens("user-b", "b@example.com", "b", "b"))
+    store.save(BackendTokens("user-a", "a@example.com", "access", "refresh"))
+
+    assertFalse(sync.isAiReadyCurrent(ready))
+    assertEquals(readsAfterReady, server.getReads)
+  }
+
+  @Test
+  fun `AI readiness blocks guests and an active workout before an acknowledgement receipt`() =
+      runTest {
+        SyncSchema.install(raw)
+        val guest =
+            object : BackendSessionStore {
+              override val session = MutableStateFlow<BackendTokens?>(null)
+
+              override fun save(tokens: BackendTokens?) {
+                session.value = tokens
+              }
+            }
+        assertEquals(SyncReady.Blocked, BackendSync(db, Server(), guest).awaitAiReady())
+
+        val server = Server()
+        val sync = BackendSync(db, server, Store())
+        sync.claim("user-a")
+        insertWorkout("active")
+
+        assertEquals(SyncReady.Blocked, sync.awaitAiReady())
+      }
+
+  @Test
+  fun `pending calendar migration blocks direct claim and sync before owner or API mutation`() =
+      runTest {
+        SyncSchema.install(raw)
+        val server = Server()
+        val sync = BackendSync(db, server, Store(), PendingGate)
+
+        val claim = runCatching { sync.claim("user-b") }.exceptionOrNull() as BackendException
+        sync.run()
+
+        assertEquals("calendar_migration_pending", claim.code)
+        assertEquals(0, server.catalogReads)
+        raw.query("SELECT owner FROM backend_state WHERE id=1").use {
+          assertTrue(it.moveToFirst())
+          assertTrue(it.isNull(0))
+        }
+      }
+
+  @Test
+  fun `guest claim preserves all three local calendar kinds`() = runTest {
+    SyncSchema.install(raw)
+    val routine =
+        db.routineDao().upsertRoutine(RoutineEntity(syncId = "routine-calendar", name = "Ноги"))
+    db.calendarPlanDao().upsertPlan(CalendarPlanEntity("plan", routine, 1_790_000_000_000, "UTC"))
+    db.calendarPlanDao()
+        .upsertRule(CalendarRuleEntity("rule", routine, 1, "08:30", "UTC", "2026-09-10"))
+    db.calendarPlanDao()
+        .upsertException(
+            CalendarExceptionEntity(
+                "exception",
+                "rule",
+                "2026-09-14T08:30[UTC]",
+                CalendarExceptionKind.CANCELLED,
+            )
+        )
+
+    assertTrue(BackendSync(db, Server(), Store()).claim("user-a") is GuestClaimResult.Claimed)
+    assertEquals(1, tableCount("calendar_plans"))
+    assertEquals(1, tableCount("calendar_rules"))
+    assertEquals(1, tableCount("calendar_exceptions"))
+  }
+
+  @Test
+  fun `sync emits calendar creates parent first and tombstones child first`() = runTest {
+    SyncSchema.install(raw)
+    val routine =
+        db.routineDao().upsertRoutine(RoutineEntity(syncId = "routine-calendar", name = "Ноги"))
+    db.calendarPlanDao().upsertPlan(CalendarPlanEntity("plan", routine, 1_790_000_000_000, "UTC"))
+    db.calendarPlanDao()
+        .upsertRule(CalendarRuleEntity("rule", routine, 1, "08:30", "UTC", "2026-09-10"))
+    db.calendarPlanDao()
+        .upsertException(
+            CalendarExceptionEntity(
+                "exception",
+                "rule",
+                "2026-09-14T08:30[UTC]",
+                CalendarExceptionKind.CANCELLED,
+            )
+        )
+    val server = Server().apply { accepted = setOf("calendar-plans") }
+    val sync = BackendSync(db, server, Store())
+
+    sync.claim("user-a")
+    sync.run()
+
+    assertEquals(
+        listOf("calendar_plan", "calendar_rule", "calendar_exception"),
+        server.operations.values
+            .last()
+            .first
+            .changes
+            .map { it.kind }
+            .filter { it.startsWith("calendar_") },
+    )
+
+    db.calendarPlanDao().deleteAllExceptions()
+    db.calendarPlanDao().deleteRule("rule")
+    db.calendarPlanDao().deletePlan("plan")
+    sync.run()
+
+    assertEquals(
+        listOf("calendar_exception", "calendar_rule", "calendar_plan"),
+        server.operations.values
+            .last()
+            .first
+            .changes
+            .map { it.kind }
+            .filter { it.startsWith("calendar_") },
+    )
+    assertTrue(
+        server.operations.values
+            .last()
+            .first
+            .changes
+            .filter { it.kind.startsWith("calendar_") }
+            .all { it.deleted }
+    )
+  }
+
+  @Test
+  fun `absent calendar capability retains exact outbox bytes and clears the owner cache`() =
+      runTest {
+        SyncSchema.install(raw)
+        val server = Server()
+        val sync = BackendSync(db, server, Store())
+        sync.claim("user-a")
+        raw.execSQL(
+            "UPDATE backend_state SET capabilityOwner='user-a',acceptedCapabilities='calendar-plans' WHERE id=1"
+        )
+        val bytes =
+            Json.encodeToString(
+                CloudPush(
+                    "calendar-outbox",
+                    listOf(CloudChange("calendar_plan", "plan", 0, false, buildJsonObject {})),
+                )
+            )
+        raw.execSQL(
+            "INSERT INTO backend_outbox(id,owner,requestJson) VALUES(1,'user-a',?)",
+            arrayOf(bytes),
+        )
+
+        sync.run()
+
+        assertEquals(0, server.postAttempts)
+        assertEquals(CalendarCloudState.Unsupported, sync.calendarCloudState.first())
+        raw.query("SELECT requestJson FROM backend_outbox WHERE id=1").use {
+          assertTrue(it.moveToFirst())
+          assertEquals(bytes, it.getString(0))
+        }
+        raw.query("SELECT capabilityOwner,acceptedCapabilities FROM backend_state WHERE id=1").use {
+          assertTrue(it.moveToFirst())
+          assertEquals("user-a", it.getString(0))
+          assertEquals("", it.getString(1))
+        }
+      }
+
+  @Test
+  fun `owned account transition clears calendar rows Google metadata and owner capability cache`() =
+      runTest {
+        SyncSchema.install(raw)
+        val routineId =
+            db.routineDao().upsertRoutine(RoutineEntity(syncId = "routine", name = "Ноги"))
+        db.calendarPlanDao()
+            .upsertPlan(CalendarPlanEntity("plan", routineId, 1_700_000_000_000, "UTC"))
+        db.calendarPlanDao()
+            .upsertRule(CalendarRuleEntity("rule", routineId, 1, "08:30", "UTC", "2026-01-01"))
+        db.calendarPlanDao()
+            .upsertException(
+                CalendarExceptionEntity(
+                    "exception",
+                    "rule",
+                    "2026-01-05T08:30[UTC]",
+                    CalendarExceptionKind.CANCELLED,
+                )
+            )
+        db.calendarPlanDao()
+            .upsertGoogleLink(
+                CalendarGoogleLinkEntity("plan", "plan", "google-a", "primary", "event", "LINKED")
+            )
+        raw.execSQL(
+            "UPDATE backend_state SET owner='user-a',phase='OWNED',capabilityOwner='user-a',acceptedCapabilities='calendar-plans' WHERE id=1"
+        )
+        val portable = PortableData(raw).snapshot()
+        portable.forEach { (key, payload) ->
+          val record =
+              CloudRecord(key.substringBefore(':'), key.substringAfter(':'), 1, false, payload)
+          raw.execSQL(
+              "INSERT INTO backend_baseline(`key`,recordJson) VALUES(?,?)",
+              arrayOf(key, Json.encodeToString(record)),
+          )
+        }
+
+        assertTrue(BackendSync(db, Server(), Store()).claim("user-b") is GuestClaimResult.Claimed)
+        assertEquals(0, tableCount("calendar_plans"))
+        assertEquals(0, tableCount("calendar_rules"))
+        assertEquals(0, tableCount("calendar_exceptions"))
+        assertEquals(0, tableCount("calendar_google_links"))
+        raw.query("SELECT capabilityOwner,acceptedCapabilities FROM backend_state WHERE id=1").use {
+          assertTrue(it.moveToFirst())
+          assertTrue(it.isNull(0))
+          assertEquals("", it.getString(1))
+        }
+      }
 
   @Test
   fun `clean restore removes unused bootstrap placeholders while keeping downloaded UUIDs`() =
@@ -892,6 +1750,32 @@ class BackendSyncTest : RoomDaoTest() {
         assertNotEquals(first.footprint.fingerprint, second.footprint.fingerprint)
         assertNotEquals(second.footprint.fingerprint, third.footprint.fingerprint)
         assertNotEquals(third.footprint.fingerprint, fourth.footprint.fingerprint)
+      }
+
+  @Test
+  fun `health preservation fingerprint includes literal journal bytes rather than row counts`() =
+      runTest {
+        SyncSchema.install(raw)
+        val sync = BackendSync(db, Server(), Store())
+        sync.claim("user-a")
+        sync.run()
+        raw.execSQL(
+            "INSERT INTO health_sync_outbox(operationId,scope,requestBytes,requestSha256,dispatched) VALUES(?,?,?,?,0)",
+            arrayOf(
+                "33333333-3333-4333-8333-333333333333",
+                "user-a",
+                " { \"operationId\" : \"first\" } ".encodeToByteArray(),
+                "same-count",
+            ),
+        )
+        val first = sync.claim("user-b") as GuestClaimResult.Blocked
+        raw.execSQL(
+            "UPDATE health_sync_outbox SET requestBytes=? WHERE scope='user-a'",
+            arrayOf(" { \"operationId\" : \"second\" } ".encodeToByteArray()),
+        )
+        val second = sync.claim("user-b") as GuestClaimResult.Blocked
+
+        assertNotEquals(first.footprint.fingerprint, second.footprint.fingerprint)
       }
 
   @Test

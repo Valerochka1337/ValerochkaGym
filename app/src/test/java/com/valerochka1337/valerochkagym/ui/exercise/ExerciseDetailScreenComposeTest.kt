@@ -54,4 +54,29 @@ class ExerciseDetailScreenComposeTest {
     org.junit.Assert.assertFalse(map.config.contains(SemanticsActions.OnClick))
     org.junit.Assert.assertFalse(map.config.contains(SemanticsActions.CustomActions))
   }
+
+  @Test
+  fun `detail exposes a personal hint before the exercise statistics`() {
+    compose.setContent {
+      GymTheme {
+        ExerciseDetailContent(
+            exercise =
+                ExerciseEntity(
+                    id = 1L,
+                    name = "Стандартное упражнение",
+                    muscleGroup = MuscleGroup.CHEST,
+                    type = ExerciseType.STRENGTH,
+                    origin = "STANDARD",
+                ),
+            loads = emptyList(),
+            statistics = null,
+            personalHint = "Лопатки вместе",
+        )
+      }
+    }
+
+    compose.onNodeWithText("Моя подсказка").fetchSemanticsNode()
+    compose.onNodeWithText("Лопатки вместе").fetchSemanticsNode()
+    compose.onNodeWithText("Изменить").fetchSemanticsNode()
+  }
 }

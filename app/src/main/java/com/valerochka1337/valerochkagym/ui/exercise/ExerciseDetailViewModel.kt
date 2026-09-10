@@ -13,12 +13,16 @@ import com.valerochka1337.valerochkagym.data.db.entity.MuscleLoad
 import com.valerochka1337.valerochkagym.data.db.entity.withNextUpdatedAt
 import com.valerochka1337.valerochkagym.di.ComputeDispatcher
 import com.valerochka1337.valerochkagym.domain.ExerciseEquipmentRequirements
+import com.valerochka1337.valerochkagym.domain.ExercisePersonalHint
+import com.valerochka1337.valerochkagym.domain.ExercisePersonalHintRepository
 import com.valerochka1337.valerochkagym.domain.ExerciseStatistics
 import com.valerochka1337.valerochkagym.domain.ExerciseStatisticsCalculator
 import com.valerochka1337.valerochkagym.domain.GymConfigurationConflict
 import com.valerochka1337.valerochkagym.domain.GymRepository
+import com.valerochka1337.valerochkagym.domain.HintEditTarget
 import com.valerochka1337.valerochkagym.domain.NewExerciseConfiguration
 import com.valerochka1337.valerochkagym.domain.NoOpGymRepository
+import com.valerochka1337.valerochkagym.domain.NoteSaveResult
 import com.valerochka1337.valerochkagym.domain.SaveExerciseConfigurationResult
 import com.valerochka1337.valerochkagym.ui.library.ExerciseEditorState
 import com.valerochka1337.valerochkagym.ui.library.formatExerciseSaveConflict
@@ -42,24 +46,39 @@ data class ExerciseDetailUiState(
     val loads: List<MuscleLoad> = emptyList(),
     val requirements: ExerciseEquipmentRequirements = ExerciseEquipmentRequirements.UnknownLegacy,
     val statistics: ExerciseStatistics? = null,
+    val personalHint: ExercisePersonalHint? = null,
+)
+
+data class ExercisePersonalHintEditDraft(
+    val target: HintEditTarget,
+    val token: Long,
+    val text: String,
+    val isSubmitting: Boolean = false,
+    val error: String? = null,
 )
 
 @HiltViewModel
 class ExerciseDetailViewModel
 @Inject
 constructor(
-    savedStateHandle: SavedStateHandle,
+    private val savedStateHandle: SavedStateHandle,
     private val exerciseDao: ExerciseDao,
     private val exerciseMuscleDao: ExerciseMuscleDao,
     workoutDao: WorkoutDao,
     statisticsCalculator: ExerciseStatisticsCalculator,
     @ComputeDispatcher computeDispatcher: CoroutineDispatcher,
     private val gymRepository: GymRepository = NoOpGymRepository,
+    private val personalHintRepository: ExercisePersonalHintRepository,
 ) : ViewModel() {
 
   private val exerciseId: Long? = savedStateHandle[GymRoutes.EXERCISE_ID_ARG]
   private val _editor = MutableStateFlow<ExerciseEditorState?>(null)
   val editor: StateFlow<ExerciseEditorState?> = _editor.asStateFlow()
+  private val _personalHintEditor = MutableStateFlow(savedPersonalHintEditor())
+  val personalHintEditor: StateFlow<ExercisePersonalHintEditDraft?> =
+      _personalHintEditor.asStateFlow()
+  private var nextPersonalHintToken =
+      savedStateHandle.get<Long>(PERSONAL_HINT_EDIT_EPOCH) ?: _personalHintEditor.value?.token ?: 0L
 
   val uiState: StateFlow<ExerciseDetailUiState> =
       combine(
@@ -67,7 +86,8 @@ constructor(
               exerciseMuscleDao.observeAll(),
               workoutDao.observeCompletedSets(),
               exerciseDao.observeAllRequirements(),
-          ) { exercises, muscleRows, completedSets, requirementRows ->
+              personalHintRepository.observe(exerciseId ?: INVALID_EXERCISE_ID),
+          ) { exercises, muscleRows, completedSets, requirementRows, hint ->
             val exercise = exercises.firstOrNull { it.id == exerciseId }
             if (exercise == null) {
               ExerciseDetailUiState(loading = false)
@@ -101,6 +121,7 @@ constructor(
                           type = exercise.type,
                           rows = completedSets.filter { it.exerciseId == exercise.id },
                       ),
+                  personalHint = hint,
               )
             }
           }
@@ -110,6 +131,129 @@ constructor(
               started = SharingStarted.WhileSubscribed(5_000),
               initialValue = ExerciseDetailUiState(),
           )
+
+  fun openPersonalHintEditor() {
+    val exercise = uiState.value.exercise ?: return
+    val token = ++nextPersonalHintToken
+    viewModelScope.launch {
+      val target =
+          personalHintRepository.editTarget(exercise.id)
+              ?: run {
+                clearPersonalHintEditor()
+                return@launch
+              }
+      if (token != nextPersonalHintToken) return@launch
+      if (uiState.value.exercise?.id != exercise.id) return@launch
+      savedStateHandle[PERSONAL_HINT_EDIT_EPOCH] = token
+      updatePersonalHintEditor(
+          ExercisePersonalHintEditDraft(
+              target = target,
+              token = token,
+              text = uiState.value.personalHint?.text.orEmpty(),
+          ),
+      )
+    }
+  }
+
+  fun updatePersonalHint(text: String) = updatePersonalHintEditor {
+    it.copy(text = text, error = null)
+  }
+
+  fun cancelPersonalHintEditor() = clearPersonalHintEditor()
+
+  fun savePersonalHint() {
+    val draft = _personalHintEditor.value ?: return
+    if (draft.isSubmitting) return
+    val text = draft.text.trim()
+    if (text.codePointCount(0, text.length) > MAX_HINT_CODE_POINTS) {
+      updatePersonalHintEditor { it.copy(error = HINT_TOO_LONG_MESSAGE) }
+      return
+    }
+    updatePersonalHintEditor { it.copy(text = text, isSubmitting = true, error = null) }
+    viewModelScope.launch {
+      when (personalHintRepository.save(draft.target, text)) {
+        NoteSaveResult.Saved -> {
+          if (_personalHintEditor.value?.token == draft.token) clearPersonalHintEditor()
+        }
+        NoteSaveResult.MissingOrInactive -> {
+          if (_personalHintEditor.value?.token == draft.token) clearPersonalHintEditor()
+        }
+        NoteSaveResult.TooLong -> {
+          if (_personalHintEditor.value?.token == draft.token) {
+            updatePersonalHintEditor {
+              it.copy(isSubmitting = false, error = HINT_TOO_LONG_MESSAGE)
+            }
+          }
+        }
+      }
+    }
+  }
+
+  fun unpinPersonalHint() {
+    val exercise = uiState.value.exercise ?: return
+    val token = ++nextPersonalHintToken
+    clearPersonalHintEditor()
+    viewModelScope.launch {
+      val target =
+          personalHintRepository.editTarget(exercise.id)
+              ?: run {
+                clearPersonalHintEditor()
+                return@launch
+              }
+      if (token != nextPersonalHintToken) return@launch
+      if (uiState.value.exercise?.id != exercise.id) return@launch
+      val result = personalHintRepository.unpin(target)
+      if (result == NoteSaveResult.MissingOrInactive) clearPersonalHintEditor()
+    }
+  }
+
+  private fun updatePersonalHintEditor(
+      transform: (ExercisePersonalHintEditDraft) -> ExercisePersonalHintEditDraft,
+  ) {
+    val current = _personalHintEditor.value ?: return
+    updatePersonalHintEditor(transform(current))
+  }
+
+  private fun updatePersonalHintEditor(draft: ExercisePersonalHintEditDraft) {
+    _personalHintEditor.value = draft
+    savedStateHandle[PERSONAL_HINT_EDIT_EXERCISE_ID] = draft.target.exerciseId
+    savedStateHandle[PERSONAL_HINT_EDIT_SYNC_ID] = draft.target.exerciseSyncId
+    savedStateHandle[PERSONAL_HINT_EDIT_OWNER_SCOPE] = draft.target.ownerScope
+    savedStateHandle[PERSONAL_HINT_EDIT_SESSION_EPOCH] = draft.target.sessionEpoch
+    savedStateHandle[PERSONAL_HINT_EDIT_TOKEN] = draft.token
+    savedStateHandle[PERSONAL_HINT_EDIT_TEXT] = draft.text
+  }
+
+  private fun clearPersonalHintEditor() {
+    _personalHintEditor.value = null
+    listOf(
+            PERSONAL_HINT_EDIT_EXERCISE_ID,
+            PERSONAL_HINT_EDIT_SYNC_ID,
+            PERSONAL_HINT_EDIT_OWNER_SCOPE,
+            PERSONAL_HINT_EDIT_SESSION_EPOCH,
+            PERSONAL_HINT_EDIT_TOKEN,
+            PERSONAL_HINT_EDIT_TEXT,
+        )
+        .forEach { key -> savedStateHandle.remove<Any?>(key) }
+  }
+
+  private fun savedPersonalHintEditor(): ExercisePersonalHintEditDraft? {
+    val id = savedStateHandle.get<Long>(PERSONAL_HINT_EDIT_EXERCISE_ID) ?: return null
+    val syncId = savedStateHandle.get<String>(PERSONAL_HINT_EDIT_SYNC_ID) ?: return null
+    val epoch = savedStateHandle.get<Long>(PERSONAL_HINT_EDIT_SESSION_EPOCH) ?: return null
+    val token = savedStateHandle.get<Long>(PERSONAL_HINT_EDIT_TOKEN) ?: return null
+    return ExercisePersonalHintEditDraft(
+        target =
+            HintEditTarget(
+                exerciseId = id,
+                exerciseSyncId = syncId,
+                ownerScope = savedStateHandle.get(PERSONAL_HINT_EDIT_OWNER_SCOPE),
+                sessionEpoch = epoch,
+            ),
+        token = token,
+        text = savedStateHandle[PERSONAL_HINT_EDIT_TEXT] ?: "",
+    )
+  }
 
   fun openEditor() {
     val state = uiState.value
@@ -248,3 +392,14 @@ constructor(
         _editor.value?.copy(isSaving = false, saveError = formatExerciseSaveConflict(conflict))
   }
 }
+
+private const val INVALID_EXERCISE_ID = Long.MIN_VALUE
+private const val PERSONAL_HINT_EDIT_EXERCISE_ID = "personal_hint_edit_exercise_id"
+private const val PERSONAL_HINT_EDIT_SYNC_ID = "personal_hint_edit_sync_id"
+private const val PERSONAL_HINT_EDIT_OWNER_SCOPE = "personal_hint_edit_owner_scope"
+private const val PERSONAL_HINT_EDIT_SESSION_EPOCH = "personal_hint_edit_session_epoch"
+private const val PERSONAL_HINT_EDIT_TOKEN = "personal_hint_edit_token"
+private const val PERSONAL_HINT_EDIT_TEXT = "personal_hint_edit_text"
+private const val PERSONAL_HINT_EDIT_EPOCH = "personal_hint_edit_epoch"
+private const val MAX_HINT_CODE_POINTS = 2_000
+private const val HINT_TOO_LONG_MESSAGE = "Подсказка не длиннее 2000 символов"

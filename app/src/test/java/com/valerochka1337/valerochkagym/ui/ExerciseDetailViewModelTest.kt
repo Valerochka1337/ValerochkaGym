@@ -21,23 +21,31 @@ import com.valerochka1337.valerochkagym.data.db.relation.AnalyticsSetRow
 import com.valerochka1337.valerochkagym.data.db.relation.WorkoutFull
 import com.valerochka1337.valerochkagym.domain.DeleteGymResult
 import com.valerochka1337.valerochkagym.domain.ExerciseEquipmentRequirements
+import com.valerochka1337.valerochkagym.domain.ExercisePersonalHint
+import com.valerochka1337.valerochkagym.domain.ExercisePersonalHintRepository
 import com.valerochka1337.valerochkagym.domain.ExerciseStatisticsCalculator
 import com.valerochka1337.valerochkagym.domain.GymConfiguration
 import com.valerochka1337.valerochkagym.domain.GymConfigurationConflict
 import com.valerochka1337.valerochkagym.domain.GymRepository
 import com.valerochka1337.valerochkagym.domain.GymRoutineReference
+import com.valerochka1337.valerochkagym.domain.HintEditTarget
 import com.valerochka1337.valerochkagym.domain.NewExerciseConfiguration
+import com.valerochka1337.valerochkagym.domain.NoteSaveResult
 import com.valerochka1337.valerochkagym.domain.SaveExerciseConfigurationResult
 import com.valerochka1337.valerochkagym.domain.SaveGymResult
 import com.valerochka1337.valerochkagym.ui.exercise.ExerciseDetailViewModel
 import com.valerochka1337.valerochkagym.ui.navigation.GymRoutes
 import com.valerochka1337.valerochkagym.util.MainDispatcherRule
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -173,6 +181,189 @@ class ExerciseDetailViewModelTest {
       }
 
   @Test
+  fun `built-in exercise keeps an independent personal hint draft and saves it`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val hints = FakePersonalHints(ExercisePersonalHint("Плечи вниз", updatedAt = 1L))
+        val viewModel =
+            viewModel(
+                FakeExerciseDao(builtIn = true),
+                FakeExerciseMuscleDao(),
+                FakeWorkoutDao(),
+                personalHints = hints,
+            )
+        val collector =
+            backgroundScope.launch(mainDispatcherRule.testDispatcher) {
+              viewModel.uiState.collect {}
+            }
+        advanceUntilIdle()
+
+        viewModel.openEditor()
+        viewModel.openPersonalHintEditor()
+        advanceUntilIdle()
+        viewModel.updatePersonalHint("  Лопатки вместе  ")
+        viewModel.savePersonalHint()
+        advanceUntilIdle()
+
+        assertEquals(null, viewModel.editor.value)
+        assertEquals("Лопатки вместе", hints.saved.single().second)
+        assertEquals(null, viewModel.personalHintEditor.value)
+        collector.cancel()
+      }
+
+  @Test
+  fun `built-in exercise can unpin its personal hint without opening the catalog editor`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val hints = FakePersonalHints(ExercisePersonalHint("Плечи вниз", updatedAt = 1L))
+        val viewModel =
+            viewModel(
+                FakeExerciseDao(builtIn = true),
+                FakeExerciseMuscleDao(),
+                FakeWorkoutDao(),
+                personalHints = hints,
+            )
+        val collector =
+            backgroundScope.launch(mainDispatcherRule.testDispatcher) {
+              viewModel.uiState.collect {}
+            }
+        advanceUntilIdle()
+
+        viewModel.unpinPersonalHint()
+        advanceUntilIdle()
+
+        assertEquals(null, viewModel.editor.value)
+        assertEquals(1, hints.unpinCalls)
+        assertEquals(null, viewModel.uiState.value.personalHint)
+        collector.cancel()
+      }
+
+  @Test
+  fun `late personal hint save cannot close a newer target draft`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val hints = FakePersonalHints(ExercisePersonalHint("Первый", updatedAt = 1L))
+        val viewModel =
+            viewModel(
+                FakeExerciseDao(builtIn = true),
+                FakeExerciseMuscleDao(),
+                FakeWorkoutDao(),
+                personalHints = hints,
+            )
+        val collector =
+            backgroundScope.launch(mainDispatcherRule.testDispatcher) {
+              viewModel.uiState.collect {}
+            }
+        advanceUntilIdle()
+        val releaseOldSave = CompletableDeferred<Unit>()
+        hints.saveGate = releaseOldSave
+
+        viewModel.openPersonalHintEditor()
+        advanceUntilIdle()
+        viewModel.updatePersonalHint("Старая")
+        viewModel.savePersonalHint()
+        viewModel.openPersonalHintEditor()
+        advanceUntilIdle()
+        viewModel.updatePersonalHint("Новая")
+        releaseOldSave.complete(Unit)
+        advanceUntilIdle()
+
+        assertEquals("Новая", viewModel.personalHintEditor.value?.text)
+        collector.cancel()
+      }
+
+  @Test
+  fun `later unpin wins when editor target capture is suspended`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val hints = FakePersonalHints(ExercisePersonalHint("Первый", updatedAt = 1L))
+        val viewModel =
+            viewModel(
+                FakeExerciseDao(builtIn = true),
+                FakeExerciseMuscleDao(),
+                FakeWorkoutDao(),
+                personalHints = hints,
+            )
+        val collector =
+            backgroundScope.launch(mainDispatcherRule.testDispatcher) {
+              viewModel.uiState.collect {}
+            }
+        advanceUntilIdle()
+        val releaseTarget = CompletableDeferred<Unit>()
+        hints.targetGate = releaseTarget
+
+        viewModel.openPersonalHintEditor()
+        viewModel.unpinPersonalHint()
+        runCurrent()
+        releaseTarget.complete(Unit)
+        advanceUntilIdle()
+
+        assertEquals(null, viewModel.personalHintEditor.value)
+        assertEquals(1, hints.unpinCalls)
+        collector.cancel()
+      }
+
+  @Test
+  fun `later editor target capture prevents a suspended unpin`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val hints = FakePersonalHints(ExercisePersonalHint("Первый", updatedAt = 1L))
+        val viewModel =
+            viewModel(
+                FakeExerciseDao(builtIn = true),
+                FakeExerciseMuscleDao(),
+                FakeWorkoutDao(),
+                personalHints = hints,
+            )
+        val collector =
+            backgroundScope.launch(mainDispatcherRule.testDispatcher) {
+              viewModel.uiState.collect {}
+            }
+        advanceUntilIdle()
+        val releaseTarget = CompletableDeferred<Unit>()
+        hints.targetGate = releaseTarget
+
+        viewModel.unpinPersonalHint()
+        viewModel.openPersonalHintEditor()
+        runCurrent()
+        releaseTarget.complete(Unit)
+        advanceUntilIdle()
+
+        assertEquals(0, hints.unpinCalls)
+        assertEquals("Первый", viewModel.personalHintEditor.value?.text)
+        collector.cancel()
+      }
+
+  @Test
+  fun `unpin after a suspended save leaves no stale personal hint`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val hints = FakePersonalHints(ExercisePersonalHint("Первый", updatedAt = 1L))
+        val viewModel =
+            viewModel(
+                FakeExerciseDao(builtIn = true),
+                FakeExerciseMuscleDao(),
+                FakeWorkoutDao(),
+                personalHints = hints,
+            )
+        val collector =
+            backgroundScope.launch(mainDispatcherRule.testDispatcher) {
+              viewModel.uiState.collect {}
+            }
+        advanceUntilIdle()
+        viewModel.openPersonalHintEditor()
+        advanceUntilIdle()
+        viewModel.updatePersonalHint("Новая")
+        val releaseSave = CompletableDeferred<Unit>()
+        hints.saveGate = releaseSave
+
+        viewModel.savePersonalHint()
+        runCurrent()
+        viewModel.unpinPersonalHint()
+        runCurrent()
+        releaseSave.complete(Unit)
+        advanceUntilIdle()
+
+        assertEquals(null, viewModel.personalHintEditor.value)
+        assertEquals(null, viewModel.uiState.value.personalHint)
+        collector.cancel()
+      }
+
+  @Test
   fun `non-built-in exercise remains editable regardless of its custom flag`() =
       runTest(mainDispatcherRule.testDispatcher.scheduler) {
         val viewModel = viewModel(FakeExerciseDao(), FakeExerciseMuscleDao(), FakeWorkoutDao())
@@ -241,6 +432,7 @@ class ExerciseDetailViewModelTest {
       workoutDao: WorkoutDao,
       legacyExecutionGroup: String? = null,
       gymRepository: GymRepository = com.valerochka1337.valerochkagym.domain.NoOpGymRepository,
+      personalHints: ExercisePersonalHintRepository = FakePersonalHints(),
   ) =
       ExerciseDetailViewModel(
           savedStateHandle =
@@ -256,6 +448,7 @@ class ExerciseDetailViewModelTest {
           statisticsCalculator = ExerciseStatisticsCalculator(),
           computeDispatcher = mainDispatcherRule.testDispatcher,
           gymRepository = gymRepository,
+          personalHintRepository = personalHints,
       )
 
   private class ConflictGymRepository(
@@ -280,6 +473,40 @@ class ExerciseDetailViewModelTest {
         gymIds: Set<String>,
         workoutId: String?,
     ): SaveExerciseConfigurationResult = SaveExerciseConfigurationResult.Conflict(conflict)
+  }
+
+  private class FakePersonalHints(initial: ExercisePersonalHint? = null) :
+      ExercisePersonalHintRepository {
+    private val values = MutableStateFlow(initial)
+    val saved = mutableListOf<Pair<Long, String>>()
+    var unpinCalls = 0
+    var saveGate: CompletableDeferred<Unit>? = null
+    var targetGate: CompletableDeferred<Unit>? = null
+    private val writeMutex = Mutex()
+
+    override fun observe(exerciseId: Long) = values
+
+    override suspend fun editTarget(exerciseId: Long): HintEditTarget? {
+      targetGate?.await()
+      return HintEditTarget(exerciseId, "sync-$exerciseId", "owner", 1L)
+    }
+
+    override suspend fun save(target: HintEditTarget, text: String): NoteSaveResult {
+      return writeMutex.withLock {
+        saveGate?.await()
+        saved += target.exerciseId to text
+        values.value = if (text.isEmpty()) null else ExercisePersonalHint(text, updatedAt = 2L)
+        NoteSaveResult.Saved
+      }
+    }
+
+    override suspend fun unpin(target: HintEditTarget): NoteSaveResult {
+      return writeMutex.withLock {
+        unpinCalls += 1
+        values.value = null
+        NoteSaveResult.Saved
+      }
+    }
   }
 
   private class FakeExerciseDao(
@@ -402,6 +629,10 @@ class ExerciseDetailViewModelTest {
     override suspend fun insertSets(sets: List<WorkoutSetEntity>): List<Long> = emptyList()
 
     override suspend fun updateSet(set: WorkoutSetEntity) = Unit
+
+    override suspend fun updateActiveSetNote(workoutId: String, setId: Long, note: String) = 0
+
+    override suspend fun updateActiveWorkoutNote(workoutId: String, note: String) = 0
 
     override suspend fun updateCompletedStrengthNumbers(
         setId: Long,

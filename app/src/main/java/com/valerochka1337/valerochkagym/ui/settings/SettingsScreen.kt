@@ -19,7 +19,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -28,13 +27,11 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.ArrowForward
 import androidx.compose.material.icons.automirrored.rounded.VolumeUp
 import androidx.compose.material.icons.rounded.AccountCircle
-import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.CloudUpload
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FitnessCenter
-import androidx.compose.material.icons.rounded.Key
 import androidx.compose.material.icons.rounded.Link
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.PlayCircle
@@ -42,7 +39,6 @@ import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material.icons.rounded.TableChart
 import androidx.compose.material.icons.rounded.Timer
 import androidx.compose.material.icons.rounded.Vibration
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -50,7 +46,6 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.RadioButton
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Switch
@@ -65,23 +60,16 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.valerochka1337.valerochkagym.data.ai.AiModel
 import com.valerochka1337.valerochkagym.data.settings.GymSettings
 import com.valerochka1337.valerochkagym.ui.components.GlowBackground
 import com.valerochka1337.valerochkagym.ui.components.GymCard
@@ -119,6 +107,8 @@ private const val HEART_RATE_REST_HOLD_STEP_SECONDS = 5
 fun SettingsScreen(
     onBack: () -> Unit,
     onOpenGyms: () -> Unit,
+    onOpenProfile: () -> Unit = {},
+    onOpenRelations: () -> Unit = {},
     appUpdateState: AppUpdateUiState,
     onCheckUpdate: () -> Unit,
     onDownloadUpdate: () -> Unit,
@@ -178,6 +168,8 @@ fun SettingsScreen(
                 SettingsCategoryList(
                     onSelect = { selectedCategory = it },
                     onOpenGyms = onOpenGyms,
+                    onOpenProfile = onOpenProfile,
+                    onOpenRelations = onOpenRelations,
                 )
               }
 
@@ -204,21 +196,6 @@ fun SettingsScreen(
                     onConnectPreferred = { activity?.let(viewModel::connectPreferred) },
                     onConnectOther = { activity?.let(viewModel::connectOther) },
                     onDisconnect = viewModel::disconnectCalendar,
-                )
-                AiSettingsCard(
-                    baseUrl = settings.aiBaseUrl,
-                    baseUrlError = state.aiBaseUrlError,
-                    keyConfigured = state.aiApiKeyConfigured,
-                    keyPreview = state.aiApiKeyPreview,
-                    selectedModelId = settings.aiModelId,
-                    models = state.aiModels,
-                    modelsLoading = state.aiModelsLoading,
-                    modelsLoadError = state.aiModelsLoadError,
-                    onSaveBaseUrl = viewModel::setAiBaseUrl,
-                    onSaveKey = viewModel::setAiApiKey,
-                    onClear = viewModel::clearAiApiKey,
-                    onSelectModel = viewModel::setAiModel,
-                    onRefreshModels = viewModel::refreshAiModels,
                 )
               }
 
@@ -262,6 +239,16 @@ private fun GymsSettingsCard(onOpen: () -> Unit) {
 }
 
 @Composable
+private fun ProfileSettingsCard(onOpen: () -> Unit) {
+  SettingsNavigationCard(
+      label = "Профиль",
+      supportingText = "Цели, опыт и оборудование",
+      icon = Icons.Rounded.AccountCircle,
+      onClick = onOpen,
+  )
+}
+
+@Composable
 private fun SettingsHeader(title: String, onBack: () -> Unit) {
   Row(
       modifier =
@@ -286,7 +273,12 @@ private fun SettingsHeader(title: String, onBack: () -> Unit) {
 }
 
 @Composable
-private fun SettingsCategoryList(onSelect: (SettingsCategory) -> Unit, onOpenGyms: () -> Unit) {
+private fun SettingsCategoryList(
+    onSelect: (SettingsCategory) -> Unit,
+    onOpenGyms: () -> Unit,
+    onOpenProfile: () -> Unit,
+    onOpenRelations: () -> Unit,
+) {
   SettingsCategory.entries.forEach { category ->
     SettingsNavigationCard(
         label = category.label,
@@ -303,6 +295,19 @@ private fun SettingsCategoryList(onSelect: (SettingsCategory) -> Unit, onOpenGym
     )
     if (category == SettingsCategory.WORKOUT) {
       GymsSettingsCard(onOpen = onOpenGyms)
+    }
+    if (category == SettingsCategory.ACCOUNT) {
+      ProfileSettingsCard(onOpen = onOpenProfile)
+      val haptics = gymHaptics()
+      TextButton(
+          onClick = {
+            haptics.tap()
+            onOpenRelations()
+          },
+          modifier = Modifier.heightIn(min = 48.dp),
+      ) {
+        Text("Связи с тренером")
+      }
     }
   }
 }
@@ -498,252 +503,6 @@ private fun SpreadsheetCard(
     }
   }
 }
-
-/**
- * Настройка AI-генерации: после отправки key удаляется из состояния поля и не возвращается в UI.
- */
-@Composable
-private fun AiSettingsCard(
-    baseUrl: String?,
-    baseUrlError: Boolean,
-    keyConfigured: Boolean,
-    keyPreview: String?,
-    selectedModelId: String?,
-    models: List<AiModel>,
-    modelsLoading: Boolean,
-    modelsLoadError: Boolean,
-    onSaveBaseUrl: (String) -> Unit,
-    onSaveKey: (String) -> Unit,
-    onClear: () -> Unit,
-    onSelectModel: (AiModel) -> Unit,
-    onRefreshModels: () -> Unit,
-) {
-  var showModelPicker by rememberSaveable { mutableStateOf(false) }
-  val focusManager = LocalFocusManager.current
-  SectionCard(title = "Нейросеть", icon = Icons.Rounded.AutoAwesome) {
-    var baseUrlInput by rememberSaveable(baseUrl) { mutableStateOf(baseUrl.orEmpty()) }
-    var keyInput by rememberSaveable { mutableStateOf("") }
-    var keyFieldFocused by remember { mutableStateOf(false) }
-    val showSavedKeyPreview = keyConfigured && keyInput.isEmpty() && !keyFieldFocused
-    val saveKey = {
-      val key = keyInput
-      if (key.isNotBlank()) {
-        keyInput = ""
-        focusManager.clearFocus()
-        onSaveKey(key)
-      }
-    }
-    OutlinedTextField(
-        value = baseUrlInput,
-        onValueChange = { baseUrlInput = it },
-        modifier = Modifier.fillMaxWidth(),
-        singleLine = true,
-        label = { Text("Base URL") },
-        leadingIcon = {
-          Icon(
-              imageVector = Icons.Rounded.Link,
-              contentDescription = null,
-              tint = MaterialTheme.colorScheme.onSurfaceVariant,
-          )
-        },
-        trailingIcon = {
-          IconButton(
-              onClick = { onSaveBaseUrl(baseUrlInput) },
-              enabled = baseUrlInput.trim().isNotEmpty() && baseUrlInput.trim() != baseUrl,
-          ) {
-            Icon(
-                imageVector = Icons.Rounded.Check,
-                contentDescription = "Сохранить Base URL",
-            )
-          }
-        },
-        isError = baseUrlError,
-        keyboardOptions =
-            KeyboardOptions(
-                keyboardType = KeyboardType.Uri,
-                imeAction = ImeAction.Done,
-            ),
-        keyboardActions = KeyboardActions(onDone = { onSaveBaseUrl(baseUrlInput) }),
-        supportingText =
-            if (baseUrlError) {
-              { Text("Некорректный HTTP(S)-адрес") }
-            } else {
-              null
-            },
-    )
-    Spacer(Modifier.height(16.dp))
-    OutlinedTextField(
-        value = if (showSavedKeyPreview) keyPreview ?: FALLBACK_API_KEY_PREVIEW else keyInput,
-        onValueChange = { keyInput = it },
-        modifier = Modifier.fillMaxWidth().onFocusChanged { keyFieldFocused = it.isFocused },
-        singleLine = true,
-        label = { Text("API key") },
-        leadingIcon = {
-          Icon(
-              imageVector = Icons.Rounded.Key,
-              contentDescription = null,
-              tint = MaterialTheme.colorScheme.onSurfaceVariant,
-          )
-        },
-        trailingIcon = {
-          IconButton(
-              onClick = saveKey,
-              enabled = keyInput.trim().isNotEmpty(),
-          ) {
-            Icon(
-                imageVector = Icons.Rounded.Check,
-                contentDescription = "Сохранить API key",
-            )
-          }
-        },
-        visualTransformation =
-            if (showSavedKeyPreview) {
-              VisualTransformation.None
-            } else {
-              PasswordVisualTransformation(mask = '*')
-            },
-        keyboardOptions =
-            KeyboardOptions(
-                keyboardType = KeyboardType.Password,
-                imeAction = ImeAction.Done,
-            ),
-        keyboardActions = KeyboardActions(onDone = { saveKey() }),
-    )
-    if (keyConfigured) {
-      Row(
-          modifier = Modifier.fillMaxWidth(),
-          horizontalArrangement = Arrangement.End,
-      ) {
-        TextButton(
-            onClick = {
-              keyInput = ""
-              onClear()
-            },
-        ) {
-          Text("Удалить ключ")
-        }
-      }
-    }
-    Spacer(Modifier.height(12.dp))
-    val connectionConfigured = baseUrl != null && keyConfigured
-    val modelStatus =
-        when {
-          !connectionConfigured -> "Сначала сохраните адрес и ключ"
-          modelsLoading -> "Загрузка…"
-          selectedModelId != null && models.none { it.id == selectedModelId } -> "Нет в каталоге"
-          selectedModelId == null -> "Выберите из каталога"
-          else -> null
-        }
-    OutlinedButton(
-        onClick = { showModelPicker = true },
-        enabled = connectionConfigured,
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-      Column(modifier = Modifier.weight(1f)) {
-        Text(
-            text = selectedModelId ?: "Модель не выбрана",
-            maxLines = 1,
-            softWrap = false,
-        )
-        modelStatus?.let { status ->
-          Text(
-              text = status,
-              style = MaterialTheme.typography.bodySmall,
-              color = MaterialTheme.colorScheme.onSurfaceVariant,
-              maxLines = 1,
-              softWrap = false,
-          )
-        }
-      }
-    }
-    if (modelsLoadError && connectionConfigured) {
-      Spacer(Modifier.height(8.dp))
-      Text(
-          text = "Не удалось загрузить модели",
-          style = MaterialTheme.typography.bodySmall,
-          color = MaterialTheme.colorScheme.error,
-      )
-      TextButton(onClick = onRefreshModels) { Text("Повторить") }
-    }
-  }
-
-  if (showModelPicker) {
-    ModelPickerDialog(
-        selectedModelId = selectedModelId,
-        models = models,
-        modelsLoading = modelsLoading,
-        onSelect = { model ->
-          showModelPicker = false
-          onSelectModel(model)
-        },
-        onDismiss = { showModelPicker = false },
-    )
-  }
-}
-
-@Composable
-private fun ModelPickerDialog(
-    selectedModelId: String?,
-    models: List<AiModel>,
-    modelsLoading: Boolean,
-    onSelect: (AiModel) -> Unit,
-    onDismiss: () -> Unit,
-) {
-  AlertDialog(
-      onDismissRequest = onDismiss,
-      title = { Text("Модель") },
-      text = {
-        Column(
-            modifier =
-                Modifier.fillMaxWidth()
-                    .heightIn(max = 420.dp)
-                    .verticalScroll(rememberScrollState()),
-        ) {
-          models.forEach { model ->
-            Row(
-                modifier =
-                    Modifier.fillMaxWidth()
-                        .selectable(
-                            selected = model.id == selectedModelId,
-                            role = Role.RadioButton,
-                            onClick = { onSelect(model) },
-                        )
-                        .padding(vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-              RadioButton(
-                  selected = model.id == selectedModelId,
-                  onClick = null,
-              )
-              Spacer(Modifier.width(8.dp))
-              Text(
-                  text = model.id,
-                  style = MaterialTheme.typography.bodyLarge,
-                  color = MaterialTheme.colorScheme.onSurface,
-                  modifier = Modifier.weight(1f),
-              )
-            }
-          }
-          if (modelsLoading || models.isEmpty()) {
-            Text(
-                text =
-                    if (modelsLoading) {
-                      "Загружаю модели…"
-                    } else {
-                      "Список моделей пуст"
-                    },
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 8.dp),
-            )
-          }
-        }
-      },
-      confirmButton = { TextButton(onClick = onDismiss) { Text("Готово") } },
-  )
-}
-
-private const val FALLBACK_API_KEY_PREVIEW = "sk-************"
 
 @Composable
 private fun RestTimerCard(

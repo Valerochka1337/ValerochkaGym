@@ -25,6 +25,10 @@ import com.valerochka1337.valerochkagym.data.settings.SettingsRepository
 import com.valerochka1337.valerochkagym.domain.ActiveWorkoutRepository
 import com.valerochka1337.valerochkagym.domain.CompleteSetUseCase
 import com.valerochka1337.valerochkagym.domain.CompletedSetEditResult
+import com.valerochka1337.valerochkagym.domain.ExercisePersonalHint
+import com.valerochka1337.valerochkagym.domain.ExercisePersonalHintRepository
+import com.valerochka1337.valerochkagym.domain.HintEditTarget
+import com.valerochka1337.valerochkagym.domain.NoteSaveResult
 import com.valerochka1337.valerochkagym.domain.PreviousSetsUseCase
 import com.valerochka1337.valerochkagym.domain.RestDurationResolver
 import com.valerochka1337.valerochkagym.domain.RoutineGymConflictException
@@ -48,6 +52,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -102,6 +107,43 @@ class ActiveWorkoutViewModelTest {
       }
 
   // endregion
+
+  @Test
+  fun `saving a set note trims its draft and keeps a newer target when the old save returns`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val harness = harness(active = workoutFull(setId = 10L))
+        collectUiState(harness.viewModel)
+        val releaseOldSave = CompletableDeferred<Unit>()
+        harness.repository.noteSaveGate = releaseOldSave
+
+        harness.viewModel.openSetNote(10L)
+        harness.viewModel.updateNote("  первый  ")
+        harness.viewModel.saveNoteEdit()
+        harness.viewModel.openWorkoutNote()
+        harness.viewModel.updateNote("новая цель")
+        releaseOldSave.complete(Unit)
+        advanceUntilIdle()
+
+        assertEquals("первый", harness.repository.savedSetNotes.single().second)
+        assertEquals("новая цель", harness.viewModel.uiState.value.noteEdit?.text)
+      }
+
+  @Test
+  fun `note draft rejects more than 2000 Unicode code points before repository save`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val harness = harness(active = workoutFull(setId = 10L))
+        collectUiState(harness.viewModel)
+
+        harness.viewModel.openWorkoutNote()
+        harness.viewModel.updateNote("x".repeat(2_001))
+        harness.viewModel.saveNoteEdit()
+
+        assertEquals(
+            "Заметка не длиннее 2000 символов",
+            harness.viewModel.uiState.value.noteEdit?.error,
+        )
+        assertTrue(harness.repository.savedWorkoutNotes.isEmpty())
+      }
 
   // region set mutations
 
@@ -686,6 +728,7 @@ class ActiveWorkoutViewModelTest {
             uploadScheduler = uploadScheduler,
             heartRateMonitor = heartRateMonitor,
             savedStateHandle = savedStateHandle,
+            personalHintRepository = FakePersonalHints(),
         )
     return Harness(viewModel, repository, uploadScheduler, restTimerEngine, heartRateMonitor)
   }
@@ -823,7 +866,10 @@ class ActiveWorkoutViewModelTest {
     var retainActiveAfterFinish = false
     var completedEditResult: CompletedSetEditResult = CompletedSetEditResult.Saved
     var completedEditGate: CompletableDeferred<Unit>? = null
+    var noteSaveGate: CompletableDeferred<Unit>? = null
     val completedNumberEdits = mutableListOf<Pair<WorkoutSetEntity, ExerciseType>>()
+    val savedWorkoutNotes = mutableListOf<Pair<String, String>>()
+    val savedSetNotes = mutableListOf<Pair<Long, String>>()
 
     override fun observeActive(): Flow<WorkoutFull?> = active
 
@@ -850,6 +896,22 @@ class ActiveWorkoutViewModelTest {
       completedNumberEdits += set to type
       completedEditGate?.await()
       return completedEditResult
+    }
+
+    override suspend fun saveWorkoutNote(workoutId: String, text: String): NoteSaveResult {
+      noteSaveGate?.await()
+      savedWorkoutNotes += workoutId to text
+      return NoteSaveResult.Saved
+    }
+
+    override suspend fun saveSetNote(
+        workoutId: String,
+        setId: Long,
+        text: String,
+    ): NoteSaveResult {
+      noteSaveGate?.await()
+      savedSetNotes += setId to text
+      return NoteSaveResult.Saved
     }
 
     override suspend fun toggleSetCompleted(setId: Long, completed: Boolean) {
@@ -898,6 +960,18 @@ class ActiveWorkoutViewModelTest {
     override suspend fun startEmpty(): String = "w1"
   }
 
+  private class FakePersonalHints : ExercisePersonalHintRepository {
+    override fun observe(exerciseId: Long) = flowOf<ExercisePersonalHint?>(null)
+
+    override suspend fun editTarget(exerciseId: Long): HintEditTarget? =
+        HintEditTarget(exerciseId, "sync-$exerciseId", "owner", 1L)
+
+    override suspend fun save(target: HintEditTarget, text: String): NoteSaveResult =
+        NoteSaveResult.Saved
+
+    override suspend fun unpin(target: HintEditTarget): NoteSaveResult = NoteSaveResult.Saved
+  }
+
   /**
    * [WorkoutDao] для [PreviousSetsUseCase]: отдаёт заданные «прошлые» подходы, остальное —
    * заглушки.
@@ -920,6 +994,10 @@ class ActiveWorkoutViewModelTest {
     override suspend fun insertSets(sets: List<WorkoutSetEntity>): List<Long> = emptyList()
 
     override suspend fun updateSet(set: WorkoutSetEntity) = Unit
+
+    override suspend fun updateActiveSetNote(workoutId: String, setId: Long, note: String) = 0
+
+    override suspend fun updateActiveWorkoutNote(workoutId: String, note: String) = 0
 
     override suspend fun updateCompletedStrengthNumbers(
         setId: Long,

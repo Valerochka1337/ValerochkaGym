@@ -2,18 +2,27 @@ package com.valerochka1337.valerochkagym.ui
 
 import android.app.Application
 import android.net.Uri
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.emptyPreferences
 import androidx.lifecycle.SavedStateHandle
-import com.valerochka1337.valerochkagym.data.ai.AiApiConfigurationProvider
 import com.valerochka1337.valerochkagym.data.ai.InBodyReportAiReader
 import com.valerochka1337.valerochkagym.data.ai.InBodyReportAiResult
 import com.valerochka1337.valerochkagym.data.ai.InBodyReportDraft
-import com.valerochka1337.valerochkagym.data.ai.MODEL_UNAVAILABLE_MESSAGE
 import com.valerochka1337.valerochkagym.data.db.dao.BodyMeasurementDao
 import com.valerochka1337.valerochkagym.data.db.entity.BodyMeasurementEntity
 import com.valerochka1337.valerochkagym.data.db.entity.UploadStatus
+import com.valerochka1337.valerochkagym.data.profile.AiProfilePromptGate
+import com.valerochka1337.valerochkagym.data.settings.SettingsRepository
+import com.valerochka1337.valerochkagym.domain.BasicProfile
+import com.valerochka1337.valerochkagym.domain.ProfileEditTarget
+import com.valerochka1337.valerochkagym.domain.ProfileEditorSnapshot
+import com.valerochka1337.valerochkagym.domain.ProfileRepository
+import com.valerochka1337.valerochkagym.domain.ProfileSaveResult
 import com.valerochka1337.valerochkagym.domain.measurements.InBodySegment
 import com.valerochka1337.valerochkagym.domain.measurements.InBodySegmentValues
 import com.valerochka1337.valerochkagym.domain.measurements.effectiveWaistHipRatio
+import com.valerochka1337.valerochkagym.service.WallClock
 import com.valerochka1337.valerochkagym.ui.measurements.MeasurementEditorViewModel
 import com.valerochka1337.valerochkagym.ui.navigation.GymRoutes
 import com.valerochka1337.valerochkagym.util.MainDispatcherRule
@@ -26,6 +35,10 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -67,6 +80,53 @@ class MeasurementEditorViewModelTest {
       }
 
   @Test
+  fun `InBody fill never opens sources and continue opens them once`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val profile = PromptProfileRepository()
+        val opened = mutableListOf<Unit>()
+        val openedProfiles = mutableListOf<Unit>()
+        val viewModel =
+            MeasurementEditorViewModel(
+                SavedStateHandle(),
+                FakeBodyMeasurementDao(),
+                FakeMeasurementUploadScheduler(),
+                aiProfilePromptGate = promptGate(profile),
+            )
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+          viewModel.openImportSources.collect { opened += it }
+        }
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+          viewModel.openProfile.collect { openedProfiles += it }
+        }
+        viewModel.requestInBodyImport()
+        advanceUntilIdle()
+        val token = requireNotNull(viewModel.profilePrompt.value).token
+        assertTrue(opened.isEmpty())
+        viewModel.fillProfileFromPrompt(token)
+        viewModel.fillProfileFromPrompt(token)
+        advanceUntilIdle()
+        assertTrue(opened.isEmpty())
+        assertEquals(1, openedProfiles.size)
+        val next =
+            MeasurementEditorViewModel(
+                SavedStateHandle(),
+                FakeBodyMeasurementDao(),
+                FakeMeasurementUploadScheduler(),
+                aiProfilePromptGate = promptGate(PromptProfileRepository()),
+            )
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+          next.openImportSources.collect { opened += it }
+        }
+        next.requestInBodyImport()
+        advanceUntilIdle()
+        val nextToken = requireNotNull(next.profilePrompt.value).token
+        next.continueAfterProfilePrompt(nextToken)
+        next.continueAfterProfilePrompt(nextToken)
+        advanceUntilIdle()
+        assertEquals(1, opened.size)
+      }
+
+  @Test
   fun `successful InBody scan fills only its draft and preserves manual circumferences`() =
       runTest(mainDispatcherRule.testDispatcher.scheduler) {
         val dao = FakeBodyMeasurementDao()
@@ -93,7 +153,6 @@ class MeasurementEditorViewModelTest {
                 dao,
                 FakeMeasurementUploadScheduler(),
                 reader,
-                FakeAiApiConfigurationProvider(configured = true),
             )
         testScheduler.advanceUntilIdle()
         viewModel.setWaistCm("72")
@@ -135,7 +194,6 @@ class MeasurementEditorViewModelTest {
                 FakeBodyMeasurementDao(),
                 FakeMeasurementUploadScheduler(),
                 reader,
-                FakeAiApiConfigurationProvider(configured = true),
             )
         testScheduler.advanceUntilIdle()
         viewModel.setWeightKg("70")
@@ -155,30 +213,6 @@ class MeasurementEditorViewModelTest {
         assertEquals("60.0", viewModel.uiState.value.weightKg)
         assertNull(viewModel.uiState.value.inBodyScanError)
         assertEquals(2, reader.uris.size)
-      }
-
-  @Test
-  fun `failed InBody scan marks an unavailable selected model for settings navigation`() =
-      runTest(mainDispatcherRule.testDispatcher.scheduler) {
-        val viewModel =
-            MeasurementEditorViewModel(
-                SavedStateHandle(),
-                FakeBodyMeasurementDao(),
-                FakeMeasurementUploadScheduler(),
-                FakeInBodyReportAiReader(
-                    InBodyReportAiResult.Failure(
-                        message = MODEL_UNAVAILABLE_MESSAGE,
-                        modelUnavailable = true,
-                    ),
-                ),
-                FakeAiApiConfigurationProvider(configured = true),
-            )
-        testScheduler.advanceUntilIdle()
-
-        viewModel.scanInBody(Uri.parse("content://picker/inbody.jpg"))
-        testScheduler.advanceUntilIdle()
-
-        assertTrue(viewModel.uiState.value.inBodyScanModelUnavailable)
       }
 
   @Test
@@ -209,7 +243,6 @@ class MeasurementEditorViewModelTest {
                         ),
                     ),
                 ),
-                FakeAiApiConfigurationProvider(configured = true),
             )
         testScheduler.advanceUntilIdle()
 
@@ -237,7 +270,6 @@ class MeasurementEditorViewModelTest {
                 FakeInBodyReportAiReader(
                     InBodyReportAiResult.Success(InBodyReportDraft(inBodyScore = 74))
                 ),
-                FakeAiApiConfigurationProvider(configured = true),
             )
         testScheduler.advanceUntilIdle()
 
@@ -325,14 +357,6 @@ class MeasurementEditorViewModelTest {
     }
   }
 
-  private class FakeAiApiConfigurationProvider(configured: Boolean) : AiApiConfigurationProvider {
-    override val isConfigured: Flow<Boolean> = flowOf(configured)
-
-    override suspend fun connection() = null
-
-    override suspend fun requestConfiguration() = null
-  }
-
   private class FakeBodyMeasurementDao(
       vararg initial: BodyMeasurementEntity,
       private val failOnInsert: Boolean = false,
@@ -352,6 +376,9 @@ class MeasurementEditorViewModelTest {
       updated += measurement
       rows.value = rows.value.map { if (it.id == measurement.id) measurement else it }
     }
+
+    override fun observeByIds(ids: Set<String>) =
+        observeAll().map { rows -> rows.filter { it.id in ids } }
 
     override fun observeAll(): Flow<List<BodyMeasurementEntity>> = rows
 
@@ -382,5 +409,29 @@ class MeasurementEditorViewModelTest {
     override suspend fun retry(measurementId: String) = Unit
 
     override suspend fun scheduleAllPending(): Int = 0
+  }
+
+  private fun promptGate(repository: ProfileRepository) =
+      AiProfilePromptGate(SettingsRepository(PromptDataStore()), repository, WallClock { 1L })
+
+  private class PromptProfileRepository : ProfileRepository {
+    private val snapshot =
+        ProfileEditorSnapshot(ProfileEditTarget("owner", "owner", 1L), BasicProfile())
+
+    override fun observeCurrent(): Flow<ProfileEditorSnapshot?> = flowOf(snapshot)
+
+    override suspend fun openEditor(): ProfileEditorSnapshot = snapshot
+
+    override fun observe(target: ProfileEditTarget): Flow<BasicProfile?> = flowOf(BasicProfile())
+
+    override suspend fun save(target: ProfileEditTarget, profile: BasicProfile): ProfileSaveResult =
+        ProfileSaveResult.Saved
+  }
+
+  private class PromptDataStore : DataStore<Preferences> {
+    override val data = MutableStateFlow<Preferences>(emptyPreferences())
+
+    override suspend fun updateData(transform: suspend (Preferences) -> Preferences): Preferences =
+        transform(data.value).also { data.value = it }
   }
 }

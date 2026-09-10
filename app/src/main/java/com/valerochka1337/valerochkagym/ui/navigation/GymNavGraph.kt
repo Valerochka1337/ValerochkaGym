@@ -19,25 +19,32 @@ import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
+import com.valerochka1337.valerochkagym.domain.HealthRecordKind
 import com.valerochka1337.valerochkagym.ui.active.ActiveWorkoutScreen
 import com.valerochka1337.valerochkagym.ui.active.ActiveWorkoutViewModel
 import com.valerochka1337.valerochkagym.ui.analysis.AnalysisScreen
 import com.valerochka1337.valerochkagym.ui.calendar.CalendarScreen
 import com.valerochka1337.valerochkagym.ui.calendar.ScheduleEditorScreen
+import com.valerochka1337.valerochkagym.ui.calendarai.CalendarAiScreen
+import com.valerochka1337.valerochkagym.ui.coachrelation.*
 import com.valerochka1337.valerochkagym.ui.exercise.ExerciseDetailScreen
 import com.valerochka1337.valerochkagym.ui.gyms.GymDetailScreen
 import com.valerochka1337.valerochkagym.ui.gyms.GymEditorScreen
 import com.valerochka1337.valerochkagym.ui.gyms.GymsScreen
+import com.valerochka1337.valerochkagym.ui.health.HealthDetailScreen
+import com.valerochka1337.valerochkagym.ui.health.HealthEditorScreen
 import com.valerochka1337.valerochkagym.ui.history.WorkoutDetailScreen
 import com.valerochka1337.valerochkagym.ui.library.ExerciseLibraryScreen
 import com.valerochka1337.valerochkagym.ui.measurements.MeasurementEditorScreen
 import com.valerochka1337.valerochkagym.ui.measurements.MeasurementsScreen
+import com.valerochka1337.valerochkagym.ui.profile.ProfileScreen
 import com.valerochka1337.valerochkagym.ui.routine.RoutineDetailScreen
 import com.valerochka1337.valerochkagym.ui.routine.RoutineEditorScreen
 import com.valerochka1337.valerochkagym.ui.routine.RoutineEditorViewModel
 import com.valerochka1337.valerochkagym.ui.settings.SettingsScreen
 import com.valerochka1337.valerochkagym.ui.summary.WorkoutSummaryScreen
 import com.valerochka1337.valerochkagym.ui.theme.GymMotion
+import com.valerochka1337.valerochkagym.ui.trainingproposal.*
 import com.valerochka1337.valerochkagym.ui.update.AppUpdateUiState
 import com.valerochka1337.valerochkagym.ui.workouts.WorkoutsScreen
 
@@ -53,6 +60,13 @@ object GymRoutes {
   const val ANALYSIS = "analysis"
   const val MEASUREMENTS = "measurements"
   const val SETTINGS = "settings"
+  const val PROFILE = "profile"
+  const val HEALTH_DETAIL_ID_ARG = "healthLogicalId"
+  const val HEALTH_EDITOR_KIND_ARG = "healthKind"
+  const val HEALTH_EDITOR_ID_ARG = "healthLogicalId"
+  const val HEALTH_DETAIL = "health_detail/{$HEALTH_DETAIL_ID_ARG}"
+  const val HEALTH_EDITOR =
+      "health_editor?$HEALTH_EDITOR_KIND_ARG={$HEALTH_EDITOR_KIND_ARG}&$HEALTH_EDITOR_ID_ARG={$HEALTH_EDITOR_ID_ARG}"
   const val GYMS = "gyms"
   const val LIBRARY = "library?$GYM_IDS_ARG={$GYM_IDS_ARG}&$WORKOUT_ID_ARG={$WORKOUT_ID_ARG}"
   const val ACTIVE_WORKOUT = "active_workout"
@@ -92,6 +106,15 @@ object GymRoutes {
   fun exerciseDetail(exerciseId: Long) = "exercise_detail/$exerciseId"
 
   fun gymDetail(gymId: String) = "gym_detail/${Uri.encode(gymId)}"
+
+  fun healthDetail(logicalId: String) = "health_detail/${Uri.encode(logicalId)}"
+
+  fun healthEditor(kind: HealthRecordKind, logicalId: String? = null): String =
+      buildList {
+            add("$HEALTH_EDITOR_KIND_ARG=${kind.name}")
+            logicalId?.let { add("$HEALTH_EDITOR_ID_ARG=${Uri.encode(it)}") }
+          }
+          .joinToString("&", prefix = "health_editor?")
 
   fun measurementEditor(measurementId: String? = null) =
       if (measurementId == null) "measurement_editor"
@@ -214,6 +237,38 @@ fun GymNavGraph(
           onOpenSettings = { navController.navigate(GymRoutes.SETTINGS) },
       )
     }
+    composable("coach_relations") {
+      CoachRelationsScreen(
+          onBack = { navController.popBackStack() },
+          onOpen = { id, clients -> navController.navigate("coach_relation/$id/$clients") },
+      )
+    }
+    composable("coach_relation/{relationId}/{clients}") { entry ->
+      CoachRelationDetailScreen(
+          entry.arguments?.getString("relationId").orEmpty(),
+          entry.arguments?.getString("clients") == "true",
+          onBack = { navController.popBackStack() },
+      )
+    }
+    composable("calendar_ai") {
+      CalendarAiScreen(
+          onBack = { navController.popBackStack() },
+          onOpenProposal = { navController.navigate("training_proposal/${Uri.encode(it)}") },
+          onOpenProfile = { navController.navigate(GymRoutes.PROFILE) },
+      )
+    }
+    composable("training_proposals") {
+      TrainingProposalInboxScreen(
+          onOpen = { navController.navigate("training_proposal/${Uri.encode(it)}") },
+          onBack = { navController.popBackStack() },
+      )
+    }
+    composable("training_proposal/{proposalId}") { entry ->
+      TrainingProposalDetailScreen(
+          requireNotNull(entry.arguments?.getString("proposalId")),
+          onBack = { navController.popBackStack() },
+      )
+    }
     composable(GymRoutes.CALENDAR) {
       CalendarScreen(
           onWorkoutClick = { workoutId ->
@@ -221,6 +276,8 @@ fun GymNavGraph(
           },
           onStartWorkout = { navController.navigate(GymRoutes.ACTIVE_WORKOUT) },
           onOpenSchedule = { navController.navigate(GymRoutes.SCHEDULE_EDITOR) },
+          onOpenProposals = { navController.navigate("training_proposals") },
+          onOpenAi = { navController.navigate("calendar_ai") },
           onOpenSettings = { navController.navigate(GymRoutes.SETTINGS) },
       )
     }
@@ -229,6 +286,9 @@ fun GymNavGraph(
           onOpenSettings = { navController.navigate(GymRoutes.SETTINGS) },
           onOpenMeasurements = { navController.navigate(GymRoutes.MEASUREMENTS) },
           onExerciseClick = { id -> navController.navigate(GymRoutes.exerciseDetail(id)) },
+          onOpenHealthDetail = { id -> navController.navigate(GymRoutes.healthDetail(id)) },
+          onCreateHealth = { kind -> navController.navigate(GymRoutes.healthEditor(kind)) },
+          onOpenMeasurement = { id -> navController.navigate(GymRoutes.measurementEditor(id)) },
       )
     }
     composable(GymRoutes.MEASUREMENTS) {
@@ -242,11 +302,52 @@ fun GymNavGraph(
       SettingsScreen(
           onBack = { navController.popBackStack() },
           onOpenGyms = { navController.navigate(GymRoutes.GYMS) },
+          onOpenProfile = { navController.navigate(GymRoutes.PROFILE) },
+          onOpenRelations = { navController.navigate("coach_relations") },
           appUpdateState = appUpdateState,
           onCheckUpdate = onCheckUpdate,
           onDownloadUpdate = onDownloadUpdate,
           onInstallUpdate = onInstallUpdate,
           onRetryUpdate = onRetryUpdate,
+      )
+    }
+
+    composable(GymRoutes.PROFILE) { ProfileScreen(onBack = { navController.popBackStack() }) }
+
+    composable(
+        route = GymRoutes.HEALTH_DETAIL,
+        arguments =
+            listOf(navArgument(GymRoutes.HEALTH_DETAIL_ID_ARG) { type = NavType.StringType }),
+    ) { entry ->
+      val logicalId = requireNotNull(entry.arguments?.getString(GymRoutes.HEALTH_DETAIL_ID_ARG))
+      HealthDetailScreen(
+          logicalId = logicalId,
+          onBack = { navController.popBackStack() },
+          onEdit = { id ->
+            navController.navigate(GymRoutes.healthEditor(HealthRecordKind.REPORT, id))
+          },
+      )
+    }
+
+    composable(
+        route = GymRoutes.HEALTH_EDITOR,
+        arguments =
+            listOf(
+                navArgument(GymRoutes.HEALTH_EDITOR_KIND_ARG) { type = NavType.StringType },
+                navArgument(GymRoutes.HEALTH_EDITOR_ID_ARG) {
+                  type = NavType.StringType
+                  nullable = true
+                  defaultValue = null
+                },
+            ),
+    ) { entry ->
+      val kind =
+          requireNotNull(entry.arguments?.getString(GymRoutes.HEALTH_EDITOR_KIND_ARG))
+              .let(HealthRecordKind::valueOf)
+      HealthEditorScreen(
+          kind,
+          entry.arguments?.getString(GymRoutes.HEALTH_EDITOR_ID_ARG),
+          onBack = { navController.popBackStack() },
       )
     }
 
@@ -326,6 +427,7 @@ fun GymNavGraph(
       ExerciseLibraryScreen(
           onBack = { navController.popBackStack() },
           onOpenSettings = { navController.navigate(GymRoutes.SETTINGS) },
+          onOpenProfile = { navController.navigate(GymRoutes.PROFILE) },
           windowWidthClass = windowWidthClass,
           // Открыта из редактора программы: возвращаем выбранное упражнение назад.
           onExerciseSelected = { exercise ->
@@ -480,6 +582,7 @@ fun GymNavGraph(
       MeasurementEditorScreen(
           onBack = { navController.popBackStack() },
           onOpenSettings = { navController.navigate(GymRoutes.SETTINGS) },
+          onOpenProfile = { navController.navigate(GymRoutes.PROFILE) },
       )
     }
   }

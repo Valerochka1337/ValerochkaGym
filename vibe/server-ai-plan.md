@@ -117,3 +117,70 @@ deletion, and manual flows remain available.
 Gate P self-check: every AC maps to a task and automated evidence; fixture, DTO, freshness, provider
 and consent contracts are frozen; backend/Android ownership is exclusive; production AI/deploy is
 explicitly unverified.
+
+## Authoritative AI-01/health-disclosure integration delta (2026-09-10)
+
+This delta supersedes the earlier exclusions of new Room data, migrations and retries/idempotency
+only for the shared disclosure consent aggregate. AI draft POSTs remain non-retried and no raw
+image or AI request/result enters that aggregate. The
+accepted backend InBody endpoint requires an enabled, current health-AI disclosure receipt and the
+exact `X-Health-AI-Disclosure-Revision` header. Without this bounded client foundation, Android can
+only fail closed and has no usable pre-Health grant path.
+
+AI-01 T-004 is the sole early owner of the already planned
+`HealthAiConsentStateEntity`, `HealthAiConsentOutboxEntity` and their DAO. It creates them in the
+actual next Room version after integrated CAL-01 (**19→20 unless the predecessor changes**), with
+one handwritten migration, exported schema, incremental `Migration19To20Test` (renamed to the
+actual N→N+1) and supported `Migration1To20Test` full-path test. Health T-003 reuses these exact
+tables/DAO and does not create, rename, migrate, or copy a second consent store.
+
+The state is scoped only to an authenticated owner and stores the received `revision`,
+`noticeVersion`, `enabled`, and `recordedAtEpochMs` receipt defined by
+`vibe/contracts/manual-health-contract.json`; absent state is exactly its zero receipt. The outbox
+is owner-scoped and atomically persists `operationId`, complete first-send UTF-8 request bytes,
+SHA-256 and dispatch state before POST. After receiving a response it persists the exact raw
+receipt bytes before or with monotonic receipt application; an ambiguous response retains the
+original request for literal retry. A network receipt never changes the immediate DataStore flag.
+Its serializer, field order, `POST/GET
+/v1/health-ai-disclosure`, CAS retry and `consent_operation_reused`/`consent_revision_conflict`
+semantics are exactly the contract's `canonicalAiDisclosureRequest` and `AiDisclosureReceipt`; this
+delta adds no wire field or endpoint.
+
+The immediate local privacy choice remains the existing planned DataStore choice
+`healthAiDisclosureEnabled`: explicit grant/revoke changes it; false blocks image encoding and
+upload immediately. Room receipt/outbox work is permitted only for the same authenticated owner;
+guest state never auto-grants, claims, transfers or reclassifies consent. A stale CAS first refreshes
+the receipt and creates a new exact operation; it never retries or persists an image. InBody sends
+only when the local flag is true and the same-owner receipt is enabled at the current notice; it
+supplies that receipt revision in the header, and owner/revoke state is rechecked before applying a
+late response. The normal user-visible grant/revoke control is added at the existing InBody action
+boundary, not deferred to Health UI.
+
+T-004 explicitly adds `health-ledger-v1` to the request capability union while retaining
+`calendar-plans`. Both GET and POST `/v1/health-ai-disclosure` carry
+`X-Gym-Capabilities: calendar-plans,health-ledger-v1` (or its equivalent parsed union).
+Accepted capability is scoped to the current owner/response; missing acceptance, downgrade or
+426 keeps the exact consent outbox and fails closed before image encoding/upload. InBody also
+carries the exact enabled receipt revision header. Transport tests cover the capability on both
+disclosure routes, accepted response, missing/downgraded acceptance and 426, including zero image
+encode/upload/API calls until the admission conditions hold. No capability failure erases state
+or enables the local privacy flag.
+
+T-004 exact ownership expands to `data/db/entity/{HealthAiConsentStateEntity,
+HealthAiConsentOutboxEntity}.kt`, `data/db/dao/HealthAiConsentDao.kt`, `data/db/{GymDatabase.kt,
+Migrations.kt}`, `app/schemas/.../20.json` (actual N+1), `data/health/HealthAiDisclosureRepository.kt`,
+the minimal existing DataStore setting accessor, `data/backend/{BackendApi.kt,BackendModels.kt}`,
+`data/ai/BackendAiRepository.kt`, `ui/measurements/{MeasurementEditorViewModel,MeasurementEditorScreen}.kt`,
+DI bindings, and matching DAO/migration/repository/ViewModel tests. The writer owns this whole Room
+aggregate and must not split it with Health.
+
+Required T-004 evidence adds exact first-send/retry and changed-body conflict, receipt monotonicity,
+explicit grant/revoke, guest/no-auto-consent, claim and A→B isolation, process recreation,
+stale-CAS refresh, header equality, no-encode/no-upload while absent/disabled/stale, and late
+owner/revoke/provider-result discard tests. T-007 is strict for this delta: migration/schema/full
+path, disclosure owner/claim and privacy gates join the existing AI checks; it still runs the
+unsigned release attempt. The one AI-01 version increment remains unchanged.
+
+DataStore alone is rejected: it can persist the immediate local block but cannot provide the
+owner-scoped exact operation bytes, server receipt, idempotent retry, migration/claim proof or
+transactional preservation needed by the accepted health contract.

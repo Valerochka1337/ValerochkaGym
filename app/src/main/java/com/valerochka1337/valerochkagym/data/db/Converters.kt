@@ -3,6 +3,8 @@ package com.valerochka1337.valerochkagym.data.db
 import androidx.room.TypeConverter
 import com.valerochka1337.valerochkagym.data.backend.GuestSyncPhase
 import com.valerochka1337.valerochkagym.data.db.entity.CalendarEventAccountLinkState
+import com.valerochka1337.valerochkagym.data.db.entity.CalendarExceptionKind
+import com.valerochka1337.valerochkagym.data.db.entity.CalendarMigrationPhase
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
 import com.valerochka1337.valerochkagym.data.db.entity.Muscle
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleGroup
@@ -35,6 +37,18 @@ class Converters {
   @TypeConverter
   fun toCalendarEventAccountLinkState(value: String): CalendarEventAccountLinkState =
       CalendarEventAccountLinkState.valueOf(value)
+
+  @TypeConverter fun fromCalendarExceptionKind(value: CalendarExceptionKind): String = value.name
+
+  @TypeConverter
+  fun toCalendarExceptionKind(value: String): CalendarExceptionKind =
+      CalendarExceptionKind.valueOf(value)
+
+  @TypeConverter fun fromCalendarMigrationPhase(value: CalendarMigrationPhase): String = value.name
+
+  @TypeConverter
+  fun toCalendarMigrationPhase(value: String): CalendarMigrationPhase =
+      CalendarMigrationPhase.valueOf(value)
 
   @TypeConverter fun fromGuestSyncPhase(value: GuestSyncPhase): String = value.name
 

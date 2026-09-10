@@ -12,4 +12,8 @@ abstract class BackendModule {
   @Binds abstract fun transport(impl: BackendApi): BackendTransport
 
   @Binds abstract fun sessions(impl: BackendTokenStore): BackendSessionStore
+
+  @Binds abstract fun calendarCloudStatus(impl: BackendSync): CalendarCloudStatus
+
+  @Binds abstract fun syncReadySource(impl: SyncReadyAdapter): SyncReadySource
 }

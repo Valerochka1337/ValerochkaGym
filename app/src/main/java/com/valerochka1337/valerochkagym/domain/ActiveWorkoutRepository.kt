@@ -30,6 +30,12 @@ interface ActiveWorkoutRepository {
 
   suspend fun updateSet(set: WorkoutSetEntity)
 
+  suspend fun saveWorkoutNote(workoutId: String, text: String): NoteSaveResult =
+      NoteSaveResult.MissingOrInactive
+
+  suspend fun saveSetNote(workoutId: String, setId: Long, text: String): NoteSaveResult =
+      NoteSaveResult.MissingOrInactive
+
   /**
    * Updates the numeric values of a completed set only while its workout remains active. The
    * implementation verifies [type] against the database exercise row so a stale screen cannot write
@@ -78,6 +84,14 @@ sealed interface CompletedSetEditResult {
   data object Saved : CompletedSetEditResult
 
   data object MissingOrInactive : CompletedSetEditResult
+}
+
+sealed interface NoteSaveResult {
+  data object Saved : NoteSaveResult
+
+  data object MissingOrInactive : NoteSaveResult
+
+  data object TooLong : NoteSaveResult
 }
 
 /** Старт/добавление блокируется, пока упражнения не появятся во всех выбранных залах. */

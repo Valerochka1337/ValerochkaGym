@@ -30,4 +30,7 @@ interface ScheduledWorkoutDao {
 
   @Query("SELECT * FROM scheduled_workouts WHERE id = :id")
   suspend fun getById(id: Long): ScheduledWorkoutEntity?
+
+  @Query("SELECT * FROM scheduled_workouts ORDER BY id")
+  suspend fun all(): List<ScheduledWorkoutEntity>
 }

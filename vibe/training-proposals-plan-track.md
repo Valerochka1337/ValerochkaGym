@@ -5,9 +5,9 @@ Status values: `pending | in_progress | done | blocked`.
 | Task | Status | Owner | Depends | AC | Automated evidence / observable completion |
 |---|---|---|---|---|---|
 | T-001 | done | Contract owner | AI-01, CAL-01, guest-sync | AC-001–006 | Strict fixture accepted in ca41f1f; pre-implementation correction caps gymIds at 1000 to match routine validation. Both fixture copies SHA-256 `65254ebf9aaa4062ebf8ef71df99c76876685ce10ec0bd2fa8645fced56ea998`. Backend implementation and independent verification remain separate gates. |
-| T-002 | pending | Sole backend writer | T-001, accepted next basic-profile backend baseline | AC-001–008 | Proposal/auth/transaction races, migration and focused backend tests pass. |
-| T-002V | pending | Independent backend tester/reviewer | stable T-002 | AC-001–008 | Strict backend Gate T/V packet before Android starts. |
-| T-002F | pending | Backend writer + root acceptance | T-002V | AC-001–008 | Bounded fix, backend full test/boot artifact and accepted baseline (68 tests reported passing). |
+| T-002 | done_local | Sole backend writer | T-001, accepted next basic-profile backend baseline | AC-001–008 | Proposal/auth/transaction races, migration and focused backend tests pass. |
+| T-002V | done | Independent backend tester/reviewer | stable T-002 | AC-001–008 | Strict backend Gate T/V packet before Android starts. |
+| T-002F | done_local | Backend writer + root acceptance | T-002V | AC-001–008 | Bounded fix, backend full test/boot artifact and accepted baseline (68 tests reported passing). |
 | T-003 | pending | Sole Android writer | T-001,T-002F,CAL-01 | AC-003–008 | Targeted Room/full-authoritative sync/projection tests and `:app:compileDebugKotlin` pass. |
 | T-004 | pending | Same Android writer | T-003 | AC-004,008,009 | Focused ViewModel/Compose semantics/adaptive tests and compile pass. |
 | T-005 | pending | Same Android writer | T-003,T-004 | AC-001–009 | One version increment, actual N and Gate I commands recorded. |
@@ -50,3 +50,30 @@ Planning only: no Gradle, backend, Git, production-source or schema command ran.
 - A server result can outlive a failed local projection; immutable operation bytes and operation-ID recovery preserve it until normal authoritative sync can reapply.
 
 Root final strict Sol/high Gate P PASS: seven P1 correction groups and the remaining flow-diagram contradiction closed. Backend authoritative full-sync projection is the only approval apply path.
+
+## Explicit edited-preview approval — 2026-09-10
+
+User explicitly approved accepting a recipient-edited draft after server validation while
+preserving the author snapshot and the exact accepted request bytes. This supersedes the
+prior pending-approval blocker only. Root applied the prepared equality-check removal and
+two regression tests in the existing backend `feat/calendar-ai` WIP after a clean apply check.
+Backend targeted verification is running; Android proposal implementation remains pending.
+No commit, push, merge, deploy or live AI request is authorized.
+
+Backend edited-preview acceptance: independent narrow review PASS/no P0/P1. Its P2 coverage
+request was addressed with a COACH-source edit test (denied authority returns 403/no receipt;
+allowed approval preserves authorId/originRelationId/original draft). Full local
+`spotlessApply check bootJar` PASS, 53s; log `/private/tmp/yarumo-proposal-edited-final.log`.
+The separately accepted backend calendar-AI WIP remains preserved and included in that gate.
+
+Superseding backend gate status: T-002/T-002V/T-002F are accepted locally; full backend
+169 tests, zero failures/errors/skips, check and bootJar PASS with the explicit
+edited-preview approval. Android T-003 waits for the ongoing Health integration so
+the sole shared owner can freeze the actual Room predecessor. No new product decision
+is pending.
+
+## Android local acceptance
+
+Room25/version43: implementation and targeted repository/migration/BackendSync/Compose gates accepted. 94 tests covered, two fixture failures corrected and both classes rechecked17/17. Logs `/private/tmp/yarumo-proposal-targeted.log`, `/private/tmp/yarumo-proposal-recheck.log`. The final combined Room26/version45 gate is tracked in `partial-completion-plan-track.md`; backend169-test acceptance remains unchanged.
+
+Final combined tree:1262 tests/0 failures/0 errors/1 conditional external-copy skip; assembleDebug and minifyReleaseWithR8 PASS. APK and logs in `partial-completion-plan-track.md`.

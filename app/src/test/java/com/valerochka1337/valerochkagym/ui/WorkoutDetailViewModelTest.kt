@@ -74,6 +74,31 @@ class WorkoutDetailViewModelTest {
       }
 
   @Test
+  fun `history keeps a note on an incomplete set visible without making it completed`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val full =
+            fullWorkout()
+                .copy(
+                    exercises =
+                        fullWorkout().exercises.map { exercise ->
+                          exercise.copy(
+                              sets =
+                                  exercise.sets.map { set ->
+                                    if (set.id == 10L)
+                                        set.copy(isCompleted = false, note = "Только техника")
+                                    else set
+                                  },
+                          )
+                        },
+                )
+        val viewModel = viewModel(FakeWorkoutDao(full))
+
+        val set = viewModel.uiState.value.exercises.first { it.exerciseId == 1L }.sets.first()
+        assertFalse(set.completed)
+        assertEquals("Только техника", set.note)
+      }
+
+  @Test
   fun `a missing id or workout just clears the loading flag`() =
       runTest(mainDispatcherRule.testDispatcher.scheduler) {
         val viewModel = viewModel(FakeWorkoutDao(full = null))
@@ -448,6 +473,10 @@ class WorkoutDetailViewModelTest {
     override suspend fun insertSets(sets: List<WorkoutSetEntity>): List<Long> = emptyList()
 
     override suspend fun updateSet(set: WorkoutSetEntity) = Unit
+
+    override suspend fun updateActiveSetNote(workoutId: String, setId: Long, note: String) = 0
+
+    override suspend fun updateActiveWorkoutNote(workoutId: String, note: String) = 0
 
     override suspend fun updateCompletedStrengthNumbers(
         setId: Long,

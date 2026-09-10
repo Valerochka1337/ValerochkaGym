@@ -33,6 +33,7 @@ data class DetailSetUi(
     val number: Int,
     val summary: String,
     val completed: Boolean,
+    val note: String = "",
 )
 
 /** Упражнение в деталях: имя, мышечная группа и строки подходов. [id] — ключ элемента списка. */
@@ -149,6 +150,7 @@ constructor(
                                   exercise.exercise.type,
                               ),
                           completed = set.isCompleted,
+                          note = set.note,
                       )
                     },
             )

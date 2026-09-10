@@ -50,6 +50,8 @@ constructor(
                     "routines",
                     "gyms",
                     "exercises",
+                    "exercise_personal_hints",
+                    "profiles",
                     "body_measurements",
                     "configuration_tombstones",
                     "muscle_load_upgrade_notice",

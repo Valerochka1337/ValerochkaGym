@@ -100,7 +100,11 @@ internal object MigrationRecoveryFixtures {
   ) {
     // The fixture starts from Room's current schema, then reconstructs the historical recovery
     // surface. v13's review column intentionally remains because MIGRATION_12_13 must tolerate
-    // interrupted vendor restores that already carried it; v14's inventory-only objects must not.
+    // interrupted vendor restores that already carried it; later-version objects must not.
+    removeV23ProfileSchema(db)
+    removeV22WorkoutNotesSchema(db)
+    removeV20HealthAiDisclosureSchema(db)
+    removeV19CalendarPlanSchema(db)
     removeV18GuestSyncSchema(db)
     removeV17CalendarAccountSchema(db)
     removeV14EquipmentSchema(db)
@@ -230,6 +234,36 @@ internal object MigrationRecoveryFixtures {
     db.execSQL("ALTER TABLE backend_state DROP COLUMN initialMergeAcknowledged")
     db.execSQL("ALTER TABLE backend_state DROP COLUMN mergeId")
     db.execSQL("ALTER TABLE backend_state DROP COLUMN phase")
+  }
+
+  /** Restores the pre-v19 backend state before the real 18 → 19 migration adds these columns. */
+  fun removeV19CalendarPlanSchema(db: SupportSQLiteDatabase) {
+    db.execSQL("DROP TABLE IF EXISTS calendar_exceptions")
+    db.execSQL("DROP TABLE IF EXISTS calendar_rules")
+    db.execSQL("DROP TABLE IF EXISTS calendar_plans")
+    db.execSQL("DROP TABLE IF EXISTS calendar_google_links")
+    db.execSQL("DROP TABLE IF EXISTS calendar_migration_metadata")
+    db.execSQL("DROP TABLE IF EXISTS calendar_migration_state")
+    db.execSQL("ALTER TABLE backend_state DROP COLUMN acceptedCapabilities")
+    db.execSQL("ALTER TABLE backend_state DROP COLUMN capabilityOwner")
+  }
+
+  /** Historical recovery fixtures start before the strict 19 → 20 disclosure migration. */
+  fun removeV20HealthAiDisclosureSchema(db: SupportSQLiteDatabase) {
+    db.execSQL("DROP TABLE IF EXISTS health_ai_consent_outbox")
+    db.execSQL("DROP TABLE IF EXISTS health_ai_consent_state")
+  }
+
+  /** Removes all v22 objects before the fixture reconstructs a historical pre-note schema. */
+  fun removeV23ProfileSchema(db: SupportSQLiteDatabase) {
+    db.execSQL("DROP TABLE IF EXISTS profile_equipment")
+    db.execSQL("DROP TABLE IF EXISTS profiles")
+  }
+
+  /** Removes all v22 objects before the fixture reconstructs a historical pre-note schema. */
+  fun removeV22WorkoutNotesSchema(db: SupportSQLiteDatabase) {
+    db.execSQL("DROP TABLE IF EXISTS exercise_personal_hints")
+    db.execSQL("ALTER TABLE workout_sets DROP COLUMN note")
   }
 
   fun seedVariantData(db: SupportSQLiteDatabase) {

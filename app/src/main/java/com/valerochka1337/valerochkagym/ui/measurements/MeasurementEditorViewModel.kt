@@ -4,18 +4,23 @@ import android.net.Uri
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.valerochka1337.valerochkagym.data.ai.AiApiConfigurationProvider
 import com.valerochka1337.valerochkagym.data.ai.InBodyReportAiReader
 import com.valerochka1337.valerochkagym.data.ai.InBodyReportAiResult
 import com.valerochka1337.valerochkagym.data.ai.InBodyReportDraft
 import com.valerochka1337.valerochkagym.data.db.dao.BodyMeasurementDao
 import com.valerochka1337.valerochkagym.data.db.entity.BodyMeasurementEntity
 import com.valerochka1337.valerochkagym.data.db.entity.UploadStatus
+import com.valerochka1337.valerochkagym.data.health.HealthAiDisclosureRepository
+import com.valerochka1337.valerochkagym.data.health.HealthAiDisclosureResult
+import com.valerochka1337.valerochkagym.data.profile.AiProfilePromptDecision
+import com.valerochka1337.valerochkagym.data.profile.AiProfilePromptGate
+import com.valerochka1337.valerochkagym.data.profile.AiProfilePromptKind
 import com.valerochka1337.valerochkagym.domain.measurements.InBodySegment
 import com.valerochka1337.valerochkagym.domain.measurements.InBodySegmentValues
 import com.valerochka1337.valerochkagym.domain.measurements.calculateWaistHipRatio
 import com.valerochka1337.valerochkagym.domain.measurements.inBodySegmentValues
 import com.valerochka1337.valerochkagym.ui.navigation.GymRoutes
+import com.valerochka1337.valerochkagym.ui.profile.AiProfilePromptUi
 import com.valerochka1337.valerochkagym.worker.MeasurementUploadScheduler
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.io.File
@@ -25,11 +30,9 @@ import java.util.UUID
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -57,9 +60,9 @@ data class MeasurementEditorUiState(
     val isLoading: Boolean = false,
     val isScanningInBody: Boolean = false,
     val isSaving: Boolean = false,
-    val isAiConfigured: Boolean = false,
+    val healthAiDisclosureEnabled: Boolean = false,
+    val isUpdatingHealthAiDisclosure: Boolean = false,
     val inBodyScanError: String? = null,
-    val inBodyScanModelUnavailable: Boolean = false,
     val saveError: String? = null,
     val measuredAt: Long = System.currentTimeMillis(),
     val weightKg: String = "",
@@ -184,13 +187,15 @@ constructor(
     private val bodyMeasurementDao: BodyMeasurementDao,
     private val uploadScheduler: MeasurementUploadScheduler,
     private val inBodyReportAiReader: InBodyReportAiReader = NoOpInBodyReportAiReader,
-    private val aiApiConfigurationProvider: AiApiConfigurationProvider =
-        NoOpAiApiConfigurationProvider,
+    private val healthAiDisclosureRepository: HealthAiDisclosureRepository? = null,
+    private val aiProfilePromptGate: AiProfilePromptGate? = null,
 ) : ViewModel() {
 
   private val measurementId: String? = savedStateHandle.get(GymRoutes.MEASUREMENT_ID_ARG)
   private val zone: ZoneId = ZoneId.systemDefault()
   private var existingMeasurement: BodyMeasurementEntity? = null
+  private var scanGeneration = 0L
+  private var promptRequestId = 0L
 
   private val _uiState =
       MutableStateFlow(
@@ -204,11 +209,19 @@ constructor(
   private val _finished = Channel<Unit>(Channel.BUFFERED)
   /** Сохранение либо удаление завершено — экран может безопасно вернуться к истории. */
   val finished = _finished.receiveAsFlow()
+  private val _profilePrompt = MutableStateFlow<AiProfilePromptUi?>(null)
+  val profilePrompt: StateFlow<AiProfilePromptUi?> = _profilePrompt.asStateFlow()
+  private val _openImportSources = Channel<Unit>(Channel.BUFFERED)
+  val openImportSources = _openImportSources.receiveAsFlow()
+  private val _openProfile = Channel<Unit>(Channel.BUFFERED)
+  val openProfile = _openProfile.receiveAsFlow()
 
   init {
-    viewModelScope.launch {
-      aiApiConfigurationProvider.isConfigured.collect { isConfigured ->
-        _uiState.update { it.copy(isAiConfigured = isConfigured) }
+    healthAiDisclosureRepository?.let { repository ->
+      viewModelScope.launch {
+        repository.localEnabled.collect { enabled ->
+          _uiState.update { it.copy(healthAiDisclosureEnabled = enabled) }
+        }
       }
     }
     measurementId?.let { id -> viewModelScope.launch { load(id) } }
@@ -219,13 +232,9 @@ constructor(
     existingMeasurement = measurement
     _uiState.value =
         if (measurement == null) {
-          MeasurementEditorUiState(
-              isNew = false,
-              isLoading = false,
-              isAiConfigured = _uiState.value.isAiConfigured,
-          )
+          MeasurementEditorUiState(isNew = false, isLoading = false)
         } else {
-          measurement.toEditorState(isAiConfigured = _uiState.value.isAiConfigured)
+          measurement.toEditorState()
         }
   }
 
@@ -293,6 +302,85 @@ constructor(
   fun setSegmentFatPercentage(segment: InBodySegment, value: String) =
       updateSegment(segment) { copy(fatPercentage = value) }
 
+  /** Gates before the screen creates a camera file or requests a gallery URI. */
+  fun requestInBodyImport() {
+    if (_uiState.value.isLoading || _uiState.value.isBusy) return
+    val requestId = ++promptRequestId
+    _uiState.update { it.copy(isScanningInBody = true, inBodyScanError = null) }
+    viewModelScope.launch {
+      when (
+          val decision =
+              aiProfilePromptGate?.request(AiProfilePromptKind.IN_BODY)
+                  ?: AiProfilePromptDecision.Proceed
+      ) {
+        AiProfilePromptDecision.Proceed ->
+            if (requestId == promptRequestId) {
+              _uiState.update { it.copy(isScanningInBody = false) }
+              _openImportSources.send(Unit)
+            }
+        AiProfilePromptDecision.Busy ->
+            if (requestId == promptRequestId)
+                _uiState.update {
+                  it.copy(
+                      isScanningInBody = false,
+                      inBodyScanError = "Подождите ответа на предложение",
+                  )
+                }
+        AiProfilePromptDecision.Stale ->
+            if (requestId == promptRequestId)
+                _uiState.update {
+                  it.copy(
+                      isScanningInBody = false,
+                      inBodyScanError = "Профиль изменился, попробуйте ещё раз",
+                  )
+                }
+        is AiProfilePromptDecision.Show ->
+            if (requestId == promptRequestId) {
+              _uiState.update { it.copy(isScanningInBody = false) }
+              _profilePrompt.value = AiProfilePromptUi(decision.token, decision.kind)
+            } else {
+              aiProfilePromptGate?.cancel(decision.token)
+            }
+      }
+    }
+  }
+
+  fun acknowledgeProfilePrompt(token: String) {
+    viewModelScope.launch { aiProfilePromptGate?.acknowledgeVisible(token) }
+  }
+
+  fun continueAfterProfilePrompt(token: String, disableFuturePrompts: Boolean = false) {
+    viewModelScope.launch {
+      if (_profilePrompt.value?.token != token) return@launch
+      val consumed = aiProfilePromptGate?.consume(token, disableFuturePrompts) != false
+      val stillCurrent = _profilePrompt.value?.token == token
+      if (stillCurrent) _profilePrompt.value = null
+      if (consumed && stillCurrent) {
+        _openImportSources.send(Unit)
+      }
+    }
+  }
+
+  fun fillProfileFromPrompt(token: String) {
+    viewModelScope.launch {
+      if (_profilePrompt.value?.token != token) return@launch
+      val consumed = aiProfilePromptGate?.consume(token, false) != false
+      val stillCurrent = _profilePrompt.value?.token == token
+      if (stillCurrent) _profilePrompt.value = null
+      if (consumed && stillCurrent) {
+        _openProfile.send(Unit)
+      }
+    }
+  }
+
+  fun dismissProfilePrompt(token: String) {
+    viewModelScope.launch {
+      if (_profilePrompt.value?.token != token) return@launch
+      aiProfilePromptGate?.cancel(token)
+      if (_profilePrompt.value?.token == token) _profilePrompt.value = null
+    }
+  }
+
   /**
    * Replaces only report fields after a valid response. Manual circumferences are deliberately left
    * untouched, and the draft stays editable until [save]. A camera cache file is deleted in the
@@ -301,41 +389,39 @@ constructor(
   fun scanInBody(uri: Uri, temporaryCameraFile: File? = null) {
     val state = _uiState.value
     if (state.isLoading || state.isBusy) return
-    if (!state.isAiConfigured) {
-      _uiState.update {
-        it.copy(inBodyScanError = MISSING_CONFIGURATION_MESSAGE, inBodyScanModelUnavailable = false)
-      }
-      temporaryCameraFile?.delete()
-      return
-    }
     _uiState.update {
       it.copy(
           isScanningInBody = true,
           inBodyScanError = null,
-          inBodyScanModelUnavailable = false,
           saveError = null,
       )
     }
+    val requestGeneration = ++scanGeneration
+    val editorId = existingMeasurement?.id
     viewModelScope.launch {
       try {
         when (val result = inBodyReportAiReader.read(uri)) {
           is InBodyReportAiResult.Success ->
               _uiState.update { current ->
+                if (requestGeneration != scanGeneration || editorId != existingMeasurement?.id) {
+                  return@update current.copy(isScanningInBody = false)
+                }
                 current
                     .applyInBodyDraft(result.draft)
                     .copy(
                         isScanningInBody = false,
                         inBodyScanError = null,
-                        inBodyScanModelUnavailable = false,
                     )
               }
 
           is InBodyReportAiResult.Failure ->
               _uiState.update { current ->
+                if (requestGeneration != scanGeneration || editorId != existingMeasurement?.id) {
+                  return@update current.copy(isScanningInBody = false)
+                }
                 current.copy(
                     isScanningInBody = false,
                     inBodyScanError = result.message,
-                    inBodyScanModelUnavailable = result.modelUnavailable,
                 )
               }
         }
@@ -346,11 +432,39 @@ constructor(
           current.copy(
               isScanningInBody = false,
               inBodyScanError = GENERIC_SCAN_FAILURE_MESSAGE,
-              inBodyScanModelUnavailable = false,
           )
         }
       } finally {
         temporaryCameraFile?.delete()
+      }
+    }
+  }
+
+  /** The immediate privacy switch changes before the durable owner-scoped receipt is dispatched. */
+  fun setHealthAiDisclosureEnabled(enabled: Boolean) {
+    val repository = healthAiDisclosureRepository ?: return
+    // Privacy can always be withdrawn locally. A pending grant must not keep a selected image
+    // admissible while its network operation is suspended.
+    if (_uiState.value.isUpdatingHealthAiDisclosure && enabled) return
+    _uiState.update { it.copy(isUpdatingHealthAiDisclosure = true, inBodyScanError = null) }
+    viewModelScope.launch {
+      when (val result = repository.setEnabled(enabled)) {
+        is HealthAiDisclosureResult.Updated ->
+            _uiState.update { it.copy(isUpdatingHealthAiDisclosure = false) }
+        HealthAiDisclosureResult.Blocked ->
+            _uiState.update {
+              it.copy(
+                  isUpdatingHealthAiDisclosure = false,
+                  inBodyScanError = "Войдите и завершите синхронизацию для подтверждения согласия",
+              )
+            }
+        is HealthAiDisclosureResult.Failure ->
+            _uiState.update {
+              it.copy(
+                  isUpdatingHealthAiDisclosure = false,
+                  inBodyScanError = result.message,
+              )
+            }
       }
     }
   }
@@ -451,22 +565,13 @@ constructor(
   ) = update { copy(segments = segments + (segment to transform(segments.inputFor(segment)))) }
 
   private companion object {
-    const val MISSING_CONFIGURATION_MESSAGE = "Настройте нейросеть в настройках"
     const val GENERIC_SCAN_FAILURE_MESSAGE =
         "Не удалось распознать лист InBody — попробуйте ещё раз"
     const val GENERIC_SAVE_FAILURE_MESSAGE = "Не удалось сохранить замер — попробуйте ещё раз"
 
     object NoOpInBodyReportAiReader : InBodyReportAiReader {
       override suspend fun read(uri: Uri): InBodyReportAiResult =
-          InBodyReportAiResult.Failure(MISSING_CONFIGURATION_MESSAGE)
-    }
-
-    object NoOpAiApiConfigurationProvider : AiApiConfigurationProvider {
-      override val isConfigured: Flow<Boolean> = flowOf(false)
-
-      override suspend fun connection() = null
-
-      override suspend fun requestConfiguration() = null
+          InBodyReportAiResult.Failure(GENERIC_SCAN_FAILURE_MESSAGE)
     }
   }
 }
@@ -517,11 +622,10 @@ private fun MeasurementEditorUiState.applyInBodyDraft(
   )
 }
 
-private fun BodyMeasurementEntity.toEditorState(isAiConfigured: Boolean): MeasurementEditorUiState =
+private fun BodyMeasurementEntity.toEditorState(): MeasurementEditorUiState =
     MeasurementEditorUiState(
         isNew = false,
         isLoading = false,
-        isAiConfigured = isAiConfigured,
         measuredAt = measuredAt,
         weightKg = weightKg.toInput(),
         skeletalMuscleMassKg = skeletalMuscleMassKg.toInput(),

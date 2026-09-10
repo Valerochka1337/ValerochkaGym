@@ -26,6 +26,10 @@ class Migration10To12Test {
     val fixture = MigrationRecoveryFixtures.createCurrentDatabase(context, name)
     fixture.use {
       val sql = fixture.database
+      MigrationRecoveryFixtures.removeV23ProfileSchema(sql)
+      MigrationRecoveryFixtures.removeV22WorkoutNotesSchema(sql)
+      MigrationRecoveryFixtures.removeV20HealthAiDisclosureSchema(sql)
+      MigrationRecoveryFixtures.removeV19CalendarPlanSchema(sql)
       MigrationRecoveryFixtures.removeV18GuestSyncSchema(sql)
       MigrationRecoveryFixtures.removeV17CalendarAccountSchema(sql)
       MigrationRecoveryFixtures.removeV14EquipmentSchema(sql)

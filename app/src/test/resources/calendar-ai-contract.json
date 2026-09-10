@@ -1,0 +1,3386 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "schemaVersion": 2,
+  "scope": "Stage 21 server-created one-off AI proposal; PLAN-01 remains the only apply writer.",
+  "fixture": {
+    "plan01": {
+      "path": "src/test/resources/training-proposals-contract.json",
+      "sha256": "65254ebf9aaa4062ebf8ef71df99c76876685ce10ec0bd2fa8645fced56ea998",
+      "proposalWriter": "tech.valerochkagym.service.ai.TrainingProposalAiCreator.createOrRevise -> TrainingProposalService.createOrReviseInternalAi"
+    }
+  },
+  "http": {
+    "calendarDraft": {
+      "method": "POST",
+      "path": "/v1/ai/calendar-drafts",
+      "contentType": "application/json; charset=UTF-8",
+      "requestSchema": "#/$defs/CalendarDraftRequest",
+      "successStatus": 200,
+      "responseSchema": "#/$defs/CalendarDraftResponse"
+    },
+    "status": {
+      "method": "GET",
+      "path": "/v1/ai/status",
+      "successStatus": 200,
+      "responseSchema": "#/$defs/AiStatus",
+      "frozenAction": "CALENDAR_DRAFT"
+    },
+    "rawBody": {
+      "maxBytes": 524288,
+      "reject": [
+        "empty",
+        "BOM",
+        "invalid UTF-8",
+        "trailing data",
+        "duplicate members",
+        "unknown fields"
+      ],
+      "sha256": "accepted exact raw body bytes before DTO conversion; digest only is persisted"
+    }
+  },
+  "attemptLedger": {
+    "migration": "013-calendar-ai-attempts.sql appended after 012-coach-relations.sql",
+    "key": [
+      "ownerId",
+      "requestId"
+    ],
+    "binding": "exact SHA-256 raw request digest",
+    "stored": "ownerId, requestId, rawRequestSha256, state, leaseUntil, sanitized terminal code, immutable AttemptReceipt containing the exact normalized original CalendarDraftResponse tree (capture context and initial PENDING proposal/version); no raw/provider payload.",
+    "neverStored": [
+      "raw request",
+      "provider prompt",
+      "provider input/output",
+      "provider error"
+    ],
+    "states": [
+      "PROCESSING",
+      "COMMITTING",
+      "SUCCEEDED",
+      "FAILED",
+      "CANCELLED",
+      "INTERRUPTED"
+    ],
+    "rules": [
+      "same requestId with another digest returns 409 ai_request_conflict",
+      "PROCESSING or COMMITTING returns 409 ai_in_progress and never calls provider",
+      "SUCCEEDED replays the stored normalized typed receipt and proposal identity without provider or a new proposal",
+      "FAILED/CANCELLED/INTERRUPTED replay only their sanitized terminal outcome; retry requires a new requestId",
+      "deadline is 45 seconds from admission; lease is 60 seconds; an expired crash reservation is atomically marked INTERRUPTED and never restarts provider under that id",
+      "owner deletion cleans its attempt rows in the creator-deletion order",
+      "FAILED replays 502 ai_invalid_response or its supplied sanitized mapped status; CANCELLED replays 504 ai_timeout; INTERRUPTED replays 409 ai_interrupted.",
+      "AttemptReceipt replay never reads current proposal state; it returns the original normalized PENDING response tree even after that proposal becomes terminal."
+    ],
+    "commitTicket": "DeferredResult timeout/error/completion and worker share one ticket. Cancellation/deadline before final commit ownership atomically yields CANCELLED and zero proposals. Under outer relations.guards(owner), then catalog, owner head and session locks, final transaction may claim COMMITTING immediately before insert while deadline is live. The winning transaction writes proposal and SUCCEEDED receipt together; a later timeout cannot undo that committed result. Failed DB commit leaves no proposal or success receipt and terminalizes FAILED. No DB lock spans provider I/O."
+  },
+  "capture": {
+    "outerGuardAndLocks": "relations.guards(owner) is outermost at reserve, capture and final; then catalog read lock -> owner sync head -> current user/session. No code acquires the outer guard after an inner lock.",
+    "selectedGyms": "empty means full allowed catalog; otherwise candidates are the intersection of live owner-selected gyms and currently available catalog exercises.",
+    "factsSql": "partial functional numeric finishedAt index for nondeleted owner workouts by (owner, finishedAt, id); MATERIALIZED LIMIT 65 matching parents before any set expansion; reject ai_context_too_large if parent count exceeds 64. Expand only those parents and reject above 8192 fact rows.",
+    "facts": "window is [startOfDay(capturedLocalDate-27 days in requested IANA zone), capturedAt]. Accept only completed nondeleted facts where parent finishedAt<=capturedAt and startedAt<=factTime<=finishedAt; factTime is completedAt else startedAt. Exclude invalid/future/out-of-window temporal facts and emit a data-quality marker without changing source records.",
+    "candidatesSql": "owner/kind and catalog indexes, LIMIT 1001 then reject above 1000; every source body and total source bytes are bounded before expansion and any incompatible existing body cap is surfaced as a blocker, never silently loosened.",
+    "mass": "latest permitted measurement via indexed measuredAt<=capturedAt LIMIT 1; no health ledger or InBody payload.",
+    "notes": "includeNotes=false excludes all workout/set notes and candidate hints. Otherwise notes must be inside the capture window and <=capturedAt: workout timestamp=finishedAt, set timestamp=factTime, hint timestamp=updatedAt. Sort sourceTime DESC, kind ASC, canonical ID ASC, workoutId/sectionId/setIndex ASC; include at most 20 whole entries/16384 UTF-8 bytes.",
+    "contextLimitBytes": 1048576,
+    "privacy": "Provider context contains only ProviderIntent, selected live candidates with muscle summaries, bounded profile/mass and opt-in notes/hints, captured local date and quality markers. Raw facts and actual/legacy weight tuples remain in ServerCapture only. No identity, exact DOB, revisions, credentials, raw archive, health/InBody data or future facts cross the provider boundary. Notes are data, never instructions; missing health disclosure neither gates calendar nor permits health data.",
+    "sourcePayloadCaps": "Before JSON hydration, query only source row keys and encoded lengths. Reject if any eligible source row serialized UTF-8 exceeds 1048576 bytes or the aggregate eligible materialized source bytes exceeds 8388608; then hydrate only finite dependencies: gyms<=1000, equipment<=2000, profile<=1, mass<=1, hints<=1000. Existing sync accepts 10MiB request/16MiB account records; valid sync records may exceed the AI cap and remain untouched.",
+    "finalCreator": "Calendar final creation uses a new typed bounded internal path with the finite live dependency graph from sourcePayloadCaps, EXISTS active-workout guard and captured server weight projection. It must not call unbounded validateLiveDraft or aiDraftWithHistoryWeights/all-owner scans. It reuses the same validators; normal approval and PLAN-01 equality remain unchanged.",
+    "sourceRowAccounting": "ServerCapture.sourceRows contains one kind/key/utf8Bytes per fetched source row, not category totals. kind/key pairs are unique. aggregateEligibleSourceBytes is exactly their sum; projected notes do not double-count parent workout payload bytes. The same sourceRows shape is used for over-limit V-006 setup before admission, which intentionally does not validate as an accepted ServerCapture."
+  },
+  "ranking": {
+    "purpose": "context candidate order only",
+    "heuristic": "goal preference groups, then explicit user priority, then least 28-day mapped-muscle coverage, then canonical UUID",
+    "goalGroups": {
+      "STRENGTH": [
+        "STRENGTH"
+      ],
+      "MUSCLE_GAIN": [
+        "STRENGTH"
+      ],
+      "ENDURANCE": [
+        "TIMED",
+        "CARDIO"
+      ],
+      "FAT_LOSS": [
+        "CARDIO"
+      ],
+      "GENERAL_FITNESS": [
+        "STRENGTH",
+        "TIMED",
+        "CARDIO"
+      ],
+      "OTHER_OR_NULL": [
+        "STRENGTH",
+        "TIMED",
+        "CARDIO"
+      ]
+    },
+    "nonClaim": "AI is not required to choose a prefix, fixed seed or any particular type; type groups do not prove a physiological result.",
+    "formula": "priority(e)=sum canonical contribution 100/50/0 for e mapped muscles requested by priorityMuscles. coverage(e)=sum, over e nonzero mapped muscles, total completed-set contributions in the 28-day window as integer hundredths; do not infer volume/reps. Context order is goal DESC, priority DESC, coverage ASC, canonical UUID ASC.",
+    "bounds": "At most25 muscles each100 means priority<=2500. At most8192 completed facts each contributing at most100 to each of25 muscles means integer coverage<=20480000; these are exact engineering maxima."
+  },
+  "provider": {
+    "transport": "existing AiProvider / HttpOpenAiChatCompletionsProvider; calendar uses strict json_schema name calendar_draft and #/$defs/ProviderOutput, store=false, stream=false, at most two in flight, 45s admission deadline, provider body max 262144 bytes.",
+    "serverProjection": "Provider output omits weightKg, speedKmh and inclinePct. Server writes speedKmh/inclinePct=null. Strength weight uses ServerCapture latest tuple same exercise: factTime DESC, workoutUUID ASC, sectionUUID ASC, setIndex ASC; present actualWeightKg (including null) wins, legacy weightKg only when actual member absent. Other exercise, target and original values never contribute.",
+    "duration": "Known duration is sum(durationSec for every TIMED/CARDIO set) + sum(restSeconds*(setCount-1) across every exercise, null rest=0); it must be <= availableDurationMinutes*60. Strength duration is not guessed and has no exact-fit assertion.",
+    "outputSchemaRef": "#/$defs/ProviderOutput",
+    "runtimeSchemaArtifact": {
+      "path": "src/main/resources/ai/calendar-output-schema.json",
+      "root": "ProviderOutput",
+      "definitions": [
+        "ProviderExercise",
+        "ProviderSet",
+        "Uuid"
+      ],
+      "topologyParity": "runtime resource is ProviderOutput at root with exactly its transitive ProviderExercise, ProviderSet and Uuid definitions; contract/provider tests compare normalized JSON tree and ref topology."
+    },
+    "runtimeValidation": "unique exerciseId; total plannedSets<=40; canonical resolved type shape: STRENGTH requires reps and durationSec=null, TIMED/CARDIO require durationSec and reps=null; server rejects the whole output otherwise."
+  },
+  "errors": {
+    "invalid_request": 400,
+    "ai_request_conflict": 409,
+    "ai_in_progress": 409,
+    "ai_context_stale": 409,
+    "ai_context_too_large": 409,
+    "ai_invalid_response": 502,
+    "ai_timeout": 504,
+    "ai_busy": 503,
+    "ai_unavailable": 503,
+    "ai_interrupted": 409,
+    "unauthorized": 401
+  },
+  "$defs": {
+    "Uuid": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "Revision": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9223372036854775807
+    },
+    "NullableText": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 2000
+    },
+    "CalendarDraftRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "requestId",
+        "expectedRevision",
+        "expectedCatalogRevision",
+        "startsAtMillis",
+        "timeZoneId",
+        "gymIds",
+        "excludedExerciseIds",
+        "excludedEquipmentIds",
+        "priorityMuscles",
+        "includeNotes",
+        "availableDurationMinutes",
+        "currentState",
+        "preferences"
+      ],
+      "properties": {
+        "requestId": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "expectedRevision": {
+          "$ref": "#/$defs/Revision"
+        },
+        "expectedCatalogRevision": {
+          "$ref": "#/$defs/Revision"
+        },
+        "startsAtMillis": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "timeZoneId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "gymIds": {
+          "type": "array",
+          "uniqueItems": true,
+          "maxItems": 1000,
+          "items": {
+            "$ref": "#/$defs/Uuid"
+          }
+        },
+        "excludedExerciseIds": {
+          "type": "array",
+          "uniqueItems": true,
+          "maxItems": 1000,
+          "items": {
+            "$ref": "#/$defs/Uuid"
+          }
+        },
+        "excludedEquipmentIds": {
+          "type": "array",
+          "uniqueItems": true,
+          "maxItems": 200,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          }
+        },
+        "priorityMuscles": {
+          "type": "array",
+          "uniqueItems": true,
+          "maxItems": 25,
+          "items": {
+            "type": "string",
+            "enum": [
+              "UPPER_CHEST",
+              "LOWER_CHEST",
+              "FRONT_DELTS",
+              "SIDE_DELTS",
+              "REAR_DELTS",
+              "ROTATOR_CUFF",
+              "SERRATUS_ANTERIOR",
+              "BICEPS",
+              "TRICEPS",
+              "FOREARMS",
+              "ABS",
+              "OBLIQUES",
+              "HIP_FLEXORS",
+              "ADDUCTORS",
+              "QUADS",
+              "TIBIALIS_ANTERIOR",
+              "CALVES",
+              "HAMSTRINGS",
+              "GLUTES",
+              "HIP_ABDUCTORS",
+              "LOWER_BACK",
+              "LATS",
+              "UPPER_BACK",
+              "TRAPS",
+              "NECK"
+            ]
+          }
+        },
+        "includeNotes": {
+          "type": "boolean"
+        },
+        "availableDurationMinutes": {
+          "type": "integer",
+          "minimum": 10,
+          "maximum": 240
+        },
+        "currentState": {
+          "$ref": "#/$defs/NullableText"
+        },
+        "preferences": {
+          "$ref": "#/$defs/NullableText"
+        }
+      },
+      "x-runtime": "canonical UUID/ZoneId, trimmed nonblank strings when present, future local date 1970..2100, sorted arrays"
+    },
+    "Candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "exerciseId",
+        "type",
+        "name",
+        "available",
+        "equipmentIds",
+        "priority",
+        "coverage",
+        "muscles"
+      ],
+      "properties": {
+        "exerciseId": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "STRENGTH",
+            "TIMED",
+            "CARDIO"
+          ]
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "available": {
+          "const": true
+        },
+        "equipmentIds": {
+          "type": "array",
+          "uniqueItems": true,
+          "maxItems": 200,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          }
+        },
+        "priority": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2500
+        },
+        "coverage": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 20480000
+        },
+        "muscles": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 25,
+          "items": {
+            "$ref": "#/$defs/MuscleContribution"
+          }
+        }
+      }
+    },
+    "ProviderContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "intent",
+        "candidates",
+        "profile",
+        "mass",
+        "notes",
+        "dataQuality",
+        "capturedLocalDate"
+      ],
+      "properties": {
+        "intent": {
+          "$ref": "#/$defs/ProviderIntent"
+        },
+        "candidates": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1000,
+          "items": {
+            "$ref": "#/$defs/Candidate"
+          }
+        },
+        "profile": {
+          "$ref": "#/$defs/AiProfileContext"
+        },
+        "mass": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": false,
+          "required": [
+            "measuredAtMillis",
+            "kg"
+          ],
+          "properties": {
+            "measuredAtMillis": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "kg": {
+              "type": "number",
+              "minimum": 1,
+              "maximum": 1000
+            }
+          }
+        },
+        "notes": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "sourceTimeMillis",
+              "kind",
+              "canonicalId",
+              "text"
+            ],
+            "properties": {
+              "sourceTimeMillis": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "WORKOUT_NOTE",
+                  "SET_NOTE",
+                  "EXERCISE_HINT"
+                ]
+              },
+              "canonicalId": {
+                "$ref": "#/$defs/Uuid"
+              },
+              "text": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 16384
+              }
+            }
+          }
+        },
+        "dataQuality": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "INVALID_TEMPORAL_FACT_EXCLUDED"
+            ]
+          }
+        },
+        "capturedLocalDate": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+        }
+      }
+    },
+    "ProviderSet": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reps",
+        "durationSec"
+      ],
+      "properties": {
+        "reps": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1,
+          "maximum": 100
+        },
+        "durationSec": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1,
+          "maximum": 7200
+        }
+      }
+    },
+    "ProviderExercise": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "exerciseId",
+        "restSeconds",
+        "plannedSets"
+      ],
+      "properties": {
+        "exerciseId": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "restSeconds": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 900
+        },
+        "plannedSets": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 10,
+          "items": {
+            "$ref": "#/$defs/ProviderSet"
+          }
+        }
+      }
+    },
+    "ProviderOutput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "result"
+      ],
+      "properties": {
+        "result": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "name",
+            "exercises"
+          ],
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "exercises": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 12,
+              "items": {
+                "$ref": "#/$defs/ProviderExercise"
+              }
+            }
+          }
+        }
+      }
+    },
+    "CalendarDraftResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "requestId",
+        "context",
+        "proposal"
+      ],
+      "properties": {
+        "requestId": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "revision",
+            "catalogRevision",
+            "capturedAtMillis"
+          ],
+          "properties": {
+            "revision": {
+              "$ref": "#/$defs/Revision"
+            },
+            "catalogRevision": {
+              "$ref": "#/$defs/Revision"
+            },
+            "capturedAtMillis": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "proposal": {
+          "$ref": "#/$defs/ProposalResponse"
+        }
+      }
+    },
+    "AiStatus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "availability",
+        "actions"
+      ],
+      "properties": {
+        "availability": {
+          "type": "string",
+          "enum": [
+            "AVAILABLE",
+            "UNCONFIGURED"
+          ]
+        },
+        "actions": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "enum": [
+              "EXERCISE_DRAFT",
+              "INBODY_PHOTO_DRAFT",
+              "CALENDAR_DRAFT"
+            ]
+          }
+        },
+        "schemaVersion": {
+          "const": 1
+        }
+      }
+    },
+    "PlannedSet": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "weightKg",
+        "reps",
+        "durationSec",
+        "speedKmh",
+        "inclinePct"
+      ],
+      "properties": {
+        "weightKg": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1000000
+        },
+        "reps": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1,
+          "maximum": 1000000
+        },
+        "durationSec": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1,
+          "maximum": 1000000
+        },
+        "speedKmh": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1000000
+        },
+        "inclinePct": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": -100,
+          "maximum": 1000000
+        }
+      },
+      "x-runtime": "canonical exercise type requires exact permitted null/non-null shape"
+    },
+    "PlannedExercise": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "exerciseId",
+        "restSeconds",
+        "plannedSets"
+      ],
+      "properties": {
+        "exerciseId": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "restSeconds": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 86400
+        },
+        "plannedSets": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 20,
+          "items": {
+            "$ref": "#/$defs/PlannedSet"
+          }
+        }
+      }
+    },
+    "ApprovalDraft": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "gymIds",
+        "exercises",
+        "startsAtMillis",
+        "timeZoneId"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "gymIds": {
+          "type": "array",
+          "uniqueItems": true,
+          "maxItems": 1000,
+          "items": {
+            "$ref": "#/$defs/Uuid"
+          }
+        },
+        "exercises": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 30,
+          "items": {
+            "$ref": "#/$defs/PlannedExercise"
+          }
+        },
+        "startsAtMillis": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "timeZoneId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        }
+      }
+    },
+    "ProposalAuthor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "accountId"
+      ],
+      "properties": {
+        "kind": {
+          "const": "AI"
+        },
+        "accountId": {
+          "type": "null"
+        }
+      }
+    },
+    "ProposalSnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "draft",
+        "ownerRevision",
+        "catalogRevision",
+        "createdAt"
+      ],
+      "properties": {
+        "version": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647
+        },
+        "draft": {
+          "$ref": "#/$defs/ApprovalDraft"
+        },
+        "ownerRevision": {
+          "$ref": "#/$defs/Revision"
+        },
+        "catalogRevision": {
+          "$ref": "#/$defs/Revision"
+        },
+        "createdAt": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "ProposalResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "proposalId",
+        "author",
+        "recipientId",
+        "source",
+        "status",
+        "currentVersion",
+        "createdAt",
+        "updatedAt",
+        "expiresAt",
+        "snapshot"
+      ],
+      "properties": {
+        "proposalId": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "author": {
+          "$ref": "#/$defs/ProposalAuthor"
+        },
+        "recipientId": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "source": {
+          "const": "AI"
+        },
+        "status": {
+          "const": "PENDING"
+        },
+        "currentVersion": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647
+        },
+        "createdAt": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "updatedAt": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "expiresAt": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "snapshot": {
+          "$ref": "#/$defs/ProposalSnapshot"
+        }
+      }
+    },
+    "MuscleContribution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "muscle",
+        "contribution"
+      ],
+      "properties": {
+        "muscle": {
+          "type": "string",
+          "enum": [
+            "UPPER_CHEST",
+            "LOWER_CHEST",
+            "FRONT_DELTS",
+            "SIDE_DELTS",
+            "REAR_DELTS",
+            "ROTATOR_CUFF",
+            "SERRATUS_ANTERIOR",
+            "BICEPS",
+            "TRICEPS",
+            "FOREARMS",
+            "ABS",
+            "OBLIQUES",
+            "HIP_FLEXORS",
+            "ADDUCTORS",
+            "QUADS",
+            "TIBIALIS_ANTERIOR",
+            "CALVES",
+            "HAMSTRINGS",
+            "GLUTES",
+            "HIP_ABDUCTORS",
+            "LOWER_BACK",
+            "LATS",
+            "UPPER_BACK",
+            "TRAPS",
+            "NECK"
+          ]
+        },
+        "contribution": {
+          "type": "integer",
+          "enum": [
+            0,
+            50,
+            100
+          ]
+        }
+      }
+    },
+    "ProviderIntent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "timeZoneId",
+        "plannedLocalDateTime",
+        "availableDurationMinutes",
+        "priorityMuscles",
+        "currentState",
+        "preferences"
+      ],
+      "properties": {
+        "timeZoneId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "plannedLocalDateTime": {
+          "type": "string",
+          "minLength": 16,
+          "maxLength": 35
+        },
+        "availableDurationMinutes": {
+          "type": "integer",
+          "minimum": 10,
+          "maximum": 240
+        },
+        "priorityMuscles": {
+          "type": "array",
+          "uniqueItems": true,
+          "maxItems": 25,
+          "items": {
+            "type": "string",
+            "enum": [
+              "UPPER_CHEST",
+              "LOWER_CHEST",
+              "FRONT_DELTS",
+              "SIDE_DELTS",
+              "REAR_DELTS",
+              "ROTATOR_CUFF",
+              "SERRATUS_ANTERIOR",
+              "BICEPS",
+              "TRICEPS",
+              "FOREARMS",
+              "ABS",
+              "OBLIQUES",
+              "HIP_FLEXORS",
+              "ADDUCTORS",
+              "QUADS",
+              "TIBIALIS_ANTERIOR",
+              "CALVES",
+              "HAMSTRINGS",
+              "GLUTES",
+              "HIP_ABDUCTORS",
+              "LOWER_BACK",
+              "LATS",
+              "UPPER_BACK",
+              "TRAPS",
+              "NECK"
+            ]
+          }
+        },
+        "currentState": {
+          "$ref": "#/$defs/NullableText"
+        },
+        "preferences": {
+          "$ref": "#/$defs/NullableText"
+        }
+      }
+    },
+    "AiProfileContext": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "required": [
+        "trainingGoal",
+        "sex",
+        "ageYears",
+        "experienceLevel",
+        "plannedSessionsPerWeek",
+        "preferredSessionDurationMinutes",
+        "manualConstraints",
+        "equipmentIds"
+      ],
+      "properties": {
+        "trainingGoal": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "STRENGTH",
+            "MUSCLE_GAIN",
+            "FAT_LOSS",
+            "GENERAL_FITNESS",
+            "ENDURANCE",
+            "OTHER",
+            null
+          ]
+        },
+        "sex": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "FEMALE",
+            "MALE",
+            "PREFER_NOT_TO_SAY",
+            null
+          ]
+        },
+        "ageYears": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 150
+        },
+        "experienceLevel": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "BEGINNER",
+            "INTERMEDIATE",
+            "ADVANCED",
+            null
+          ]
+        },
+        "plannedSessionsPerWeek": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1,
+          "maximum": 7
+        },
+        "preferredSessionDurationMinutes": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 10,
+          "maximum": 240
+        },
+        "manualConstraints": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 2000
+        },
+        "equipmentIds": {
+          "type": "array",
+          "uniqueItems": true,
+          "maxItems": 200,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          }
+        }
+      },
+      "x-excluded": [
+        "birthDate",
+        "exactDOB",
+        "syncId",
+        "updatedAt"
+      ]
+    },
+    "ServerFactTuple": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "exerciseId",
+        "factTimeMillis",
+        "workoutId",
+        "sectionId",
+        "setIndex",
+        "actualWeightPresent",
+        "actualWeightKg",
+        "legacyWeightKg"
+      ],
+      "properties": {
+        "exerciseId": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "factTimeMillis": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "workoutId": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "sectionId": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "setIndex": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 999
+        },
+        "actualWeightPresent": {
+          "type": "boolean"
+        },
+        "actualWeightKg": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1000000
+        },
+        "legacyWeightKg": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1000000
+        }
+      }
+    },
+    "ServerCapture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "capturedAtMillis",
+        "revision",
+        "catalogRevision",
+        "facts",
+        "sourceRows",
+        "aggregateEligibleSourceBytes"
+      ],
+      "properties": {
+        "capturedAtMillis": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "revision": {
+          "$ref": "#/$defs/Revision"
+        },
+        "catalogRevision": {
+          "$ref": "#/$defs/Revision"
+        },
+        "facts": {
+          "type": "array",
+          "maxItems": 8192,
+          "items": {
+            "$ref": "#/$defs/ServerFactTuple"
+          }
+        },
+        "aggregateEligibleSourceBytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 8388608
+        },
+        "sourceRows": {
+          "type": "array",
+          "maxItems": 5066,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "key",
+              "utf8Bytes"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "exercise",
+                  "gym",
+                  "equipment",
+                  "profile",
+                  "measurement",
+                  "workout",
+                  "exercise_hint"
+                ]
+              },
+              "key": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1024
+              },
+              "utf8Bytes": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 1048576
+              }
+            }
+          }
+        }
+      }
+    },
+    "AttemptReceipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state",
+        "response"
+      ],
+      "properties": {
+        "state": {
+          "const": "SUCCEEDED"
+        },
+        "response": {
+          "$ref": "#/$defs/CalendarDraftResponse"
+        }
+      },
+      "x-runtime": "immutable exact normalized CalendarDraftResponse tree from initial PENDING proposal/version; replay after proposal becomes terminal returns this stored tree without a current-state query."
+    }
+  },
+  "vectors": [
+    {
+      "id": "V-001",
+      "baseFixtureRef": "#/fixtures/baseSuccess",
+      "rawCases": [
+        {
+          "rawUtf8": "{",
+          "sha256": "021fb596db81e6d02bf3d2586ee3981fe519f275c0ac9ca76bbcf2ebb4097d96",
+          "expect": {
+            "status": 400,
+            "body": {
+              "code": "invalid_request"
+            },
+            "ledgerState": null,
+            "providerCalls": 0,
+            "proposalCount": 0
+          }
+        },
+        {
+          "rawUtf8": "{\"requestId\":\"22222222-2222-4222-8222-222222222222\",\"unknown\":1}",
+          "sha256": "e0a8d1790fd23cda8b928bc9e4edc6a2529c9eddbf09d984d4b46a1e14666736",
+          "expect": {
+            "status": 400,
+            "body": {
+              "code": "invalid_request"
+            },
+            "ledgerState": null,
+            "providerCalls": 0,
+            "proposalCount": 0
+          }
+        },
+        {
+          "rawUtf8": "{\"requestId\":\"22222222-2222-4222-8222-222222222222\",\"expectedRevision\":17,\"expectedCatalogRevision\":9,\"startsAtMillis\":1805009400000,\"timeZoneId\":\"America/New_York\",\"gymIds\":[],\"excludedExerciseIds\":[],\"excludedEquipmentIds\":[],\"priorityMuscles\":[\"UPPER_CHEST\",\"TRICEPS\"],\"includeNotes\":true,\"availableDurationMinutes\":45,\"currentState\":\"normal\",\"preferences\":\"barbell first\",\"requestId\":\"22222222-2222-4222-8222-222222222222\"}",
+          "sha256": "ab632ca03f893003cebb1d6cea6905993413ae63bf19b741d70eacfeae42cdbc",
+          "expect": {
+            "status": 400,
+            "body": {
+              "code": "invalid_request"
+            },
+            "ledgerState": null,
+            "providerCalls": 0,
+            "proposalCount": 0
+          }
+        },
+        {
+          "rawUtf8": "{\"requestId\":\"22222222-2222-4222-8222-222222222222\",\"expectedRevision\":17,\"expectedCatalogRevision\":9,\"startsAtMillis\":1805009400000,\"timeZoneId\":\"America/New_York\",\"gymIds\":[],\"excludedExerciseIds\":[],\"excludedEquipmentIds\":[],\"priorityMuscles\":[\"UPPER_CHEST\",\"TRICEPS\"],\"includeNotes\":true,\"availableDurationMinutes\":45,\"currentState\":\"normal\",\"preferences\":\"barbell first\"}{}",
+          "sha256": "836452a49c06410db316de1bba8657cdc9ab517a1a13426d1a6d8d121281c39b",
+          "expect": {
+            "status": 400,
+            "body": {
+              "code": "invalid_request"
+            },
+            "ledgerState": null,
+            "providerCalls": 0,
+            "proposalCount": 0
+          }
+        },
+        {
+          "rawUtf8": "﻿{\"requestId\":\"22222222-2222-4222-8222-222222222222\",\"expectedRevision\":17,\"expectedCatalogRevision\":9,\"startsAtMillis\":1805009400000,\"timeZoneId\":\"America/New_York\",\"gymIds\":[],\"excludedExerciseIds\":[],\"excludedEquipmentIds\":[],\"priorityMuscles\":[\"UPPER_CHEST\",\"TRICEPS\"],\"includeNotes\":true,\"availableDurationMinutes\":45,\"currentState\":\"normal\",\"preferences\":\"barbell first\"}",
+          "sha256": "41ffb45ccee7340d09de573dbb22bc3608ee2aa0e314bfeee37b905245288b62",
+          "expect": {
+            "status": 400,
+            "body": {
+              "code": "invalid_request"
+            },
+            "ledgerState": null,
+            "providerCalls": 0,
+            "proposalCount": 0
+          }
+        },
+        {
+          "rawBase64": "/w==",
+          "sha256": "a8100ae6aa1940d0b663bb31cd466142ebbdbd5187131b92d93818987832eb89",
+          "expect": {
+            "status": 400,
+            "body": {
+              "code": "invalid_request"
+            },
+            "ledgerState": null,
+            "providerCalls": 0,
+            "proposalCount": 0
+          }
+        }
+      ]
+    },
+    {
+      "id": "V-002",
+      "baseFixtureRef": "#/fixtures/baseSuccess",
+      "operations": [
+        {
+          "atMillis": 1805005800000,
+          "actor": "owner",
+          "action": "POST",
+          "requestSha256": "38223a16abd10bf1c92602221fad70a4c6d1e14e4d8930e4c9b35a94bd9e97ee"
+        },
+        {
+          "atMillis": 1805005800100,
+          "actor": "worker",
+          "action": "COMMIT_SUCCESS"
+        },
+        {
+          "atMillis": 1805005800100,
+          "actor": "network",
+          "action": "LOSE_RESPONSE"
+        },
+        {
+          "atMillis": 1805005800200,
+          "actor": "owner",
+          "action": "RETRY_SAME_BYTES"
+        }
+      ],
+      "expect": {
+        "status": 200,
+        "body": {
+          "requestId": "22222222-2222-4222-8222-222222222222",
+          "context": {
+            "revision": 17,
+            "catalogRevision": 9,
+            "capturedAtMillis": 1805005800000
+          },
+          "proposal": {
+            "proposalId": "55555555-5555-4555-8555-555555555555",
+            "author": {
+              "kind": "AI",
+              "accountId": null
+            },
+            "recipientId": "11111111-1111-4111-8111-111111111111",
+            "source": "AI",
+            "status": "PENDING",
+            "currentVersion": 1,
+            "createdAt": 1805005800100,
+            "updatedAt": 1805005800100,
+            "expiresAt": 1805610600100,
+            "snapshot": {
+              "version": 1,
+              "draft": {
+                "name": "AI Press",
+                "gymIds": [],
+                "exercises": [
+                  {
+                    "exerciseId": "33333333-3333-4333-8333-333333333333",
+                    "restSeconds": 90,
+                    "plannedSets": [
+                      {
+                        "weightKg": null,
+                        "reps": 8,
+                        "durationSec": null,
+                        "speedKmh": null,
+                        "inclinePct": null
+                      }
+                    ]
+                  }
+                ],
+                "startsAtMillis": 1805009400000,
+                "timeZoneId": "America/New_York"
+              },
+              "ownerRevision": 17,
+              "catalogRevision": 9,
+              "createdAt": 1805005800100
+            }
+          }
+        },
+        "ledgerState": "SUCCEEDED",
+        "providerCalls": 1,
+        "proposalCount": 1
+      },
+      "replayAfterProposalDecision": {
+        "decision": "APPROVED",
+        "responseMustEqualFixtureRef": "#/fixtures/baseSuccess/response",
+        "providerCalls": 1,
+        "proposalCount": 1
+      }
+    },
+    {
+      "id": "V-003",
+      "baseFixtureRef": "#/fixtures/baseSuccess",
+      "operations": [
+        {
+          "atMillis": 1805005800000,
+          "action": "RESERVE",
+          "requestSha256": "38223a16abd10bf1c92602221fad70a4c6d1e14e4d8930e4c9b35a94bd9e97ee"
+        },
+        {
+          "atMillis": 1805005800001,
+          "action": "POST_SAME_ID_DIFFERENT_BYTES",
+          "rawRequestSha256": "d2f8d389ee5b1c6a8861ee7d7cd87df305470eefade799dc770f13f615dd00f9",
+          "expect": {
+            "status": 409,
+            "body": {
+              "code": "ai_request_conflict"
+            },
+            "ledgerState": "PROCESSING",
+            "providerCalls": 0,
+            "proposalCount": 0
+          },
+          "rawRequestUtf8": "{\"requestId\":\"22222222-2222-4222-8222-222222222222\",\"expectedRevision\":17,\"expectedCatalogRevision\":9,\"startsAtMillis\":1805009400000,\"timeZoneId\":\"America/New_York\",\"gymIds\":[],\"excludedExerciseIds\":[],\"excludedEquipmentIds\":[],\"priorityMuscles\":[\"UPPER_CHEST\",\"TRICEPS\"],\"includeNotes\":true,\"availableDurationMinutes\":45,\"currentState\":\"tired\",\"preferences\":\"barbell first\"}"
+        },
+        {
+          "atMillis": 1805005800002,
+          "action": "POST_SAME_ID_SAME_BYTES",
+          "expect": {
+            "status": 409,
+            "body": {
+              "code": "ai_in_progress"
+            },
+            "ledgerState": "PROCESSING",
+            "providerCalls": 0,
+            "proposalCount": 0
+          }
+        }
+      ]
+    },
+    {
+      "id": "V-004",
+      "baseFixtureRef": "#/fixtures/baseSuccess",
+      "operations": [
+        {
+          "atMillis": 1805005800000,
+          "action": "RESERVE",
+          "leaseUntilMillis": 1805005860000
+        },
+        {
+          "atMillis": 1805005860001,
+          "action": "RECOVER_EXPIRED"
+        }
+      ],
+      "expect": {
+        "status": 409,
+        "body": {
+          "code": "ai_interrupted"
+        },
+        "ledgerState": "INTERRUPTED",
+        "providerCalls": 0,
+        "proposalCount": 0
+      }
+    },
+    {
+      "id": "V-005",
+      "baseFixtureRef": "#/fixtures/baseSuccess",
+      "barriers": [
+        {
+          "name": "final-lock",
+          "winner": "timeout",
+          "atMillis": 1805005845000,
+          "expect": {
+            "status": 504,
+            "body": {
+              "code": "ai_timeout"
+            },
+            "ledgerState": "CANCELLED",
+            "providerCalls": 1,
+            "proposalCount": 0
+          }
+        },
+        {
+          "name": "preinsert-committing",
+          "winner": "worker",
+          "atMillis": 1805005844999,
+          "expect": {
+            "status": 200,
+            "body": {
+              "requestId": "22222222-2222-4222-8222-222222222222",
+              "context": {
+                "revision": 17,
+                "catalogRevision": 9,
+                "capturedAtMillis": 1805005800000
+              },
+              "proposal": {
+                "proposalId": "55555555-5555-4555-8555-555555555555",
+                "author": {
+                  "kind": "AI",
+                  "accountId": null
+                },
+                "recipientId": "11111111-1111-4111-8111-111111111111",
+                "source": "AI",
+                "status": "PENDING",
+                "currentVersion": 1,
+                "createdAt": 1805005844999,
+                "updatedAt": 1805005844999,
+                "expiresAt": 1805610644999,
+                "snapshot": {
+                  "version": 1,
+                  "draft": {
+                    "name": "AI Press",
+                    "gymIds": [],
+                    "exercises": [
+                      {
+                        "exerciseId": "33333333-3333-4333-8333-333333333333",
+                        "restSeconds": 90,
+                        "plannedSets": [
+                          {
+                            "weightKg": null,
+                            "reps": 8,
+                            "durationSec": null,
+                            "speedKmh": null,
+                            "inclinePct": null
+                          }
+                        ]
+                      }
+                    ],
+                    "startsAtMillis": 1805009400000,
+                    "timeZoneId": "America/New_York"
+                  },
+                  "ownerRevision": 17,
+                  "catalogRevision": 9,
+                  "createdAt": 1805005844999
+                }
+              }
+            },
+            "ledgerState": "SUCCEEDED",
+            "providerCalls": 1,
+            "proposalCount": 1
+          },
+          "lateCallbackAtMillis": 1805005845000
+        },
+        {
+          "name": "db-insert",
+          "winner": "database-failure",
+          "atMillis": 1805005844999,
+          "expect": {
+            "status": 502,
+            "body": {
+              "code": "ai_invalid_response"
+            },
+            "ledgerState": "FAILED",
+            "providerCalls": 1,
+            "proposalCount": 0
+          }
+        }
+      ]
+    },
+    {
+      "id": "V-006",
+      "baseFixtureRef": "#/fixtures/baseSuccess",
+      "counts": [
+        {
+          "matchingParents": 65,
+          "expect": {
+            "status": 409,
+            "body": {
+              "code": "ai_context_too_large"
+            },
+            "ledgerState": "FAILED",
+            "providerCalls": 0,
+            "proposalCount": 0
+          }
+        },
+        {
+          "matchingParents": 64,
+          "expandedFacts": 8193,
+          "expect": {
+            "status": 409,
+            "body": {
+              "code": "ai_context_too_large"
+            },
+            "ledgerState": "FAILED",
+            "providerCalls": 0,
+            "proposalCount": 0
+          }
+        },
+        {
+          "candidates": 1001,
+          "expect": {
+            "status": 409,
+            "body": {
+              "code": "ai_context_too_large"
+            },
+            "ledgerState": "FAILED",
+            "providerCalls": 0,
+            "proposalCount": 0
+          }
+        },
+        {
+          "aggregateEligibleSourceBytes": 1048577,
+          "expect": {
+            "status": 409,
+            "body": {
+              "code": "ai_context_too_large"
+            },
+            "ledgerState": "FAILED",
+            "providerCalls": 0,
+            "proposalCount": 0
+          },
+          "sourceRows": [
+            {
+              "kind": "workout",
+              "key": "bounded-source-0",
+              "utf8Bytes": 1048577
+            }
+          ]
+        },
+        {
+          "aggregateEligibleSourceBytes": 8388609,
+          "expect": {
+            "status": 409,
+            "body": {
+              "code": "ai_context_too_large"
+            },
+            "ledgerState": "FAILED",
+            "providerCalls": 0,
+            "proposalCount": 0
+          },
+          "sourceRows": [
+            {
+              "kind": "workout",
+              "key": "bounded-source-0",
+              "utf8Bytes": 1048576
+            },
+            {
+              "kind": "workout",
+              "key": "bounded-source-1",
+              "utf8Bytes": 1048576
+            },
+            {
+              "kind": "workout",
+              "key": "bounded-source-2",
+              "utf8Bytes": 1048576
+            },
+            {
+              "kind": "workout",
+              "key": "bounded-source-3",
+              "utf8Bytes": 1048576
+            },
+            {
+              "kind": "workout",
+              "key": "bounded-source-4",
+              "utf8Bytes": 1048576
+            },
+            {
+              "kind": "workout",
+              "key": "bounded-source-5",
+              "utf8Bytes": 1048576
+            },
+            {
+              "kind": "workout",
+              "key": "bounded-source-6",
+              "utf8Bytes": 1048576
+            },
+            {
+              "kind": "workout",
+              "key": "bounded-source-7",
+              "utf8Bytes": 1048576
+            },
+            {
+              "kind": "workout",
+              "key": "bounded-source-8",
+              "utf8Bytes": 1
+            }
+          ]
+        },
+        {
+          "providerContextBytes": 1048577,
+          "expect": {
+            "status": 409,
+            "body": {
+              "code": "ai_context_too_large"
+            },
+            "ledgerState": "FAILED",
+            "providerCalls": 0,
+            "proposalCount": 0
+          }
+        }
+      ],
+      "explain": {
+        "mustUse": "partial finishedAt owner index",
+        "materializedParentLimit": 65,
+        "forbid": "set expansion before bounded parents"
+      }
+    },
+    {
+      "id": "V-007",
+      "baseFixtureRef": "#/fixtures/baseSuccess",
+      "facts": [
+        {
+          "startedAtMillis": 1804968000000,
+          "factTimeMillis": 1804967000000,
+          "finishedAtMillis": 1804968000000,
+          "accept": false,
+          "marker": "INVALID_TEMPORAL_FACT_EXCLUDED"
+        },
+        {
+          "startedAtMillis": 1804967000000,
+          "factTimeMillis": 1804968000000,
+          "finishedAtMillis": 1804968000000,
+          "accept": true
+        }
+      ],
+      "notes": [
+        {
+          "kind": "WORKOUT_NOTE",
+          "sourceTimeMillis": 1804968000000
+        },
+        {
+          "kind": "SET_NOTE",
+          "sourceTimeMillis": 1804968000000
+        },
+        {
+          "kind": "EXERCISE_HINT",
+          "sourceTimeMillis": 1804967000000
+        }
+      ],
+      "optOutRequestPatch": {
+        "includeNotes": false
+      },
+      "expect": {
+        "status": 200,
+        "body": {
+          "requestId": "22222222-2222-4222-8222-222222222222",
+          "context": {
+            "revision": 17,
+            "catalogRevision": 9,
+            "capturedAtMillis": 1805005800000
+          },
+          "proposal": {
+            "proposalId": "55555555-5555-4555-8555-555555555555",
+            "author": {
+              "kind": "AI",
+              "accountId": null
+            },
+            "recipientId": "11111111-1111-4111-8111-111111111111",
+            "source": "AI",
+            "status": "PENDING",
+            "currentVersion": 1,
+            "createdAt": 1805005800100,
+            "updatedAt": 1805005800100,
+            "expiresAt": 1805610600100,
+            "snapshot": {
+              "version": 1,
+              "draft": {
+                "name": "AI Press",
+                "gymIds": [],
+                "exercises": [
+                  {
+                    "exerciseId": "33333333-3333-4333-8333-333333333333",
+                    "restSeconds": 90,
+                    "plannedSets": [
+                      {
+                        "weightKg": null,
+                        "reps": 8,
+                        "durationSec": null,
+                        "speedKmh": null,
+                        "inclinePct": null
+                      }
+                    ]
+                  }
+                ],
+                "startsAtMillis": 1805009400000,
+                "timeZoneId": "America/New_York"
+              },
+              "ownerRevision": 17,
+              "catalogRevision": 9,
+              "createdAt": 1805005800100
+            }
+          }
+        },
+        "ledgerState": "SUCCEEDED",
+        "providerCalls": 1,
+        "proposalCount": 1
+      },
+      "assertions": {
+        "healthDisclosureRequired": false,
+        "providerNotesWhenOptOut": 0
+      },
+      "temporalCases": [
+        {
+          "sourceTimeMillis": 1802667599999,
+          "included": false
+        },
+        {
+          "sourceTimeMillis": 1802667600000,
+          "included": true
+        },
+        {
+          "sourceTimeMillis": 1805005800000,
+          "included": true
+        },
+        {
+          "sourceTimeMillis": 1805005800001,
+          "included": false
+        }
+      ],
+      "dst": {
+        "timeZoneId": "America/New_York",
+        "captureInstantMillis": 1805005800000,
+        "captureLocal": "2027-03-14T01:30:00-05:00",
+        "plannedInstantMillis": 1805009400000,
+        "plannedLocal": "2027-03-14T03:30:00-04:00",
+        "elapsedMillis": 3600000
+      }
+    },
+    {
+      "id": "V-008",
+      "baseFixtureRef": "#/fixtures/baseSuccess",
+      "rankingInputs": [
+        {
+          "exerciseId": "33333333-3333-4333-8333-333333333333",
+          "goalScore": 1,
+          "priorityFormula": "100+50",
+          "priority": 150,
+          "coverageFormula": "100+50",
+          "coverage": 150
+        },
+        {
+          "exerciseId": "44444444-4444-4444-8444-444444444444",
+          "goalScore": 0,
+          "priorityFormula": "0",
+          "priority": 0,
+          "coverageFormula": "0",
+          "coverage": 0
+        }
+      ],
+      "expectedContextOrder": [
+        "33333333-3333-4333-8333-333333333333",
+        "44444444-4444-4444-8444-444444444444"
+      ],
+      "selectedGymsIntersection": {
+        "gymId": "77777777-7777-4777-8777-777777777777",
+        "candidateExerciseIds": [
+          "33333333-3333-4333-8333-333333333333"
+        ]
+      },
+      "expect": {
+        "status": 200,
+        "body": {
+          "requestId": "22222222-2222-4222-8222-222222222222",
+          "context": {
+            "revision": 17,
+            "catalogRevision": 9,
+            "capturedAtMillis": 1805005800000
+          },
+          "proposal": {
+            "proposalId": "55555555-5555-4555-8555-555555555555",
+            "author": {
+              "kind": "AI",
+              "accountId": null
+            },
+            "recipientId": "11111111-1111-4111-8111-111111111111",
+            "source": "AI",
+            "status": "PENDING",
+            "currentVersion": 1,
+            "createdAt": 1805005800100,
+            "updatedAt": 1805005800100,
+            "expiresAt": 1805610600100,
+            "snapshot": {
+              "version": 1,
+              "draft": {
+                "name": "AI Press",
+                "gymIds": [
+                  "77777777-7777-4777-8777-777777777777"
+                ],
+                "exercises": [
+                  {
+                    "exerciseId": "33333333-3333-4333-8333-333333333333",
+                    "restSeconds": 90,
+                    "plannedSets": [
+                      {
+                        "weightKg": null,
+                        "reps": 8,
+                        "durationSec": null,
+                        "speedKmh": null,
+                        "inclinePct": null
+                      }
+                    ]
+                  }
+                ],
+                "startsAtMillis": 1805009400000,
+                "timeZoneId": "America/New_York"
+              },
+              "ownerRevision": 17,
+              "catalogRevision": 9,
+              "createdAt": 1805005800100
+            }
+          }
+        },
+        "ledgerState": "SUCCEEDED",
+        "providerCalls": 1,
+        "proposalCount": 1
+      },
+      "selectedGyms": [
+        "77777777-7777-4777-8777-777777777777"
+      ],
+      "requestPatch": {
+        "gymIds": [
+          "77777777-7777-4777-8777-777777777777"
+        ]
+      },
+      "rankingSource": {
+        "completedSets": [
+          {
+            "exerciseId": "33333333-3333-4333-8333-333333333333",
+            "muscles": [
+              {
+                "muscle": "UPPER_CHEST",
+                "contribution": 100
+              },
+              {
+                "muscle": "TRICEPS",
+                "contribution": 50
+              }
+            ]
+          }
+        ],
+        "priorityMuscles": [
+          "UPPER_CHEST",
+          "TRICEPS"
+        ]
+      },
+      "gymSources": [
+        {
+          "gymId": "77777777-7777-4777-8777-777777777777",
+          "inventoryConfigured": false,
+          "exerciseIds": [
+            "33333333-3333-4333-8333-333333333333"
+          ],
+          "equipmentIds": []
+        }
+      ],
+      "boundaryCases": [
+        {
+          "candidate": {
+            "exerciseId": "33333333-3333-4333-8333-333333333333",
+            "type": "STRENGTH",
+            "name": "Press",
+            "available": true,
+            "equipmentIds": [],
+            "priority": 2500,
+            "coverage": 20480000,
+            "muscles": [
+              {
+                "muscle": "UPPER_CHEST",
+                "contribution": 100
+              },
+              {
+                "muscle": "LOWER_CHEST",
+                "contribution": 100
+              },
+              {
+                "muscle": "FRONT_DELTS",
+                "contribution": 100
+              },
+              {
+                "muscle": "SIDE_DELTS",
+                "contribution": 100
+              },
+              {
+                "muscle": "REAR_DELTS",
+                "contribution": 100
+              },
+              {
+                "muscle": "ROTATOR_CUFF",
+                "contribution": 100
+              },
+              {
+                "muscle": "SERRATUS_ANTERIOR",
+                "contribution": 100
+              },
+              {
+                "muscle": "BICEPS",
+                "contribution": 100
+              },
+              {
+                "muscle": "TRICEPS",
+                "contribution": 100
+              },
+              {
+                "muscle": "FOREARMS",
+                "contribution": 100
+              },
+              {
+                "muscle": "ABS",
+                "contribution": 100
+              },
+              {
+                "muscle": "OBLIQUES",
+                "contribution": 100
+              },
+              {
+                "muscle": "HIP_FLEXORS",
+                "contribution": 100
+              },
+              {
+                "muscle": "ADDUCTORS",
+                "contribution": 100
+              },
+              {
+                "muscle": "QUADS",
+                "contribution": 100
+              },
+              {
+                "muscle": "TIBIALIS_ANTERIOR",
+                "contribution": 100
+              },
+              {
+                "muscle": "CALVES",
+                "contribution": 100
+              },
+              {
+                "muscle": "HAMSTRINGS",
+                "contribution": 100
+              },
+              {
+                "muscle": "GLUTES",
+                "contribution": 100
+              },
+              {
+                "muscle": "HIP_ABDUCTORS",
+                "contribution": 100
+              },
+              {
+                "muscle": "LOWER_BACK",
+                "contribution": 100
+              },
+              {
+                "muscle": "LATS",
+                "contribution": 100
+              },
+              {
+                "muscle": "UPPER_BACK",
+                "contribution": 100
+              },
+              {
+                "muscle": "TRAPS",
+                "contribution": 100
+              },
+              {
+                "muscle": "NECK",
+                "contribution": 100
+              }
+            ]
+          },
+          "completedFactCount": 8192,
+          "requestedMuscles": [
+            "UPPER_CHEST",
+            "LOWER_CHEST",
+            "FRONT_DELTS",
+            "SIDE_DELTS",
+            "REAR_DELTS",
+            "ROTATOR_CUFF",
+            "SERRATUS_ANTERIOR",
+            "BICEPS",
+            "TRICEPS",
+            "FOREARMS",
+            "ABS",
+            "OBLIQUES",
+            "HIP_FLEXORS",
+            "ADDUCTORS",
+            "QUADS",
+            "TIBIALIS_ANTERIOR",
+            "CALVES",
+            "HAMSTRINGS",
+            "GLUTES",
+            "HIP_ABDUCTORS",
+            "LOWER_BACK",
+            "LATS",
+            "UPPER_BACK",
+            "TRAPS",
+            "NECK"
+          ],
+          "schemaValid": true
+        },
+        {
+          "candidate": {
+            "exerciseId": "33333333-3333-4333-8333-333333333333",
+            "type": "STRENGTH",
+            "name": "Press",
+            "available": true,
+            "equipmentIds": [],
+            "priority": 2500,
+            "coverage": 20480001,
+            "muscles": [
+              {
+                "muscle": "UPPER_CHEST",
+                "contribution": 100
+              },
+              {
+                "muscle": "LOWER_CHEST",
+                "contribution": 100
+              },
+              {
+                "muscle": "FRONT_DELTS",
+                "contribution": 100
+              },
+              {
+                "muscle": "SIDE_DELTS",
+                "contribution": 100
+              },
+              {
+                "muscle": "REAR_DELTS",
+                "contribution": 100
+              },
+              {
+                "muscle": "ROTATOR_CUFF",
+                "contribution": 100
+              },
+              {
+                "muscle": "SERRATUS_ANTERIOR",
+                "contribution": 100
+              },
+              {
+                "muscle": "BICEPS",
+                "contribution": 100
+              },
+              {
+                "muscle": "TRICEPS",
+                "contribution": 100
+              },
+              {
+                "muscle": "FOREARMS",
+                "contribution": 100
+              },
+              {
+                "muscle": "ABS",
+                "contribution": 100
+              },
+              {
+                "muscle": "OBLIQUES",
+                "contribution": 100
+              },
+              {
+                "muscle": "HIP_FLEXORS",
+                "contribution": 100
+              },
+              {
+                "muscle": "ADDUCTORS",
+                "contribution": 100
+              },
+              {
+                "muscle": "QUADS",
+                "contribution": 100
+              },
+              {
+                "muscle": "TIBIALIS_ANTERIOR",
+                "contribution": 100
+              },
+              {
+                "muscle": "CALVES",
+                "contribution": 100
+              },
+              {
+                "muscle": "HAMSTRINGS",
+                "contribution": 100
+              },
+              {
+                "muscle": "GLUTES",
+                "contribution": 100
+              },
+              {
+                "muscle": "HIP_ABDUCTORS",
+                "contribution": 100
+              },
+              {
+                "muscle": "LOWER_BACK",
+                "contribution": 100
+              },
+              {
+                "muscle": "LATS",
+                "contribution": 100
+              },
+              {
+                "muscle": "UPPER_BACK",
+                "contribution": 100
+              },
+              {
+                "muscle": "TRAPS",
+                "contribution": 100
+              },
+              {
+                "muscle": "NECK",
+                "contribution": 100
+              }
+            ]
+          },
+          "schemaValid": false
+        },
+        {
+          "candidate": {
+            "exerciseId": "33333333-3333-4333-8333-333333333333",
+            "type": "STRENGTH",
+            "name": "Press",
+            "available": true,
+            "equipmentIds": [],
+            "priority": 2500,
+            "coverage": 0.5,
+            "muscles": [
+              {
+                "muscle": "UPPER_CHEST",
+                "contribution": 100
+              },
+              {
+                "muscle": "LOWER_CHEST",
+                "contribution": 100
+              },
+              {
+                "muscle": "FRONT_DELTS",
+                "contribution": 100
+              },
+              {
+                "muscle": "SIDE_DELTS",
+                "contribution": 100
+              },
+              {
+                "muscle": "REAR_DELTS",
+                "contribution": 100
+              },
+              {
+                "muscle": "ROTATOR_CUFF",
+                "contribution": 100
+              },
+              {
+                "muscle": "SERRATUS_ANTERIOR",
+                "contribution": 100
+              },
+              {
+                "muscle": "BICEPS",
+                "contribution": 100
+              },
+              {
+                "muscle": "TRICEPS",
+                "contribution": 100
+              },
+              {
+                "muscle": "FOREARMS",
+                "contribution": 100
+              },
+              {
+                "muscle": "ABS",
+                "contribution": 100
+              },
+              {
+                "muscle": "OBLIQUES",
+                "contribution": 100
+              },
+              {
+                "muscle": "HIP_FLEXORS",
+                "contribution": 100
+              },
+              {
+                "muscle": "ADDUCTORS",
+                "contribution": 100
+              },
+              {
+                "muscle": "QUADS",
+                "contribution": 100
+              },
+              {
+                "muscle": "TIBIALIS_ANTERIOR",
+                "contribution": 100
+              },
+              {
+                "muscle": "CALVES",
+                "contribution": 100
+              },
+              {
+                "muscle": "HAMSTRINGS",
+                "contribution": 100
+              },
+              {
+                "muscle": "GLUTES",
+                "contribution": 100
+              },
+              {
+                "muscle": "HIP_ABDUCTORS",
+                "contribution": 100
+              },
+              {
+                "muscle": "LOWER_BACK",
+                "contribution": 100
+              },
+              {
+                "muscle": "LATS",
+                "contribution": 100
+              },
+              {
+                "muscle": "UPPER_BACK",
+                "contribution": 100
+              },
+              {
+                "muscle": "TRAPS",
+                "contribution": 100
+              },
+              {
+                "muscle": "NECK",
+                "contribution": 100
+              }
+            ]
+          },
+          "schemaValid": false
+        }
+      ]
+    },
+    {
+      "id": "V-009",
+      "baseFixtureRef": "#/fixtures/baseSuccess",
+      "providerOutputs": [
+        {
+          "result": {
+            "name": "bad",
+            "exercises": [
+              {
+                "exerciseId": "33333333-3333-4333-8333-333333333333",
+                "restSeconds": 90,
+                "plannedSets": [
+                  {
+                    "reps": 8,
+                    "durationSec": null,
+                    "weightKg": 1
+                  }
+                ]
+              }
+            ]
+          },
+          "expect": {
+            "status": 502,
+            "body": {
+              "code": "ai_invalid_response"
+            },
+            "ledgerState": "FAILED",
+            "providerCalls": 1,
+            "proposalCount": 0
+          }
+        },
+        {
+          "result": {
+            "name": "bad",
+            "exercises": [
+              {
+                "exerciseId": "44444444-4444-4444-8444-444444444444",
+                "restSeconds": 90,
+                "plannedSets": [
+                  {
+                    "reps": 8,
+                    "durationSec": null
+                  }
+                ]
+              }
+            ]
+          },
+          "expect": {
+            "status": 502,
+            "body": {
+              "code": "ai_invalid_response"
+            },
+            "ledgerState": "FAILED",
+            "providerCalls": 1,
+            "proposalCount": 0
+          }
+        }
+      ],
+      "weightAssertions": {
+        "actualNullWins": null,
+        "legacyOnlyWhenActualAbsent": 80.0,
+        "otherExerciseIgnored": true,
+        "serverSpeedKmh": null,
+        "serverInclinePct": null
+      },
+      "weightCases": [
+        {
+          "facts": [],
+          "selectedExerciseId": "33333333-3333-4333-8333-333333333333",
+          "expectedWeightKg": null
+        },
+        {
+          "facts": [
+            {
+              "exerciseId": "44444444-4444-4444-8444-444444444444",
+              "factTimeMillis": 1804968000000,
+              "workoutId": "11111111-1111-4111-8111-111111111111",
+              "sectionId": "66666666-6666-4666-8666-666666666666",
+              "setIndex": 0,
+              "actualWeightPresent": false,
+              "actualWeightKg": null,
+              "legacyWeightKg": 80.0
+            }
+          ],
+          "selectedExerciseId": "33333333-3333-4333-8333-333333333333",
+          "expectedWeightKg": null
+        },
+        {
+          "facts": [
+            {
+              "exerciseId": "33333333-3333-4333-8333-333333333333",
+              "factTimeMillis": 1804968000000,
+              "workoutId": "11111111-1111-4111-8111-111111111111",
+              "sectionId": "66666666-6666-4666-8666-666666666666",
+              "setIndex": 0,
+              "actualWeightPresent": false,
+              "actualWeightKg": null,
+              "legacyWeightKg": 80.0
+            }
+          ],
+          "selectedExerciseId": "33333333-3333-4333-8333-333333333333",
+          "expectedWeightKg": 80.0
+        },
+        {
+          "facts": [
+            {
+              "exerciseId": "33333333-3333-4333-8333-333333333333",
+              "factTimeMillis": 1804967999999,
+              "workoutId": "11111111-1111-4111-8111-111111111111",
+              "sectionId": "66666666-6666-4666-8666-666666666666",
+              "setIndex": 0,
+              "actualWeightPresent": false,
+              "actualWeightKg": null,
+              "legacyWeightKg": 40
+            },
+            {
+              "exerciseId": "33333333-3333-4333-8333-333333333333",
+              "factTimeMillis": 1804968000000,
+              "workoutId": "11111111-1111-4111-8111-111111111111",
+              "sectionId": "66666666-6666-4666-8666-666666666666",
+              "setIndex": 0,
+              "actualWeightPresent": true,
+              "actualWeightKg": null,
+              "legacyWeightKg": 80.0
+            }
+          ],
+          "selectedExerciseId": "33333333-3333-4333-8333-333333333333",
+          "expectedWeightKg": null
+        },
+        {
+          "facts": [
+            {
+              "exerciseId": "33333333-3333-4333-8333-333333333333",
+              "factTimeMillis": 1804968000000,
+              "workoutId": "99999999-9999-4999-8999-999999999999",
+              "sectionId": "66666666-6666-4666-8666-666666666666",
+              "setIndex": 0,
+              "actualWeightPresent": false,
+              "actualWeightKg": null,
+              "legacyWeightKg": 90
+            },
+            {
+              "exerciseId": "33333333-3333-4333-8333-333333333333",
+              "factTimeMillis": 1804968000000,
+              "workoutId": "11111111-1111-4111-8111-111111111111",
+              "sectionId": "66666666-6666-4666-8666-666666666666",
+              "setIndex": 0,
+              "actualWeightPresent": false,
+              "actualWeightKg": null,
+              "legacyWeightKg": 80.0
+            }
+          ],
+          "selectedExerciseId": "33333333-3333-4333-8333-333333333333",
+          "expectedWeightKg": 80.0
+        }
+      ],
+      "schemaCases": [
+        {
+          "providerOutput": {
+            "result": {
+              "name": "AI Press",
+              "exercises": [
+                {
+                  "exerciseId": "33333333-3333-4333-8333-333333333333",
+                  "restSeconds": 90,
+                  "plannedSets": [
+                    {
+                      "reps": 101,
+                      "durationSec": null
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "schemaValid": false,
+          "code": "ai_invalid_response",
+          "status": 502,
+          "proposalCount": 0
+        },
+        {
+          "providerOutput": {
+            "result": {
+              "name": "AI Press",
+              "exercises": [
+                {
+                  "exerciseId": "33333333-3333-4333-8333-333333333333",
+                  "restSeconds": 90,
+                  "plannedSets": [
+                    {
+                      "reps": 8,
+                      "durationSec": 7201
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "schemaValid": false,
+          "code": "ai_invalid_response",
+          "status": 502,
+          "proposalCount": 0
+        },
+        {
+          "providerOutput": {
+            "result": {
+              "name": "AI Press",
+              "exercises": [
+                {
+                  "exerciseId": "33333333-3333-4333-8333-333333333333",
+                  "restSeconds": 90,
+                  "plannedSets": [
+                    {
+                      "reps": 8,
+                      "durationSec": null,
+                      "speedKmh": 1
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "schemaValid": false,
+          "code": "ai_invalid_response",
+          "status": 502,
+          "proposalCount": 0
+        },
+        {
+          "providerOutput": {
+            "result": {
+              "name": "AI Press",
+              "exercises": [
+                {
+                  "exerciseId": "33333333-3333-4333-8333-333333333333",
+                  "restSeconds": 90,
+                  "plannedSets": [
+                    {
+                      "reps": 8,
+                      "durationSec": null,
+                      "inclinePct": 1
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "schemaValid": false,
+          "code": "ai_invalid_response",
+          "status": 502,
+          "proposalCount": 0
+        },
+        {
+          "providerOutput": {
+            "result": {
+              "name": "AI Press",
+              "exercises": [
+                {
+                  "exerciseId": "33333333-3333-4333-8333-333333333333",
+                  "restSeconds": 901,
+                  "plannedSets": [
+                    {
+                      "reps": 8,
+                      "durationSec": null
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "schemaValid": false,
+          "runtimeValid": false,
+          "code": "ai_invalid_response",
+          "status": 502,
+          "proposalCount": 0
+        },
+        {
+          "providerOutput": {
+            "result": {
+              "name": "AI Press",
+              "exercises": [
+                {
+                  "exerciseId": "33333333-3333-4333-8333-333333333333",
+                  "restSeconds": 90,
+                  "plannedSets": [
+                    {
+                      "reps": 8,
+                      "durationSec": null
+                    },
+                    {
+                      "reps": 8,
+                      "durationSec": null
+                    },
+                    {
+                      "reps": 8,
+                      "durationSec": null
+                    },
+                    {
+                      "reps": 8,
+                      "durationSec": null
+                    },
+                    {
+                      "reps": 8,
+                      "durationSec": null
+                    },
+                    {
+                      "reps": 8,
+                      "durationSec": null
+                    },
+                    {
+                      "reps": 8,
+                      "durationSec": null
+                    },
+                    {
+                      "reps": 8,
+                      "durationSec": null
+                    },
+                    {
+                      "reps": 8,
+                      "durationSec": null
+                    },
+                    {
+                      "reps": 8,
+                      "durationSec": null
+                    },
+                    {
+                      "reps": 8,
+                      "durationSec": null
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "schemaValid": false,
+          "runtimeValid": false,
+          "code": "ai_invalid_response",
+          "status": 502,
+          "proposalCount": 0
+        },
+        {
+          "providerOutput": {
+            "result": {
+              "name": "AI Press",
+              "exercises": [
+                {
+                  "exerciseId": "e026b663-bd55-552f-88a2-def4be90812b",
+                  "restSeconds": 90,
+                  "plannedSets": [
+                    {
+                      "reps": 8,
+                      "durationSec": null
+                    }
+                  ]
+                },
+                {
+                  "exerciseId": "4547e08d-1ec1-5b35-bf61-6cca6469d832",
+                  "restSeconds": 90,
+                  "plannedSets": [
+                    {
+                      "reps": 8,
+                      "durationSec": null
+                    }
+                  ]
+                },
+                {
+                  "exerciseId": "8bb66b7b-28b8-507c-a977-acae6c0a43c8",
+                  "restSeconds": 90,
+                  "plannedSets": [
+                    {
+                      "reps": 8,
+                      "durationSec": null
+                    }
+                  ]
+                },
+                {
+                  "exerciseId": "bd0594f8-c7b6-5838-a315-e8097635c677",
+                  "restSeconds": 90,
+                  "plannedSets": [
+                    {
+                      "reps": 8,
+                      "durationSec": null
+                    }
+                  ]
+                },
+                {
+                  "exerciseId": "0f4964f4-5923-55a6-bada-8ed287078056",
+                  "restSeconds": 90,
+                  "plannedSets": [
+                    {
+                      "reps": 8,
+                      "durationSec": null
+                    }
+                  ]
+                },
+                {
+                  "exerciseId": "f9aa4d32-c467-5664-b5ef-d2773aea8435",
+                  "restSeconds": 90,
+                  "plannedSets": [
+                    {
+                      "reps": 8,
+                      "durationSec": null
+                    }
+                  ]
+                },
+                {
+                  "exerciseId": "e92ecc4f-712a-5aec-804b-f97faf4f04d6",
+                  "restSeconds": 90,
+                  "plannedSets": [
+                    {
+                      "reps": 8,
+                      "durationSec": null
+                    }
+                  ]
+                },
+                {
+                  "exerciseId": "5e48b894-acdc-5c81-a101-c3b78e1333f3",
+                  "restSeconds": 90,
+                  "plannedSets": [
+                    {
+                      "reps": 8,
+                      "durationSec": null
+                    }
+                  ]
+                },
+                {
+                  "exerciseId": "a6d55302-a1fa-5a2e-804e-3eca5334b3df",
+                  "restSeconds": 90,
+                  "plannedSets": [
+                    {
+                      "reps": 8,
+                      "durationSec": null
+                    }
+                  ]
+                },
+                {
+                  "exerciseId": "22b445dc-c01b-5a1b-949c-e526da7aba16",
+                  "restSeconds": 90,
+                  "plannedSets": [
+                    {
+                      "reps": 8,
+                      "durationSec": null
+                    }
+                  ]
+                },
+                {
+                  "exerciseId": "e44861bc-ec02-52c9-91f7-464873bb7a26",
+                  "restSeconds": 90,
+                  "plannedSets": [
+                    {
+                      "reps": 8,
+                      "durationSec": null
+                    }
+                  ]
+                },
+                {
+                  "exerciseId": "ea9dbb70-b0fd-54d9-b12c-997424d87359",
+                  "restSeconds": 90,
+                  "plannedSets": [
+                    {
+                      "reps": 8,
+                      "durationSec": null
+                    }
+                  ]
+                },
+                {
+                  "exerciseId": "7a7b15ce-99ed-54c8-b042-fc9e26ae7cf4",
+                  "restSeconds": 90,
+                  "plannedSets": [
+                    {
+                      "reps": 8,
+                      "durationSec": null
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "schemaValid": false,
+          "runtimeValid": false,
+          "code": "ai_invalid_response",
+          "status": 502,
+          "proposalCount": 0
+        },
+        {
+          "providerOutput": {
+            "result": {
+              "name": "AI Press",
+              "exercises": [
+                {
+                  "exerciseId": "e026b663-bd55-552f-88a2-def4be90812b",
+                  "restSeconds": 90,
+                  "plannedSets": [
+                    {
+                      "reps": 8,
+                      "durationSec": null
+                    },
+                    {
+                      "reps": 8,
+                      "durationSec": null
+                    },
+                    {
+                      "reps": 8,
+                      "durationSec": null
+                    },
+                    {
+                      "reps": 8,
+                      "durationSec": null
+                    },
+                    {
+                      "reps": 8,
+                      "durationSec": null
+                    },
+                    {
+                      "reps": 8,
+                      "durationSec": null
+                    },
+                    {
+                      "reps": 8,
+                      "durationSec": null
+                    },
+                    {
+                      "reps": 8,
+                      "durationSec": null
+                    },
+                    {
+                      "reps": 8,
+                      "durationSec": null
+                    }
+                  ]
+                },
+                {
+                  "exerciseId": "4547e08d-1ec1-5b35-bf61-6cca6469d832",
+                  "restSeconds": 90,
+                  "plannedSets": [
+                    {
+                      "reps": 8,
+                      "durationSec": null
+                    },
+                    {
+                      "reps": 8,
+                      "durationSec": null
+                    },
+                    {
+                      "reps": 8,
+                      "durationSec": null
+                    },
+                    {
+                      "reps": 8,
+                      "durationSec": null
+                    },
+                    {
+                      "reps": 8,
+                      "durationSec": null
+                    },
+                    {
+                      "reps": 8,
+                      "durationSec": null
+                    },
+                    {
+                      "reps": 8,
+                      "durationSec": null
+                    },
+                    {
+                      "reps": 8,
+                      "durationSec": null
+                    },
+                    {
+                      "reps": 8,
+                      "durationSec": null
+                    }
+                  ]
+                },
+                {
+                  "exerciseId": "8bb66b7b-28b8-507c-a977-acae6c0a43c8",
+                  "restSeconds": 90,
+                  "plannedSets": [
+                    {
+                      "reps": 8,
+                      "durationSec": null
+                    },
+                    {
+                      "reps": 8,
+                      "durationSec": null
+                    },
+                    {
+                      "reps": 8,
+                      "durationSec": null
+                    },
+                    {
+                      "reps": 8,
+                      "durationSec": null
+                    },
+                    {
+                      "reps": 8,
+                      "durationSec": null
+                    },
+                    {
+                      "reps": 8,
+                      "durationSec": null
+                    },
+                    {
+                      "reps": 8,
+                      "durationSec": null
+                    },
+                    {
+                      "reps": 8,
+                      "durationSec": null
+                    },
+                    {
+                      "reps": 8,
+                      "durationSec": null
+                    }
+                  ]
+                },
+                {
+                  "exerciseId": "bd0594f8-c7b6-5838-a315-e8097635c677",
+                  "restSeconds": 90,
+                  "plannedSets": [
+                    {
+                      "reps": 8,
+                      "durationSec": null
+                    },
+                    {
+                      "reps": 8,
+                      "durationSec": null
+                    },
+                    {
+                      "reps": 8,
+                      "durationSec": null
+                    },
+                    {
+                      "reps": 8,
+                      "durationSec": null
+                    },
+                    {
+                      "reps": 8,
+                      "durationSec": null
+                    },
+                    {
+                      "reps": 8,
+                      "durationSec": null
+                    },
+                    {
+                      "reps": 8,
+                      "durationSec": null
+                    },
+                    {
+                      "reps": 8,
+                      "durationSec": null
+                    },
+                    {
+                      "reps": 8,
+                      "durationSec": null
+                    }
+                  ]
+                },
+                {
+                  "exerciseId": "0f4964f4-5923-55a6-bada-8ed287078056",
+                  "restSeconds": 90,
+                  "plannedSets": [
+                    {
+                      "reps": 8,
+                      "durationSec": null
+                    },
+                    {
+                      "reps": 8,
+                      "durationSec": null
+                    },
+                    {
+                      "reps": 8,
+                      "durationSec": null
+                    },
+                    {
+                      "reps": 8,
+                      "durationSec": null
+                    },
+                    {
+                      "reps": 8,
+                      "durationSec": null
+                    },
+                    {
+                      "reps": 8,
+                      "durationSec": null
+                    },
+                    {
+                      "reps": 8,
+                      "durationSec": null
+                    },
+                    {
+                      "reps": 8,
+                      "durationSec": null
+                    },
+                    {
+                      "reps": 8,
+                      "durationSec": null
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "schemaValid": true,
+          "runtimeValid": false,
+          "code": "ai_invalid_response",
+          "status": 502,
+          "proposalCount": 0
+        }
+      ]
+    },
+    {
+      "id": "V-010",
+      "baseFixtureRef": "#/fixtures/baseSuccess",
+      "durationCases": [
+        {
+          "availableDurationMinutes": 45,
+          "exercises": [
+            {
+              "type": "CARDIO",
+              "restSeconds": 60,
+              "setCount": 2,
+              "durationSecs": [
+                2700,
+                1
+              ]
+            }
+          ],
+          "knownSeconds": 2761,
+          "expect": {
+            "status": 502,
+            "body": {
+              "code": "ai_invalid_response"
+            },
+            "ledgerState": "FAILED",
+            "providerCalls": 1,
+            "proposalCount": 0
+          }
+        },
+        {
+          "availableDurationMinutes": 45,
+          "exercises": [
+            {
+              "type": "STRENGTH",
+              "restSeconds": 90,
+              "setCount": 1,
+              "durationSecs": []
+            }
+          ],
+          "knownSeconds": 0,
+          "assertion": "no exact strength work-time fit claim"
+        }
+      ]
+    },
+    {
+      "id": "V-011",
+      "baseFixtureRef": "#/fixtures/baseSuccess",
+      "operations": [
+        {
+          "atMillis": 1805005800000,
+          "action": "OWNER_DELETE_DURING_RESERVE",
+          "expect": {
+            "status": 401,
+            "body": {
+              "code": "unauthorized"
+            },
+            "ledgerState": null,
+            "providerCalls": 0,
+            "proposalCount": 0
+          }
+        },
+        {
+          "atMillis": 1805005800010,
+          "action": "OWNER_DELETE_DURING_CAPTURE",
+          "expect": {
+            "status": 401,
+            "body": {
+              "code": "unauthorized"
+            },
+            "ledgerState": null,
+            "providerCalls": 0,
+            "proposalCount": 0
+          }
+        },
+        {
+          "atMillis": 1805005844999,
+          "action": "OWNER_DELETE_DURING_FINAL",
+          "expect": {
+            "status": 401,
+            "body": {
+              "code": "unauthorized"
+            },
+            "ledgerState": null,
+            "providerCalls": 1,
+            "proposalCount": 0
+          }
+        }
+      ],
+      "assertions": {
+        "outerGuardBefore": [
+          "catalog",
+          "ownerHead",
+          "session"
+        ],
+        "providerIoUnderLocks": false,
+        "attemptRowsCleaned": true
+      }
+    }
+  ],
+  "nonClaims": [
+    "engineering bounds are not clinical safety or dose",
+    "goal groups do not prove effects",
+    "provider retention/cancellation cannot be guaranteed",
+    "PLAN-01 editable-preview equality remains untouched"
+  ],
+  "fixtures": {
+    "baseSuccess": {
+      "ownerId": "11111111-1111-4111-8111-111111111111",
+      "rawRequestUtf8": "{\"requestId\":\"22222222-2222-4222-8222-222222222222\",\"expectedRevision\":17,\"expectedCatalogRevision\":9,\"startsAtMillis\":1805009400000,\"timeZoneId\":\"America/New_York\",\"gymIds\":[],\"excludedExerciseIds\":[],\"excludedEquipmentIds\":[],\"priorityMuscles\":[\"UPPER_CHEST\",\"TRICEPS\"],\"includeNotes\":true,\"availableDurationMinutes\":45,\"currentState\":\"normal\",\"preferences\":\"barbell first\"}",
+      "rawRequestSha256": "38223a16abd10bf1c92602221fad70a4c6d1e14e4d8930e4c9b35a94bd9e97ee",
+      "request": {
+        "requestId": "22222222-2222-4222-8222-222222222222",
+        "expectedRevision": 17,
+        "expectedCatalogRevision": 9,
+        "startsAtMillis": 1805009400000,
+        "timeZoneId": "America/New_York",
+        "gymIds": [],
+        "excludedExerciseIds": [],
+        "excludedEquipmentIds": [],
+        "priorityMuscles": [
+          "UPPER_CHEST",
+          "TRICEPS"
+        ],
+        "includeNotes": true,
+        "availableDurationMinutes": 45,
+        "currentState": "normal",
+        "preferences": "barbell first"
+      },
+      "providerContext": {
+        "intent": {
+          "timeZoneId": "America/New_York",
+          "plannedLocalDateTime": "2027-03-14T03:30:00",
+          "availableDurationMinutes": 45,
+          "priorityMuscles": [
+            "UPPER_CHEST",
+            "TRICEPS"
+          ],
+          "currentState": "normal",
+          "preferences": "barbell first"
+        },
+        "candidates": [
+          {
+            "exerciseId": "33333333-3333-4333-8333-333333333333",
+            "type": "STRENGTH",
+            "name": "Press",
+            "available": true,
+            "equipmentIds": [],
+            "priority": 150,
+            "coverage": 150,
+            "muscles": [
+              {
+                "muscle": "UPPER_CHEST",
+                "contribution": 100
+              },
+              {
+                "muscle": "TRICEPS",
+                "contribution": 50
+              }
+            ]
+          },
+          {
+            "exerciseId": "44444444-4444-4444-8444-444444444444",
+            "type": "CARDIO",
+            "name": "Run",
+            "available": true,
+            "equipmentIds": [],
+            "priority": 0,
+            "coverage": 0,
+            "muscles": [
+              {
+                "muscle": "CALVES",
+                "contribution": 50
+              }
+            ]
+          }
+        ],
+        "profile": {
+          "trainingGoal": "STRENGTH",
+          "sex": null,
+          "ageYears": 30,
+          "experienceLevel": "INTERMEDIATE",
+          "plannedSessionsPerWeek": 3,
+          "preferredSessionDurationMinutes": 45,
+          "manualConstraints": null,
+          "equipmentIds": []
+        },
+        "mass": null,
+        "notes": [
+          {
+            "sourceTimeMillis": 1804968000000,
+            "kind": "WORKOUT_NOTE",
+            "canonicalId": "11111111-1111-4111-8111-111111111111",
+            "text": "controlled"
+          }
+        ],
+        "dataQuality": [],
+        "capturedLocalDate": "2027-03-14"
+      },
+      "serverCapture": {
+        "capturedAtMillis": 1805005800000,
+        "revision": 17,
+        "catalogRevision": 9,
+        "facts": [
+          {
+            "exerciseId": "33333333-3333-4333-8333-333333333333",
+            "factTimeMillis": 1804968000000,
+            "workoutId": "11111111-1111-4111-8111-111111111111",
+            "sectionId": "66666666-6666-4666-8666-666666666666",
+            "setIndex": 0,
+            "actualWeightPresent": true,
+            "actualWeightKg": null,
+            "legacyWeightKg": 80.0
+          }
+        ],
+        "aggregateEligibleSourceBytes": 2944,
+        "sourceRows": [
+          {
+            "kind": "exercise",
+            "key": "33333333-3333-4333-8333-333333333333",
+            "utf8Bytes": 1024
+          },
+          {
+            "kind": "exercise",
+            "key": "44444444-4444-4444-8444-444444444444",
+            "utf8Bytes": 1024
+          },
+          {
+            "kind": "profile",
+            "key": "profile",
+            "utf8Bytes": 256
+          },
+          {
+            "kind": "workout",
+            "key": "11111111-1111-4111-8111-111111111111",
+            "utf8Bytes": 512
+          },
+          {
+            "kind": "exercise_hint",
+            "key": "33333333-3333-4333-8333-333333333333",
+            "utf8Bytes": 128
+          }
+        ]
+      },
+      "providerOutput": {
+        "result": {
+          "name": "AI Press",
+          "exercises": [
+            {
+              "exerciseId": "33333333-3333-4333-8333-333333333333",
+              "restSeconds": 90,
+              "plannedSets": [
+                {
+                  "reps": 8,
+                  "durationSec": null
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "response": {
+        "requestId": "22222222-2222-4222-8222-222222222222",
+        "context": {
+          "revision": 17,
+          "catalogRevision": 9,
+          "capturedAtMillis": 1805005800000
+        },
+        "proposal": {
+          "proposalId": "55555555-5555-4555-8555-555555555555",
+          "author": {
+            "kind": "AI",
+            "accountId": null
+          },
+          "recipientId": "11111111-1111-4111-8111-111111111111",
+          "source": "AI",
+          "status": "PENDING",
+          "currentVersion": 1,
+          "createdAt": 1805005800100,
+          "updatedAt": 1805005800100,
+          "expiresAt": 1805610600100,
+          "snapshot": {
+            "version": 1,
+            "draft": {
+              "name": "AI Press",
+              "gymIds": [],
+              "exercises": [
+                {
+                  "exerciseId": "33333333-3333-4333-8333-333333333333",
+                  "restSeconds": 90,
+                  "plannedSets": [
+                    {
+                      "weightKg": null,
+                      "reps": 8,
+                      "durationSec": null,
+                      "speedKmh": null,
+                      "inclinePct": null
+                    }
+                  ]
+                }
+              ],
+              "startsAtMillis": 1805009400000,
+              "timeZoneId": "America/New_York"
+            },
+            "ownerRevision": 17,
+            "catalogRevision": 9,
+            "createdAt": 1805005800100
+          }
+        }
+      },
+      "ids": {
+        "selectedGymId": "77777777-7777-4777-8777-777777777777"
+      },
+      "admittedAtMillis": 1805005800000,
+      "committedAtMillis": 1805005800100,
+      "deadlineAtMillis": 1805005845000,
+      "leaseUntilMillis": 1805005860000,
+      "windowStartMillis": 1802667600000,
+      "attemptReceipt": {
+        "response": {
+          "requestId": "22222222-2222-4222-8222-222222222222",
+          "context": {
+            "revision": 17,
+            "catalogRevision": 9,
+            "capturedAtMillis": 1805005800000
+          },
+          "proposal": {
+            "proposalId": "55555555-5555-4555-8555-555555555555",
+            "author": {
+              "kind": "AI",
+              "accountId": null
+            },
+            "recipientId": "11111111-1111-4111-8111-111111111111",
+            "source": "AI",
+            "status": "PENDING",
+            "currentVersion": 1,
+            "createdAt": 1805005800100,
+            "updatedAt": 1805005800100,
+            "expiresAt": 1805610600100,
+            "snapshot": {
+              "version": 1,
+              "draft": {
+                "name": "AI Press",
+                "gymIds": [],
+                "exercises": [
+                  {
+                    "exerciseId": "33333333-3333-4333-8333-333333333333",
+                    "restSeconds": 90,
+                    "plannedSets": [
+                      {
+                        "weightKg": null,
+                        "reps": 8,
+                        "durationSec": null,
+                        "speedKmh": null,
+                        "inclinePct": null
+                      }
+                    ]
+                  }
+                ],
+                "startsAtMillis": 1805009400000,
+                "timeZoneId": "America/New_York"
+              },
+              "ownerRevision": 17,
+              "catalogRevision": 9,
+              "createdAt": 1805005800100
+            }
+          }
+        },
+        "state": "SUCCEEDED"
+      }
+    },
+    "schemaArtifact": {
+      "path": "src/main/resources/ai/calendar-output-schema.json",
+      "rootRef": "#/$defs/ProviderOutput",
+      "allowedDefs": [
+        "ProviderExercise",
+        "ProviderSet",
+        "Uuid"
+      ]
+    }
+  },
+  "fixtureNotes": {
+    "references": "Fixture refs use RFC6901 pointers within this document. Each vector starts from an independent base fixture; requestPatch replaces named request members and raw bytes/hash are regenerated unless the case supplies exact raw bytes. Expected response is exact normalized domain JSON; API message/localized detail is not matched for errors, code and status are exact.",
+    "clock": "Admission/capture use base admittedAtMillis. The clock advances only at listed operation/barrier timestamps; normal success commits at committedAtMillis.",
+    "sqlCounts": "Count vectors construct that exact number of source rows/facts using distinct UUIDv5(DNS, calendar-fixture-<zero-based-index>) and the base workout/fact shape. Byte vectors pad valid note strings to exact UTF8 serialized payload size before hydration. Assert source row count and bytes in fixture setup.",
+    "ledger": "Valid requests reserve before capture: capture failures persist FAILED with sanitized code/status. Owner deletion removes all ledger rows; workers never recreate them. Invalid raw/request input creates no row.",
+    "privacy": "Facts including actual/legacy weight are server-only. Provider candidates contain only required identifiers and bounded mapped summary, never raw owner archive."
+  }
+}

@@ -17,12 +17,15 @@ import androidx.compose.material.icons.automirrored.rounded.ShowChart
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.EmojiEvents
 import androidx.compose.material.icons.rounded.History
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -66,6 +69,7 @@ fun ExerciseDetailScreen(
 ) {
   val state by viewModel.uiState.collectAsStateWithLifecycle()
   val editor by viewModel.editor.collectAsStateWithLifecycle()
+  val personalHintEditor by viewModel.personalHintEditor.collectAsStateWithLifecycle()
   val haptics = gymHaptics()
 
   GlowBackground(modifier = modifier) {
@@ -102,6 +106,9 @@ fun ExerciseDetailScreen(
                 loads = state.loads,
                 requirements = state.requirements,
                 statistics = state.statistics,
+                personalHint = state.personalHint?.text,
+                onEditPersonalHint = viewModel::openPersonalHintEditor,
+                onUnpinPersonalHint = viewModel::unpinPersonalHint,
             )
       }
     }
@@ -112,6 +119,14 @@ fun ExerciseDetailScreen(
         initial = initial,
         onDismiss = viewModel::closeEditor,
         onSave = viewModel::saveEditor,
+    )
+  }
+  personalHintEditor?.let { draft ->
+    PersonalHintEditorDialog(
+        draft = draft,
+        onTextChange = viewModel::updatePersonalHint,
+        onSave = viewModel::savePersonalHint,
+        onDismiss = viewModel::cancelPersonalHintEditor,
     )
   }
 }
@@ -178,12 +193,22 @@ internal fun ExerciseDetailContent(
     loads: List<MuscleLoad>,
     requirements: ExerciseEquipmentRequirements = ExerciseEquipmentRequirements.UnknownLegacy,
     statistics: ExerciseStatistics?,
+    personalHint: String? = null,
+    onEditPersonalHint: () -> Unit = {},
+    onUnpinPersonalHint: () -> Unit = {},
 ) {
   LazyColumn(
       modifier = Modifier.fillMaxSize(),
       contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = 4.dp, bottom = 24.dp),
       verticalArrangement = Arrangement.spacedBy(12.dp),
   ) {
+    item {
+      PersonalHintCard(
+          text = personalHint,
+          onEdit = onEditPersonalHint,
+          onUnpin = onUnpinPersonalHint,
+      )
+    }
     item { MusclesCard(loads) }
     if (statistics != null) {
       if (statistics.hasData) {
@@ -195,6 +220,69 @@ internal fun ExerciseDetailContent(
       }
     }
   }
+}
+
+@Composable
+private fun PersonalHintCard(text: String?, onEdit: () -> Unit, onUnpin: () -> Unit) {
+  GymCard(modifier = Modifier.fillMaxWidth()) {
+    Text(
+        text = "Моя подсказка",
+        style = MaterialTheme.typography.titleMedium,
+        fontWeight = FontWeight.SemiBold,
+        color = MaterialTheme.colorScheme.onSurface,
+    )
+    if (!text.isNullOrBlank()) {
+      Spacer(Modifier.height(6.dp))
+      Text(
+          text = text,
+          style = MaterialTheme.typography.bodyMedium,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
+      )
+    }
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+      TextButton(onClick = onEdit) { Text(if (text.isNullOrBlank()) "Добавить" else "Изменить") }
+      if (!text.isNullOrBlank()) TextButton(onClick = onUnpin) { Text("Убрать") }
+    }
+  }
+}
+
+@Composable
+private fun PersonalHintEditorDialog(
+    draft: ExercisePersonalHintEditDraft,
+    onTextChange: (String) -> Unit,
+    onSave: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+  AlertDialog(
+      onDismissRequest = { if (!draft.isSubmitting) onDismiss() },
+      title = { Text("Моя подсказка") },
+      text = {
+        Column {
+          OutlinedTextField(
+              value = draft.text,
+              onValueChange = onTextChange,
+              label = { Text("Подсказка") },
+              supportingText = { Text("До 2000 символов") },
+              isError = draft.error != null,
+              enabled = !draft.isSubmitting,
+              modifier = Modifier.fillMaxWidth(),
+          )
+          draft.error?.let {
+            Text(
+                text = it,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+          }
+        }
+      },
+      confirmButton = {
+        TextButton(onClick = onSave, enabled = !draft.isSubmitting) { Text("Сохранить") }
+      },
+      dismissButton = {
+        TextButton(onClick = onDismiss, enabled = !draft.isSubmitting) { Text("Отмена") }
+      },
+  )
 }
 
 internal fun equipmentLine(requirements: ExerciseEquipmentRequirements): String =
