@@ -22,6 +22,7 @@ import com.valerochka1337.valerochkagym.service.heartrate.HeartRateMonitor
 import com.valerochka1337.valerochkagym.service.heartrate.HeartRateReading
 import com.valerochka1337.valerochkagym.worker.UploadScheduler
 import dagger.hilt.android.lifecycle.HiltViewModel
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 import kotlin.time.Duration.Companion.milliseconds
 import kotlinx.coroutines.CancellationException
@@ -50,6 +51,7 @@ data class ActiveWorkoutUiState(
     val workout: WorkoutFull? = null,
     val previousByExercise: Map<Long, String> = emptyMap(),
     val completedSetEdit: CompletedSetEditDraft? = null,
+    val isFinishing: Boolean = false,
 )
 
 /** Immutable, saveable numeric draft for a completed set. Submission feedback is process-local. */
@@ -108,6 +110,8 @@ constructor(
 
   private val loaded = MutableStateFlow(false)
   private val previousSummaries = MutableStateFlow<Map<Long, String>>(emptyMap())
+  private val isFinishing = MutableStateFlow(false)
+  private val finishInFlight = AtomicBoolean(false)
   private val loadingPrevious = mutableSetOf<Long>()
   private val completedSetEdit = MutableStateFlow(savedCompletedSetEdit())
   private var restoredDraftNeedsValidation = completedSetEdit.value != null
@@ -137,12 +141,14 @@ constructor(
               previousSummaries,
               loaded,
               completedSetEdit,
-          ) { workout, previous, isLoaded, edit ->
+              isFinishing,
+          ) { workout, previous, isLoaded, edit, finishing ->
             ActiveWorkoutUiState(
                 loading = !isLoaded,
                 workout = workout,
                 previousByExercise = previous,
                 completedSetEdit = edit,
+                isFinishing = finishing,
             )
           }
           .stateIn(
@@ -351,9 +357,32 @@ constructor(
 
   fun finish() {
     val workoutId = activeWorkout.value?.workout?.id ?: return
+    if (!finishInFlight.compareAndSet(false, true)) return
+    isFinishing.value = true
     viewModelScope.launch {
-      repository.finish(workoutId)
-      uploadScheduler.schedule(workoutId)
+      try {
+        repository.finish(workoutId)
+      } catch (cancelled: CancellationException) {
+        finishInFlight.set(false)
+        isFinishing.value = false
+        throw cancelled
+      } catch (_: Exception) {
+        finishInFlight.set(false)
+        isFinishing.value = false
+        _events.send(ActiveWorkoutEvent.ShowMessage("Не удалось завершить тренировку"))
+        return@launch
+      }
+      try {
+        uploadScheduler.schedule(workoutId)
+      } catch (cancelled: CancellationException) {
+        throw cancelled
+      } catch (_: Exception) {
+        _events.send(
+            ActiveWorkoutEvent.ShowMessage(
+                "Тренировка завершена, не удалось поставить выгрузку в очередь",
+            ),
+        )
+      }
       _events.send(ActiveWorkoutEvent.NavigateToSummary(workoutId))
     }
   }

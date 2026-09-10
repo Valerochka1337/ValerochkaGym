@@ -405,10 +405,17 @@ internal fun ActiveWorkoutContent(
         exercises.indexOfFirst { exercise -> exercise.sets.any { it.id == setId } }
       } ?: -1
   val currentNumber = if (currentIndex >= 0) currentIndex + 1 else exercises.size
+  val showBottomFinish = roomExercises.areAllSetsCompleted()
 
   var showFinishDialog by rememberSaveable { mutableStateOf(false) }
   var showDiscardDialog by rememberSaveable { mutableStateOf(false) }
   var pendingDeleteExerciseId by rememberSaveable { mutableStateOf<Long?>(null) }
+  val requestFinish = {
+    if (!state.isFinishing) {
+      haptics.tap()
+      showFinishDialog = true
+    }
+  }
 
   Column(modifier = Modifier.fillMaxSize()) {
     ActiveWorkoutHeader(
@@ -421,7 +428,8 @@ internal fun ActiveWorkoutContent(
         onScanHeartRate = onScanHeartRate,
         onConnectHeartRate = onConnectHeartRate,
         onCancelHeartRateSelection = onCancelHeartRateSelection,
-        onFinish = { showFinishDialog = true },
+        isFinishing = state.isFinishing,
+        onFinish = requestFinish,
         onDiscard = { showDiscardDialog = true },
     )
 
@@ -527,14 +535,22 @@ internal fun ActiveWorkoutContent(
           activeSetId = activeSetId,
           onComplete = setActions.complete,
       )
+      if (showBottomFinish) {
+        Spacer(Modifier.height(8.dp))
+        PillButton(
+            text = "Завершить тренировку",
+            onClick = requestFinish,
+            enabled = !state.isFinishing,
+            leadingIcon = Icons.Default.Check,
+            modifier = Modifier.fillMaxWidth(),
+        )
+      }
     }
   }
 
   if (showFinishDialog) {
-    ConfirmDialog(
-        title = "Завершить тренировку?",
-        text = "Пустые невыполненные подходы будут отброшены, тренировка попадёт в историю.",
-        confirmText = "Завершить",
+    FinishWorkoutConfirmDialog(
+        isFinishing = state.isFinishing,
         onConfirm = {
           haptics.success()
           showFinishDialog = false
@@ -843,6 +859,7 @@ private fun ActiveWorkoutHeader(
     onScanHeartRate: () -> Unit,
     onConnectHeartRate: (HeartRateDevice) -> Unit,
     onCancelHeartRateSelection: () -> Unit,
+    isFinishing: Boolean,
     onFinish: () -> Unit,
     onDiscard: () -> Unit,
 ) {
@@ -871,6 +888,16 @@ private fun ActiveWorkoutHeader(
           onSelectDevice = onConnectHeartRate,
           onDismissSelection = onCancelHeartRateSelection,
       )
+      IconButton(
+          onClick = onFinish,
+          enabled = !isFinishing,
+          modifier = Modifier.size(48.dp),
+      ) {
+        Icon(
+            imageVector = Icons.Default.Check,
+            contentDescription = "Завершить тренировку",
+        )
+      }
       Box {
         IconButton(onClick = { menuExpanded = true }) {
           Icon(
@@ -882,13 +909,6 @@ private fun ActiveWorkoutHeader(
             expanded = menuExpanded,
             onDismissRequest = { menuExpanded = false },
         ) {
-          DropdownMenuItem(
-              text = { Text("Завершить тренировку") },
-              onClick = {
-                menuExpanded = false
-                onFinish()
-              },
-          )
           DropdownMenuItem(
               text = {
                 Text(
@@ -1476,26 +1496,79 @@ private fun ConfirmDialog(
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
     destructive: Boolean = false,
+    actions: (@Composable () -> Unit)? = null,
+    dismissEnabled: Boolean = true,
 ) {
   AlertDialog(
-      onDismissRequest = onDismiss,
+      onDismissRequest = { if (dismissEnabled) onDismiss() },
       title = { Text(title) },
       text = { Text(text) },
       confirmButton = {
-        TextButton(onClick = onConfirm) {
-          Text(
-              text = confirmText,
-              color =
-                  if (destructive) {
-                    MaterialTheme.colorScheme.error
-                  } else {
-                    MaterialTheme.colorScheme.primary
-                  },
-          )
+        if (actions != null) {
+          actions()
+        } else {
+          TextButton(onClick = onConfirm) {
+            Text(
+                text = confirmText,
+                color =
+                    if (destructive) {
+                      MaterialTheme.colorScheme.error
+                    } else {
+                      MaterialTheme.colorScheme.primary
+                    },
+            )
+          }
         }
       },
-      dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } },
+      dismissButton = {
+        if (actions == null) {
+          TextButton(onClick = onDismiss, enabled = dismissEnabled) { Text("Отмена") }
+        }
+      },
   )
+}
+
+@Composable
+private fun FinishWorkoutConfirmDialog(
+    isFinishing: Boolean,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+  ConfirmDialog(
+      title = "Завершить тренировку?",
+      text = "Пустые невыполненные подходы будут отброшены, тренировка попадёт в историю.",
+      confirmText = "Завершить",
+      onConfirm = onConfirm,
+      onDismiss = onDismiss,
+      dismissEnabled = !isFinishing,
+      actions = {
+        FinishWorkoutConfirmationActions(
+            enabled = !isFinishing,
+            onConfirm = onConfirm,
+            onDismiss = onDismiss,
+        )
+      },
+  )
+}
+
+/**
+ * Shared dialog actions, kept separately so their disabled and cancel semantics remain testable.
+ */
+@Composable
+internal fun FinishWorkoutConfirmationActions(
+    enabled: Boolean,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+  Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    TextButton(onClick = onDismiss, enabled = enabled) { Text("Отмена") }
+    TextButton(onClick = onConfirm, enabled = enabled) { Text("Завершить") }
+  }
+}
+
+internal fun List<WorkoutExerciseWithSets>.areAllSetsCompleted(): Boolean {
+  val roomSets = flatMap { it.sets }
+  return roomSets.isNotEmpty() && roomSets.all { it.isCompleted }
 }
 
 /** Пока экран на переднем плане, экран устройства не гаснет. */

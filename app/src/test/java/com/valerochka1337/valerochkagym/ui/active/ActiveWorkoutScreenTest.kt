@@ -1,15 +1,21 @@
 package com.valerochka1337.valerochkagym.ui.active
 
 import android.app.Application
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.dp
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleGroup
@@ -25,6 +31,7 @@ import com.valerochka1337.valerochkagym.ui.theme.GymTheme
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -247,6 +254,117 @@ class ActiveWorkoutScreenTest {
     )
   }
 
+  @Test
+  fun `header exposes a labelled finish action with a 48 dp target`() {
+    renderActiveWorkout(mutableStateOf(workoutWithIncompleteExercises()))
+
+    composeRule
+        .onNodeWithContentDescription("Завершить тренировку")
+        .assertIsDisplayed()
+        .assertHeightIsAtLeast(48.dp)
+  }
+
+  @Test
+  fun `bottom finish action follows the current Room completion snapshot`() {
+    val workout = mutableStateOf(workoutWithIncompleteExercises().withoutSets())
+    renderActiveWorkout(workout)
+
+    composeRule.onAllNodesWithText("Завершить тренировку").assertCountEquals(0)
+
+    composeRule.runOnIdle { workout.value = workoutWithIncompleteExercises() }
+    composeRule.waitForIdle()
+    composeRule.onAllNodesWithText("Завершить тренировку").assertCountEquals(0)
+
+    composeRule.runOnIdle {
+      workout.value =
+          workout.value
+              .markSetCompleted(FIRST_SET_ID)
+              .markSetCompleted(SECOND_SET_ID)
+              .markSetCompleted(THIRD_SET_ID)
+    }
+    composeRule.waitForIdle()
+    composeRule.onAllNodesWithText("Завершить тренировку").assertCountEquals(1)
+
+    composeRule.runOnIdle {
+      workout.value =
+          workout.value.copy(
+              exercises =
+                  workout.value.exercises.map { exercise ->
+                    exercise.copy(
+                        sets =
+                            exercise.sets.map { set ->
+                              if (set.id == FIRST_SET_ID) set.copy(isCompleted = false) else set
+                            },
+                    )
+                  },
+          )
+    }
+    composeRule.waitForIdle()
+    composeRule.onAllNodesWithText("Завершить тренировку").assertCountEquals(0)
+  }
+
+  @Test
+  fun `new incomplete Room exercise blocks finish before local order catches up`() {
+    val completedWorkout =
+        workoutWithIncompleteExercises()
+            .markSetCompleted(FIRST_SET_ID)
+            .markSetCompleted(SECOND_SET_ID)
+            .markSetCompleted(THIRD_SET_ID)
+    assertTrue(completedWorkout.exercises.areAllSetsCompleted())
+
+    val updatedRoomWorkout =
+        completedWorkout.copy(
+            exercises =
+                completedWorkout.exercises +
+                    exercise(
+                        position = 3,
+                        workoutExerciseId = 14L,
+                        setId = 104L,
+                        name = "Свежий подход",
+                    ),
+        )
+
+    assertFalse(updatedRoomWorkout.exercises.areAllSetsCompleted())
+  }
+
+  @Test
+  fun `finish confirmation actions keep cancel separate and disable confirm in flight`() {
+    val actions = mutableListOf<String>()
+    val enabled = mutableStateOf(true)
+    composeRule.setContent {
+      CompositionLocalProvider(LocalDensity provides Density(density = 1f, fontScale = 2f)) {
+        GymTheme {
+          FinishWorkoutConfirmationActions(
+              enabled = enabled.value,
+              onConfirm = { actions += "finish" },
+              onDismiss = { actions += "cancel" },
+          )
+        }
+      }
+    }
+
+    composeRule.onNodeWithText("Отмена").performClick()
+    composeRule.onNodeWithText("Завершить").performClick()
+    assertEquals(listOf("cancel", "finish"), actions)
+
+    composeRule.runOnIdle { enabled.value = false }
+    composeRule.onNodeWithText("Отмена").assertIsNotEnabled()
+    composeRule.onNodeWithText("Завершить").assertIsNotEnabled()
+  }
+
+  @Test
+  fun `finishing state disables both finish initiators`() {
+    val workout =
+        workoutWithIncompleteExercises()
+            .markSetCompleted(FIRST_SET_ID)
+            .markSetCompleted(SECOND_SET_ID)
+            .markSetCompleted(THIRD_SET_ID)
+    renderActiveWorkout(mutableStateOf(workout), isFinishing = true)
+
+    composeRule.onNodeWithContentDescription("Завершить тренировку").assertIsNotEnabled()
+    composeRule.onNodeWithText("Завершить тренировку").assertIsNotEnabled()
+  }
+
   private fun completeFocusedSet() {
     composeRule.onAllNodesWithText("Подход выполнен").assertCountEquals(1)
     composeRule.onNodeWithText("Подход выполнен").performClick()
@@ -267,6 +385,59 @@ class ActiveWorkoutScreenTest {
       }
     }
   }
+
+  private fun renderActiveWorkout(
+      workout: androidx.compose.runtime.State<WorkoutFull>,
+      isFinishing: Boolean = false,
+  ) {
+    composeRule.setContent {
+      GymTheme {
+        ActiveWorkoutContent(
+            state =
+                ActiveWorkoutUiState(
+                    loading = false,
+                    workout = workout.value,
+                    isFinishing = isFinishing,
+                ),
+            elapsedSeconds = MutableStateFlow(0L),
+            restTimer = MutableStateFlow<RestTimerState?>(null),
+            heartRateState =
+                MutableStateFlow<HeartRateConnectionState>(HeartRateConnectionState.Idle),
+            heartRateReading = MutableStateFlow<HeartRateReading?>(null),
+            setActions = noOpSetActions(),
+            onDeleteExercise = {},
+            onReorderExercises = {},
+            onAddExercise = {},
+            onExerciseClick = {},
+            onFinish = {},
+            onDiscard = {},
+            onAddRestSeconds = {},
+            onSkipRest = {},
+            onScanHeartRate = {},
+            onConnectHeartRate = {},
+            onCancelHeartRateSelection = {},
+        )
+      }
+    }
+  }
+
+  private fun noOpSetActions() =
+      SetActions(
+          stepWeight = { _, _ -> },
+          stepReps = { _, _ -> },
+          stepDuration = { _, _ -> },
+          stepSpeed = { _, _ -> },
+          stepIncline = { _, _ -> },
+          setWeight = { _, _ -> },
+          setReps = { _, _ -> },
+          setDuration = { _, _ -> },
+          setSpeed = { _, _ -> },
+          setIncline = { _, _ -> },
+          complete = { _ -> },
+          uncomplete = { _ -> },
+          addSet = { _ -> },
+          deleteSet = { _ -> },
+      )
 
   private fun assertAddSetIsAvailable() {
     composeRule.onAllNodesWithText("Подход").assertCountEquals(1)
@@ -352,6 +523,9 @@ class ActiveWorkoutScreenTest {
                 )
               },
       )
+
+  private fun WorkoutFull.withoutSets(): WorkoutFull =
+      copy(exercises = exercises.map { exercise -> exercise.copy(sets = emptyList()) })
 
   private fun WorkoutFull.reorderExercises(orderedWorkoutExerciseIds: List<Long>): WorkoutFull =
       copy(

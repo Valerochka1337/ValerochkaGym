@@ -451,6 +451,129 @@ class ActiveWorkoutViewModelTest {
       }
 
   @Test
+  fun `repeated finish while persistence is suspended runs one terminal chain`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val harness = harness(active = workoutFull(setId = 10L))
+        val events = collectEvents(harness.viewModel)
+        collectUiState(harness.viewModel)
+        val releaseFinish = CompletableDeferred<Unit>()
+        harness.repository.finishGate = releaseFinish
+
+        harness.viewModel.finish()
+        harness.viewModel.finish()
+        runCurrent()
+
+        assertEquals(listOf("w1"), harness.repository.finishedIds)
+        assertTrue(harness.viewModel.uiState.value.isFinishing)
+        assertTrue(harness.uploadScheduler.scheduledIds.isEmpty())
+
+        releaseFinish.complete(Unit)
+        runCurrent()
+
+        assertEquals(listOf("w1"), harness.uploadScheduler.scheduledIds)
+        assertEquals(listOf<ActiveWorkoutEvent>(ActiveWorkoutEvent.NavigateToSummary("w1")), events)
+      }
+
+  @Test
+  fun `finished workout stays terminal while Room still exposes its old snapshot`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val harness = harness(active = workoutFull(setId = 10L))
+        val events = collectEvents(harness.viewModel)
+        collectUiState(harness.viewModel)
+        harness.repository.retainActiveAfterFinish = true
+
+        harness.viewModel.finish()
+        runCurrent()
+        harness.viewModel.finish()
+        runCurrent()
+
+        assertTrue(harness.viewModel.uiState.value.isFinishing)
+        assertEquals(listOf("w1"), harness.repository.finishedIds)
+        assertEquals(listOf("w1"), harness.uploadScheduler.scheduledIds)
+        assertEquals(listOf<ActiveWorkoutEvent>(ActiveWorkoutEvent.NavigateToSummary("w1")), events)
+      }
+
+  @Test
+  fun `finish persistence failure reports error and allows one retry`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val harness = harness(active = workoutFull(setId = 10L))
+        val events = collectEvents(harness.viewModel)
+        collectUiState(harness.viewModel)
+        harness.repository.finishFailure = IllegalStateException("database unavailable")
+
+        harness.viewModel.finish()
+        runCurrent()
+
+        assertFalse(harness.viewModel.uiState.value.isFinishing)
+        assertTrue(harness.repository.finishedIds.isEmpty())
+        assertTrue(harness.uploadScheduler.scheduledIds.isEmpty())
+        assertEquals(
+            listOf<ActiveWorkoutEvent>(
+                ActiveWorkoutEvent.ShowMessage("Не удалось завершить тренировку")
+            ),
+            events,
+        )
+
+        harness.repository.finishFailure = null
+        harness.viewModel.finish()
+        runCurrent()
+
+        assertEquals(listOf("w1"), harness.repository.finishedIds)
+        assertEquals(listOf("w1"), harness.uploadScheduler.scheduledIds)
+        assertEquals(
+            listOf(
+                ActiveWorkoutEvent.ShowMessage("Не удалось завершить тренировку"),
+                ActiveWorkoutEvent.NavigateToSummary("w1"),
+            ),
+            events,
+        )
+      }
+
+  @Test
+  fun `scheduler failure after persistence reports once and still navigates once`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val harness = harness(active = workoutFull(setId = 10L))
+        val events = collectEvents(harness.viewModel)
+        collectUiState(harness.viewModel)
+        harness.repository.retainActiveAfterFinish = true
+        harness.uploadScheduler.scheduleFailure = IllegalStateException("work manager unavailable")
+
+        harness.viewModel.finish()
+        runCurrent()
+        harness.viewModel.finish()
+        runCurrent()
+
+        assertTrue(harness.viewModel.uiState.value.isFinishing)
+        assertEquals(listOf("w1"), harness.repository.finishedIds)
+        assertEquals(listOf("w1"), harness.uploadScheduler.scheduledIds)
+        assertEquals(
+            listOf(
+                ActiveWorkoutEvent.ShowMessage(
+                    "Тренировка завершена, не удалось поставить выгрузку в очередь",
+                ),
+                ActiveWorkoutEvent.NavigateToSummary("w1"),
+            ),
+            events,
+        )
+      }
+
+  @Test
+  fun `finish cancellation is not converted to a retryable error`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val harness = harness(active = workoutFull(setId = 10L))
+        val events = collectEvents(harness.viewModel)
+        collectUiState(harness.viewModel)
+        harness.repository.finishFailure = kotlinx.coroutines.CancellationException("cancelled")
+
+        harness.viewModel.finish()
+        runCurrent()
+
+        assertFalse(harness.viewModel.uiState.value.isFinishing)
+        assertTrue(harness.uploadScheduler.scheduledIds.isEmpty())
+        assertTrue(events.isEmpty())
+      }
+
+  @Test
   fun `discard drops the workout and navigates home without scheduling an upload`() =
       runTest(mainDispatcherRule.testDispatcher.scheduler) {
         val harness = harness(active = workoutFull(setId = 10L))
@@ -659,6 +782,9 @@ class ActiveWorkoutViewModelTest {
     val finishedIds = mutableListOf<String>()
     val discardedIds = mutableListOf<String>()
     var addExerciseFailure: Exception? = null
+    var finishFailure: Exception? = null
+    var finishGate: CompletableDeferred<Unit>? = null
+    var retainActiveAfterFinish = false
     var completedEditResult: CompletedSetEditResult = CompletedSetEditResult.Saved
     var completedEditGate: CompletableDeferred<Unit>? = null
     val completedNumberEdits = mutableListOf<Pair<WorkoutSetEntity, ExerciseType>>()
@@ -720,8 +846,10 @@ class ActiveWorkoutViewModelTest {
     }
 
     override suspend fun finish(workoutId: String) {
+      finishFailure?.let { throw it }
       finishedIds += workoutId
-      active.value = null
+      finishGate?.await()
+      if (!retainActiveAfterFinish) active.value = null
     }
 
     override suspend fun discard(workoutId: String) {
@@ -841,9 +969,11 @@ class ActiveWorkoutViewModelTest {
 
   private class FakeUploadScheduler : UploadScheduler {
     val scheduledIds = mutableListOf<String>()
+    var scheduleFailure: Exception? = null
 
     override fun schedule(workoutId: String) {
       scheduledIds += workoutId
+      scheduleFailure?.let { throw it }
     }
 
     override suspend fun retry(workoutId: String) = Unit
