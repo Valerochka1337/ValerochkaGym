@@ -39,7 +39,7 @@ None. Record any departure from frozen post-persistence failure semantics or fil
 ## Command results
 
 No commands run: these are plan-only files. Gradle starts after application changes exist. Strict
-Gate P affected recheck is pending after this documented P1 correction.
+Gate P affected recheck passed after this documented P1 correction.
 
 ## Residual risks
 
