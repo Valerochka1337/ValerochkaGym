@@ -46,7 +46,9 @@
 | 11–12 / #51 | следующая feat/guest-sync | plan_ready | Gate P strict recheck PASS, шесть замечаний claim/token/conflict/migration закрыты |
 | CAL-01 server slice | backend feat/calendar-plan-contract | done_local | c73c411; full check/bootJar PASS, 44 tests 0 failures; strict PASS; upstream push/deploy blocked READ rights; Android Room slice ждёт этап12 |
 | AI-01 server slice | backend feat/server-ai-drafts | done_local | a5b567a; Gate T/V PASS; full check/bootJar64tests0failures;15 Python delivery tests PASS; READ rights block upstream; Android slice ждёт12 |
-| 10 / #9 server slice | backend feat/workout-notes-contract | test_followup | Gate T/V PASS production; focused P2 assertions before root full gates; Android slice waits12/CAL01 |
+| 10 / #9 server slice | backend feat/workout-notes-contract | done_local | f26de34; Gate T/V PASS; full68tests0failures/check/bootJarPASS; Android slice waits12/CAL01 |
+
+| 14–15 / #50 server slice | backend feat/basic-profile-contract | in_progress | strict P PASS; one owner-profile + redacted AI context; Android follows notes/current schema |
 
 ## Инфраструктура и релиз
 
