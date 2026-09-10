@@ -20,6 +20,11 @@ import com.valerochka1337.valerochkagym.service.heartrate.HeartRateConnectionSta
 import com.valerochka1337.valerochkagym.service.heartrate.HeartRateDevice
 import com.valerochka1337.valerochkagym.service.heartrate.HeartRateMonitor
 import com.valerochka1337.valerochkagym.service.heartrate.HeartRateReading
+import com.valerochka1337.valerochkagym.ui.permissions.LivePermissionState
+import com.valerochka1337.valerochkagym.ui.permissions.PermissionRecoveryController
+import com.valerochka1337.valerochkagym.ui.permissions.PermissionRecoveryDecision
+import com.valerochka1337.valerochkagym.ui.permissions.PermissionRecoveryPolicy
+import com.valerochka1337.valerochkagym.ui.permissions.PermissionSnapshot
 import com.valerochka1337.valerochkagym.worker.UploadScheduler
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.util.concurrent.atomic.AtomicBoolean
@@ -99,6 +104,7 @@ constructor(
     private val uploadScheduler: UploadScheduler,
     private val heartRateMonitor: HeartRateMonitor,
     private val savedStateHandle: SavedStateHandle,
+    private val permissionRecoveryController: PermissionRecoveryController? = null,
 ) : ViewModel() {
 
   /** Состояние таймера отдыха (null = неактивен) — пилюля на экране подписана прямо на движок. */
@@ -112,6 +118,7 @@ constructor(
   private val previousSummaries = MutableStateFlow<Map<Long, String>>(emptyMap())
   private val isFinishing = MutableStateFlow(false)
   private val finishInFlight = AtomicBoolean(false)
+  private val consumedPermissionActionTokens = mutableSetOf<String>()
   private val loadingPrevious = mutableSetOf<Long>()
   private val completedSetEdit = MutableStateFlow(savedCompletedSetEdit())
   private var restoredDraftNeedsValidation = completedSetEdit.value != null
@@ -216,6 +223,32 @@ constructor(
 
   /** Начать пользовательский сценарий подключения BLE Heart Rate Service. */
   fun scanHeartRate() = heartRateMonitor.scan()
+
+  /** Starts BLE only while the permission request still belongs to the current Room workout. */
+  fun scanHeartRateForWorkout(workoutId: String) {
+    if (activeWorkout.value?.workout?.id == workoutId) heartRateMonitor.scan()
+  }
+
+  fun scanHeartRateForPermissionAction(actionToken: String, workoutId: String) {
+    if (consumedPermissionActionTokens.add(actionToken)) scanHeartRateForWorkout(workoutId)
+  }
+
+  suspend fun decidePermissions(live: List<LivePermissionState>): PermissionRecoveryDecision =
+      permissionRecoveryController?.decide(live)
+          ?: PermissionRecoveryPolicy.decide(
+              live.map { state ->
+                PermissionSnapshot(
+                    permission = state.permission,
+                    granted = state.granted,
+                    requestedBefore = false,
+                    shouldShowRationale = state.shouldShowRationale,
+                )
+              }
+          )
+
+  suspend fun markPermissionRequestLaunched(permissions: Collection<String>) {
+    permissionRecoveryController?.markRequestLaunched(permissions)
+  }
 
   fun connectHeartRate(device: HeartRateDevice) = heartRateMonitor.connect(device)
 

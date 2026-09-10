@@ -325,6 +325,42 @@ class ActiveWorkoutViewModelTest {
         assertEquals(128, harness.viewModel.heartRateReading.value?.bpm)
       }
 
+  @Test
+  fun `permission recovery scans only while its exact active workout remains current`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val harness = harness(active = workoutFull(setId = 10L))
+        collectUiState(harness.viewModel)
+
+        harness.viewModel.scanHeartRateForWorkout("other-workout")
+        harness.viewModel.scanHeartRateForWorkout("w1")
+
+        assertEquals(1, harness.heartRateMonitor.scanCalls)
+      }
+
+  @Test
+  fun `permission recovery does not scan after the active workout disappears`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val harness = harness(active = null)
+        collectUiState(harness.viewModel)
+
+        harness.viewModel.scanHeartRateForWorkout("w1")
+
+        assertEquals(0, harness.heartRateMonitor.scanCalls)
+      }
+
+  @Test
+  fun `permission recovery consumes one BLE action token only once`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val harness = harness(active = workoutFull(setId = 10L))
+        collectUiState(harness.viewModel)
+
+        harness.viewModel.scanHeartRateForPermissionAction("20", "w1")
+        harness.viewModel.scanHeartRateForPermissionAction("20", "w1")
+        harness.viewModel.scanHeartRateForPermissionAction("21", "w1")
+
+        assertEquals(2, harness.heartRateMonitor.scanCalls)
+      }
+
   // endregion
 
   // region structure edits

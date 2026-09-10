@@ -4,10 +4,7 @@ import android.Manifest
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
-import android.content.pm.PackageManager
 import android.view.WindowManager
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Animatable
@@ -86,7 +83,6 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.core.content.ContextCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
@@ -108,6 +104,8 @@ import com.valerochka1337.valerochkagym.ui.components.NumberField
 import com.valerochka1337.valerochkagym.ui.components.PillButton
 import com.valerochka1337.valerochkagym.ui.components.rememberGymReorderableLazyListState
 import com.valerochka1337.valerochkagym.ui.haptics.gymHaptics
+import com.valerochka1337.valerochkagym.ui.permissions.AndroidPermissionPlatform
+import com.valerochka1337.valerochkagym.ui.permissions.rememberPermissionRecoveryHost
 import com.valerochka1337.valerochkagym.ui.theme.GymMotion
 import kotlinx.coroutines.flow.StateFlow
 import sh.calvin.reorderable.ReorderableItem
@@ -125,6 +123,7 @@ private const val REPS_STEP = 1
 
 /** Шаг правки таймера отдыха на пилюле, сек. */
 private const val REST_TIMER_STEP = 15
+private const val BLE_PENDING_KIND = "ble"
 
 /**
  * Экран активной тренировки («вариант B» — фокус на текущем подходе). Тренировка уже создана (старт
@@ -144,32 +143,23 @@ fun ActiveWorkoutScreen(
   val state by viewModel.uiState.collectAsStateWithLifecycle()
   val context = LocalContext.current
   val snackbarHostState = remember { SnackbarHostState() }
-  var showNearbyDevicesRationale by rememberSaveable { mutableStateOf(false) }
-  val nearbyDevicesPermission =
-      rememberLauncherForActivityResult(
-          ActivityResultContracts.RequestMultiplePermissions(),
-      ) {
-        // Даже при отказе запускаем монитор: он переведёт плитку в PermissionRequired с понятным
-        // объяснением, а не оставит кнопку в неопределённом исходном состоянии.
-        viewModel.scanHeartRate()
-      }
+  val permissionPlatform = remember(context) { AndroidPermissionPlatform(context) }
+  val permissionHost =
+      rememberPermissionRecoveryHost(
+          kind = BLE_PENDING_KIND,
+          permissions =
+              listOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT),
+          platform = permissionPlatform,
+          decide = viewModel::decidePermissions,
+          markRequestLaunched = viewModel::markPermissionRequestLaunched,
+          onAction = { token, workoutId, _ ->
+            viewModel.scanHeartRateForPermissionAction(token, workoutId)
+          },
+      )
 
   fun startHeartRateSearch() {
-    val hasScan =
-        ContextCompat.checkSelfPermission(
-            context,
-            Manifest.permission.BLUETOOTH_SCAN,
-        ) == PackageManager.PERMISSION_GRANTED
-    val hasConnect =
-        ContextCompat.checkSelfPermission(
-            context,
-            Manifest.permission.BLUETOOTH_CONNECT,
-        ) == PackageManager.PERMISSION_GRANTED
-    if (hasScan && hasConnect) {
-      viewModel.scanHeartRate()
-    } else {
-      showNearbyDevicesRationale = true
-    }
+    val workoutId = state.workout?.workout?.id ?: return
+    permissionHost.begin(workoutId)
   }
 
   LaunchedEffect(Unit) {
@@ -256,9 +246,9 @@ fun ActiveWorkoutScreen(
     }
   }
 
-  if (showNearbyDevicesRationale) {
+  if (permissionHost.showDialog) {
     AlertDialog(
-        onDismissRequest = { showNearbyDevicesRationale = false },
+        onDismissRequest = permissionHost::cancel,
         title = { Text("Подключить датчик пульса?") },
         text = {
           Text(
@@ -267,23 +257,11 @@ fun ActiveWorkoutScreen(
           )
         },
         confirmButton = {
-          TextButton(
-              onClick = {
-                showNearbyDevicesRationale = false
-                nearbyDevicesPermission.launch(
-                    arrayOf(
-                        Manifest.permission.BLUETOOTH_SCAN,
-                        Manifest.permission.BLUETOOTH_CONNECT,
-                    ),
-                )
-              }
-          ) {
-            Text("Продолжить")
+          TextButton(onClick = { permissionHost.confirm() }) {
+            Text(if (permissionHost.offersSettings) "Открыть настройки" else "Продолжить")
           }
         },
-        dismissButton = {
-          TextButton(onClick = { showNearbyDevicesRationale = false }) { Text("Не сейчас") }
-        },
+        dismissButton = { TextButton(onClick = permissionHost::cancel) { Text("Не сейчас") } },
     )
   }
 }

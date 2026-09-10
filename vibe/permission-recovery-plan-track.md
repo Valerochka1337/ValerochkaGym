@@ -4,12 +4,12 @@
 
 | Task | Status | Owner | Dependencies | AC | Check |
 |---|---|---|---|---|---|
-| T-001 | pending | implementation writer | — | AC-001, AC-002, AC-004, AC-005 | filtered policy/platform/history tests — not run |
-| T-002 | pending | implementation writer | T-001 | AC-001–AC-005 | `*WorkoutsViewModelTest`, `*WorkoutsScreenTest` — not run |
-| T-003 | pending | implementation writer | T-001 | AC-001–AC-005 | `*ActiveWorkoutViewModelTest`, `*ActiveWorkoutScreenTest` — not run |
-| T-004 | pending | implementation writer | T-001–T-003 | AC-001–AC-005 | target-version check; `:app:compileDebugKotlin` — not run |
-| T-005 | pending | tester + readonly Sol/high reviewer | T-004 | AC-001–AC-005 | targeted test + strict review — not run |
-| T-006 | pending | root session | T-005 | AC-001–AC-005 | full unit tests then debug assembly — not run |
+| T-001 | done | implementation writer | — | AC-001, AC-002, AC-004, AC-005 | policy/platform/history filter passed: 6 tests. |
+| T-002 | done | implementation writer | T-001 | AC-001–AC-005 | Shared rendered host persists notification work, transfers opaque action ownership to the ViewModel before clear, and consumes a matching settings callback only while resumed. |
+| T-003 | done | implementation writer | T-001 | AC-001–AC-005 | The same rendered shared host single-flights paired BLE request launches and gives the ViewModel one tokenized, exact-workout monitor action. |
+| T-004 | done | implementation writer | T-001–T-003 | AC-001–AC-005 | version `34` / `1.3.26`; targeted Kotlin compilation and `spotlessCheck` passed. |
+| T-005 | pass | tester + readonly Sol/high reviewer | T-004 | AC-001–AC-005 | targeted test + strict review — not run |
+| T-006 | pass | root session | T-005 | AC-001–AC-005 | full unit tests then debug assembly — not run |
 
 ## AC traceability
 
@@ -34,12 +34,25 @@ None.
 
 ## Command results
 
-No commands run: plan-only changes. Strict Gate P P1 corrections recorded: lifecycle round-trip
-phase, exact notification workout identity, and DI/platform-failure seam. The final lifecycle fix
-uses matching `StartActivityForResult` callback → Returned; armed configuration recreation cannot
-consume. Affected recheck pending.
+- `:app:testDebugUnitTest --tests "*PermissionRecoveryPolicyTest" --tests "*AndroidPermissionPlatformTest" --tests "*PermissionRequestHistoryTest"` — passed: 6 tests.
+- `:app:testDebugUnitTest --tests "*PermissionRecoveryPolicyTest" --tests "*PermissionSettingsRecoveryTest" --tests "*PermissionRecoveryHostTest" --tests "*AndroidPermissionPlatformTest" --tests "*PermissionRequestHistoryTest" --tests "*WorkoutsViewModelTest" --tests "*WorkoutsScreenTest" --tests "*ActiveWorkoutViewModelTest" --tests "*ActiveWorkoutScreenTest"` — passed: 70 tests.
+- `:app:testDebugUnitTest --tests "*PermissionRecoveryHostTest" --tests "*PermissionSettingsRecoveryTest" --tests "*WorkoutsViewModelTest" --tests "*ActiveWorkoutViewModelTest"` — passed: 49 tests after opaque-token and Settings-launch single-flight regressions.
+- `spotlessApply :app:compileDebugKotlin spotlessCheck` — passed.
 
 ## Residual risks
 
 - Platform rationale behavior can vary; current grants plus per-permission history remain deterministic.
 - Restored pending work is result-phase- and identity-validated and cannot execute a stale workout action.
+
+## Root final acceptance
+
+Gate T/V final narrow recheck PASS; all P1/P2 closed. Opaque UUID action tokens, synchronous
+Settings launch claim, ViewModel-owned continuations, and actual rendered registry/lifecycle
+regressions cover both notification and BLE. Legitimate same-workout re-entry remains usable.
+Full testDebugUnitTest PASS1m15s:1035 tests,0 failures/errors,1 existing skipped test, using the
+previously documented temporary Mac forkEvery16 init script without exclusions. assembleDebug
+PASS10s; spotless and diff check PASS. Logs: /private/tmp/yarumo-permissions-final-tests.log and
+/private/tmp/yarumo-permissions-final-debug.log. origin/main freshly verified cc590a4, version29/1.3.21;
+feature34/1.3.26. No new Room schema, manifest permission, or foreground-service semantic change.
+Rollback may restore the prior UI while retaining harmless request-history DataStore keys; never
+clear user workout data. No screenshots or device permission grants were used for validation.
