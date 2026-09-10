@@ -18,7 +18,7 @@ Status values: `pending | in_progress | done | blocked`.
 | AC | Tasks | Tests / checks |
 |---|---|---|
 | AC-001 | T-001–004,T-008 | `BackendSyncTest`: non-empty guest/server union, final ACK only after last batch/no outbox/fresh snapshot equality, copy ACK, lost response exact retry; final unit suite. |
-| AC-002 | T-002–004,T-008 | migration and `BackendSyncTest`: legacy A is OWNED, A→B purge keeps standard catalog and cannot upload A payload as B. |
+| AC-002 | T-002–004,T-008 | migration and `BackendSyncTest`: legacy A is OWNED, A→B dirty/journal preflight blocks without data/token changes; clean replacement keeps standard catalog and cannot upload A payload as B. |
 | AC-003 | T-001–004,T-008 | `BackendSyncTest` real Room recreation: legacy GUEST/OWNED, CLAIMED/OWNED, B-only resume, token-loss/lost response and C rejection; Account recovery tests. |
 | AC-004 | T-003,T-004,T-008 | `BackendSyncTest`: every-run workout conflict applies one server snapshot and contains no clone. |
 | AC-005 | T-002–004,T-008 | `BackendSyncTest`: routine server baseline only, one mapped local complete dirty copy gets baseline after its ACK, stable replay exactly two. |
@@ -27,7 +27,7 @@ Status values: `pending | in_progress | done | blocked`.
 
 ## Deviations
 
-- None. `<N>` must be replaced by the current Room predecessor immediately before implementation; current planning evidence is version 16.
+- Root preservation amendment: owner-switch preflight must include portable/baseline differences, both exact-request journals, catalogue transition and configuration tombstones before any A→B cleanup/token replacement. Independent Sol/high strict re-review PASS (no P0/P1); no destructive bypass added. `<N>` must be replaced by the current Room predecessor immediately before implementation; current planning evidence is version 16.
 - Calendar plan aggregate tracking is intentionally deferred to CAL-01. Existing `scheduled_workouts` remains in the current portable union only.
 
 ## Findings
