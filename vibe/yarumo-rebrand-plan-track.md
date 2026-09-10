@@ -9,7 +9,7 @@
 | T-003 | pending | implementation writer | T-001–T-002 | AC-001, AC-003, AC-004 | brand/identity `rg` audit — not run |
 | T-004 | pending | implementation writer | T-001–T-003 | AC-001–AC-005 | target-version check; `:app:compileDebugKotlin` — not run |
 | T-005 | pending | tester + readonly Sol/high reviewer | T-004 | AC-001–AC-005 | targeted tester check + strict review — not run |
-| T-006 | pending | root session | T-005 | AC-001–AC-005 | full tests → debug assembly; APK metadata; conditional release/device upgrade — not run |
+| T-006 | pending | root session | T-005 | AC-001–AC-005 | full tests → debug assembly; APK metadata; release R8 attempt/device upgrade — not run |
 
 ## AC traceability
 
@@ -23,14 +23,14 @@
 
 ## Deviations
 
-None. Record any asset derivation, compatibility invariant, unavailable release-signing/device, or
+Strict plan review corrections applied by root; Sol/high narrow recheck PASS. Record any compatibility invariant, unavailable release-signing/device, or
 external OAuth-console status here.
 
 ## Findings
 
 - Four aliases are coupled through `AccentColor.aliasName` and `AppIconManager`; names/order stay.
 - Existing adaptive icon foregrounds are accent vectors, monochrome is a vector, and legacy density
-  PNGs remain for non-adaptive launchers.
+  PNGs are retained but unreachable on supported minSdk 36.
 - Updater/release convention and portable UUID namespaces deliberately retain `ValerochkaGym`.
 
 ## Command results
@@ -42,3 +42,5 @@ No commands run: this is plan-only work.
 - Launcher crop/themed rendering differs by OEM; adaptive safe inset, round/monochrome resource
   checks, and available-device validation cover supported evidence without screenshots.
 - Google OAuth console display name is external; README checklist records it as manual, not shipped.
+
+Gate P strict: PASS. Все P1/P2 по исходным ресурсам, геометрии, совместимости, R8 и откату закрыты.

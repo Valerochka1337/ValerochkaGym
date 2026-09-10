@@ -34,12 +34,13 @@
 | Этапы / issue | Ветка | Статус | Проверки / commit / версия |
 |---|---|---|---|
 | 01–02 / #45–46 | fix/workout-program-save | done_local | cdde249; Full 985 tests, 0 failures/errors, 1 skipped; debug PASS; strict review PASS; версия 30 / 1.3.22; Mac full suite через временный forkEvery=16 |
-| 03 / #44 | fix/completed-set-edit | in_progress | Gate P strict recheck PASS; implementer владеет app-изменениями и targeted Gradle |
+| 03 / #44 | fix/completed-set-edit | in_progress | Gate I PASS: 81 targeted tests + compile/spotless; независимые tester/reviewer проверяют стабильный diff |
 | 04 / #47 | следующая fix/workout-finish | plan_ready | Gate P strict recheck PASS, terminal single-flight зафиксирован; отдельная фича после #44, собственный bump |
 | 06 / #10 | следующая fix/permission-recovery | plan_ready | Gate P strict PASS; ActivityResult и текущие grants определяют возврат из настроек |
-| 07 / #48 | следующая feat/yarumo-rebrand | plan_review | План готов, независимая проверка ресурсов и update-совместимости |
+| 07 / #48 | следующая feat/yarumo-rebrand | plan_ready | Gate P strict PASS; неизменный исходник + XML fill/inset, точные identity/signer/R8/forward rollback gates |
+| 08 / #43 | следующая feat/google-account-calendar | plan_ready | Gate P strict PASS; verified connected identity, account-bound operations, ownerless quarantine and saved consent target |
 | 11–12 / #51 | следующая feat/guest-sync | plan_ready | Gate P strict recheck PASS, шесть замечаний claim/token/conflict/migration закрыты |
-| CAL-01 server slice | backend feat/calendar-plan-contract | in_progress | Контракт заморожен, canonical fixture d841e2a6…; отдельный backend checkout; Android Room slice ждёт этап12 |
+| CAL-01 server slice | backend feat/calendar-plan-contract | done_local | c73c411; full check/bootJar PASS, 44 tests 0 failures; strict PASS; upstream push/deploy blocked READ rights; Android Room slice ждёт этап12 |
 
 ## Инфраструктура и релиз
 
@@ -62,3 +63,10 @@
   проверкой не создавались.
 - #45/#46 готовы локально; main/release ещё не опубликованы этой реализацией.
 - Финальные результаты CI, release URL, asset и коммиты будут записаны после фактической проверки.
+
+## Текущий внешний блокер
+
+Backend GitHub: viewerPermission READ; SSH dry-run push отказан аккаунту rurkk. Android
+viewerPermission WRITE. Actions secrets/variables backend также403. Это ограничение прав GitHub,
+не отказ auto-review. Серверный код продолжаем готовить локально; production deploy не объявляем
+выполненным. Запрошенных владельцем функциональных изменений из-за этого не исключаем.
