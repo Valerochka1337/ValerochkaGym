@@ -42,15 +42,15 @@
 | 05 / #5 | fix/empty-workout-start | done_local | 6ecb7a0; full1013tests0failures,1skipped/debug/spotlessPASS; independentreviewPASS;33/1.3.25 |
 | 06 / #10 | fix/permission-recovery | done_local | 455f05a; full1035tests0failures/1skip,debugPASS,T/VPASS;34/1.3.26 |
 | 07 / #48 | feat/yarumo-rebrand | done_local | a1dc851; full1041tests0failures1skip/debug/R8PASS; strictT/VPASS;35/1.3.27; canonical emulator34→35 and accessibilityPASS; signedrelease awaitsCI |
-| 08 / #43 | feat/google-account-calendar | in_progress | Gate P strict PASS; verified connected identity, account-bound operations, ownerless quarantine and saved consent target |
-| 11–12 / #51 | следующая feat/guest-sync | plan_ready | Gate P strict recheck PASS, шесть замечаний claim/token/conflict/migration закрыты |
+| 08 / #43 | feat/google-account-calendar | done_local |5c96376; full1083tests0failures/errors1skip/debugPASS; T/V PASS after final-write and legacy-fixture repairs;36/1.3.28, Room17 |
+| 11–12 / #51 | feat/guest-sync | in_progress | Gate P strict recheck PASS; actual-source T001 PASS; next migration17→18, sole Android writer starts after#43 |
 | CAL-01 server slice | backend feat/calendar-plan-contract | done_local | c73c411; full check/bootJar PASS, 44 tests 0 failures; strict PASS; upstream push/deploy blocked READ rights; Android Room slice ждёт этап12 |
 | AI-01 server slice | backend feat/server-ai-drafts | done_local | a5b567a; Gate T/V PASS; full check/bootJar64tests0failures;15 Python delivery tests PASS; READ rights block upstream; Android slice ждёт12 |
 | 10 / #9 server slice | backend feat/workout-notes-contract | done_local | f26de34; Gate T/V PASS; full68tests0failures/check/bootJarPASS; Android slice waits12/CAL01 |
 
 | 14–15 / #50 server slice | backend feat/basic-profile-contract | done_local | 03a0c1d; Gate T/V PASS; full72tests0failures/check/bootJarPASS; Android follows notes/current schema |
 | PLAN-01 server slice | backend feat/training-proposals | blocked_partial | safe subset commit7f27801; narrow independent review PASS; root96tests0failures/errors/skips/check bootJarPASS; edited-preview approval remains auto-review blocked, full AC not accepted |
-| 17 / manual health server slice | backend feat/manual-health-ledger | in_progress | strict plan repair review PASS; sole backend writer starts from7f27801, actual next migration frozen at T001; no release claimed |
+| 17 / manual health server slice | backend feat/manual-health-ledger | done_local |8bc1fae; migration011, canonical fixture parity, final120tests0failures/errors/skips/checkbootJarPASS; independentT/V PASS after4fixes; no release claimed |
 
 Agent routing for stage08: environment rejected both new named implementer and original implementer follow-up with `agent thread limit reached`. Reused an available default Sol/high agent as the sole Android writer; ownership, targeted Gate I and independent T/V remain mandatory. Backend has its own separate checkout/writer. This changes routing only, not acceptance criteria.
 

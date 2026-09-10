@@ -2,6 +2,16 @@
 
 ## Продолжение после перехвата (актуальнее исторического состояния ниже)
 
+Последнее обновление: #43 **done_local 5c96376**, version36/1.3.28 Room17,
+full1083tests0failures/errors1skip/debugPASS. После двух final-write P1 и старого
+миграционного fixture исправления independent T/V/narrow reviews PASS. Логи:
+`/private/tmp/yarumo-calendar-final-unit-rerun.log`, `/private/tmp/yarumo-calendar-final-debug.log`.
+Серверное здоровье **done_local 8bc1fae** на feat/manual-health-ledger, migration011,
+full120tests0failures/errors/skips/checkbootJarPASS;4reviewfindings исправлены и перепроверены.
+Android следующий этап — feat/guest-sync, actual-source T001 PASS, migration17→18.
+Backend coach-relations пока только готовится planner, implementation не начата.
+PLAN01 edited-preview patch остаётся отдельно заблокированным; новых публикаций нет.
+
 - Checkout/ветки/dirty-наборы сверены; Android `origin/main` по-прежнему `cc590a4`, backend `origin/main` `dba59ae`.
 - Backend backup assertion исправлен на11 и дополнен точным сравнением всей Liquibase history до dump/после restore. Targeted1test PASS, независимый Sol/high narrow review PASS, root `check bootJar` **96tests/0failures/errors/skips PASS**, log `/private/tmp/yarumo-training-proposals-takeover-check.log`.
 - Safe PLAN01 subset сохранён в **7f27801**, ветка `feat/training-proposals` сохранена. Edited-preview equality/патч не изменены: отдельный запрос разрешения отправлен в текущей задаче, ответа пока нет. Полная PLAN01 приёмка остаётся заблокированной.

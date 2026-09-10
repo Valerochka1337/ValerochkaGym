@@ -4,7 +4,7 @@ Status values: `pending | in_progress | done | blocked`.
 
 | Task | Status | Owner | Depends | AC | Automated evidence / observable completion |
 |---|---|---|---|---|---|
-| T-001 | pending | Writer | — | AC-001–007 | Contract checklist: legacy state, exact retry/409, server-only baseline, final ACK and explicit-conflict no-mutation are frozen before source edits. |
+| T-001 | done | Writer | — | AC-001–007 | Read-only preflight: actual predecessor17, next17→18; accepted contract checked against BackendSync/PortableData/SyncSchema/CatalogSync/BackendTokenStore/AccountVM; implementation waits for #43 acceptance and new branch. |
 | T-002 | pending | Writer (sole Room owner) | T-001 | AC-002,003,007 | Targeted incremental/full migration; both legacy owner branches preserve data, baseline/outbox bytes and state/mapping. |
 | T-003 | pending | Writer | T-002 | AC-001–006 | `:app:compileDebugKotlin`; claim/recovery, operation handling, every-run policy and UI compile. |
 | T-004 | pending | Writer | T-003 | AC-001–007 | Targeted `BackendSyncTest`, `AccountViewModelTest`, `AccountFormComposeTest`; union, ACK/retry/409/conflicts/active race regressions. |
@@ -31,6 +31,8 @@ Status values: `pending | in_progress | done | blocked`.
 - Calendar plan aggregate tracking is intentionally deferred to CAL-01. Existing `scheduled_workouts` remains in the current portable union only.
 
 ## Findings
+
+- Takeover read-only preflight: `BackendSync.run` refreshes catalog before ownership checks; guard phase/target/token before that and inside every apply/ACK transaction. Definite409 must not keep reattempting the rejected outbox as ambiguous, and manual resolve must not delete it before a safe choice. `CatalogSync.personalCopy` alone lacks durable conflict mapping/canonical fingerprint. Final no-batch return is not initial-merge ACK proof. Actual Room predecessor17 confirmed against exported schema; migration17→18 must preserve exact baseline/outbox bytes and update historical recovery fixtures for any new objects.
 
 - 2026-09-10 planning: current `BackendSync.claim` clears data when `previous != user`, including first `null→user`; it is incompatible with AC-001.
 - 2026-09-10 planning: `BackendTokenStore` uses Keystore + `AtomicFile`, so a cross-store transaction is impossible. The durable claim-before-token B-only recovery contract is required.

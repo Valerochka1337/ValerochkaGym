@@ -41,4 +41,30 @@ Provider output/промпт/ошибки не сохраняются и не л
 
 ## Карта реализации и проверки
 
+Уточнение Gate R при перехвате 10.09.2026: `records` workout JSON уже содержит
+`finishedAt`, canonical `exerciseId`, `isCompleted` и nullable `completedAt`; отдельная
+история для AI не нужна. Root принимает существующий Android fallback
+`WorkoutDao.observeCompletedSets`: время факта `COALESCE(completedAt, workout.startedAt)`.
+Фильтр требует завершённую неделетированную тренировку и `isCompleted=true`, затем
+применяет capture-window к времени факта; завершённая тренировка без выполненных подходов
+не добавляет наблюдений. Gate P включает граничные/DST/future timestamps и bounded
+backend projection: нынешний общий `findByUserIdOrderByKindAscIdAsc` не является
+доказательством ограниченного чтения истории большого аккаунта.
+
+Перед Gate P остаются точные fallback времени заметок/подсказок, таблица goal preference
+с устойчивым tie-breaker и числовая политика с отдельными eval fixtures. Это задачи
+исполнителя в принятом объёме, не разрешение использовать transport max1e6 как норму.
+Нужны примеры goal-priority против coverage, unknown goal без подстановки, same-exercise
+weight-or-null, UTF-8/whole-note cap и атомарный отказ всего предложения при numeric violation.
+Новый typed calendar action/schema не должен переиспользовать boolean exercise/InBody branch.
+
+Следующий research-pass предложил как инженерный вариант точное переиспользование наблюдённого
+веса без автопрогрессии и отдельные небольшие лимиты формы one-off draft. Это **ещё не
+зафиксированная числовая политика**: транспортные ограничения не являются нормами тренировки.
+Предложенный исследователем жёсткий отбор типов по цели и обязательный prefix всего рейтинга
+root не принимает без Gate P: тип сам по себе не доказывает соответствие цели, а такой prefix
+может исключить полезный вариант и противоречить добровольным предпочтениям. Goal preference
+должен оставаться явно описанной продуктовой эвристикой с проверяемым приоритетом, а не
+необоснованным физиологическим запретом.
+
 Backend: `AiContextReader`, `AiActionService`, provider/schema validator/controller DTO, internal TrainingProposalAiCreator; backend tests с fake provider и барьерами. Android: AI-01 repository/readiness, calendar VM/action, profile gate, PLAN-01 preview; никаких новых Room сущностей без отдельной необходимости. Контракт AI-01 расширяется аддитивно: старые exercise/InBody схемы не переопределяются. Один writer на backend, один на Android после backend acceptance; общий DTO/fixture сначала. Root final unit/debug, server check/bootJar и строгий T/V обязательны.
