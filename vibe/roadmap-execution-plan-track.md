@@ -35,8 +35,8 @@
 | Этапы / issue | Ветка | Статус | Проверки / commit / версия |
 |---|---|---|---|
 | 01–02 / #45–46 | fix/workout-program-save | done_local | cdde249; Full 985 tests, 0 failures/errors, 1 skipped; debug PASS; strict review PASS; версия 30 / 1.3.22; Mac full suite через временный forkEvery=16 |
-| 03 / #44 | fix/completed-set-edit | in_progress | Gate I PASS: 81 targeted tests + compile/spotless; независимые tester/reviewer проверяют стабильный diff |
-| 04 / #47 | следующая fix/workout-finish | plan_ready | Gate P strict recheck PASS, terminal single-flight зафиксирован; отдельная фича после #44, собственный bump |
+| 03 / #44 | fix/completed-set-edit | done_local | 8c243e4; full1002 tests 0failures,1skipped; debugPASS; GateV/T PASS с принятым popup P2;31/1.3.23 |
+| 04 / #47 | fix/workout-finish | in_progress | GateP strictPASS; implementerT001–003 после8c243e4; плановый32/1.3.24 |
 | 06 / #10 | следующая fix/permission-recovery | plan_ready | Gate P strict PASS; ActivityResult и текущие grants определяют возврат из настроек |
 | 07 / #48 | следующая feat/yarumo-rebrand | plan_ready | Gate P strict PASS; неизменный исходник + XML fill/inset, точные identity/signer/R8/forward rollback gates |
 | 08 / #43 | следующая feat/google-account-calendar | plan_ready | Gate P strict PASS; verified connected identity, account-bound operations, ownerless quarantine and saved consent target |
@@ -71,3 +71,7 @@ Backend GitHub: viewerPermission READ; SSH dry-run push отказан акка�
 viewerPermission WRITE. Actions secrets/variables backend также403. Это ограничение прав GitHub,
 не отказ auto-review. Серверный код продолжаем готовить локально; production deploy не объявляем
 выполненным. Запрошенных владельцем функциональных изменений из-за этого не исключаем.
+
+Дополнительная read-only проверка через уже подключённый GitHub connector подтверждает backend
+permissions: pull=true, push=false, admin=false. Доступ через другой доступный интерфейс также
+не даёт прав публикации; попытки записи через него не выполнялись.
