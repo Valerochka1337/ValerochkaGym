@@ -4,7 +4,7 @@ Status values: `pending | in_progress | done | blocked`.
 
 | Task | Status | Owner | Depends | AC | Automated evidence / observable completion |
 |---|---|---|---|---|---|
-| T-001 | pending | Contract owner | AI-01, CAL-01, guest-sync | AC-001–006 | `vibe/contracts/training-proposals-contract.json` parity/hash with backend plan/tracker at `/private/tmp/yarumo-backend-delivery`. |
+| T-001 | done | Contract owner | AI-01, CAL-01, guest-sync | AC-001–006 | Strict fixture accepted in ca41f1f; pre-implementation correction caps gymIds at 1000 to match routine validation. Both fixture copies SHA-256 `65254ebf9aaa4062ebf8ef71df99c76876685ce10ec0bd2fa8645fced56ea998`. Backend implementation and independent verification remain separate gates. |
 | T-002 | pending | Sole backend writer | T-001, accepted next basic-profile backend baseline | AC-001–008 | Proposal/auth/transaction races, migration and focused backend tests pass. |
 | T-002V | pending | Independent backend tester/reviewer | stable T-002 | AC-001–008 | Strict backend Gate T/V packet before Android starts. |
 | T-002F | pending | Backend writer + root acceptance | T-002V | AC-001–008 | Bounded fix, backend full test/boot artifact and accepted baseline (68 tests reported passing). |

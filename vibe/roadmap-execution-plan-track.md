@@ -49,7 +49,7 @@
 | 10 / #9 server slice | backend feat/workout-notes-contract | done_local | f26de34; Gate T/V PASS; full68tests0failures/check/bootJarPASS; Android slice waits12/CAL01 |
 
 | 14–15 / #50 server slice | backend feat/basic-profile-contract | done_local | 03a0c1d; Gate T/V PASS; full72tests0failures/check/bootJarPASS; Android follows notes/current schema |
-| PLAN-01 server slice | backend feat/training-proposals | in_progress | T001 strict fixture accepted ca41f1f; SHA a19b0bd751f9595c533a67a7fa3ed52ffcfad71ee2b79542dbd8d7576c4aeb24; migration010 and atomic approval implementation |
+| PLAN-01 server slice | backend feat/training-proposals | in_progress | T001 strict fixture accepted ca41f1f; updated gymIds≤1000 fixture SHA 65254ebf9aaa4062ebf8ef71df99c76876685ce10ec0bd2fa8645fced56ea998; migration010 and atomic approval implementation; independent V fixes pending |
 
 Agent routing for stage08: environment rejected both new named implementer and original implementer follow-up with `agent thread limit reached`. Reused an available default Sol/high agent as the sole Android writer; ownership, targeted Gate I and independent T/V remain mandatory. Backend has its own separate checkout/writer. This changes routing only, not acceptance criteria.
 
