@@ -41,3 +41,5 @@ Pending implementation. T-001 records fixture hash; writers append only final ta
 DataStore cannot atomically commit with Room; the reservation/shown-ack/token protocol prevents double submit but a process death after consumption requires explicit re-entry. Backend publication/live provider verification remains separate from local contract validation.
 
 Root: strict Sol/high narrow Gate P recheck PASS; all three P1 findings closed.
+
+Root canonical fixture prepared at vibe/basic-profile-sync-contract.json, SHA256 1bec288ad8d841efaf645af13ac5ea1cbe2b53c841846589c8101cfe3f524ed6. Per-checkout copies wait their feature branches; no app changes mixed into preparation.

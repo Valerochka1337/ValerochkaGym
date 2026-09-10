@@ -46,6 +46,7 @@
 | 11–12 / #51 | следующая feat/guest-sync | plan_ready | Gate P strict recheck PASS, шесть замечаний claim/token/conflict/migration закрыты |
 | CAL-01 server slice | backend feat/calendar-plan-contract | done_local | c73c411; full check/bootJar PASS, 44 tests 0 failures; strict PASS; upstream push/deploy blocked READ rights; Android Room slice ждёт этап12 |
 | AI-01 server slice | backend feat/server-ai-drafts | done_local | a5b567a; Gate T/V PASS; full check/bootJar64tests0failures;15 Python delivery tests PASS; READ rights block upstream; Android slice ждёт12 |
+| 10 / #9 server slice | backend feat/workout-notes-contract | test_followup | Gate T/V PASS production; focused P2 assertions before root full gates; Android slice waits12/CAL01 |
 
 ## Инфраструктура и релиз
 
@@ -79,3 +80,7 @@ viewerPermission WRITE. Actions secrets/variables backend также403. Это 
 Дополнительная read-only проверка через уже подключённый GitHub connector подтверждает backend
 permissions: pull=true, push=false, admin=false. Доступ через другой доступный интерфейс также
 не даёт прав публикации; попытки записи через него не выполнялись.
+
+Публикация backend: единственный уже подключённый gh аккаунт rurkk, READ; репозиторий публичный.
+После завершения кода допустим обычный fork + upstream PR для публикации, без обхода прав.
+Это не даёт merge/deploy права upstream и не считается успешным production release.
