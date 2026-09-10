@@ -1,18 +1,38 @@
 package com.valerochka1337.valerochkagym.domain
 
+import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
 import com.valerochka1337.valerochkagym.data.db.entity.WorkoutSetEntity
 import com.valerochka1337.valerochkagym.di.ApplicationScope
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.math.roundToInt
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
 
 /** Отложенная правка одного подхода: применяется к его текущему (свежему из БД) состоянию. */
+private sealed interface WorkoutSetMutationRequest
+
 private data class SetMutation(
     val setId: Long,
     val transform: (WorkoutSetEntity) -> WorkoutSetEntity,
+) : WorkoutSetMutationRequest
+
+private data class CompletedSetNumberEdit(
+    val setId: Long,
+    val type: ExerciseType,
+    val values: CompletedSetNumbers,
+    val reply: CompletableDeferred<CompletedSetEditResult>,
+) : WorkoutSetMutationRequest
+
+/** Type-scoped numeric values supplied by the completed-set editor. */
+data class CompletedSetNumbers(
+    val weightKg: Double? = null,
+    val reps: Int? = null,
+    val durationSec: Int? = null,
+    val speedKmh: Double? = null,
+    val inclinePct: Double? = null,
 )
 
 /**
@@ -34,13 +54,35 @@ constructor(
     @param:ApplicationScope private val scope: CoroutineScope,
 ) {
 
-  private val mutations = Channel<SetMutation>(Channel.UNLIMITED)
+  private val mutations = Channel<WorkoutSetMutationRequest>(Channel.UNLIMITED)
 
   init {
     scope.launch {
       for (mutation in mutations) {
-        val current = repository.getSet(mutation.setId) ?: continue
-        repository.updateSet(mutation.transform(current))
+        when (mutation) {
+          is SetMutation -> {
+            val current = repository.getSet(mutation.setId) ?: continue
+            repository.updateSet(mutation.transform(current))
+          }
+
+          is CompletedSetNumberEdit -> {
+            val result =
+                try {
+                  val current = repository.getSet(mutation.setId)
+                  if (current == null) {
+                    CompletedSetEditResult.MissingOrInactive
+                  } else {
+                    repository.updateCompletedSetNumbers(
+                        current.withCompletedNumbers(mutation.type, mutation.values),
+                        mutation.type,
+                    )
+                  }
+                } catch (_: Exception) {
+                  CompletedSetEditResult.MissingOrInactive
+                }
+            mutation.reply.complete(result)
+          }
+        }
       }
     }
   }
@@ -93,10 +135,36 @@ constructor(
   fun edit(setId: Long, transform: (WorkoutSetEntity) -> WorkoutSetEntity) =
       enqueue(setId, transform)
 
+  /** Queues a guarded completed-set numeric edit and always completes its reply. */
+  suspend fun editCompletedNumbers(
+      setId: Long,
+      type: ExerciseType,
+      values: CompletedSetNumbers,
+  ): CompletedSetEditResult {
+    val reply = CompletableDeferred<CompletedSetEditResult>()
+    mutations.send(CompletedSetNumberEdit(setId, type, values, reply))
+    return reply.await()
+  }
+
   private fun enqueue(setId: Long, transform: (WorkoutSetEntity) -> WorkoutSetEntity) {
     mutations.trySend(SetMutation(setId, transform))
   }
 }
+
+private fun WorkoutSetEntity.withCompletedNumbers(
+    type: ExerciseType,
+    values: CompletedSetNumbers,
+): WorkoutSetEntity =
+    when (type) {
+      ExerciseType.STRENGTH -> copy(weightKg = values.weightKg, reps = values.reps)
+      ExerciseType.TIMED -> copy(durationSec = values.durationSec)
+      ExerciseType.CARDIO ->
+          copy(
+              durationSec = values.durationSec,
+              speedKmh = values.speedKmh,
+              inclinePct = values.inclinePct,
+          )
+    }
 
 /** Округление веса/скорости/наклона до сотых, чтобы шаги ±0.5/±2.5 не накапливали дрейф double. */
 private fun Double.round2(): Double = (this * 100).roundToInt() / 100.0

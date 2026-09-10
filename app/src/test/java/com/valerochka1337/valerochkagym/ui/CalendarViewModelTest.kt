@@ -392,6 +392,21 @@ class CalendarViewModelTest {
 
     override suspend fun updateSet(set: WorkoutSetEntity) = Unit
 
+    override suspend fun updateCompletedStrengthNumbers(
+        setId: Long,
+        weightKg: Double?,
+        reps: Int?,
+    ) = 0
+
+    override suspend fun updateCompletedTimedNumbers(setId: Long, durationSec: Int?) = 0
+
+    override suspend fun updateCompletedCardioNumbers(
+        setId: Long,
+        durationSec: Int?,
+        speedKmh: Double?,
+        inclinePct: Double?,
+    ) = 0
+
     override suspend fun updateWorkoutExercises(exercises: List<WorkoutExerciseEntity>) = Unit
 
     override suspend fun setSetCompleted(setId: Long, completed: Boolean, completedAt: Long?) = Unit

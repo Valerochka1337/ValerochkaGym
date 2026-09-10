@@ -1,13 +1,17 @@
 package com.valerochka1337.valerochkagym.domain
 
+import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
 import com.valerochka1337.valerochkagym.data.db.entity.WorkoutSetEntity
 import com.valerochka1337.valerochkagym.data.db.relation.WorkoutFull
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.yield
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -102,6 +106,72 @@ class WorkoutSetMutatorTest {
     assertEquals(62.5, repository.current.weightKg!!, EPS)
   }
 
+  @Test
+  fun `completed number edits reply after projecting only their exercise type`() = runTest {
+    val repository =
+        RecordingRepository(
+            strengthSet(weightKg = 60.0, reps = 10).copy(durationSec = 120, isCompleted = true),
+        )
+    val mutator = WorkoutSetMutator(repository, backgroundScope)
+
+    val result = async {
+      mutator.editCompletedNumbers(
+          SET_ID,
+          ExerciseType.STRENGTH,
+          CompletedSetNumbers(weightKg = 72.5, reps = 8),
+      )
+    }
+    runCurrent()
+
+    assertEquals(CompletedSetEditResult.Saved, result.await())
+    assertEquals(72.5, repository.current.weightKg!!, EPS)
+    assertEquals(8, repository.current.reps)
+    assertEquals(120, repository.current.durationSec)
+    assertTrue(repository.current.isCompleted)
+  }
+
+  @Test
+  fun `a missing completed edit replies and later queued work still runs`() = runTest {
+    val repository = RecordingRepository(strengthSet(weightKg = 60.0, reps = 10))
+    val mutator = WorkoutSetMutator(repository, backgroundScope)
+
+    val missing = async {
+      mutator.editCompletedNumbers(
+          MISSING_SET_ID,
+          ExerciseType.STRENGTH,
+          CompletedSetNumbers(weightKg = 72.5),
+      )
+    }
+    mutator.stepWeight(SET_ID, 2.5)
+    runCurrent()
+
+    assertEquals(CompletedSetEditResult.MissingOrInactive, missing.await())
+    assertEquals(62.5, repository.current.weightKg!!, EPS)
+  }
+
+  @Test
+  fun `a cancelled completed edit caller does not stall the next queued mutation`() = runTest {
+    val repository = RecordingRepository(strengthSet(weightKg = 60.0, reps = 10))
+    val release = CompletableDeferred<Unit>()
+    repository.completedEditGate = release
+    val mutator = WorkoutSetMutator(repository, backgroundScope)
+
+    val cancelledCaller = async {
+      mutator.editCompletedNumbers(
+          SET_ID,
+          ExerciseType.STRENGTH,
+          CompletedSetNumbers(weightKg = 72.5, reps = 8),
+      )
+    }
+    runCurrent()
+    cancelledCaller.cancel()
+    release.complete(Unit)
+    mutator.stepWeight(SET_ID, 2.5)
+    runCurrent()
+
+    assertEquals(75.0, repository.current.weightKg!!, EPS)
+  }
+
   private fun strengthSet(weightKg: Double, reps: Int) =
       WorkoutSetEntity(
           id = SET_ID,
@@ -117,6 +187,7 @@ class WorkoutSetMutatorTest {
   private class RecordingRepository(var current: WorkoutSetEntity) : ActiveWorkoutRepository {
 
     val writes = mutableListOf<WorkoutSetEntity>()
+    var completedEditGate: CompletableDeferred<Unit>? = null
 
     override suspend fun getSet(setId: Long): WorkoutSetEntity? {
       yield()
@@ -126,6 +197,15 @@ class WorkoutSetMutatorTest {
     override suspend fun updateSet(set: WorkoutSetEntity) {
       current = set
       writes += set
+    }
+
+    override suspend fun updateCompletedSetNumbers(
+        set: WorkoutSetEntity,
+        type: ExerciseType,
+    ): CompletedSetEditResult {
+      completedEditGate?.await()
+      current = set
+      return CompletedSetEditResult.Saved
     }
 
     override suspend fun startFromRoutine(routineId: Long): String = unused()

@@ -440,6 +440,81 @@ class ActiveWorkoutRepositoryTest : RoomDaoTest() {
     assertFalse(setById(workoutExerciseId, setId).isCompleted)
   }
 
+  @Test
+  fun `completed strength edit changes only strength numbers and preserves completion metadata`() =
+      runTest {
+        val exercise = addExercise("Жим", ExerciseType.STRENGTH)
+        val workoutId = repository.startEmpty()
+        val workoutExerciseId = repository.addExercise(workoutId, exercise)
+        val original =
+            workoutDao
+                .getSetsForWorkoutExercise(workoutExerciseId)
+                .single()
+                .copy(
+                    weightKg = 60.0,
+                    reps = 10,
+                    durationSec = 120,
+                    speedKmh = 9.0,
+                    inclinePct = 4.0,
+                    isCompleted = true,
+                    completedAt = 456L,
+                )
+        repository.updateSet(original)
+
+        val result =
+            repository.updateCompletedSetNumbers(
+                original.copy(weightKg = 72.5, reps = 8, durationSec = 999),
+                ExerciseType.STRENGTH,
+            )
+
+        val stored = setById(workoutExerciseId, original.id)
+        assertEquals(CompletedSetEditResult.Saved, result)
+        assertEquals(72.5, stored.weightKg!!, 0.0)
+        assertEquals(8, stored.reps)
+        assertEquals(120, stored.durationSec)
+        assertEquals(9.0, stored.speedKmh!!, 0.0)
+        assertEquals(4.0, stored.inclinePct!!, 0.0)
+        assertTrue(stored.isCompleted)
+        assertEquals(456L, stored.completedAt)
+      }
+
+  @Test
+  fun `completed edit rejects unfinished or wrong type rows without changing them`() = runTest {
+    val timed = addExercise("Планка", ExerciseType.TIMED)
+    val workoutId = repository.startEmpty()
+    val workoutExerciseId = repository.addExercise(workoutId, timed)
+    val original =
+        workoutDao
+            .getSetsForWorkoutExercise(workoutExerciseId)
+            .single()
+            .copy(
+                durationSec = 60,
+                isCompleted = true,
+                completedAt = 456L,
+            )
+    repository.updateSet(original)
+
+    val wrongType =
+        repository.updateCompletedSetNumbers(
+            original.copy(weightKg = 80.0, reps = 5),
+            ExerciseType.STRENGTH,
+        )
+    repository.finish(workoutId)
+    val finished =
+        repository.updateCompletedSetNumbers(
+            original.copy(durationSec = 75),
+            ExerciseType.TIMED,
+        )
+
+    val stored = setById(workoutExerciseId, original.id)
+    assertEquals(CompletedSetEditResult.MissingOrInactive, wrongType)
+    assertEquals(CompletedSetEditResult.MissingOrInactive, finished)
+    assertEquals(60, stored.durationSec)
+    assertEquals(null, stored.weightKg)
+    assertTrue(stored.isCompleted)
+    assertEquals(456L, stored.completedAt)
+  }
+
   // endregion
 
   // region finish and discard

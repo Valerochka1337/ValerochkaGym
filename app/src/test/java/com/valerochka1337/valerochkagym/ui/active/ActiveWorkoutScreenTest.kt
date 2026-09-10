@@ -4,8 +4,10 @@ import android.app.Application
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
@@ -22,6 +24,7 @@ import com.valerochka1337.valerochkagym.service.heartrate.HeartRateReading
 import com.valerochka1337.valerochkagym.ui.theme.GymTheme
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -93,6 +96,9 @@ class ActiveWorkoutScreenTest {
     assertAddSetIsAvailable()
     completeFocusedSet()
     assertEquals(listOf(FIRST_SET_ID), completedSetIds)
+    composeRule
+        .onNodeWithContentDescription("Выполнено, нажмите чтобы изменить фактические значения")
+        .assertIsDisplayed()
     assertAddSetIsAvailable()
 
     completeFocusedSet()
@@ -173,10 +179,93 @@ class ActiveWorkoutScreenTest {
     assertEquals(listOf(12L), addedSetTo)
   }
 
+  @Test
+  fun `strength edit fields show prefilled weight and repetitions`() {
+    renderCompletedEditFields(
+        CompletedSetEditDraft(
+            setId = FIRST_SET_ID,
+            type = ExerciseType.STRENGTH,
+            token = 1L,
+            weightKg = "72.5",
+            reps = "8",
+        ),
+    )
+
+    composeRule.onNodeWithText("Вес, кг").assertIsDisplayed()
+    composeRule.onNodeWithText("Повторы").assertIsDisplayed()
+    composeRule.onNodeWithText("72.5").assertIsDisplayed()
+    composeRule.onNodeWithText("8").assertIsDisplayed()
+  }
+
+  @Test
+  fun `timed edit fields show only prefilled duration`() {
+    renderCompletedEditFields(
+        CompletedSetEditDraft(
+            setId = FIRST_SET_ID,
+            type = ExerciseType.TIMED,
+            token = 1L,
+            durationSec = "75",
+        ),
+    )
+
+    composeRule.onNodeWithText("Длительность, секунды").assertIsDisplayed()
+    composeRule.onNodeWithText("75").assertIsDisplayed()
+    composeRule.onAllNodesWithText("Скорость, км/ч").assertCountEquals(0)
+  }
+
+  @Test
+  fun `cardio edit fields show all prefilled actual values`() {
+    renderCompletedEditFields(
+        CompletedSetEditDraft(
+            setId = FIRST_SET_ID,
+            type = ExerciseType.CARDIO,
+            token = 1L,
+            durationSec = "360",
+            speedKmh = "10.5",
+            inclinePct = "4",
+        ),
+    )
+
+    composeRule.onNodeWithText("Длительность, секунды").assertIsDisplayed()
+    composeRule.onNodeWithText("Скорость, км/ч").assertIsDisplayed()
+    composeRule.onNodeWithText("Наклон, %").assertIsDisplayed()
+    composeRule.onNodeWithText("360").assertIsDisplayed()
+    composeRule.onNodeWithText("10.5").assertIsDisplayed()
+    composeRule.onNodeWithText("4").assertIsDisplayed()
+  }
+
+  @Test
+  fun `nonfinite decimal draft disables saving`() {
+    assertFalse(
+        CompletedSetEditDraft(
+                setId = FIRST_SET_ID,
+                type = ExerciseType.CARDIO,
+                token = 1L,
+                speedKmh = "9".repeat(400),
+            )
+            .isValidNumericInput(),
+    )
+  }
+
   private fun completeFocusedSet() {
     composeRule.onAllNodesWithText("Подход выполнен").assertCountEquals(1)
     composeRule.onNodeWithText("Подход выполнен").performClick()
     composeRule.waitForIdle()
+  }
+
+  private fun renderCompletedEditFields(draft: CompletedSetEditDraft) {
+    composeRule.setContent {
+      GymTheme {
+        CompletedSetEditFields(
+            draft = draft,
+            onWeightChange = {},
+            onRepsChange = {},
+            onDurationChange = {},
+            onSpeedChange = {},
+            onInclineChange = {},
+        )
+      }
+    }
   }
 
   private fun assertAddSetIsAvailable() {

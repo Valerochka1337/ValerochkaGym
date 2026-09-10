@@ -58,6 +58,59 @@ interface WorkoutDao {
   suspend fun getSet(setId: Long): WorkoutSetEntity?
 
   @Query(
+      """
+        UPDATE workout_sets
+        SET weightKg = :weightKg, reps = :reps
+        WHERE id = :setId AND isCompleted = 1
+          AND EXISTS (
+            SELECT 1 FROM workout_exercises we
+            JOIN workouts w ON w.id = we.workoutId
+            JOIN exercises e ON e.id = we.exerciseId
+            WHERE we.id = workout_sets.workoutExerciseId
+              AND w.finishedAt IS NULL AND e.type = 'STRENGTH'
+          )
+        """,
+  )
+  suspend fun updateCompletedStrengthNumbers(setId: Long, weightKg: Double?, reps: Int?): Int
+
+  @Query(
+      """
+        UPDATE workout_sets
+        SET durationSec = :durationSec
+        WHERE id = :setId AND isCompleted = 1
+          AND EXISTS (
+            SELECT 1 FROM workout_exercises we
+            JOIN workouts w ON w.id = we.workoutId
+            JOIN exercises e ON e.id = we.exerciseId
+            WHERE we.id = workout_sets.workoutExerciseId
+              AND w.finishedAt IS NULL AND e.type = 'TIMED'
+          )
+        """,
+  )
+  suspend fun updateCompletedTimedNumbers(setId: Long, durationSec: Int?): Int
+
+  @Query(
+      """
+        UPDATE workout_sets
+        SET durationSec = :durationSec, speedKmh = :speedKmh, inclinePct = :inclinePct
+        WHERE id = :setId AND isCompleted = 1
+          AND EXISTS (
+            SELECT 1 FROM workout_exercises we
+            JOIN workouts w ON w.id = we.workoutId
+            JOIN exercises e ON e.id = we.exerciseId
+            WHERE we.id = workout_sets.workoutExerciseId
+              AND w.finishedAt IS NULL AND e.type = 'CARDIO'
+          )
+        """,
+  )
+  suspend fun updateCompletedCardioNumbers(
+      setId: Long,
+      durationSec: Int?,
+      speedKmh: Double?,
+      inclinePct: Double?,
+  ): Int
+
+  @Query(
       "SELECT * FROM workout_sets WHERE workoutExerciseId = :workoutExerciseId ORDER BY setIndex ASC"
   )
   suspend fun getSetsForWorkoutExercise(workoutExerciseId: Long): List<WorkoutSetEntity>

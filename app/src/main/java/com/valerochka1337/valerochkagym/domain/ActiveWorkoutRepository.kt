@@ -1,5 +1,6 @@
 package com.valerochka1337.valerochkagym.domain
 
+import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
 import com.valerochka1337.valerochkagym.data.db.entity.WorkoutSetEntity
 import com.valerochka1337.valerochkagym.data.db.relation.WorkoutFull
 import kotlinx.coroutines.flow.Flow
@@ -28,6 +29,16 @@ interface ActiveWorkoutRepository {
   suspend fun getSet(setId: Long): WorkoutSetEntity?
 
   suspend fun updateSet(set: WorkoutSetEntity)
+
+  /**
+   * Updates the numeric values of a completed set only while its workout remains active. The
+   * implementation verifies [type] against the database exercise row so a stale screen cannot write
+   * a different type's columns.
+   */
+  suspend fun updateCompletedSetNumbers(
+      set: WorkoutSetEntity,
+      type: ExerciseType,
+  ): CompletedSetEditResult = CompletedSetEditResult.MissingOrInactive
 
   suspend fun toggleSetCompleted(setId: Long, completed: Boolean)
 
@@ -60,6 +71,13 @@ interface ActiveWorkoutRepository {
 
   /** Удаляет тренировку целиком (каскад по упражнениям и подходам). */
   suspend fun discard(workoutId: String)
+}
+
+/** Result of a guarded completed-set numeric update. */
+sealed interface CompletedSetEditResult {
+  data object Saved : CompletedSetEditResult
+
+  data object MissingOrInactive : CompletedSetEditResult
 }
 
 /** Старт/добавление блокируется, пока упражнения не появятся во всех выбранных залах. */

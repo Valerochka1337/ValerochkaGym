@@ -63,8 +63,8 @@ android {
     applicationId = "com.valerochka1337.valerochkagym"
     minSdk = 36
     targetSdk = 37
-    versionCode = testVersionCode ?: 30
-    versionName = testVersionName ?: "1.3.22"
+    versionCode = testVersionCode ?: 31
+    versionName = testVersionName ?: "1.3.23"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }

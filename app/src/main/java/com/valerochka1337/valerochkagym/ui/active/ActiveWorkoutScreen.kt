@@ -198,6 +198,14 @@ fun ActiveWorkoutScreen(
             setSpeed = viewModel::setSpeed,
             setIncline = viewModel::setIncline,
             complete = viewModel::completeSet,
+            editCompleted = viewModel::openCompletedSetEdit,
+            updateCompletedWeight = viewModel::updateCompletedSetWeight,
+            updateCompletedReps = viewModel::updateCompletedSetReps,
+            updateCompletedDuration = viewModel::updateCompletedSetDuration,
+            updateCompletedSpeed = viewModel::updateCompletedSetSpeed,
+            updateCompletedIncline = viewModel::updateCompletedSetIncline,
+            saveCompletedEdit = viewModel::saveCompletedSetEdit,
+            cancelCompletedEdit = viewModel::cancelCompletedSetEdit,
             uncomplete = viewModel::uncompleteSet,
             addSet = viewModel::addSet,
             deleteSet = viewModel::deleteSet,
@@ -296,6 +304,14 @@ internal class SetActions(
     val uncomplete: (Long) -> Unit,
     val addSet: (Long) -> Unit,
     val deleteSet: (Long) -> Unit,
+    val editCompleted: (Long, ExerciseType) -> Unit = { _, _ -> },
+    val updateCompletedWeight: (String) -> Unit = {},
+    val updateCompletedReps: (String) -> Unit = {},
+    val updateCompletedDuration: (String) -> Unit = {},
+    val updateCompletedSpeed: (String) -> Unit = {},
+    val updateCompletedIncline: (String) -> Unit = {},
+    val saveCompletedEdit: () -> Unit = {},
+    val cancelCompletedEdit: () -> Unit = {},
 )
 
 @Composable
@@ -561,6 +577,23 @@ internal fun ActiveWorkoutContent(
           onDeleteExercise(deleteExerciseId)
         },
         onDismiss = { pendingDeleteExerciseId = null },
+    )
+  }
+
+  state.completedSetEdit?.let { draft ->
+    CompletedSetEditDialog(
+        draft = draft,
+        onWeightChange = setActions.updateCompletedWeight,
+        onRepsChange = setActions.updateCompletedReps,
+        onDurationChange = setActions.updateCompletedDuration,
+        onSpeedChange = setActions.updateCompletedSpeed,
+        onInclineChange = setActions.updateCompletedIncline,
+        onSave = setActions.saveCompletedEdit,
+        onCancel = setActions.cancelCompletedEdit,
+        onUncomplete = {
+          setActions.cancelCompletedEdit()
+          setActions.uncomplete(draft.setId)
+        },
     )
   }
 }
@@ -966,8 +999,8 @@ private fun ExerciseSection(
               set = set,
               type = type,
               onClick = {
-                haptics.toggle(on = false)
-                actions.uncomplete(set.id)
+                haptics.step()
+                actions.editCompleted(set.id, type)
               },
           )
         }
@@ -1207,7 +1240,7 @@ private fun CompletedSetPill(
       trailing = {
         Icon(
             Icons.Default.Check,
-            contentDescription = "Выполнено, нажмите чтобы отменить",
+            contentDescription = "Выполнено, нажмите чтобы изменить фактические значения",
             modifier =
                 Modifier.size(18.dp).graphicsLayer {
                   scaleX = checkScale.value
@@ -1216,6 +1249,149 @@ private fun CompletedSetPill(
         )
       },
   )
+}
+
+@Composable
+private fun CompletedSetEditDialog(
+    draft: CompletedSetEditDraft,
+    onWeightChange: (String) -> Unit,
+    onRepsChange: (String) -> Unit,
+    onDurationChange: (String) -> Unit,
+    onSpeedChange: (String) -> Unit,
+    onInclineChange: (String) -> Unit,
+    onSave: () -> Unit,
+    onCancel: () -> Unit,
+    onUncomplete: () -> Unit,
+) {
+  val haptics = gymHaptics()
+  AlertDialog(
+      onDismissRequest = onCancel,
+      title = { Text("Фактические значения") },
+      text = {
+        CompletedSetEditFields(
+            draft = draft,
+            onWeightChange = onWeightChange,
+            onRepsChange = onRepsChange,
+            onDurationChange = onDurationChange,
+            onSpeedChange = onSpeedChange,
+            onInclineChange = onInclineChange,
+        )
+      },
+      confirmButton = {
+        TextButton(
+            enabled = !draft.isSubmitting && draft.isValidNumericInput(),
+            onClick = {
+              haptics.confirm()
+              onSave()
+            },
+        ) {
+          Text(if (draft.isSubmitting) "Сохранение…" else "Сохранить")
+        }
+      },
+      dismissButton = {
+        Column(horizontalAlignment = Alignment.End) {
+          TextButton(enabled = !draft.isSubmitting, onClick = onCancel) { Text("Отмена") }
+          TextButton(
+              enabled = !draft.isSubmitting,
+              onClick = {
+                haptics.toggle(on = false)
+                onUncomplete()
+              },
+          ) {
+            Text("Отметить невыполненным")
+          }
+        }
+      },
+  )
+}
+
+@Composable
+internal fun CompletedSetEditFields(
+    draft: CompletedSetEditDraft,
+    onWeightChange: (String) -> Unit,
+    onRepsChange: (String) -> Unit,
+    onDurationChange: (String) -> Unit,
+    onSpeedChange: (String) -> Unit,
+    onInclineChange: (String) -> Unit,
+) {
+  Column(
+      modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
+      verticalArrangement = Arrangement.spacedBy(10.dp),
+  ) {
+    when (draft.type) {
+      ExerciseType.STRENGTH -> {
+        NumberField(
+            value = draft.weightKg,
+            onValueChange = onWeightChange,
+            modifier = Modifier.fillMaxWidth(),
+            label = "Вес, кг",
+            decimal = true,
+            enabled = !draft.isSubmitting,
+        )
+        NumberField(
+            value = draft.reps,
+            onValueChange = onRepsChange,
+            modifier = Modifier.fillMaxWidth(),
+            label = "Повторы",
+            enabled = !draft.isSubmitting,
+        )
+      }
+
+      ExerciseType.TIMED ->
+          NumberField(
+              value = draft.durationSec,
+              onValueChange = onDurationChange,
+              modifier = Modifier.fillMaxWidth(),
+              label = "Длительность, секунды",
+              enabled = !draft.isSubmitting,
+          )
+
+      ExerciseType.CARDIO -> {
+        NumberField(
+            value = draft.durationSec,
+            onValueChange = onDurationChange,
+            modifier = Modifier.fillMaxWidth(),
+            label = "Длительность, секунды",
+            enabled = !draft.isSubmitting,
+        )
+        NumberField(
+            value = draft.speedKmh,
+            onValueChange = onSpeedChange,
+            modifier = Modifier.fillMaxWidth(),
+            label = "Скорость, км/ч",
+            decimal = true,
+            enabled = !draft.isSubmitting,
+        )
+        NumberField(
+            value = draft.inclinePct,
+            onValueChange = onInclineChange,
+            modifier = Modifier.fillMaxWidth(),
+            label = "Наклон, %",
+            decimal = true,
+            enabled = !draft.isSubmitting,
+        )
+      }
+    }
+    draft.error?.let {
+      Text(
+          text = it,
+          color = MaterialTheme.colorScheme.error,
+          style = MaterialTheme.typography.bodySmall,
+      )
+    }
+  }
+}
+
+internal fun CompletedSetEditDraft.isValidNumericInput(): Boolean {
+  fun String.isOptionalInt() = isBlank() || toIntOrNull() != null
+  return when (type) {
+    ExerciseType.STRENGTH -> weightKg.isValidOptionalFiniteDecimal() && reps.isOptionalInt()
+    ExerciseType.TIMED -> durationSec.isOptionalInt()
+    ExerciseType.CARDIO ->
+        durationSec.isOptionalInt() &&
+            speedKmh.isValidOptionalFiniteDecimal() &&
+            inclinePct.isValidOptionalFiniteDecimal()
+  }
 }
 
 @Composable

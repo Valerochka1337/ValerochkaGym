@@ -6,6 +6,7 @@ import com.valerochka1337.valerochkagym.data.db.PlannedSet
 import com.valerochka1337.valerochkagym.data.db.dao.GymDao
 import com.valerochka1337.valerochkagym.data.db.dao.RoutineDao
 import com.valerochka1337.valerochkagym.data.db.dao.WorkoutDao
+import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
 import com.valerochka1337.valerochkagym.data.db.entity.WorkoutEntity
 import com.valerochka1337.valerochkagym.data.db.entity.WorkoutExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.WorkoutSetEntity
@@ -13,6 +14,7 @@ import com.valerochka1337.valerochkagym.data.db.relation.WorkoutExerciseWithSets
 import com.valerochka1337.valerochkagym.data.db.relation.WorkoutFull
 import com.valerochka1337.valerochkagym.domain.ActiveWorkoutRepository
 import com.valerochka1337.valerochkagym.domain.ActiveWorkoutUnavailableException
+import com.valerochka1337.valerochkagym.domain.CompletedSetEditResult
 import com.valerochka1337.valerochkagym.domain.RoutineGymConflictException
 import java.util.UUID
 import javax.inject.Inject
@@ -115,6 +117,30 @@ constructor(
   override suspend fun getSet(setId: Long): WorkoutSetEntity? = workoutDao.getSet(setId)
 
   override suspend fun updateSet(set: WorkoutSetEntity) = workoutDao.updateSet(set)
+
+  override suspend fun updateCompletedSetNumbers(
+      set: WorkoutSetEntity,
+      type: ExerciseType,
+  ): CompletedSetEditResult {
+    val changed =
+        when (type) {
+          ExerciseType.STRENGTH ->
+              workoutDao.updateCompletedStrengthNumbers(set.id, set.weightKg, set.reps)
+          ExerciseType.TIMED -> workoutDao.updateCompletedTimedNumbers(set.id, set.durationSec)
+          ExerciseType.CARDIO ->
+              workoutDao.updateCompletedCardioNumbers(
+                  set.id,
+                  set.durationSec,
+                  set.speedKmh,
+                  set.inclinePct,
+              )
+        }
+    return if (changed == 1) {
+      CompletedSetEditResult.Saved
+    } else {
+      CompletedSetEditResult.MissingOrInactive
+    }
+  }
 
   override suspend fun toggleSetCompleted(setId: Long, completed: Boolean) =
       workoutDao.setSetCompleted(setId, completed, completedAt = if (completed) now() else null)
