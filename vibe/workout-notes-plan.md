@@ -36,6 +36,17 @@ Workout wire keeps workout `note` and adds optional/default-empty set `note`. Hi
 syncId with `{text,updatedAt}` and tombstone. Hints clear with owner cache and use Stage-12 claim;
 server/tombstone wins same-key conflict. Workout server aggregate wins including notes.
 
+Existing workout-level notes retain the legacy backend max10000 contract and are never truncated
+on read/migration; the new editor accepts up to2000 code points for a changed value. The new hint/set
+fields use the2000 bound. New/changed live hints require a live personal or public exercise;
+deleting that exercise later retains an existing hint without blocking the deletion. Hint tombstones
+remain valid. A clean previously-ACKed hint hidden by capability downgrade must retain Room and its
+baseline exactly; omission of an unsupported kind never implies remote deletion.
+
+Root frozen fixture: `vibe/workout-notes-sync-contract.json`, SHA256
+`5a98f491bbb658c76e47933b49b50041fe1f1a16618b9cadfcf1befdbd22818b`.
+Copy into each checkout only on its feature branch, before the respective implementation.
+
 The exact legacy strategy is resource-specific `annotated-workout-writes`, never account v4. For an
 incapable client, GET `/sync`, `/sync/changes` **before cursor construction**, records list and
 single-record reads strip only the new set `note`; existing workout `note` remains legacy shape and

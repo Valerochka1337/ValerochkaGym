@@ -2,8 +2,8 @@
 
 | Task | Status | Owner | Dependencies | AC | Automated check |
 |---|---|---|---|---|---|
-| T-001 | pending | root contract owner | CAL-01 strategy | AC-006–AC-008 | fixture parity — not run |
-| T-002 | pending | backend writer | T-001 | AC-006–AC-008 | backend integration/bootJar — not run |
+| T-001 | contract frozen; Android copy deferred | root contract owner | CAL-01 strategy | AC-006–AC-008 | core/backend SHA256 5a98f491bbb658c76e47933b49b50041fe1f1a16618b9cadfcf1befdbd22818b |
+| T-002 | in progress | backend writer | T-001 | AC-006–AC-008 | backend integration/bootJar — not run |
 | T-003 | pending | backend tester + Sol/high reviewer | T-002 | AC-006–AC-009 | backend audit/recheck — not run |
 | T-003F | pending | backend writer / reviewer / root | T-003 | AC-006–AC-009 | conditional fixes, recheck, final backend suite |
 | T-004 | pending | Android writer | T-001,T-003F,03/12/CAL | AC-001–AC-004, AC-006–AC-009 | migration/DAO/sync — not run |
@@ -37,3 +37,5 @@
 Root strict corrections: T-003F/T-006F explicitly own conditional writer fixes and narrow review. Incapable workout projection is sendable only if both current AND acknowledged-baseline set notes are empty; pending annotated outbox bytes remain immutable. Finish/program tests explicitly named in T-005.
 
 Gate P strict Sol/high recheck PASS. All remaining P0/P1/P2 closed; exact baseline/current projection and fix-loop ownership frozen.
+
+Root fixture/new clarification bounded Sol-high review PASS; STANDARD cross-kind UUID guard and canonical hint UUID validation assigned to backend writer. Backend branch feat/workout-notes-contract from a5b567a. Android fixture waits its own feature branch.
