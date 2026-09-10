@@ -4,12 +4,12 @@
 
 | Task | Status | Owner | Dependencies | AC | Automated check |
 |---|---|---|---|---|---|
-| T-001 | pending | implementation writer | — | AC-001–AC-005, AC-007 | `*GoogleAuthManagerTest`, `*AccountViewModelTest`, `*CalendarAccountIdentityTest` — not run |
-| T-002 | pending | implementation writer | T-001 | AC-003–AC-007 | Calendar/link/migration/PortableData filters — not run |
-| T-003 | pending | implementation writer | T-001–T-002 | AC-004, AC-005, AC-007 | connected-identity weekly/recovery filters — not run |
-| T-004 | pending | implementation writer | T-003 | AC-003–AC-008 | exact-target consent Settings filters — not run |
-| T-005 | pending | tester + readonly Sol/high reviewer | T-004 | AC-001–AC-008 | targeted audit + strict review — not run |
-| T-006 | pending | root session | T-005 | AC-001–AC-008 | full unit tests then debug assembly — not run |
+| T-001 | completed | implementation writer | — | AC-001–AC-005, AC-007 | Google auth/account/identity targeted tests pass |
+| T-002 | completed | implementation writer | T-001 | AC-003–AC-007 | Calendar/link/migration/PortableData targeted tests pass; schema 17 exported |
+| T-003 | completed | implementation writer | T-001–T-002 | AC-004, AC-005, AC-007 | weekly/recovery connected-identity tests pass |
+| T-004 | completed | implementation writer | T-003 | AC-003–AC-008 | Settings state/Compose tests, compile and Spotless pass; version 36 / 1.3.28 |
+| T-005 | completed | tester + readonly Sol/high reviewer | T-004 | AC-001–AC-008 | independent GateT and Sol/high GateV PASS after final-write recheck; no remaining P0/P1/P2 |
+| T-006 | completed | root session | T-005 | AC-001–AC-008 | full1083tests0failures/errors1skip PASS after legacy-fixture repair; assembleDebug PASS; version36/1.3.28 |
 
 ## AC traceability
 
@@ -40,12 +40,44 @@ revoke semantics before implementation.
   token success (no resolution plus token). SavedState keeps only kind/normalized target/token/busy,
   reissues that target after recreation and rejects stale/concurrent replies. Migration tests live
   under `data/db`; the eight-column task table makes T-003 strictly precede T-004.
+- Consolidated Gate V final-write repair: a Settings operation clears its SavedState nonce inside
+  the same Settings DataStore edit that writes its verified identity, so a cancelled A has no final
+  write after B. Weekly owner comparison and target persistence share one Settings DataStore edit:
+  a mismatch preserves the journal. A successful owner-bound target edit is the operation's
+  linearization point; later journal clearing has no remote side effect. If clearing fails, the
+  journal remains and recovery under a different connected account fails that same conditional
+  target commit and pauses.
 
 ## Command results
 
-No commands run: planning files only.
+- T-001–T-004 targeted filters: 94 tests passed across Google auth, backend account,
+  identity, Calendar repository, link DAO, 16→17 and 1→17 migrations, PortableData, weekly
+  schedule/recovery, Settings SavedState and fontScale 2 Compose coverage.
+- `./gradlew :app:testDebugUnitTest --tests "*CalendarRepositoryTest" :app:compileDebugKotlin
+  --no-daemon`: passed after the final recoverable local-link failure handling.
+- `JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home ./gradlew
+  :app:compileDebugKotlin --no-daemon`: passed.
+- `./gradlew spotlessCheck --no-daemon`: passed.
+- Final T-004 repair with JDK 21: `JAVA_HOME="$(/usr/libexec/java_home -v 21)" ./gradlew
+  --no-daemon :app:testDebugUnitTest --tests "*GoogleAuthManagerTest" --tests
+  "*AccountViewModelTest" --tests "*CalendarAccountIdentityTest" --tests
+  "*CalendarRepositoryTest" --tests "*CalendarEventAccountLinkDaoTest" --tests
+  "*Migration16To17Test" --tests "*Migration1To17Test" --tests "*PortableDataTest"
+  --tests "*WeeklyScheduleRepositoryTest" --tests "*WeeklyScheduleRecoveryWorkerTest" --tests
+  "*SettingsViewModelTest" --tests "*SettingsScreenTest" --tests
+  "*SettingsRecoverySchedulingTest"`: 114 tests passed.
+- `JAVA_HOME="$(/usr/libexec/java_home -v 21)" ./gradlew --no-daemon
+  :app:compileDebugKotlin spotlessCheck`: passed.
+- Gate V final-write regression with JDK 21: `JAVA_HOME="$(/usr/libexec/java_home -v 21)"
+  ./gradlew --no-daemon :app:testDebugUnitTest --tests "*CalendarAccountIdentityTest" --tests
+  "*SettingsRecoverySchedulingTest" --tests "*WeeklyScheduleRepositoryTest"`: 46 tests passed.
+- Gate V final quality with JDK 21: `JAVA_HOME="$(/usr/libexec/java_home -v 21)" ./gradlew
+  --no-daemon :app:compileDebugKotlin spotlessCheck`: passed.
+- Full unit and debug assembly remain T-006 root gates by ownership.
 
 ## Residual risks
+
+- Root final first run:1083tests/3failures/1skip; shared legacy fixture attempted Callback16 after creating Room17. Test-only repair reads actual PRAGMA version and removes v17 link objects before legacy reconstruction. Three targeted regressions and independent narrow review PASS. Final full rerun:1083tests/0failures/errors/1skip,8m22s (`/private/tmp/yarumo-calendar-final-unit-rerun.log`); `:app:assembleDebug` PASS,17s (`/private/tmp/yarumo-calendar-final-debug.log`). No production changes after accepted T/V. Final Gate T/V PASS, no remaining P0/P1/P2.
 
 - External OAuth revocation/expiry is handled as unavailable linked work; it never authorizes another
   account or deletes a record.

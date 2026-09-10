@@ -71,6 +71,7 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -130,6 +131,7 @@ fun SettingsScreen(
   val activity = LocalActivity.current
   val snackbarHostState = remember { SnackbarHostState() }
   var selectedCategory by rememberSaveable { mutableStateOf<SettingsCategory?>(null) }
+  var consentNonce by rememberSaveable { mutableStateOf<String?>(null) }
 
   LaunchedEffect(viewModel) { viewModel.messages.collect { snackbarHostState.showSnackbar(it) } }
 
@@ -139,16 +141,20 @@ fun SettingsScreen(
       ) { result ->
         // Повторяем авторизацию только если пользователь дал согласие; отмена — без повтора,
         // иначе получился бы бесконечный цикл запросов согласия.
-        if (result.resultCode == Activity.RESULT_OK) {
-          activity?.let(viewModel::consentResolved)
+        val nonce = consentNonce ?: return@rememberLauncherForActivityResult
+        activity?.let {
+          viewModel.consentResolved(it, nonce, result.resultCode == Activity.RESULT_OK)
         }
+        consentNonce = null
       }
 
   LaunchedEffect(viewModel) {
-    viewModel.consentRequests.collect { intentSender ->
-      consentLauncher.launch(IntentSenderRequest.Builder(intentSender).build())
+    viewModel.consentRequests.collect { request ->
+      consentNonce = request.operationNonce
+      consentLauncher.launch(IntentSenderRequest.Builder(request.intentSender).build())
     }
   }
+  LaunchedEffect(viewModel, activity) { activity?.let(viewModel::resumePendingCalendarOperation) }
 
   GlowBackground(modifier = modifier) {
     Box(modifier = Modifier.fillMaxSize()) {
@@ -191,11 +197,13 @@ fun SettingsScreen(
 
               SettingsCategory.CONNECTIONS -> {
                 GoogleAccountCard(
-                    email = settings.googleEmail,
+                    preferredEmail = settings.preferredCalendarEmail,
+                    connectedEmail = settings.connectedCalendarEmail,
                     authBusy = state.authBusy,
                     authError = state.authError,
-                    onSignIn = { activity?.let(viewModel::signIn) },
-                    onSignOut = viewModel::signOut,
+                    onConnectPreferred = { activity?.let(viewModel::connectPreferred) },
+                    onConnectOther = { activity?.let(viewModel::connectOther) },
+                    onDisconnect = viewModel::disconnectCalendar,
                 )
                 AiSettingsCard(
                     baseUrl = settings.aiBaseUrl,
@@ -345,15 +353,18 @@ private fun SettingsNavigationCard(
 }
 
 @Composable
-private fun GoogleAccountCard(
-    email: String?,
+internal fun GoogleAccountCard(
+    preferredEmail: String?,
+    connectedEmail: String?,
     authBusy: Boolean,
     authError: String?,
-    onSignIn: () -> Unit,
-    onSignOut: () -> Unit,
+    onConnectPreferred: () -> Unit,
+    onConnectOther: () -> Unit,
+    onDisconnect: () -> Unit,
 ) {
+  val haptics = gymHaptics()
   SectionCard(title = "Google Calendar", icon = Icons.Rounded.AccountCircle) {
-    if (email == null) {
+    if (connectedEmail == null) {
       Text(
           text = "Подключите Google Calendar, чтобы планировать тренировки в календаре.",
           style = MaterialTheme.typography.bodyMedium,
@@ -361,23 +372,66 @@ private fun GoogleAccountCard(
       )
       Spacer(Modifier.height(12.dp))
       PillButton(
-          text = "Войти через Google",
-          onClick = onSignIn,
+          text = "Подключить календарь",
+          onClick = {
+            haptics.tap()
+            onConnectPreferred()
+          },
           enabled = !authBusy,
-          modifier = Modifier.fillMaxWidth(),
+          modifier =
+              Modifier.fillMaxWidth().semantics {
+                contentDescription = "Подключить Google Calendar"
+                stateDescription = "Календарь не подключён"
+              },
       )
     } else {
-      Row(verticalAlignment = Alignment.CenterVertically) {
-        Spacer(Modifier.width(8.dp))
-        Text(
-            text = email,
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
-      }
+      Text("Подключённый аккаунт", style = MaterialTheme.typography.labelMedium)
+      Text(
+          text = connectedEmail,
+          style = MaterialTheme.typography.titleMedium,
+          fontWeight = FontWeight.SemiBold,
+          color = MaterialTheme.colorScheme.onSurface,
+      )
       Spacer(Modifier.height(4.dp))
-      TextButton(onClick = onSignOut, enabled = !authBusy) { Text("Выйти") }
+      TextButton(
+          onClick = {
+            haptics.tap()
+            onDisconnect()
+          },
+          enabled = !authBusy,
+          modifier =
+              Modifier.semantics {
+                contentDescription = "Отключить Google Calendar"
+                stateDescription = "Подключён к $connectedEmail"
+              },
+      ) {
+        Text("Отключить календарь")
+      }
+    }
+    if (preferredEmail != null && preferredEmail != connectedEmail) {
+      Spacer(Modifier.height(8.dp))
+      Text(
+          text = "Предпочтительный аккаунт: $preferredEmail",
+          style = MaterialTheme.typography.bodySmall,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
+      )
+    }
+    Spacer(Modifier.height(4.dp))
+    TextButton(
+        onClick = {
+          haptics.tap()
+          onConnectOther()
+        },
+        enabled = !authBusy,
+        modifier =
+            Modifier.semantics {
+              contentDescription = "Подключить другой Google-аккаунт"
+              stateDescription =
+                  if (connectedEmail == null) "Календарь не подключён"
+                  else "Подключён к $connectedEmail"
+            },
+    ) {
+      Text("Другой аккаунт")
     }
     if (authError != null) {
       Spacer(Modifier.height(8.dp))

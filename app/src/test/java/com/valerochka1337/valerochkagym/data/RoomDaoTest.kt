@@ -39,6 +39,9 @@ abstract class RoomDaoTest {
     com.valerochka1337.valerochkagym.data.backend.CatalogSchema.publishEquipment(
         db.openHelper.writableDatabase
     )
+    com.valerochka1337.valerochkagym.data.db.CalendarEventAccountLinkSchema.install(
+        db.openHelper.writableDatabase
+    )
   }
 
   @After

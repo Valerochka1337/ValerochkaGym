@@ -20,6 +20,8 @@ import kotlinx.coroutines.flow.map
 
 data class GymSettings(
     val googleEmail: String? = null,
+    val preferredCalendarEmail: String? = null,
+    val connectedCalendarEmail: String? = null,
     val spreadsheetId: String? = null,
     val defaultRestSeconds: Int = DEFAULT_REST_SECONDS,
     val soundEnabled: Boolean = true,
@@ -61,10 +63,12 @@ class SettingsRepository
 @Inject
 constructor(
     private val dataStore: DataStore<Preferences>,
-) {
+) : CalendarAccountIdentity {
 
   private object Keys {
     val GOOGLE_EMAIL = stringPreferencesKey("google_email")
+    val PREFERRED_CALENDAR_EMAIL = stringPreferencesKey("preferred_calendar_email")
+    val CONNECTED_CALENDAR_EMAIL = stringPreferencesKey("connected_calendar_email")
     val SPREADSHEET_ID = stringPreferencesKey("spreadsheet_id")
     val DEFAULT_REST_SECONDS = intPreferencesKey("default_rest_seconds")
     val SOUND_ENABLED = booleanPreferencesKey("sound_enabled")
@@ -88,6 +92,11 @@ constructor(
           .map { prefs ->
             GymSettings(
                 googleEmail = prefs[Keys.GOOGLE_EMAIL],
+                preferredCalendarEmail =
+                    normalizeCalendarEmail(prefs[Keys.PREFERRED_CALENDAR_EMAIL])
+                        ?: normalizeCalendarEmail(prefs[Keys.GOOGLE_EMAIL]),
+                connectedCalendarEmail =
+                    normalizeCalendarEmail(prefs[Keys.CONNECTED_CALENDAR_EMAIL]),
                 spreadsheetId = prefs[Keys.SPREADSHEET_ID],
                 defaultRestSeconds =
                     prefs[Keys.DEFAULT_REST_SECONDS] ?: GymSettings.DEFAULT_REST_SECONDS,
@@ -118,6 +127,46 @@ constructor(
                 ignoredUpdateTag = prefs[Keys.IGNORED_UPDATE_TAG],
             )
           }
+
+  override val preferredCalendarEmail: Flow<String?> = settings.map { it.preferredCalendarEmail }
+
+  override val connectedCalendarEmail: Flow<String?> = settings.map { it.connectedCalendarEmail }
+
+  override suspend fun setPreferredCalendarEmail(email: String) {
+    val normalized = requireNotNull(normalizeCalendarEmail(email))
+    dataStore.edit { it[Keys.PREFERRED_CALENDAR_EMAIL] = normalized }
+  }
+
+  override suspend fun setConnectedCalendarEmail(email: String) {
+    commitConnectedCalendarEmail(email) { true }
+  }
+
+  override suspend fun commitConnectedCalendarEmail(
+      email: String,
+      canCommit: () -> Boolean,
+  ): Boolean {
+    val normalized = requireNotNull(normalizeCalendarEmail(email))
+    var committed = false
+    dataStore.edit { preferences ->
+      if (canCommit()) {
+        preferences[Keys.CONNECTED_CALENDAR_EMAIL] = normalized
+        committed = true
+      }
+    }
+    return committed
+  }
+
+  override suspend fun clearConnectedCalendarEmail(expectedEmail: String): Boolean {
+    val expected = requireNotNull(normalizeCalendarEmail(expectedEmail))
+    var cleared = false
+    dataStore.edit { prefs ->
+      if (normalizeCalendarEmail(prefs[Keys.CONNECTED_CALENDAR_EMAIL]) == expected) {
+        prefs.remove(Keys.CONNECTED_CALENDAR_EMAIL)
+        cleared = true
+      }
+    }
+    return cleared
+  }
 
   suspend fun setGoogleEmail(value: String?) =
       dataStore.edit { prefs ->

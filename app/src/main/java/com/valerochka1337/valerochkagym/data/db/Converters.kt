@@ -1,6 +1,7 @@
 package com.valerochka1337.valerochkagym.data.db
 
 import androidx.room.TypeConverter
+import com.valerochka1337.valerochkagym.data.db.entity.CalendarEventAccountLinkState
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
 import com.valerochka1337.valerochkagym.data.db.entity.Muscle
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleGroup
@@ -26,6 +27,13 @@ class Converters {
   @TypeConverter fun fromUploadStatus(value: UploadStatus): String = value.name
 
   @TypeConverter fun toUploadStatus(value: String): UploadStatus = UploadStatus.valueOf(value)
+
+  @TypeConverter
+  fun fromCalendarEventAccountLinkState(value: CalendarEventAccountLinkState): String = value.name
+
+  @TypeConverter
+  fun toCalendarEventAccountLinkState(value: String): CalendarEventAccountLinkState =
+      CalendarEventAccountLinkState.valueOf(value)
 
   @TypeConverter
   fun fromPlannedSetList(value: List<PlannedSet>): String = json.encodeToString(value)

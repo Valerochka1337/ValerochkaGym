@@ -56,6 +56,19 @@ class WeeklyScheduleRepositoryTest : RoomDaoTest() {
   }
 
   @Test
+  fun `legacy preferred email alone cannot delete an owned weekly schedule`() = runTest {
+    val routine = seedRoutine("Ноги")
+    val settings = FakeDataStore(ownedSchedule(routine, "old-event"), email = null)
+    settings.setLegacyEmail(EMAIL)
+    val api = FakeCalendarApi()
+
+    val result = repository(api, settings, FakeDataStore()).clear()
+
+    assertTrue(result is ScheduleResult.Failure)
+    assertTrue(api.deletedEventIds.isEmpty())
+  }
+
+  @Test
   fun `save confirms all new events before deleting old and persists client ids`() = runTest {
     val routine = seedRoutine("Ноги")
     val old = ownedSchedule(routine, "old-event")
@@ -241,7 +254,7 @@ class WeeklyScheduleRepositoryTest : RoomDaoTest() {
   }
 
   @Test
-  fun `terminal delete marker commits locally despite later account mismatch`() = runTest {
+  fun `terminal delete marker pauses and preserves journal after account mismatch`() = runTest {
     val routine = seedRoutine("Ноги")
     val old = ownedSchedule(routine, "old-event")
     val settings = FakeDataStore(old)
@@ -267,15 +280,18 @@ class WeeklyScheduleRepositoryTest : RoomDaoTest() {
 
     val recovered = repository(api, settings, operations, auth, scheduler).resumePendingOperation()
 
-    assertEquals(WeeklyScheduleRecoveryResult.Completed, recovered)
+    assertTrue(recovered is WeeklyScheduleRecoveryResult.Paused)
     assertTrue(auth.expectedEmails.isEmpty())
     assertEquals("other@example.com", settings.currentEmail())
-    assertFalse(repository(api, settings, operations).observe().first().rules.isEmpty())
-    assertFalse(repository(api, settings, operations).observe().first() == old)
+    assertEquals(old, repository(api, settings, operations).observe().first())
+    assertTrue(
+        WeeklyScheduleOperationJournal(operations, json).read()
+            is WeeklyScheduleOperationRead.Present
+    )
   }
 
   @Test
-  fun `empty cleanup marker clears locally without account or token`() = runTest {
+  fun `empty cleanup marker pauses without owner and preserves journal`() = runTest {
     val routine = seedRoutine("Ноги")
     val old = ownedSchedule(routine, "old-event")
     val settings = FakeDataStore(old, email = null)
@@ -294,13 +310,17 @@ class WeeklyScheduleRepositoryTest : RoomDaoTest() {
 
     val result = repository(FakeCalendarApi(), settings, operations, auth).resumePendingOperation()
 
-    assertEquals(WeeklyScheduleRecoveryResult.Completed, result)
+    assertTrue(result is WeeklyScheduleRecoveryResult.Paused)
     assertTrue(auth.expectedEmails.isEmpty())
     assertEquals(old, repository(FakeCalendarApi(), settings, operations).observe().first())
+    assertTrue(
+        WeeklyScheduleOperationJournal(operations, json).read()
+            is WeeklyScheduleOperationRead.Present
+    )
   }
 
   @Test
-  fun `confirmed create marker advances and commits locally without account or token`() = runTest {
+  fun `confirmed create marker pauses before commit for a different account`() = runTest {
     val routine = seedRoutine("Ноги")
     val settings = FakeDataStore(email = "other@example.com")
     val operations = FakeDataStore()
@@ -317,16 +337,20 @@ class WeeklyScheduleRepositoryTest : RoomDaoTest() {
 
     val result = repository(FakeCalendarApi(), settings, operations, auth).resumePendingOperation()
 
-    assertEquals(WeeklyScheduleRecoveryResult.Completed, result)
+    assertTrue(result is WeeklyScheduleRecoveryResult.Paused)
     assertTrue(auth.expectedEmails.isEmpty())
     assertEquals(
-        operation.targetSchedule,
+        WeeklySchedule(),
         repository(FakeCalendarApi(), settings, operations).observe().first(),
+    )
+    assertTrue(
+        WeeklyScheduleOperationJournal(operations, json).read()
+            is WeeklyScheduleOperationRead.Present
     )
   }
 
   @Test
-  fun `terminal marker after active commit replays journal clear without auth`() = runTest {
+  fun `terminal marker after active commit pauses journal clear after disconnect`() = runTest {
     val routine = seedRoutine("Ноги")
     val old = ownedSchedule(routine, "old-event")
     val settings = FakeDataStore(old)
@@ -354,9 +378,285 @@ class WeeklyScheduleRepositoryTest : RoomDaoTest() {
 
     val recovered = repository(api, settings, operations, auth).resumePendingOperation()
 
-    assertEquals(WeeklyScheduleRecoveryResult.Completed, recovered)
+    assertTrue(recovered is WeeklyScheduleRecoveryResult.Paused)
     assertTrue(auth.expectedEmails.isEmpty())
     assertEquals(committed, repository(api, settings, operations).observe().first())
+    assertTrue(
+        WeeklyScheduleOperationJournal(operations, json).read()
+            is WeeklyScheduleOperationRead.Present
+    )
+  }
+
+  @Test
+  fun `revoked token preserves journal while missing or different owner bypasses token`() =
+      runTest {
+        val routine = seedRoutine("Ноги")
+        val operation =
+            replaceOperation(
+                phase = WeeklyScheduleOperationPhase.CREATE_NEW,
+                old = WeeklySchedule(),
+                routineId = routine,
+                pendingCreateIds = listOf(CLIENT_ID),
+                cleanupNewIds = emptyList(),
+            )
+
+        val connectedSettings = FakeDataStore()
+        val connectedOperations = FakeDataStore()
+        writeOperation(connectedOperations, operation)
+        val revokedAuth = FakeAccountAuth(TokenResult.NeedsConsent)
+        val connectedApi = FakeCalendarApi()
+        val revoked =
+            repository(connectedApi, connectedSettings, connectedOperations, revokedAuth)
+                .resumePendingOperation()
+
+        assertTrue(revoked is WeeklyScheduleRecoveryResult.Paused)
+        assertEquals(listOf(EMAIL), revokedAuth.expectedEmails)
+        assertTrue(connectedApi.calls.isEmpty())
+        assertTrue(
+            WeeklyScheduleOperationJournal(connectedOperations, json).read()
+                is WeeklyScheduleOperationRead.Present
+        )
+
+        for (email in listOf(null, "other@example.com")) {
+          val settings = FakeDataStore(email = email)
+          val operations = FakeDataStore()
+          writeOperation(operations, operation)
+          val auth = FakeAccountAuth()
+          val api = FakeCalendarApi()
+
+          val result = repository(api, settings, operations, auth).resumePendingOperation()
+
+          assertTrue(result is WeeklyScheduleRecoveryResult.Paused)
+          assertTrue(auth.expectedEmails.isEmpty())
+          assertTrue(api.calls.isEmpty())
+          assertTrue(
+              WeeklyScheduleOperationJournal(operations, json).read()
+                  is WeeklyScheduleOperationRead.Present
+          )
+        }
+      }
+
+  @Test
+  fun `account switch after token pauses before any calendar API call`() = runTest {
+    val routine = seedRoutine("Ноги")
+    val settings = FakeDataStore()
+    val operations = FakeDataStore()
+    writeOperation(
+        operations,
+        replaceOperation(
+            phase = WeeklyScheduleOperationPhase.CREATE_NEW,
+            old = WeeklySchedule(),
+            routineId = routine,
+            pendingCreateIds = listOf(CLIENT_ID),
+            cleanupNewIds = emptyList(),
+        ),
+    )
+    val auth = FakeAccountAuth().apply { afterToken = { settings.setEmail("b@example.com") } }
+    val api = FakeCalendarApi()
+
+    val result = repository(api, settings, operations, auth).resumePendingOperation()
+
+    assertTrue(result is WeeklyScheduleRecoveryResult.Paused)
+    assertTrue(api.calls.isEmpty())
+    assertTrue(
+        WeeklyScheduleOperationJournal(operations, json).read()
+            is WeeklyScheduleOperationRead.Present
+    )
+  }
+
+  @Test
+  fun `account switch during create pauses without calling the next event`() = runTest {
+    val routine = seedRoutine("Ноги")
+    val settings = FakeDataStore()
+    val operations = FakeDataStore()
+    val first = CLIENT_ID
+    val second = "1123456789abcdef0123456789abcdef"
+    val base =
+        replaceOperation(
+            phase = WeeklyScheduleOperationPhase.CREATE_NEW,
+            old = WeeklySchedule(),
+            routineId = routine,
+            pendingCreateIds = listOf(first),
+            cleanupNewIds = emptyList(),
+        )
+    val secondPrepared =
+        base.preparedEvents
+            .single()
+            .copy(
+                eventId = second,
+                rule = base.preparedEvents.single().rule.copy(calendarEventId = second),
+                request = base.preparedEvents.single().request.copy(id = second),
+            )
+    writeOperation(
+        operations,
+        base.copy(
+            preparedEvents = base.preparedEvents + secondPrepared,
+            targetSchedule =
+                base.targetSchedule.copy(
+                    rules = base.targetSchedule.rules + secondPrepared.rule,
+                ),
+            pendingCreateIds = listOf(first, second),
+        ),
+    )
+    val api = FakeCalendarApi().apply { afterInsert = { settings.setEmail("b@example.com") } }
+
+    val result = repository(api, settings, operations).resumePendingOperation()
+
+    assertTrue(result is WeeklyScheduleRecoveryResult.Paused)
+    assertEquals(listOf(first), api.insertedBodies.map { it.id })
+    assertTrue(
+        WeeklyScheduleOperationJournal(operations, json).read()
+            is WeeklyScheduleOperationRead.Present
+    )
+  }
+
+  @Test
+  fun `account switch during cleanup pauses without deleting the next attempted event`() = runTest {
+    val routine = seedRoutine("Ноги")
+    val settings = FakeDataStore()
+    val operations = FakeDataStore()
+    val second = "1123456789abcdef0123456789abcdef"
+    val base =
+        replaceOperation(
+            phase = WeeklyScheduleOperationPhase.CLEANUP_NEW,
+            old = WeeklySchedule(),
+            routineId = routine,
+            pendingCreateIds = listOf(CLIENT_ID),
+            cleanupNewIds = listOf(CLIENT_ID),
+        )
+    val secondPrepared =
+        base.preparedEvents
+            .single()
+            .copy(
+                eventId = second,
+                rule = base.preparedEvents.single().rule.copy(calendarEventId = second),
+                request = base.preparedEvents.single().request.copy(id = second),
+            )
+    writeOperation(
+        operations,
+        base.copy(
+            preparedEvents = base.preparedEvents + secondPrepared,
+            targetSchedule =
+                base.targetSchedule.copy(
+                    rules = base.targetSchedule.rules + secondPrepared.rule,
+                ),
+            cleanupNewIds = listOf(CLIENT_ID, second),
+        ),
+    )
+    val api = FakeCalendarApi().apply { afterDelete = { settings.setEmail("b@example.com") } }
+
+    val result = repository(api, settings, operations).resumePendingOperation()
+
+    assertTrue(result is WeeklyScheduleRecoveryResult.Paused)
+    assertEquals(listOf(CLIENT_ID), api.deletedEventIds)
+    assertTrue(
+        WeeklyScheduleOperationJournal(operations, json).read()
+            is WeeklyScheduleOperationRead.Present
+    )
+  }
+
+  @Test
+  fun `account switch during old delete preserves active schedule and pending journal`() = runTest {
+    val routine = seedRoutine("Ноги")
+    val old = ownedSchedule(routine, "old-event")
+    val settings = FakeDataStore(old)
+    val operations = FakeDataStore()
+    val api = FakeCalendarApi().apply { afterDelete = { settings.setEmail("b@example.com") } }
+
+    val result = repository(api, settings, operations).clear()
+
+    assertTrue(result is ScheduleResult.Failure)
+    assertEquals(old, repository(api, settings, operations).observe().first())
+    assertEquals(listOf("old-event"), api.deletedEventIds)
+    assertTrue(
+        WeeklyScheduleOperationJournal(operations, json).read()
+            is WeeklyScheduleOperationRead.Present
+    )
+  }
+
+  @Test
+  fun `account switch after delete checkpoint pauses immediately before commit`() = runTest {
+    val routine = seedRoutine("Ноги")
+    val old = ownedSchedule(routine, "old-event")
+    val settings = FakeDataStore(old)
+    val operations = FakeDataStore()
+    val operation =
+        replaceOperation(
+            phase = WeeklyScheduleOperationPhase.DELETE_OLD,
+            old = old,
+            routineId = routine,
+            pendingCreateIds = emptyList(),
+            cleanupNewIds = emptyList(),
+        )
+    writeOperation(operations, operation)
+    operations.afterUpdate = { settings.setEmail("b@example.com") }
+
+    val result = repository(FakeCalendarApi(), settings, operations).resumePendingOperation()
+
+    assertTrue(result is WeeklyScheduleRecoveryResult.Paused)
+    assertEquals(old, repository(FakeCalendarApi(), settings, operations).observe().first())
+    assertTrue(
+        WeeklyScheduleOperationJournal(operations, json).read()
+            is WeeklyScheduleOperationRead.Present
+    )
+  }
+
+  @Test
+  fun `account switch at the target write boundary preserves active schedule and journal`() =
+      runTest {
+        val routine = seedRoutine("Ноги")
+        val old = ownedSchedule(routine, "old-event")
+        val settings = FakeDataStore(old)
+        val operations = FakeDataStore()
+        val operation =
+            replaceOperation(
+                phase = WeeklyScheduleOperationPhase.DELETE_OLD,
+                old = old,
+                routineId = routine,
+                pendingCreateIds = emptyList(),
+                cleanupNewIds = emptyList(),
+            )
+        writeOperation(operations, operation)
+        settings.beforeUpdate = { settings.setEmail("b@example.com") }
+
+        val result = repository(FakeCalendarApi(), settings, operations).resumePendingOperation()
+
+        assertTrue(result is WeeklyScheduleRecoveryResult.Paused)
+        assertEquals(old, repository(FakeCalendarApi(), settings, operations).observe().first())
+        assertTrue(
+            WeeklyScheduleOperationJournal(operations, json).read()
+                is WeeklyScheduleOperationRead.Present
+        )
+      }
+
+  @Test
+  fun `account switch after target commit only clears the completed journal`() = runTest {
+    val routine = seedRoutine("Ноги")
+    val old = WeeklySchedule()
+    val settings = FakeDataStore(old)
+    val operations = FakeDataStore()
+    val operation =
+        replaceOperation(
+            phase = WeeklyScheduleOperationPhase.DELETE_OLD,
+            old = old,
+            routineId = routine,
+            pendingCreateIds = emptyList(),
+            cleanupNewIds = emptyList(),
+        )
+    writeOperation(operations, operation)
+    operations.beforeUpdate = { settings.setEmail("b@example.com") }
+
+    val result = repository(FakeCalendarApi(), settings, operations).resumePendingOperation()
+
+    assertEquals(WeeklyScheduleRecoveryResult.Completed, result)
+    assertEquals(
+        operation.targetSchedule,
+        repository(FakeCalendarApi(), settings, operations).observe().first(),
+    )
+    assertTrue(
+        WeeklyScheduleOperationJournal(operations, json).read()
+            is WeeklyScheduleOperationRead.Absent
+    )
   }
 
   @Test
@@ -708,9 +1008,11 @@ class WeeklyScheduleRepositoryTest : RoomDaoTest() {
       private val result: TokenResult = TokenResult.Success("token"),
   ) : AccountBoundGoogleAuth {
     val expectedEmails = mutableListOf<String>()
+    var afterToken: (() -> Unit)? = null
 
     override suspend fun getAccessTokenForAccount(expectedEmail: String): TokenResult {
       expectedEmails += expectedEmail
+      afterToken?.invoke()
       return result
     }
   }
@@ -734,6 +1036,7 @@ class WeeklyScheduleRepositoryTest : RoomDaoTest() {
       private val insertGate: CompletableDeferred<Unit>? = null,
   ) : CalendarApi {
     var afterDelete: (() -> Unit)? = null
+    var afterInsert: (() -> Unit)? = null
     val insertedBodies = mutableListOf<CalendarEventDto>()
     val deletedEventIds = mutableListOf<String>()
     val calls = mutableListOf<String>()
@@ -746,6 +1049,7 @@ class WeeklyScheduleRepositoryTest : RoomDaoTest() {
       insertedBodies += body
       insertGate?.await()
       if (insertedBodies.lastIndex == failInsertOnCall) insertFailure?.let { throw it }
+      afterInsert?.invoke()
       return CalendarEventResponseDto(body.id!!)
     }
 
@@ -784,6 +1088,10 @@ class WeeklyScheduleRepositoryTest : RoomDaoTest() {
 
     override suspend fun updateData(transform: suspend (Preferences) -> Preferences): Preferences {
       failure?.let { throw it }
+      beforeUpdate?.also {
+        beforeUpdate = null
+        it()
+      }
       state.value = transform(state.value)
       afterUpdate?.invoke()
       return state.value
@@ -807,13 +1115,20 @@ class WeeklyScheduleRepositoryTest : RoomDaoTest() {
 
     fun currentEmail(): String? = state.value[EMAIL_KEY]
 
+    fun setLegacyEmail(value: String) {
+      val copy = state.value.toMutablePreferences()
+      copy[stringPreferencesKey("google_email")] = value
+      state.value = copy
+    }
+
     var afterUpdate: (() -> Unit)? = null
+    var beforeUpdate: (() -> Unit)? = null
   }
 
   private companion object {
     const val EMAIL = "owner@example.com"
     const val CLIENT_ID = "0123456789abcdef0123456789abcdef"
     val SCHEDULE_KEY = stringPreferencesKey("weekly_schedule")
-    val EMAIL_KEY = stringPreferencesKey("google_email")
+    val EMAIL_KEY = stringPreferencesKey("connected_calendar_email")
   }
 }

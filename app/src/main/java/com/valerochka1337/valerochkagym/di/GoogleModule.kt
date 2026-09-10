@@ -10,6 +10,8 @@ import com.valerochka1337.valerochkagym.data.google.SheetsRepository
 import com.valerochka1337.valerochkagym.data.google.WorkoutImportRepository
 import com.valerochka1337.valerochkagym.data.schedule.WeeklyScheduleRepository
 import com.valerochka1337.valerochkagym.data.schedule.WeeklyScheduleRepositoryImpl
+import com.valerochka1337.valerochkagym.data.settings.CalendarAccountIdentity
+import com.valerochka1337.valerochkagym.data.settings.SettingsRepository
 import com.valerochka1337.valerochkagym.worker.WeeklyScheduleRecoveryScheduler
 import com.valerochka1337.valerochkagym.worker.WorkManagerWeeklyScheduleRecoveryScheduler
 import dagger.Binds
@@ -24,6 +26,10 @@ import javax.inject.Singleton
 abstract class GoogleModule {
 
   @Binds @Singleton abstract fun bindGoogleAuth(impl: GoogleAuthManager): GoogleAuth
+
+  @Binds
+  @Singleton
+  abstract fun bindCalendarAccountIdentity(impl: SettingsRepository): CalendarAccountIdentity
 
   @Binds
   @Singleton

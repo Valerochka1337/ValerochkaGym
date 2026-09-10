@@ -569,11 +569,23 @@ class WorkoutImportRepositoryTest : RoomDaoTest() {
   }
 
   private class FakeGoogleAuth(private val token: TokenResult) : GoogleAuth {
+    override suspend fun selectAccount(activity: Activity): Result<String> = signIn(activity)
+
+    override suspend fun authorizeForAccount(
+        activity: Activity,
+        expectedEmail: String,
+    ): AuthorizeOutcome = authorize(activity)
+
+    override suspend fun revokeCalendarAccess(expectedEmail: String): Result<Unit> =
+        Result.success(Unit)
+
     override suspend fun signIn(activity: Activity): Result<String> = Result.success("u@e.com")
 
     override suspend fun authorize(activity: Activity): AuthorizeOutcome = AuthorizeOutcome.Granted
 
     override suspend fun getAccessToken(): TokenResult = token
+
+    override suspend fun getAccessTokenForAccount(expectedEmail: String): TokenResult = token
 
     override suspend fun signOut() = Unit
   }

@@ -22,7 +22,9 @@ class Migration11To12Test {
 
   @Test
   fun `room recovers exact v11 variant schema preserving completed and incomplete sets`() {
-    MigrationRecoveryFixtures.createCurrentDatabase(context, name).use { sql ->
+    val fixture = MigrationRecoveryFixtures.createCurrentDatabase(context, name)
+    fixture.use {
+      val sql = fixture.database
       MigrationRecoveryFixtures.prepareVariantSchema(sql, version = 11, includeV11Additions = true)
       MigrationRecoveryFixtures.seedVariantData(sql)
       sql.execSQL("UPDATE exercise_variants SET selectionKey = 'narrow' WHERE id = 1")
@@ -37,7 +39,10 @@ class Migration11To12Test {
 
     val db = MigrationRecoveryFixtures.openThroughProductionList(context, name)
     try {
-      MigrationRecoveryFixtures.assertBaseOnlyRecovery(db.openHelper.writableDatabase)
+      MigrationRecoveryFixtures.assertBaseOnlyRecovery(
+          db.openHelper.writableDatabase,
+          expectedVersion = fixture.version,
+      )
     } finally {
       db.close()
     }

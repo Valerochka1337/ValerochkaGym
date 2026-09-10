@@ -53,6 +53,9 @@ interface WeeklyScheduleRepository {
   suspend fun clear(): ScheduleResult
 
   suspend fun resumePendingOperation(): WeeklyScheduleRecoveryResult
+
+  /** True only when active or journaled Calendar work belongs to this exact account. */
+  suspend fun hasRecoverableWorkForAccount(email: String): Boolean = false
 }
 
 @Singleton
@@ -147,6 +150,18 @@ constructor(
         }
       }
 
+  override suspend fun hasRecoverableWorkForAccount(email: String): Boolean {
+    val expected = normalizeEmail(email)
+    if (expected.isEmpty()) return false
+    val activeOwner = normalizeEmail(observe().first().ownerEmail)
+    if (activeOwner == expected) return true
+    return when (val read = journal.read()) {
+      is WeeklyScheduleOperationRead.Present ->
+          normalizeEmail(read.operation.accountEmail) == expected
+      else -> false
+    }
+  }
+
   private suspend inline fun interactiveBoundary(
       crossinline action: suspend () -> ScheduleResult,
   ): ScheduleResult =
@@ -212,6 +227,7 @@ constructor(
           operation.phase == WeeklyScheduleOperationPhase.CLEANUP_NEW &&
               operation.cleanupNewIds.isEmpty()
       ) {
+        if (!ownerStillConnected(operation)) return Execution.Paused(ACCOUNT_MISMATCH)
         journal.clear()
         return Execution.Completed
       }
@@ -219,7 +235,7 @@ constructor(
           operation.phase == WeeklyScheduleOperationPhase.DELETE_OLD &&
               operation.pendingDeleteIds.isEmpty()
       ) {
-        commitTargetAndClear(operation)
+        if (!commitTargetAndClear(operation)) return Execution.Paused(ACCOUNT_MISMATCH)
         return Execution.Completed
       }
       if (
@@ -234,7 +250,7 @@ constructor(
             )
         journal.write(operation)
         if (operation.pendingDeleteIds.isEmpty()) {
-          commitTargetAndClear(operation)
+          if (!commitTargetAndClear(operation)) return Execution.Paused(ACCOUNT_MISMATCH)
           return Execution.Completed
         }
       }
@@ -249,6 +265,7 @@ constructor(
                   enqueueFromInteractive(origin)
                 }
           }
+      if (!ownerStillConnected(operation)) return Execution.Paused(ACCOUNT_MISMATCH)
 
       if (operation.phase == WeeklyScheduleOperationPhase.CREATE_NEW) {
         for (eventId in operation.pendingCreateIds.toList()) {
@@ -256,9 +273,11 @@ constructor(
           operation = operation.copy(cleanupNewIds = (operation.cleanupNewIds + eventId).distinct())
           journal.write(operation)
           val prepared = operation.preparedEvents.first { it.eventId == eventId }
+          if (!ownerStillConnected(operation)) return Execution.Paused(ACCOUNT_MISMATCH)
           try {
             api.insertEvent(bearer, prepared.request)
           } catch (error: HttpException) {
+            if (!ownerStillConnected(operation)) return Execution.Paused(ACCOUNT_MISMATCH)
             if (error.code() != HTTP_CONFLICT) {
               return failInsertAndCleanup(
                   operation,
@@ -268,6 +287,7 @@ constructor(
               )
             }
           } catch (_: IOException) {
+            if (!ownerStillConnected(operation)) return Execution.Paused(ACCOUNT_MISMATCH)
             return failInsertAndCleanup(
                 operation,
                 bearer,
@@ -275,6 +295,7 @@ constructor(
                 origin,
             )
           }
+          if (!ownerStillConnected(operation)) return Execution.Paused(ACCOUNT_MISMATCH)
           operation = operation.copy(pendingCreateIds = operation.pendingCreateIds - eventId)
           journal.write(operation)
         }
@@ -292,17 +313,18 @@ constructor(
       }
 
       for (eventId in operation.pendingDeleteIds.toList()) {
-        when (val deletion = deleteOne(bearer, eventId)) {
+        when (val deletion = deleteOne(operation, bearer, eventId)) {
           DeleteOutcome.Confirmed -> {
             operation = operation.copy(pendingDeleteIds = operation.pendingDeleteIds - eventId)
             journal.write(operation)
           }
+          DeleteOutcome.AccountMismatch -> return Execution.Paused(ACCOUNT_MISMATCH)
           is DeleteOutcome.Paused -> return Execution.Paused(deletion.message)
           is DeleteOutcome.Retry ->
               return Execution.Retry(deletion.message).also { enqueueFromInteractive(origin) }
         }
       }
-      commitTargetAndClear(operation)
+      if (!commitTargetAndClear(operation)) return Execution.Paused(ACCOUNT_MISMATCH)
       return Execution.Completed
     } catch (cancellation: CancellationException) {
       throw cancellation
@@ -339,11 +361,12 @@ constructor(
   ): Execution {
     var operation = initial
     for (eventId in operation.cleanupNewIds.toList()) {
-      when (deleteOne(bearer, eventId)) {
+      when (deleteOne(operation, bearer, eventId)) {
         DeleteOutcome.Confirmed -> {
           operation = operation.copy(cleanupNewIds = operation.cleanupNewIds - eventId)
           journal.write(operation)
         }
+        DeleteOutcome.AccountMismatch -> return Execution.Paused(ACCOUNT_MISMATCH)
         is DeleteOutcome.Paused -> {
           return Execution.Paused(CLEANUP_DEFERRED)
         }
@@ -353,44 +376,72 @@ constructor(
         }
       }
     }
+    if (!ownerStillConnected(operation)) return Execution.Paused(ACCOUNT_MISMATCH)
     journal.clear()
     return Execution.Completed
   }
 
-  private suspend fun deleteOne(bearer: String, eventId: String): DeleteOutcome =
-      try {
-        val response = api.deleteEvent(bearer, eventId)
-        when {
-          response.isSuccessful || response.code() in DELETE_CONFIRMED_CODES ->
-              DeleteOutcome.Confirmed
-          response.code() == 429 || response.code() >= 500 -> DeleteOutcome.Retry(DELETE_DEFERRED)
-          else -> DeleteOutcome.Paused(deleteFailureMessage(response.code()))
-        }
-      } catch (error: HttpException) {
-        when {
-          error.code() in DELETE_CONFIRMED_CODES -> DeleteOutcome.Confirmed
-          error.code() == 429 || error.code() >= 500 -> DeleteOutcome.Retry(DELETE_DEFERRED)
-          else -> DeleteOutcome.Paused(deleteFailureMessage(error.code()))
-        }
-      } catch (_: IOException) {
-        DeleteOutcome.Retry(DELETE_DEFERRED)
+  private suspend fun deleteOne(
+      operation: WeeklyScheduleOperation,
+      bearer: String,
+      eventId: String,
+  ): DeleteOutcome {
+    if (!ownerStillConnected(operation)) return DeleteOutcome.AccountMismatch
+    return try {
+      val response = api.deleteEvent(bearer, eventId)
+      if (!ownerStillConnected(operation)) return DeleteOutcome.AccountMismatch
+      when {
+        response.isSuccessful || response.code() in DELETE_CONFIRMED_CODES ->
+            DeleteOutcome.Confirmed
+        response.code() == 429 || response.code() >= 500 -> DeleteOutcome.Retry(DELETE_DEFERRED)
+        else -> DeleteOutcome.Paused(deleteFailureMessage(response.code()))
       }
+    } catch (error: HttpException) {
+      if (!ownerStillConnected(operation)) return DeleteOutcome.AccountMismatch
+      when {
+        error.code() in DELETE_CONFIRMED_CODES -> DeleteOutcome.Confirmed
+        error.code() == 429 || error.code() >= 500 -> DeleteOutcome.Retry(DELETE_DEFERRED)
+        else -> DeleteOutcome.Paused(deleteFailureMessage(error.code()))
+      }
+    } catch (_: IOException) {
+      if (!ownerStillConnected(operation)) return DeleteOutcome.AccountMismatch
+      DeleteOutcome.Retry(DELETE_DEFERRED)
+    }
+  }
 
-  private suspend fun commitTargetAndClear(operation: WeeklyScheduleOperation) {
-    persist(operation.targetSchedule)
+  /**
+   * The settings edit is the commit linearization point. A later account switch cannot make the
+   * already committed owner-bound target belong to the new account; clearing the separate journal
+   * is then safe cleanup. If cleanup fails, replay under a new account stops at this same gate.
+   */
+  private suspend fun commitTargetAndClear(operation: WeeklyScheduleOperation): Boolean {
+    val owner = normalizeEmail(operation.accountEmail)
+    var committed = false
+    dataStore.edit { preferences ->
+      if (owner.isNotEmpty() && normalizeEmail(preferences[CONNECTED_CALENDAR_EMAIL]) == owner) {
+        preferences[WEEKLY_SCHEDULE] = json.encodeToString(operation.targetSchedule)
+        committed = true
+      }
+    }
+    if (!committed) return false
     journal.clear()
+    return true
   }
 
   private suspend fun apiGate(operation: WeeklyScheduleOperation): String? {
-    val currentEmail = normalizeEmail(dataStore.data.first()[GOOGLE_EMAIL])
+    val currentEmail = normalizeEmail(dataStore.data.first()[CONNECTED_CALENDAR_EMAIL])
     return operation.accountEmail.takeIf { it.isNotEmpty() && it == currentEmail }
   }
+
+  private suspend fun ownerStillConnected(operation: WeeklyScheduleOperation): Boolean =
+      normalizeEmail(dataStore.data.first()[CONNECTED_CALENDAR_EMAIL]) ==
+          normalizeEmail(operation.accountEmail).takeIf(String::isNotEmpty)
 
   private suspend fun adoptLegacyOwnerOrReadActive(): ActiveAccount {
     lateinit var result: ActiveAccount
     dataStore.edit { preferences ->
       var active = decodeSchedule(preferences[WEEKLY_SCHEDULE])
-      val currentEmail = normalizeEmail(preferences[GOOGLE_EMAIL])
+      val currentEmail = normalizeEmail(preferences[CONNECTED_CALENDAR_EMAIL])
       if (active.rules.isNotEmpty() && active.ownerEmail == null && currentEmail.isNotEmpty()) {
         active = active.copy(ownerEmail = currentEmail)
         preferences[WEEKLY_SCHEDULE] = json.encodeToString(active)
@@ -441,10 +492,6 @@ constructor(
       ByteArray(16).also(secureRandom::nextBytes).joinToString(separator = "") { byte ->
         "%02x".format(byte.toInt() and 0xff)
       }
-
-  private suspend fun persist(schedule: WeeklySchedule) {
-    dataStore.edit { it[WEEKLY_SCHEDULE] = json.encodeToString(schedule) }
-  }
 
   private fun decodeSchedule(raw: String?): WeeklySchedule =
       raw?.let { runCatching { json.decodeFromString<WeeklySchedule>(it) }.getOrNull() }
@@ -503,6 +550,8 @@ constructor(
   private sealed interface DeleteOutcome {
     data object Confirmed : DeleteOutcome
 
+    data object AccountMismatch : DeleteOutcome
+
     data class Retry(val message: String) : DeleteOutcome
 
     data class Paused(val message: String) : DeleteOutcome
@@ -515,7 +564,7 @@ constructor(
 
   private companion object {
     val WEEKLY_SCHEDULE = stringPreferencesKey("weekly_schedule")
-    val GOOGLE_EMAIL = stringPreferencesKey("google_email")
+    val CONNECTED_CALENDAR_EMAIL = stringPreferencesKey("connected_calendar_email")
     val DELETE_CONFIRMED_CODES = setOf(404, 410)
     const val HTTP_CONFLICT = 409
     const val EVENT_DURATION_SECONDS = 60L * 60L

@@ -6,6 +6,7 @@ import androidx.room.TypeConverters
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.valerochka1337.valerochkagym.data.db.dao.BodyMeasurementDao
+import com.valerochka1337.valerochkagym.data.db.dao.CalendarEventAccountLinkDao
 import com.valerochka1337.valerochkagym.data.db.dao.ConfigurationTombstoneDao
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseDao
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseMuscleDao
@@ -15,6 +16,7 @@ import com.valerochka1337.valerochkagym.data.db.dao.RoutineDao
 import com.valerochka1337.valerochkagym.data.db.dao.ScheduledWorkoutDao
 import com.valerochka1337.valerochkagym.data.db.dao.WorkoutDao
 import com.valerochka1337.valerochkagym.data.db.entity.BodyMeasurementEntity
+import com.valerochka1337.valerochkagym.data.db.entity.CalendarEventAccountLinkEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ConfigurationTombstoneEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEquipmentEntity
@@ -45,6 +47,7 @@ import java.util.UUID
             com.valerochka1337.valerochkagym.data.backend.CatalogRecordEntity::class,
             com.valerochka1337.valerochkagym.data.backend.CatalogEquipmentEntity::class,
             BodyMeasurementEntity::class,
+            CalendarEventAccountLinkEntity::class,
             ConfigurationTombstoneEntity::class,
             ExerciseEntity::class,
             ExerciseEquipmentEntity::class,
@@ -62,12 +65,14 @@ import java.util.UUID
             WorkoutGymEntity::class,
             WorkoutSetEntity::class,
         ],
-    version = 16,
+    version = 17,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
 abstract class GymDatabase : RoomDatabase() {
   abstract fun bodyMeasurementDao(): BodyMeasurementDao
+
+  abstract fun calendarEventAccountLinkDao(): CalendarEventAccountLinkDao
 
   abstract fun configurationTombstoneDao(): ConfigurationTombstoneDao
 
@@ -661,6 +666,24 @@ abstract class GymDatabase : RoomDatabase() {
           }
         }
 
+    val MIGRATION_16_17: Migration =
+        object : Migration(16, 17) {
+          override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS `calendar_event_account_links` (" +
+                    "`scheduledWorkoutId` INTEGER NOT NULL, `ownerEmail` TEXT, " +
+                    "`state` TEXT NOT NULL, PRIMARY KEY(`scheduledWorkoutId`), " +
+                    "FOREIGN KEY(`scheduledWorkoutId`) REFERENCES `scheduled_workouts`(`id`) " +
+                    "ON UPDATE NO ACTION ON DELETE CASCADE)"
+            )
+            db.execSQL(
+                "INSERT INTO calendar_event_account_links(scheduledWorkoutId,ownerEmail,state) " +
+                    "SELECT id,NULL,'LEGACY_OWNER_UNKNOWN' FROM scheduled_workouts"
+            )
+            CalendarEventAccountLinkSchema.install(db)
+          }
+        }
+
     val MIGRATION_14_15: Migration =
         object : Migration(14, 15) {
           override fun migrate(db: SupportSQLiteDatabase) {
@@ -686,6 +709,7 @@ abstract class GymDatabase : RoomDatabase() {
             MIGRATION_13_14,
             MIGRATION_14_15,
             MIGRATION_15_16,
+            MIGRATION_16_17,
         )
   }
 }
