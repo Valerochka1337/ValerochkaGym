@@ -36,7 +36,8 @@
 |---|---|---|---|
 | 01–02 / #45–46 | fix/workout-program-save | done_local | cdde249; Full 985 tests, 0 failures/errors, 1 skipped; debug PASS; strict review PASS; версия 30 / 1.3.22; Mac full suite через временный forkEvery=16 |
 | 03 / #44 | fix/completed-set-edit | done_local | 8c243e4; full1002 tests 0failures,1skipped; debugPASS; GateV/T PASS с принятым popup P2;31/1.3.23 |
-| 04 / #47 | fix/workout-finish | in_progress | GateP strictPASS; implementerT001–003 после8c243e4; плановый32/1.3.24 |
+| 04 / #47 | fix/workout-finish | done_local | 26b2b96; full1012tests0failures,1skipped/debugPASS; GateT/V PASS;32/1.3.24 |
+| 05 / #5 | fix/empty-workout-start | in_progress | Root tiny UI; 10 targetedtestsPASS; independentreviewPASS; fullgates running;33/1.3.25 |
 | 06 / #10 | следующая fix/permission-recovery | plan_ready | Gate P strict PASS; ActivityResult и текущие grants определяют возврат из настроек |
 | 07 / #48 | следующая feat/yarumo-rebrand | plan_ready | Gate P strict PASS; неизменный исходник + XML fill/inset, точные identity/signer/R8/forward rollback gates |
 | 08 / #43 | следующая feat/google-account-calendar | plan_ready | Gate P strict PASS; verified connected identity, account-bound operations, ownerless quarantine and saved consent target |
