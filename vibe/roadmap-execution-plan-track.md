@@ -49,7 +49,8 @@
 | 10 / #9 server slice | backend feat/workout-notes-contract | done_local | f26de34; Gate T/V PASS; full68tests0failures/check/bootJarPASS; Android slice waits12/CAL01 |
 
 | 14–15 / #50 server slice | backend feat/basic-profile-contract | done_local | 03a0c1d; Gate T/V PASS; full72tests0failures/check/bootJarPASS; Android follows notes/current schema |
-| PLAN-01 server slice | backend feat/training-proposals | in_progress | T001 strict fixture accepted ca41f1f; updated gymIds≤1000 fixture SHA 65254ebf9aaa4062ebf8ef71df99c76876685ce10ec0bd2fa8645fced56ea998; migration010 and atomic approval implementation; independent V fixes pending |
+| PLAN-01 server slice | backend feat/training-proposals | blocked_partial | safe subset commit7f27801; narrow independent review PASS; root96tests0failures/errors/skips/check bootJarPASS; edited-preview approval remains auto-review blocked, full AC not accepted |
+| 17 / manual health server slice | backend feat/manual-health-ledger | in_progress | strict plan repair review PASS; sole backend writer starts from7f27801, actual next migration frozen at T001; no release claimed |
 
 Agent routing for stage08: environment rejected both new named implementer and original implementer follow-up with `agent thread limit reached`. Reused an available default Sol/high agent as the sole Android writer; ownership, targeted Gate I and independent T/V remain mandatory. Backend has its own separate checkout/writer. This changes routing only, not acceptance criteria.
 
@@ -76,6 +77,17 @@ Agent routing for stage08: environment rejected both new named implementer and o
 - Финальные результаты CI, release URL, asset и коммиты будут записаны после фактической проверки.
 
 ## Текущий внешний блокер
+
+Перехват 10.09.2026: оба checkout и dirty-наборы сверены с `roadmap-handoff.md`;
+Android остаётся `feat/google-account-calendar` (36/1.3.28), backend —
+`feat/training-proposals`. Новые исполнители назначены с отдельным владением checkout;
+единственный Android writer сохраняет Room/миграции/версию. Последний fix batch #43
+проходит повторный targeted Gate I; прежние PASS не заменяют его проверку.
+Backend full gate ранее завершился 96 tests / 1 failure (backup Liquibase count,
+expected 10 / actual 11); исправление и повторная проверка в работе.
+Отдельный automatic approval block edited-preview PLAN01 сохраняется; запрос по
+конкретному патчу отправлен вновь, разрешение не предполагается из общей автономии.
+Новые публикации и успешный итоговый релиз пока не подтверждены.
 
 Backend GitHub: viewerPermission READ; SSH dry-run push отказан аккаунту rurkk. Android
 viewerPermission WRITE. Actions secrets/variables backend также403. Это ограничение прав GitHub,

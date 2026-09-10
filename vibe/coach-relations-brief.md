@@ -28,3 +28,5 @@ Mutations с proposal: catalog → recipient sync head → relation → proposal
 - AC-008: доступные списки связей и клиентов, loading/error/empty/revoked/pending states, 48dp/fontScale2, права читаемы без цвета.
 
 Gate P замораживает DTO, хранение хеша токена, expiry, идемпотентность, pagination, relation/author deletion contract и схему. Один writer владеет Android Room. Обязательны PostgreSQL barriers accept/revoke/approve/session-delete, allowlist полей, invite single-use/replay, Room migrations/owner guards, VM/Compose и полный unit/debug на стабильном diff. Во время тестов нет внешних сообщений или production deploy.
+
+Перед включением COACH creation отдельно проверить первый `bindAuthenticatedCoach` и detach при одновременном удалении автора: FK на живой users и блокировка historical snapshot должны иметь единый порядок с удалением аккаунта. Сам repository helper не доказывает действительность переданного Identity; публичный сервис обязан проверить живую сессию и relation в той же транзакции. Нужны реальные PostgreSQL barriers для первого bind, повторного bind и detached snapshot, а не только последовательные проверки.
