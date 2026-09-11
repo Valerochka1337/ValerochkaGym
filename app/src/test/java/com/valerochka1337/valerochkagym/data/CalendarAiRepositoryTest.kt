@@ -14,8 +14,12 @@ class CalendarAiRepositoryTest : RoomDaoTest() {
   private class Ready : SyncReadySource {
     var current = true
     var blocked = false
+    var failure: Exception? = null
 
-    override suspend fun await(): SyncReady = if (blocked) SyncReady.Blocked else receipt
+    override suspend fun await(): SyncReady {
+      failure?.let { throw it }
+      return if (blocked) SyncReady.Blocked else receipt
+    }
 
     override suspend fun isCurrent(ready: SyncReady.Ready) = current && ready == receipt
 
@@ -176,7 +180,10 @@ class CalendarAiRepositoryTest : RoomDaoTest() {
   fun `blocked readiness and excluded candidate stop before dispatch`() = runTest {
     val (r, s) = fixture()
     r.blocked = true
-    assertTrue(runCatching { repo(r, s).generate(intent()) }.isFailure)
+    assertEquals(
+        "ai_context_stale",
+        (runCatching { repo(r, s).generate(intent()) }.exceptionOrNull() as BackendException).code,
+    )
     assertEquals(0, s.calls)
     r.blocked = false
     assertTrue(
@@ -195,7 +202,11 @@ class CalendarAiRepositoryTest : RoomDaoTest() {
         s.stale = false
         r.current = true
         s.badContext = true
-        assertTrue(runCatching { repo(r, s).generate(intent()) }.isFailure)
+        assertEquals(
+            "ai_invalid_response",
+            (runCatching { repo(r, s).generate(intent()) }.exceptionOrNull() as BackendException)
+                .code,
+        )
         s.badContext = false
         s.forbidden = true
         assertTrue(runCatching { repo(r, s).generate(intent()) }.isFailure)
@@ -205,7 +216,19 @@ class CalendarAiRepositoryTest : RoomDaoTest() {
   fun `active workout blocks calendar AI before provider request`() = runTest {
     val (r, s) = fixture()
     db.workoutDao().insertWorkout(WorkoutEntity(id = "active", name = "Тренировка", startedAt = 1))
-    assertTrue(runCatching { repo(r, s).generate(intent()) }.isFailure)
+    assertEquals(
+        "workout_active",
+        (runCatching { repo(r, s).generate(intent()) }.exceptionOrNull() as BackendException).code,
+    )
+    assertEquals(0, s.calls)
+  }
+
+  @Test
+  fun `readiness cancellation propagates unchanged without dispatch`() = runTest {
+    val (r, s) = fixture()
+    val cancellation = kotlinx.coroutines.CancellationException("private")
+    r.failure = cancellation
+    assertSame(cancellation, runCatching { repo(r, s).generate(intent()) }.exceptionOrNull())
     assertEquals(0, s.calls)
   }
 

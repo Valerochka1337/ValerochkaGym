@@ -106,12 +106,25 @@ constructor(
     private val clock: WallClock,
 ) {
   suspend fun generate(intent: CalendarAiIntent): TrainingProposal {
-    require(intent.valid(clock.nowMillis()))
+    checkLocal(intent.valid(clock.nowMillis()), "ai_invalid_intent")
     val ready =
-        readySource.await() as? SyncReady.Ready
-            ?: throw BackendException(409, "ai_context_stale", "Сначала завершите синхронизацию")
+        when (val result = readySource.await()) {
+          is SyncReady.Ready -> result
+          SyncReady.Blocked ->
+              throw BackendException(409, "ai_context_stale", "Сначала завершите синхронизацию")
+          is SyncReady.Failure ->
+              throw when (val cause = result.cause) {
+                is kotlinx.coroutines.CancellationException,
+                is BackendException,
+                is java.io.IOException -> cause
+                else ->
+                    BackendException(409, "ai_sync_failed", "Не удалось завершить синхронизацию")
+              }
+        }
     suspend fun guard() {
-      if (!readySource.isCurrent(ready) || db.healthDao().hasActiveWorkout())
+      if (db.healthDao().hasActiveWorkout())
+          throw BackendException(409, "workout_active", "Сначала завершите тренировку")
+      if (!readySource.isCurrent(ready))
           throw BackendException(
               409,
               "ai_context_stale",
@@ -120,7 +133,7 @@ constructor(
     }
     guard()
     val gyms = db.gymDao().getGyms().filterNot { it.archived }
-    require(intent.gymIds.all { id -> gyms.any { it.syncId == id } })
+    checkLocal(intent.gymIds.all { id -> gyms.any { it.syncId == id } }, "ai_gym_unavailable")
     val selected = gyms.filter { it.syncId in intent.gymIds }
     val equipment = selected.flatMap { db.gymDao().getGymEquipmentIds(it.id) }.toSet()
     val exercises = db.exerciseDao().getAllOnce().filterNot { it.archived }
@@ -138,7 +151,7 @@ constructor(
             }
             .map { it.syncId }
             .toSet()
-    require(allowed.isNotEmpty())
+    checkLocal(allowed.isNotEmpty(), "ai_no_candidates")
     guard()
     val id = UUID.randomUUID().toString()
     val request =
@@ -168,33 +181,38 @@ constructor(
             maxResponseBytes = ProposalWire.RESPONSE_LIMIT,
         )
     guard()
-    require(response.owner == ready.owner && response.sessionEpoch == ready.sessionEpoch)
-    val result = ProposalWire.decode<CalendarResponse>(response.rawBody)
-    require(
+    checkResponse(response.owner == ready.owner && response.sessionEpoch == ready.sessionEpoch)
+    val result =
+        try {
+          ProposalWire.decode<CalendarResponse>(response.rawBody)
+        } catch (_: IllegalArgumentException) {
+          throw BackendException(502, "ai_invalid_response", "Некорректный ответ AI")
+        }
+    checkResponse(
         result.requestId == id &&
             result.context.revision == ready.revision &&
             result.context.catalogRevision == ready.catalogRevision &&
             result.context.capturedAtMillis >= 0
     )
     val p = result.proposal
-    require(
+    checkResponse(
         ProposalWire.valid(p) &&
             p.recipientId == ready.owner &&
             p.source == ProposalSource.AI &&
             p.status == ProposalStatus.PENDING &&
             p.author.accountId == null
     )
-    require(
+    checkResponse(
         p.snapshot.ownerRevision == ready.revision &&
             p.snapshot.catalogRevision == ready.catalogRevision
     )
-    require(
+    checkResponse(
         p.snapshot.draft.startsAtMillis == intent.startsAtMillis &&
             p.snapshot.draft.timeZoneId == intent.timeZoneId &&
             p.snapshot.draft.gymIds == intent.gymIds.sorted() &&
             p.snapshot.draft.exercises.all { it.exerciseId in allowed }
     )
-    require(
+    checkResponse(
         p.snapshot.draft.exercises.all { planned ->
           val type = exercises.first { it.syncId == planned.exerciseId }.type.name
           planned.plannedSets.all { set ->
@@ -219,4 +237,12 @@ constructor(
     guard()
     return p
   }
+}
+
+private fun checkLocal(valid: Boolean, code: String) {
+  if (!valid) throw BackendException(400, code, "Проверьте параметры предложения")
+}
+
+private fun checkResponse(valid: Boolean) {
+  if (!valid) throw BackendException(502, "ai_invalid_response", "Некорректный ответ AI")
 }

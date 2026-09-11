@@ -734,6 +734,34 @@ class BackendSyncTest : RoomDaoTest() {
   }
 
   @Test
+  fun `AI readiness preserves network and backend failures and propagates cancellation`() =
+      runTest {
+        SyncSchema.install(raw)
+        val server = Server()
+        val sync = BackendSync(db, server, Store())
+        sync.claim("user-a")
+        for (error in
+            listOf(
+                java.io.IOException("private"),
+                BackendException(401, "unauthorized", "private"),
+                BackendException(409, "revision_conflict", "private"),
+            )) {
+          server.onGet = { throw error }
+          val failure = sync.awaitAiReady() as SyncReady.Failure
+          assertEquals(error.javaClass, failure.cause!!.javaClass)
+          if (error is BackendException)
+              assertEquals(error.code, (failure.cause as BackendException).code)
+          assertFalse(failure.message.contains("private"))
+        }
+        val cancellation = kotlinx.coroutines.CancellationException("private")
+        server.onGet = { throw cancellation }
+        assertTrue(
+            runCatching { sync.awaitAiReady() }.exceptionOrNull()
+                is kotlinx.coroutines.CancellationException
+        )
+      }
+
+  @Test
   fun `AI readiness rejects a generation change during final acknowledgement`() = runTest {
     SyncSchema.install(raw)
     val server = Server()
@@ -777,14 +805,22 @@ class BackendSyncTest : RoomDaoTest() {
                 session.value = tokens
               }
             }
-        assertEquals(SyncReady.Blocked, BackendSync(db, Server(), guest).awaitAiReady())
+        assertEquals(
+            "unauthorized",
+            ((BackendSync(db, Server(), guest).awaitAiReady() as SyncReady.Failure).cause
+                    as BackendException)
+                .code,
+        )
 
         val server = Server()
         val sync = BackendSync(db, server, Store())
         sync.claim("user-a")
         insertWorkout("active")
 
-        assertEquals(SyncReady.Blocked, sync.awaitAiReady())
+        assertEquals(
+            "workout_active",
+            ((sync.awaitAiReady() as SyncReady.Failure).cause as BackendException).code,
+        )
       }
 
   @Test

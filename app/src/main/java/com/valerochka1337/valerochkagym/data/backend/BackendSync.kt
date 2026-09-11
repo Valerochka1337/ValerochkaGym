@@ -745,8 +745,15 @@ constructor(
    */
   suspend fun awaitAiReady(): SyncReady =
       withContext(Dispatchers.IO) {
-        val initialOwner = tokens.snapshot()?.tokens?.userId ?: return@withContext SyncReady.Blocked
+        val initialOwner =
+            tokens.snapshot()?.tokens?.userId
+                ?: return@withContext SyncReady.Failure(
+                    "Войдите в аккаунт",
+                    BackendException(401, "unauthorized", "Войдите в аккаунт"),
+                )
         try {
+          if (active())
+              throw BackendException(409, "workout_active", "Сначала завершите тренировку")
           run()
           mutex.withLock {
             val beforeAcknowledgement =
@@ -770,11 +777,8 @@ constructor(
           }
         } catch (error: kotlinx.coroutines.CancellationException) {
           throw error
-        } catch (error: BackendException) {
-          if (error.status in setOf(401, 409)) SyncReady.Blocked
-          else SyncReady.Failure(error.message)
-        } catch (_: Exception) {
-          SyncReady.Failure("Не удалось подготовить данные для нейросети")
+        } catch (error: Exception) {
+          SyncReady.Failure("Не удалось подготовить данные для нейросети", error)
         }
       }
 

@@ -238,13 +238,16 @@ constructor(
       mutableState.update { it.copy(generating = false) }
       _openProposal.send(epoch to proposal.proposalId)
     } catch (error: CancellationException) {
+      if (token == generation && epoch == sessions.sessionEpoch) {
+        mutableState.update { it.copy(generating = false) }
+      }
       throw error
     } catch (error: Exception) {
       if (token == generation && epoch == sessions.sessionEpoch) {
         mutableState.update {
           it.copy(
               generating = false,
-              error = "Не удалось подготовить предложение. Проверьте данные и синхронизацию",
+              error = calendarAiErrorMessage(error),
           )
         }
       }
