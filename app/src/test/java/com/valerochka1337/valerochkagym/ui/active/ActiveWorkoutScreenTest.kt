@@ -391,11 +391,13 @@ class ActiveWorkoutScreenTest {
   }
 
   @Test
-  fun `header exposes a labelled finish action with a 48 dp target`() {
+  fun `overflow menu exposes a labelled finish action with a 48 dp target`() {
     renderActiveWorkout(mutableStateOf(workoutWithIncompleteExercises()))
 
+    composeRule.onNodeWithContentDescription("Завершить тренировку").assertDoesNotExist()
+    composeRule.onNodeWithContentDescription("Действия тренировки").performClick()
     composeRule
-        .onNodeWithContentDescription("Завершить тренировку")
+        .onNodeWithText("Завершить тренировку")
         .assertIsDisplayed()
         .assertHeightIsAtLeast(48.dp)
   }
@@ -497,8 +499,11 @@ class ActiveWorkoutScreenTest {
             .markSetCompleted(THIRD_SET_ID)
     renderActiveWorkout(mutableStateOf(workout), isFinishing = true)
 
-    composeRule.onNodeWithContentDescription("Завершить тренировку").assertIsNotEnabled()
     composeRule.onNodeWithText("Завершить тренировку").assertIsNotEnabled()
+    composeRule.onNodeWithContentDescription("Действия тренировки").performClick()
+    composeRule.onAllNodesWithText("Завершить тренировку").assertCountEquals(2)
+    composeRule.onAllNodesWithText("Завершить тренировку")[0].assertIsNotEnabled()
+    composeRule.onAllNodesWithText("Завершить тренировку")[1].assertIsNotEnabled()
   }
 
   private fun completeFocusedSet() {

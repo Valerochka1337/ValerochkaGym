@@ -5,8 +5,8 @@ import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
 import android.view.WindowManager
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FiniteAnimationSpec
@@ -51,8 +51,8 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -664,23 +664,34 @@ private fun CoachActionButton(unreadCoachMessages: Int, onOpenCoach: () -> Unit)
   val haptics = gymHaptics()
   val effectsMotion: FiniteAnimationSpec<Float> = GymMotion.effectsDefault()
   val countText = if (unreadCoachMessages > 99) "99+" else unreadCoachMessages.toString()
-  val description = if (unreadCoachMessages > 0) "Открыть Live Coach, $unreadCoachMessages непрочитанных сообщений" else "Открыть Live Coach"
+  val description =
+      if (unreadCoachMessages > 0)
+          "Открыть Live Coach, $unreadCoachMessages непрочитанных сообщений"
+      else "Открыть Live Coach"
   BadgedBox(
       badge = {
-        if (unreadCoachMessages > 0) Badge {
-          AnimatedContent(
-              targetState = countText,
-              transitionSpec = { fadeIn(effectsMotion) togetherWith fadeOut(effectsMotion) },
-              label = "coachUnreadCount",
-          ) { Text(it) }
-        }
+        if (unreadCoachMessages > 0)
+            Badge {
+              AnimatedContent(
+                  targetState = countText,
+                  transitionSpec = { fadeIn(effectsMotion) togetherWith fadeOut(effectsMotion) },
+                  label = "coachUnreadCount",
+              ) {
+                Text(it)
+              }
+            }
       },
       modifier = Modifier.testTag("open-live-coach"),
   ) {
     androidx.compose.material3.FilledIconButton(
-        onClick = { haptics.tap(); onOpenCoach() },
+        onClick = {
+          haptics.tap()
+          onOpenCoach()
+        },
         modifier = Modifier.size(56.dp).semantics { contentDescription = description },
-    ) { Icon(Icons.Default.AutoAwesome, contentDescription = null) }
+    ) {
+      Icon(Icons.Default.AutoAwesome, contentDescription = null)
+    }
   }
 }
 
@@ -960,16 +971,6 @@ private fun ActiveWorkoutHeader(
           onSelectDevice = onConnectHeartRate,
           onDismissSelection = onCancelHeartRateSelection,
       )
-      IconButton(
-          onClick = onFinish,
-          enabled = !isFinishing,
-          modifier = Modifier.size(48.dp),
-      ) {
-        Icon(
-            imageVector = Icons.Default.Check,
-            contentDescription = "Завершить тренировку",
-        )
-      }
       Box {
         IconButton(onClick = { menuExpanded = true }) {
           Icon(
@@ -981,6 +982,14 @@ private fun ActiveWorkoutHeader(
             expanded = menuExpanded,
             onDismissRequest = { menuExpanded = false },
         ) {
+          DropdownMenuItem(
+              text = { Text("Завершить тренировку") },
+              enabled = !isFinishing,
+              onClick = {
+                menuExpanded = false
+                onFinish()
+              },
+          )
           DropdownMenuItem(
               text = { Text("Заметка к тренировке") },
               onClick = {
