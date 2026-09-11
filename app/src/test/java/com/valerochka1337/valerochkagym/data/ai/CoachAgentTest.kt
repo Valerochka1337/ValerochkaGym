@@ -18,6 +18,42 @@ import org.junit.Test
 @OptIn(ExperimentalCoroutinesApi::class)
 class CoachAgentTest {
   @Test
+  fun `structured answer returns only readable text and up to four valid contextual replies`() =
+      runTest {
+        val api = FakeCoachApi {
+          answer(
+              """{"text":"Заменить жим?","quick_replies":[" Да, замени ","",4,"Да, замени","Другой вариант","Оставим жим","Позже","Лишний"]}"""
+          )
+        }
+        val result =
+            agent(api).reply(snapshot(), "Нужна замена", tools()) { error("No tool expected") }
+        assertEquals(CoachRunStatus.ANSWER, result.status)
+        assertEquals("Заменить жим?", result.text)
+        assertEquals(
+            listOf("Да, замени", "Другой вариант", "Оставим жим", "Позже"),
+            result.quickReplies,
+        )
+        assertEquals(1, result.requestCount)
+      }
+
+  @Test
+  fun `malformed structured answer fails without exposing json as conversation text`() = runTest {
+    val api = FakeCoachApi { answer("""{"text":"Незавершённый ответ""") }
+    val result = agent(api).reply(snapshot(), "Вопрос", tools()) { error("No tool expected") }
+    assertEquals(CoachRunStatus.ERROR, result.status)
+    assertTrue(result.quickReplies.isEmpty())
+    assertFalse(result.text.contains("{\"text\""))
+  }
+
+  @Test
+  fun `invalid replies do not discard a valid answer`() = runTest {
+    val api = FakeCoachApi { answer("""{"text":"Продолжай","quick_replies":{}}""") }
+    val result = agent(api).reply(snapshot(), "Вопрос", tools()) { error("No tool expected") }
+    assertEquals("Продолжай", result.text)
+    assertTrue(result.quickReplies.isEmpty())
+  }
+
+  @Test
   fun `coach sends tool result back before final answer`() = runTest {
     val api = FakeCoachApi { index ->
       if (index == 1) toolResponse(call("state")) else answer("Продолжай")

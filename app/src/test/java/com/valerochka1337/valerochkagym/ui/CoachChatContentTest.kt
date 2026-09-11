@@ -172,22 +172,64 @@ abstract class CoachChatSemanticsBase {
   }
 
   @Test
-  fun `quick phrase fills editable input before explicit send at font scale two`() {
+  fun `quick phrase sends immediately and preserves editable input at font scale two`() {
     val sent = mutableListOf<String>()
-    content(CoachChatUiState(), sent = sent::add)
+    content(CoachChatUiState(draft = "Мой черновик"), sent = sent::add)
     compose.onNodeWithTag("coach-conversation").performScrollToNode(hasText("Добавь подход"))
-    compose.onNodeWithText("Добавь подход").performScrollTo().performClick()
-    assertEquals(emptyList<String>(), sent)
-    compose.onNodeWithTag("coach-input").performScrollTo().assertTextContains("Добавь подход")
     compose
-        .onNodeWithTag("coach-send")
+        .onNodeWithText("Добавь подход")
         .performScrollTo()
-        .assertIsDisplayed()
-        .assertIsEnabled()
         .assertHeightIsAtLeast(48.dp)
-        .assertWidthIsAtLeast(48.dp)
         .performClick()
     assertEquals(listOf("Добавь подход"), sent)
+    compose.onNodeWithTag("coach-input").performScrollTo().assertTextContains("Мой черновик")
+    compose.onNodeWithText("Осталось 20 минут").assertDoesNotExist()
+    compose.onNodeWithText("Увеличь отдых").assertDoesNotExist()
+  }
+
+  @Test
+  fun `contextual reply sends model text without bringing back initial phrases`() {
+    val sent = mutableListOf<String>()
+    content(
+        CoachChatUiState(
+            messages =
+                listOf(
+                    CoachChatMessage("u", "user", "Нужна замена"),
+                    CoachChatMessage(
+                        "a",
+                        "assistant",
+                        "Заменить жим на отжимания?",
+                        quickReplies = listOf("Да, замени на отжимания", "Оставим жим"),
+                    ),
+                )
+        ),
+        sent = sent::add,
+    )
+    compose.onNodeWithTag("coach-conversation").performScrollToNode(hasText("Оставим жим"))
+    compose.onNodeWithText("Оставим жим").performScrollTo().performClick()
+    assertEquals(listOf("Оставим жим"), sent)
+    compose.onNodeWithText("Тренажёр занят").assertDoesNotExist()
+    compose.onNodeWithText("Добавь подход").assertDoesNotExist()
+  }
+
+  @Test
+  fun `busy contextual replies are disabled`() {
+    content(
+        CoachChatUiState(
+            busy = true,
+            messages =
+                listOf(
+                    CoachChatMessage(
+                        "a",
+                        "assistant",
+                        "Заменить?",
+                        quickReplies = listOf("Да, замени"),
+                    ),
+                ),
+        )
+    )
+    compose.onNodeWithTag("coach-conversation").performScrollToNode(hasText("Да, замени"))
+    compose.onNodeWithText("Да, замени").assertIsNotEnabled()
   }
 }
 

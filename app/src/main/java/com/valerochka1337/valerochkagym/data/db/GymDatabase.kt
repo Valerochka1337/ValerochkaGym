@@ -140,7 +140,7 @@ import kotlinx.serialization.json.JsonPrimitive
             CoachSessionContextEntity::class,
             CoachSyncStateEntity::class,
         ],
-    version = 29,
+    version = 30,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -1069,6 +1069,14 @@ abstract class GymDatabase : RoomDatabase() {
           }
         }
 
+    /** v29 → v30: retain local contextual replies with their assistant message. */
+    val MIGRATION_29_30: Migration =
+        object : Migration(29, 30) {
+          override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE coach_messages ADD COLUMN quickRepliesJson TEXT")
+          }
+        }
+
     /** v28 → v29: persist an optional structured approval preview. */
     val MIGRATION_28_29: Migration =
         object : Migration(28, 29) {
@@ -1395,6 +1403,7 @@ abstract class GymDatabase : RoomDatabase() {
             MIGRATION_26_27,
             MIGRATION_27_28,
             MIGRATION_28_29,
+            MIGRATION_29_30,
         )
 
     private val legacyCoachJson = Json {

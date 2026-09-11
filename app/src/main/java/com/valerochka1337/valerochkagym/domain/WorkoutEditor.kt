@@ -38,6 +38,8 @@ sealed interface ModelProposalSaveResult {
 
   data object Stale : ModelProposalSaveResult
 
+  data object InvalidOrder : ModelProposalSaveResult
+
   data object Invalid : ModelProposalSaveResult
 
   data object Unavailable : ModelProposalSaveResult
@@ -221,6 +223,8 @@ constructor(
           expectedSessionEpoch,
           isCurrent,
       )
+    } catch (_: InvalidExerciseOrder) {
+      ModelProposalSaveResult.InvalidOrder
     } catch (_: IllegalArgumentException) {
       ModelProposalSaveResult.Invalid
     } catch (_: NoSuchElementException) {
@@ -785,11 +789,16 @@ constructor(
     reorder(state, order)
   }
 
+  private class InvalidExerciseOrder :
+      IllegalArgumentException("Order must include every section exactly once")
+
   private fun reorder(state: EditState, sectionIds: List<String>) {
-    require(
-        state.sections.size == sectionIds.size &&
-            state.sections.map { it.sectionId }.toSet() == sectionIds.toSet()
-    )
+    if (
+        state.sections.size != sectionIds.size ||
+            state.sections.map { it.sectionId }.toSet() != sectionIds.toSet()
+    ) {
+      throw InvalidExerciseOrder()
+    }
     val by = state.sections.associateBy { it.sectionId }
     state.sections =
         sectionIds.mapIndexed { position, id -> by.getValue(id).copy(position = position) }

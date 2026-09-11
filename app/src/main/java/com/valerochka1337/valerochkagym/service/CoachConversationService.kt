@@ -16,6 +16,7 @@ import com.valerochka1337.valerochkagym.domain.CoachInitiativeDecision
 import com.valerochka1337.valerochkagym.domain.CoachInitiativePolicy
 import com.valerochka1337.valerochkagym.domain.CoachInitiativeState
 import com.valerochka1337.valerochkagym.domain.CoachPerformanceSet
+import com.valerochka1337.valerochkagym.domain.CoachReply
 import com.valerochka1337.valerochkagym.domain.CoachWorkoutReader
 import com.valerochka1337.valerochkagym.domain.CommandAuthority
 import com.valerochka1337.valerochkagym.domain.LocalWorkoutCommandParser
@@ -355,6 +356,7 @@ constructor(
             request.workoutId,
             "assistant",
             result.text,
+            quickRepliesJson = CoachReply.encodeQuickReplies(result.quickReplies),
             expectedSessionEpoch = request.sessionEpoch,
             isCurrent = { isCurrent(request) },
         )
@@ -455,7 +457,8 @@ constructor(
                     CoachRunStatus.PROPOSAL,
                 )
               }
-              ModelProposalSaveResult.Stale -> {
+              ModelProposalSaveResult.Stale,
+              ModelProposalSaveResult.InvalidOrder -> {
                 val fresh = freshSnapshot(request)
                 if (fresh == null)
                     CoachToolOutcome(
@@ -464,7 +467,10 @@ constructor(
                     )
                 else
                     CoachToolOutcome(
-                        recoveryJson(fresh),
+                        recoveryJson(
+                            fresh,
+                            invalidOrder = result == ModelProposalSaveResult.InvalidOrder,
+                        ),
                         kind =
                             com.valerochka1337.valerochkagym.data.ai.CoachToolOutcomeKind.RECOVERY,
                     )
@@ -502,10 +508,15 @@ constructor(
     }
   }
 
-  private fun recoveryJson(snapshot: WorkoutSnapshot): String =
+  private fun recoveryJson(snapshot: WorkoutSnapshot, invalidOrder: Boolean): String =
       buildJsonObject {
-            put("error", "revision_conflict")
-            put("instruction", "Создай новое предложение только по current_state с новой revision.")
+            put("error", if (invalidOrder) "invalid_exercise_order" else "revision_conflict")
+            put(
+                "instruction",
+                if (invalidOrder)
+                    "Пакет не сохранён и не применён. reorder_exercises должен содержать каждый section_id из current_state ровно один раз, включая полностью выполненные упражнения и разминку. Исправь полный порядок, сохрани место выполненной разминки и используй revision из current_state."
+                else "Создай новое предложение только по current_state с новой revision.",
+            )
             put("current_state", Json.parseToJsonElement(CoachToolCodec.snapshotJson(snapshot)))
           }
           .toString()
@@ -544,6 +555,7 @@ constructor(
       createdAt: Long = System.currentTimeMillis(),
       expectedSessionEpoch: Long? = null,
       status: String = "DELIVERED",
+      quickRepliesJson: String? = null,
       isCurrent: () -> Boolean = { true },
   ): Boolean {
     return writes.write {
@@ -566,7 +578,16 @@ constructor(
         database
             .coachDao()
             .saveMessage(
-                CoachMessageEntity(id, accountId, workoutId, role, text, createdAt, status)
+                CoachMessageEntity(
+                    id,
+                    accountId,
+                    workoutId,
+                    role,
+                    text,
+                    createdAt,
+                    status,
+                    quickRepliesJson,
+                )
             )
         database
             .coachDao()

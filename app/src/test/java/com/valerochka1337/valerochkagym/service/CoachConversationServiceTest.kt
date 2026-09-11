@@ -50,6 +50,27 @@ class CoachConversationServiceTest : RoomDaoTest() {
   }
 
   @Test
+  fun `model contextual replies persist separately from visible text and journal`() = runTest {
+    val workout = activeWorkout()
+    val gateway =
+        RecordingGateway("""{"text":"Заменить жим?","quick_replies":["Да, замени","Нет"]}""")
+    val service = conversation(gateway)
+    service.attach(backgroundScope)
+    assertTrue(service.send(workout, "Нужна замена"))
+    val answer = db.coachDao().observeMessages(workout).first { it.size == 2 }.last()
+    assertEquals("Заменить жим?", answer.text)
+    assertEquals(
+        listOf("Да, замени", "Нет"),
+        com.valerochka1337.valerochkagym.domain.CoachReply.decodeQuickReplies(
+            answer.quickRepliesJson
+        ),
+    )
+    val journal = db.coachDao().pendingJournal("user", 100).single { it.id == answer.id }
+    assertFalse(journal.payload.contains("quick_replies"))
+    assertTrue(journal.payload.contains("Заменить жим?"))
+  }
+
+  @Test
   fun `oversized user text is rejected before it creates transcript or journal rows`() = runTest {
     val workoutId = activeWorkout()
     val conversation = conversation(RecordingGateway())
@@ -226,6 +247,109 @@ class CoachConversationServiceTest : RoomDaoTest() {
     assertEquals(6, db.workoutDao().getSet(set.id)!!.reps)
     assertEquals(1, gateway.calls)
     assertEquals(1L, db.workoutDao().getWorkoutFull(workout)!!.workout.coachRevision)
+  }
+
+  @Test
+  fun `reorder missing completed warmup is corrected once and still requires confirmation`() =
+      runTest {
+        verifyReorderRecovery(corrected = true)
+      }
+
+  @Test
+  fun `repeated incomplete reorder stops after one recovery without durable changes`() = runTest {
+    verifyReorderRecovery(corrected = false)
+  }
+
+  private suspend fun TestScope.verifyReorderRecovery(corrected: Boolean) {
+    val workout = activeWorkout()
+    val initial = db.workoutDao().getWorkoutFull(workout)!!.exercises.single()
+    db.workoutDao().updateSet(initial.sets.single().copy(isCompleted = true))
+    val exercise = initial.exercise.id
+    for (position in 1..7) {
+      insertSet(insertWorkoutExercise(workout, exercise, position), 0, reps = 8)
+    }
+    val before = db.workoutDao().getWorkoutFull(workout)!!
+    val ids =
+        before.exercises
+            .sortedBy { it.workoutExercise.position }
+            .map { it.workoutExercise.sectionId }
+    val incomplete = listOf(2, 4, 1, 3, 5, 6, 7).map { ids[it] }
+    val fullOrder = listOf(ids.first()) + incomplete
+    val gateway =
+        object : RecordingGateway() {
+          override suspend fun complete(
+              expectedOwner: String,
+              expectedSessionEpoch: Long?,
+              messages: List<AiApiMessage>,
+              tools: List<AiApiTool>,
+          ): AiApiChatResponse {
+            calls++
+            if (calls > 1) {
+              val recovery = (messages.last().content as JsonPrimitive).content
+              assertTrue(recovery.contains("invalid_exercise_order"))
+              assertTrue(recovery.contains(ids.first()))
+              assertTrue(recovery.contains("current_state"))
+              assertNull(db.coachDao().pendingProposal(workout))
+              assertEquals(before, db.workoutDao().getWorkoutFull(workout))
+            }
+            val order = if (calls == 2 && corrected) fullOrder else incomplete
+            val array = kotlinx.serialization.json.JsonArray(order.map { JsonPrimitive(it) })
+            val arguments =
+                """{"base_revision":0,"operations":[{"action":"reorder_exercises","section_ids":$array}]}"""
+            return AiApiChatResponse(
+                choices =
+                    listOf(
+                        AiApiChoice(
+                            AiApiResponseMessage(
+                                toolCalls =
+                                    listOf(
+                                        com.valerochka1337.valerochkagym.data.ai.AiApiToolCall(
+                                            "reorder-$calls",
+                                            function =
+                                                com.valerochka1337.valerochkagym.data.ai
+                                                    .AiApiToolCallFunction(
+                                                        "submit_workout_changes",
+                                                        arguments,
+                                                    ),
+                                        )
+                                    ),
+                            )
+                        )
+                    )
+            )
+          }
+        }
+    val service = conversation(gateway)
+    service.attach(
+        kotlinx.coroutines.CoroutineScope(
+            backgroundScope.coroutineContext + kotlinx.coroutines.Dispatchers.Default
+        )
+    )
+    assertTrue(service.send(workout, "Тренажёр занят"))
+    db.coachDao().observeMessages(workout).first { rows ->
+      rows.any { it.role == "user" && it.status == "DELIVERED" }
+    }
+    assertEquals(db.coachDao().messages(workout).toString(), 2, gateway.calls)
+    assertEquals(before, db.workoutDao().getWorkoutFull(workout))
+    val proposal = db.coachDao().pendingProposal(workout)
+    if (corrected) {
+      assertTrue(proposal != null)
+      assertTrue(service.confirm(workout, proposal!!.id))
+      val after = db.workoutDao().getWorkoutFull(workout)!!
+      assertEquals(
+          fullOrder,
+          after.exercises
+              .sortedBy { it.workoutExercise.position }
+              .map { it.workoutExercise.sectionId },
+      )
+      assertEquals(
+          before.exercises.flatMap { it.sets }.sortedBy { it.id },
+          after.exercises.flatMap { it.sets }.sortedBy { it.id },
+      )
+    } else {
+      assertNull(proposal)
+      assertTrue(db.coachDao().pendingJournal("user", 100).all { !it.payload.contains("packet") })
+    }
   }
 
   @Test
@@ -541,7 +665,8 @@ class CoachConversationServiceTest : RoomDaoTest() {
     }
   }
 
-  private open class RecordingGateway : CoachModelGateway {
+  private open class RecordingGateway(val answerText: String = "Готов помочь.") :
+      CoachModelGateway {
     var calls = 0
     val owners = mutableListOf<String>()
     val epochs = mutableListOf<Long?>()
@@ -556,8 +681,7 @@ class CoachConversationServiceTest : RoomDaoTest() {
       owners += expectedOwner
       epochs += expectedSessionEpoch
       return AiApiChatResponse(
-          choices =
-              listOf(AiApiChoice(AiApiResponseMessage(content = JsonPrimitive("Готов помочь.")))),
+          choices = listOf(AiApiChoice(AiApiResponseMessage(content = JsonPrimitive(answerText)))),
       )
     }
   }

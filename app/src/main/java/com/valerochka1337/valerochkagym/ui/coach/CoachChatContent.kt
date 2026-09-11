@@ -27,6 +27,7 @@ data class CoachChatMessage(
     val role: String,
     val text: String,
     val status: String? = null,
+    val quickReplies: List<String>? = null,
 )
 
 data class CoachChatProposal(
@@ -47,7 +48,18 @@ data class CoachChatUiState(
     val readOnly: Boolean = false,
     val initiativeEnabled: Boolean = true,
     val canUndo: Boolean = false,
-)
+) {
+  val quickReplies: List<String>
+    get() =
+        when {
+          readOnly || proposal != null -> emptyList()
+          messages.lastOrNull()?.role == "assistant" && messages.last().quickReplies != null ->
+              messages.last().quickReplies.orEmpty().take(4)
+          messages.none { it.role == "user" || it.quickReplies != null } ->
+              listOf("Тренажёр занят", "Слишком тяжело", "Добавь подход")
+          else -> emptyList()
+        }
+}
 
 /** Display-only contract: the service owns requests and the coordinator owns every mutation. */
 @Composable
@@ -240,22 +252,18 @@ fun CoachChatContent(
                   horizontalArrangement = Arrangement.spacedBy(8.dp),
                   verticalArrangement = Arrangement.spacedBy(4.dp),
               ) {
-                listOf(
-                        "Тренажёр занят",
-                        "Слишком тяжело",
-                        "Осталось 20 минут",
-                        "Добавь подход",
-                        "Увеличь отдых",
-                    )
-                    .forEach { phrase ->
-                      SuggestionChip(
-                          onClick = {
-                            haptics.tap()
-                            onDraftChange(phrase)
-                          },
-                          label = { Text(phrase) },
-                      )
-                    }
+                state.quickReplies.forEach { phrase ->
+                  SuggestionChip(
+                      onClick = {
+                        haptics.tap()
+                        onSend(phrase)
+                      },
+                      label = { Text(phrase) },
+                      enabled = !state.busy,
+                      modifier =
+                          Modifier.heightIn(min = 48.dp).testTag("coach-quick-reply:$phrase"),
+                  )
+                }
               }
               OutlinedTextField(
                   value = state.draft,

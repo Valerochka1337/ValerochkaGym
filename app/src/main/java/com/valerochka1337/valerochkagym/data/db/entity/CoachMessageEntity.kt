@@ -26,4 +26,5 @@ data class CoachMessageEntity(
     val text: String,
     val createdAt: Long,
     val status: String = "DELIVERED",
+    val quickRepliesJson: String? = null,
 )

@@ -62,9 +62,7 @@ class CoachChatViewModelTest : RoomDaoTest() {
       runTest(mainDispatcherRule.testDispatcher.scheduler) {
         val workoutId = insertWorkout("proposal")
         val packet =
-            WorkoutChangeSet.Packet(
-                listOf(WorkoutChangeSet.Operation.SetAvailableTime(20))
-            )
+            WorkoutChangeSet.Packet(listOf(WorkoutChangeSet.Operation.SetAvailableTime(20)))
         db.coachDao()
             .saveContext(CoachSessionContextEntity(workoutId, "user", lastUndoRevision = 4L))
         db.coachDao()
@@ -95,9 +93,7 @@ class CoachChatViewModelTest : RoomDaoTest() {
             "INSERT OR REPLACE INTO backend_state (id, owner, generation, phase, initialMergeAcknowledged) VALUES (1, 'user', 0, 'OWNED', 1)",
         )
         val packet =
-            WorkoutChangeSet.Packet(
-                listOf(WorkoutChangeSet.Operation.SetAvailableTime(20))
-            )
+            WorkoutChangeSet.Packet(listOf(WorkoutChangeSet.Operation.SetAvailableTime(20)))
         db.coachDao()
             .saveProposal(
                 CoachProposalEntity(
@@ -122,6 +118,39 @@ class CoachChatViewModelTest : RoomDaoTest() {
             db.coachDao().pendingProposalForId("proposal")?.let { "PENDING" } ?: "CONFIRMED",
         )
         assertEquals(1, db.coachDao().messages(workoutId).count { it.role == "system" })
+      }
+
+  @Test
+  fun `contextual replies restore from Room and disappear after a newer user message`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val workout = insertWorkout("replies")
+        db.coachDao()
+            .saveMessage(
+                com.valerochka1337.valerochkagym.data.db.entity.CoachMessageEntity(
+                    "answer",
+                    "user",
+                    workout,
+                    "assistant",
+                    "Заменить жим?",
+                    1L,
+                    quickRepliesJson = """["Да, замени","Нет"]""",
+                )
+            )
+        val model = viewModel(workout)
+        val restored = model.uiState.first { it.messages.isNotEmpty() }
+        assertEquals(listOf("Да, замени", "Нет"), restored.quickReplies)
+        db.coachDao()
+            .saveMessage(
+                com.valerochka1337.valerochkagym.data.db.entity.CoachMessageEntity(
+                    "reply",
+                    "user",
+                    workout,
+                    "user",
+                    "Нет",
+                    2L,
+                )
+            )
+        assertTrue(model.uiState.first { it.messages.size == 2 }.quickReplies.isEmpty())
       }
 
   private fun TestScope.viewModel(workoutId: String): CoachChatViewModel =

@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.valerochka1337.valerochkagym.data.db.dao.CoachDao
 import com.valerochka1337.valerochkagym.data.db.dao.WorkoutDao
+import com.valerochka1337.valerochkagym.domain.CoachReply
 import com.valerochka1337.valerochkagym.service.CoachConversationService
 import com.valerochka1337.valerochkagym.ui.navigation.GymRoutes
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -39,7 +40,15 @@ constructor(
           draft,
       ) { messages, proposal, context, draftValue ->
         PersistedChat(
-            messages.map { CoachChatMessage(it.id, it.role, it.text, it.status.toUiStatus()) },
+            messages.map {
+              CoachChatMessage(
+                  it.id,
+                  it.role,
+                  it.text,
+                  it.status.toUiStatus(),
+                  it.quickRepliesJson?.let(CoachReply::decodeQuickReplies),
+              )
+            },
             proposal?.let {
               CoachChatProposal(
                   it.id,
@@ -99,7 +108,7 @@ constructor(
     viewModelScope.launch {
       try {
         if (conversation.send(workoutId, text)) {
-          changeDraft("")
+          if (draft.value.trim() == text.trim()) changeDraft("")
           status.value = null
         } else {
           error.value = "Тренер доступен только в активной тренировке с подключённым аккаунтом."

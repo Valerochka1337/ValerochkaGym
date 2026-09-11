@@ -1,6 +1,7 @@
 package com.valerochka1337.valerochkagym.data.ai
 
 import com.valerochka1337.valerochkagym.data.backend.BackendException
+import com.valerochka1337.valerochkagym.domain.CoachReply
 import com.valerochka1337.valerochkagym.domain.WorkoutSnapshot
 import java.io.IOException
 import java.io.InterruptedIOException
@@ -28,6 +29,7 @@ data class CoachRunResult(
     val requestCount: Int,
     val toolCount: Int,
     val status: CoachRunStatus = CoachRunStatus.ANSWER,
+    val quickReplies: List<String> = emptyList(),
 )
 
 /** Only visible conversation text; imported system/tool messages never enter the model history. */
@@ -120,7 +122,14 @@ constructor(
                 )
             if (text.length > MAX_ANSWER_CHARS)
                 return@withTimeout result("Ответ модели слишком длинный. Уточните запрос.")
-            return@withTimeout result(text, CoachRunStatus.ANSWER)
+            val reply = CoachReply.decode(text)
+            return@withTimeout CoachRunResult(
+                reply.text,
+                requests,
+                calls,
+                CoachRunStatus.ANSWER,
+                reply.quickReplies,
+            )
           }
           // Preflight the entire response before dispatching anything, including a mutation.
           val incoming = message.toolCalls
