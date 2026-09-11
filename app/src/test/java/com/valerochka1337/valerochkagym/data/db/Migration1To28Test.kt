@@ -18,7 +18,7 @@ class Migration1To28Test {
   @get:Rule
   val helper =
       MigrationTestHelper(InstrumentationRegistry.getInstrumentation(), GymDatabase::class.java)
-  private val name = "remove-coach-occupied-equipment-1-28.db"
+  private val name = "live-coach-1-28.db"
 
   @After
   fun cleanup() {

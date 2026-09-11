@@ -140,7 +140,7 @@ import kotlinx.serialization.json.JsonPrimitive
             CoachSessionContextEntity::class,
             CoachSyncStateEntity::class,
         ],
-    version = 32,
+    version = 28,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -966,27 +966,12 @@ abstract class GymDatabase : RoomDatabase() {
           }
         }
 
-    val MIGRATION_31_32: Migration =
-        object : Migration(31, 32) {
+    val MIGRATION_26_27: Migration =
+        object : Migration(26, 27) {
           override fun migrate(db: SupportSQLiteDatabase) {
             db.execSQL(
                 "CREATE TABLE IF NOT EXISTS workout_preparations (owner TEXT NOT NULL, requestId TEXT NOT NULL, intentJson TEXT NOT NULL, replacesJson TEXT NOT NULL, requestJson TEXT, revision INTEGER, catalogRevision INTEGER, generation INTEGER, state TEXT NOT NULL, errorCode TEXT, proposalJson TEXT, PRIMARY KEY(owner))"
             )
-          }
-        }
-
-    /** Both released preparation v27 and early Coach v27 upgrade without losing either journal. */
-    val MIGRATION_27_32: Migration =
-        object : Migration(27, 32) {
-          override fun migrate(db: SupportSQLiteDatabase) {
-            if (!tableExists(db, "coach_session_context")) {
-              MIGRATION_26_27.migrate(db)
-            }
-            MIGRATION_27_28.migrate(db)
-            MIGRATION_28_29.migrate(db)
-            MIGRATION_29_30.migrate(db)
-            MIGRATION_30_31.migrate(db)
-            MIGRATION_31_32.migrate(db)
           }
         }
 
@@ -999,9 +984,9 @@ abstract class GymDatabase : RoomDatabase() {
           }
         }
 
-    /** v26 → v27: Live Coach durable transcript, packet receipts and portable set identities. */
-    val MIGRATION_26_27: Migration =
-        object : Migration(26, 27) {
+    /** v27 → v28: the complete Live Coach schema on top of the released preparation journal. */
+    val MIGRATION_27_28: Migration =
+        object : Migration(27, 28) {
           override fun migrate(db: SupportSQLiteDatabase) {
             // A pre-rebase draft was labeled v17 and already carried these fields without Room's
             // defaults. Repair only those columns; rebuilding workouts/workout_sets would cascade
@@ -1079,53 +1064,18 @@ abstract class GymDatabase : RoomDatabase() {
                 "CREATE UNIQUE INDEX IF NOT EXISTS index_workout_sets_syncId ON workout_sets(syncId)"
             )
             LegacyCoachArchiveRegistry.archiveConfirmedDeviceV17(db)
+            val markExistingRepliesRead =
+                tableExists(db, "coach_messages") && !hasColumn(db, "coach_messages", "readAt")
             createCoachTablesIfMissing(db)
+            addColumnIfMissing(db, "coach_messages", "quickRepliesJson TEXT")
+            addColumnIfMissing(db, "coach_messages", "readAt INTEGER")
+            addColumnIfMissing(db, "coach_proposals", "previewJson TEXT")
+            if (markExistingRepliesRead) {
+              db.execSQL("UPDATE coach_messages SET readAt=createdAt WHERE role='assistant'")
+            }
             repairCoachSessionContext(db)
-          }
-        }
-
-    /** v29 → v30: retain local contextual replies with their assistant message. */
-    val MIGRATION_29_30: Migration =
-        object : Migration(29, 30) {
-          override fun migrate(db: SupportSQLiteDatabase) {
-            db.execSQL("ALTER TABLE coach_messages ADD COLUMN quickRepliesJson TEXT")
-          }
-        }
-
-    /** v30 → v31: existing coach history was already seen; future assistant replies are unread. */
-    val MIGRATION_30_31: Migration =
-        object : Migration(30, 31) {
-          override fun migrate(db: SupportSQLiteDatabase) {
-            db.execSQL("ALTER TABLE coach_messages ADD COLUMN readAt INTEGER")
-            db.execSQL("UPDATE coach_messages SET readAt=createdAt WHERE role='assistant'")
-          }
-        }
-
-    /** v28 → v29: persist an optional structured approval preview. */
-    val MIGRATION_28_29: Migration =
-        object : Migration(28, 29) {
-          override fun migrate(db: SupportSQLiteDatabase) {
-            db.execSQL("ALTER TABLE coach_proposals ADD COLUMN previewJson TEXT")
-          }
-        }
-
-    /** v27 → v28: remove transient occupied equipment from durable Coach context. */
-    val MIGRATION_27_28: Migration =
-        object : Migration(27, 28) {
-          override fun migrate(db: SupportSQLiteDatabase) {
             sanitizeLegacyUndoPackets(db)
             markRetiredOccupiedEquipmentProposalsStale(db)
-            db.execSQL(
-                "CREATE TABLE __coach_session_context_28 (workoutId TEXT NOT NULL, accountId TEXT NOT NULL, availableTimeMinutes INTEGER, availableTimeEndsAtMillis INTEGER, futureRestSeconds INTEGER, excludedExerciseIdsJson TEXT NOT NULL, lastUndoPacketJson TEXT, lastUndoRevision INTEGER, initiativeEnabled INTEGER NOT NULL, initiativeWelcomed INTEGER NOT NULL, initiativeAutomaticCount INTEGER NOT NULL, initiativeLastAutomaticAtMillis INTEGER, initiativeAskedExerciseIdsJson TEXT NOT NULL, initiativeEndReminderSent INTEGER NOT NULL, initiativePendingInteraction INTEGER NOT NULL, PRIMARY KEY(workoutId), FOREIGN KEY(workoutId) REFERENCES workouts(id) ON UPDATE NO ACTION ON DELETE CASCADE)"
-            )
-            db.execSQL(
-                "INSERT INTO __coach_session_context_28(workoutId,accountId,availableTimeMinutes,availableTimeEndsAtMillis,futureRestSeconds,excludedExerciseIdsJson,lastUndoPacketJson,lastUndoRevision,initiativeEnabled,initiativeWelcomed,initiativeAutomaticCount,initiativeLastAutomaticAtMillis,initiativeAskedExerciseIdsJson,initiativeEndReminderSent,initiativePendingInteraction) SELECT workoutId,accountId,availableTimeMinutes,availableTimeEndsAtMillis,futureRestSeconds,excludedExerciseIdsJson,lastUndoPacketJson,lastUndoRevision,initiativeEnabled,initiativeWelcomed,initiativeAutomaticCount,initiativeLastAutomaticAtMillis,initiativeAskedExerciseIdsJson,initiativeEndReminderSent,initiativePendingInteraction FROM coach_session_context"
-            )
-            db.execSQL("DROP TABLE coach_session_context")
-            db.execSQL("ALTER TABLE __coach_session_context_28 RENAME TO coach_session_context")
-            db.execSQL(
-                "CREATE INDEX index_coach_session_context_accountId ON coach_session_context(accountId)"
-            )
           }
         }
 
@@ -1264,7 +1214,7 @@ abstract class GymDatabase : RoomDatabase() {
 
     private fun createCoachTablesIfMissing(db: SupportSQLiteDatabase) {
       db.execSQL(
-          "CREATE TABLE IF NOT EXISTS coach_messages (id TEXT NOT NULL, accountId TEXT NOT NULL, workoutId TEXT NOT NULL, role TEXT NOT NULL, text TEXT NOT NULL, createdAt INTEGER NOT NULL, status TEXT NOT NULL, PRIMARY KEY(id), FOREIGN KEY(workoutId) REFERENCES workouts(id) ON UPDATE NO ACTION ON DELETE CASCADE)"
+          "CREATE TABLE IF NOT EXISTS coach_messages (id TEXT NOT NULL, accountId TEXT NOT NULL, workoutId TEXT NOT NULL, role TEXT NOT NULL, text TEXT NOT NULL, createdAt INTEGER NOT NULL, status TEXT NOT NULL, quickRepliesJson TEXT, readAt INTEGER, PRIMARY KEY(id), FOREIGN KEY(workoutId) REFERENCES workouts(id) ON UPDATE NO ACTION ON DELETE CASCADE)"
       )
       db.execSQL(
           "CREATE INDEX IF NOT EXISTS index_coach_messages_workoutId ON coach_messages(workoutId)"
@@ -1273,7 +1223,7 @@ abstract class GymDatabase : RoomDatabase() {
           "CREATE INDEX IF NOT EXISTS index_coach_messages_accountId ON coach_messages(accountId)"
       )
       db.execSQL(
-          "CREATE TABLE IF NOT EXISTS coach_proposals (id TEXT NOT NULL, accountId TEXT NOT NULL, workoutId TEXT NOT NULL, baseRevision INTEGER NOT NULL, beforeSummary TEXT NOT NULL, afterSummary TEXT NOT NULL, packetJson TEXT NOT NULL, expiresAt INTEGER NOT NULL, state TEXT NOT NULL, PRIMARY KEY(id), FOREIGN KEY(workoutId) REFERENCES workouts(id) ON UPDATE NO ACTION ON DELETE CASCADE)"
+          "CREATE TABLE IF NOT EXISTS coach_proposals (id TEXT NOT NULL, accountId TEXT NOT NULL, workoutId TEXT NOT NULL, baseRevision INTEGER NOT NULL, beforeSummary TEXT NOT NULL, afterSummary TEXT NOT NULL, packetJson TEXT NOT NULL, expiresAt INTEGER NOT NULL, state TEXT NOT NULL, previewJson TEXT, PRIMARY KEY(id), FOREIGN KEY(workoutId) REFERENCES workouts(id) ON UPDATE NO ACTION ON DELETE CASCADE)"
       )
       db.execSQL(
           "CREATE INDEX IF NOT EXISTS index_coach_proposals_workoutId ON coach_proposals(workoutId)"
@@ -1309,7 +1259,7 @@ abstract class GymDatabase : RoomDatabase() {
 
     private fun repairCoachSessionContext(db: SupportSQLiteDatabase) {
       val canonical =
-          "CREATE TABLE coach_session_context (workoutId TEXT NOT NULL, accountId TEXT NOT NULL, availableTimeMinutes INTEGER, availableTimeEndsAtMillis INTEGER, futureRestSeconds INTEGER, occupiedEquipmentJson TEXT NOT NULL, excludedExerciseIdsJson TEXT NOT NULL, lastUndoPacketJson TEXT, lastUndoRevision INTEGER, initiativeEnabled INTEGER NOT NULL, initiativeWelcomed INTEGER NOT NULL, initiativeAutomaticCount INTEGER NOT NULL, initiativeLastAutomaticAtMillis INTEGER, initiativeAskedExerciseIdsJson TEXT NOT NULL, initiativeEndReminderSent INTEGER NOT NULL, initiativePendingInteraction INTEGER NOT NULL, PRIMARY KEY(workoutId), FOREIGN KEY(workoutId) REFERENCES workouts(id) ON UPDATE NO ACTION ON DELETE CASCADE)"
+          "CREATE TABLE coach_session_context (workoutId TEXT NOT NULL, accountId TEXT NOT NULL, availableTimeMinutes INTEGER, availableTimeEndsAtMillis INTEGER, futureRestSeconds INTEGER, excludedExerciseIdsJson TEXT NOT NULL, lastUndoPacketJson TEXT, lastUndoRevision INTEGER, initiativeEnabled INTEGER NOT NULL, initiativeWelcomed INTEGER NOT NULL, initiativeAutomaticCount INTEGER NOT NULL, initiativeLastAutomaticAtMillis INTEGER, initiativeAskedExerciseIdsJson TEXT NOT NULL, initiativeEndReminderSent INTEGER NOT NULL, initiativePendingInteraction INTEGER NOT NULL, PRIMARY KEY(workoutId), FOREIGN KEY(workoutId) REFERENCES workouts(id) ON UPDATE NO ACTION ON DELETE CASCADE)"
       if (!tableExists(db, "coach_session_context")) {
         db.execSQL(canonical)
       } else {
@@ -1325,7 +1275,7 @@ abstract class GymDatabase : RoomDatabase() {
                 "initiativeEndReminderSent",
                 "initiativePendingInteraction",
             )
-        if (!existing.containsAll(newFields)) {
+        if (!existing.containsAll(newFields) || "occupiedEquipmentJson" in existing) {
           db.execSQL("ALTER TABLE coach_session_context RENAME TO __legacy_coach_session_context")
           db.execSQL(canonical)
           fun value(column: String, fallback: String, coalesceExisting: Boolean = false): String =
@@ -1335,14 +1285,13 @@ abstract class GymDatabase : RoomDatabase() {
                 else -> "`$column`"
               }
           db.execSQL(
-              "INSERT INTO coach_session_context(workoutId,accountId,availableTimeMinutes,availableTimeEndsAtMillis,futureRestSeconds,occupiedEquipmentJson,excludedExerciseIdsJson,lastUndoPacketJson,lastUndoRevision,initiativeEnabled,initiativeWelcomed,initiativeAutomaticCount,initiativeLastAutomaticAtMillis,initiativeAskedExerciseIdsJson,initiativeEndReminderSent,initiativePendingInteraction) SELECT " +
+              "INSERT INTO coach_session_context(workoutId,accountId,availableTimeMinutes,availableTimeEndsAtMillis,futureRestSeconds,excludedExerciseIdsJson,lastUndoPacketJson,lastUndoRevision,initiativeEnabled,initiativeWelcomed,initiativeAutomaticCount,initiativeLastAutomaticAtMillis,initiativeAskedExerciseIdsJson,initiativeEndReminderSent,initiativePendingInteraction) SELECT " +
                   listOf(
                           value("workoutId", "NULL"),
                           value("accountId", "NULL"),
                           value("availableTimeMinutes", "NULL"),
                           value("availableTimeEndsAtMillis", "NULL"),
                           value("futureRestSeconds", "NULL"),
-                          value("occupiedEquipmentJson", "'[]'"),
                           value("excludedExerciseIdsJson", "'[]'"),
                           value("lastUndoPacketJson", "NULL"),
                           value("lastUndoRevision", "NULL"),
@@ -1426,11 +1375,6 @@ abstract class GymDatabase : RoomDatabase() {
             MIGRATION_25_26,
             MIGRATION_26_27,
             MIGRATION_27_28,
-            MIGRATION_28_29,
-            MIGRATION_29_30,
-            MIGRATION_30_31,
-            MIGRATION_31_32,
-            MIGRATION_27_32,
         )
 
     private val legacyCoachJson = Json {

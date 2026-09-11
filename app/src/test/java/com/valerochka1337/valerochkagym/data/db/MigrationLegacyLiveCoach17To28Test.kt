@@ -17,11 +17,11 @@ import org.robolectric.annotation.Config
 /** Archived pre-rebase Live Coach v17 shape, intentionally different from upstream Room v17. */
 @RunWith(RobolectricTestRunner::class)
 @Config(application = android.app.Application::class)
-class MigrationLegacyLiveCoach17To27Test {
+class MigrationLegacyLiveCoach17To28Test {
   @get:Rule
   val helper =
       MigrationTestHelper(InstrumentationRegistry.getInstrumentation(), GymDatabase::class.java)
-  private val name = "legacy-live-coach-17-27.db"
+  private val name = "legacy-live-coach-17-28.db"
 
   @After
   fun cleanUp() {
@@ -77,7 +77,7 @@ class MigrationLegacyLiveCoach17To27Test {
       installArchivedCoachShape(db)
     }
 
-    helper.runMigrationsAndValidate(name, 27, true, *GymDatabase.ALL_MIGRATIONS).use { db ->
+    helper.runMigrationsAndValidate(name, 28, true, *GymDatabase.ALL_MIGRATIONS).use { db ->
       db.query("SELECT coachRevision FROM workouts WHERE id='w'").use { rows ->
         assertTrue(rows.moveToFirst())
         assertEquals(11, rows.getLong(0))
@@ -126,13 +126,17 @@ class MigrationLegacyLiveCoach17To27Test {
             assertTrue(rows.isNull(0))
             assertEquals("LEGACY_OWNER_UNKNOWN", rows.getString(1))
           }
-      db.query("SELECT text FROM coach_messages WHERE id='message'").use { rows ->
+      db.query("SELECT text,quickRepliesJson,readAt FROM coach_messages WHERE id='message'").use {
+          rows ->
         assertTrue(rows.moveToFirst())
         assertEquals("сохранённый ответ", rows.getString(0))
+        assertTrue(rows.isNull(1))
+        assertEquals(1L, rows.getLong(2))
       }
-      db.query("SELECT state FROM coach_proposals WHERE id='proposal'").use { rows ->
+      db.query("SELECT state,previewJson FROM coach_proposals WHERE id='proposal'").use { rows ->
         assertTrue(rows.moveToFirst())
         assertEquals("PENDING", rows.getString(0))
+        assertTrue(rows.isNull(1))
       }
       db.query("SELECT result FROM coach_command_receipts WHERE operationId='receipt'").use { rows
         ->
@@ -179,7 +183,7 @@ class MigrationLegacyLiveCoach17To27Test {
 
   private fun installArchivedCoachShape(db: androidx.sqlite.db.SupportSQLiteDatabase) {
     // Exact archived set shape: twenty coach columns are NOT NULL where required but had no
-    // SQL defaults, which is what collides with Room's v27 validator.
+    // SQL defaults, which is what collides with Room's v28 validator.
     db.execSQL("DROP TABLE workout_sets")
     db.execSQL(
         "CREATE TABLE workout_sets (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,workoutExerciseId INTEGER NOT NULL,setIndex INTEGER NOT NULL,weightKg REAL,reps INTEGER,durationSec INTEGER,speedKmh REAL,inclinePct REAL,isCompleted INTEGER NOT NULL,completedAt INTEGER,syncId TEXT NOT NULL,originalWeightKg REAL,originalReps INTEGER,originalDurationSec INTEGER,originalSpeedKmh REAL,originalInclinePct REAL,targetWeightKg REAL,targetReps INTEGER,targetDurationSec INTEGER,targetSpeedKmh REAL,targetInclinePct REAL,actualWeightKg REAL,actualReps INTEGER,actualDurationSec INTEGER,actualSpeedKmh REAL,actualInclinePct REAL,setType TEXT NOT NULL,reportedFeelingsJson TEXT NOT NULL,restSnapshotJson TEXT,coachMutationRevision INTEGER NOT NULL,FOREIGN KEY(workoutExerciseId) REFERENCES workout_exercises(id) ON UPDATE NO ACTION ON DELETE CASCADE)"

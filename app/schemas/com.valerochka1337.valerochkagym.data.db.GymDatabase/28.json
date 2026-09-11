@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 28,
-    "identityHash": "59fef30c7e19b402da78fa891cfaaf63",
+    "identityHash": "1369ffc3b4e53ed9ce5c284945934dbc",
     "entities": [
       {
         "tableName": "backend_state",
@@ -319,6 +319,78 @@
           "autoGenerate": false,
           "columnNames": [
             "id"
+          ]
+        }
+      },
+      {
+        "tableName": "workout_preparations",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`owner` TEXT NOT NULL, `requestId` TEXT NOT NULL, `intentJson` TEXT NOT NULL, `replacesJson` TEXT NOT NULL, `requestJson` TEXT, `revision` INTEGER, `catalogRevision` INTEGER, `generation` INTEGER, `state` TEXT NOT NULL, `errorCode` TEXT, `proposalJson` TEXT, PRIMARY KEY(`owner`))",
+        "fields": [
+          {
+            "fieldPath": "owner",
+            "columnName": "owner",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "requestId",
+            "columnName": "requestId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "intentJson",
+            "columnName": "intentJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "replacesJson",
+            "columnName": "replacesJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "requestJson",
+            "columnName": "requestJson",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "revision",
+            "columnName": "revision",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "catalogRevision",
+            "columnName": "catalogRevision",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "generation",
+            "columnName": "generation",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "state",
+            "columnName": "state",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "errorCode",
+            "columnName": "errorCode",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "proposalJson",
+            "columnName": "proposalJson",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "owner"
           ]
         }
       },
@@ -3099,7 +3171,7 @@
       },
       {
         "tableName": "coach_messages",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `accountId` TEXT NOT NULL, `workoutId` TEXT NOT NULL, `role` TEXT NOT NULL, `text` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, `status` TEXT NOT NULL, PRIMARY KEY(`id`), FOREIGN KEY(`workoutId`) REFERENCES `workouts`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `accountId` TEXT NOT NULL, `workoutId` TEXT NOT NULL, `role` TEXT NOT NULL, `text` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, `status` TEXT NOT NULL, `quickRepliesJson` TEXT, `readAt` INTEGER, PRIMARY KEY(`id`), FOREIGN KEY(`workoutId`) REFERENCES `workouts`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
         "fields": [
           {
             "fieldPath": "id",
@@ -3142,6 +3214,16 @@
             "columnName": "status",
             "affinity": "TEXT",
             "notNull": true
+          },
+          {
+            "fieldPath": "quickRepliesJson",
+            "columnName": "quickRepliesJson",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "readAt",
+            "columnName": "readAt",
+            "affinity": "INTEGER"
           }
         ],
         "primaryKey": {
@@ -3186,7 +3268,7 @@
       },
       {
         "tableName": "coach_proposals",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `accountId` TEXT NOT NULL, `workoutId` TEXT NOT NULL, `baseRevision` INTEGER NOT NULL, `beforeSummary` TEXT NOT NULL, `afterSummary` TEXT NOT NULL, `packetJson` TEXT NOT NULL, `expiresAt` INTEGER NOT NULL, `state` TEXT NOT NULL, PRIMARY KEY(`id`), FOREIGN KEY(`workoutId`) REFERENCES `workouts`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `accountId` TEXT NOT NULL, `workoutId` TEXT NOT NULL, `baseRevision` INTEGER NOT NULL, `beforeSummary` TEXT NOT NULL, `afterSummary` TEXT NOT NULL, `packetJson` TEXT NOT NULL, `expiresAt` INTEGER NOT NULL, `state` TEXT NOT NULL, `previewJson` TEXT, PRIMARY KEY(`id`), FOREIGN KEY(`workoutId`) REFERENCES `workouts`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
         "fields": [
           {
             "fieldPath": "id",
@@ -3241,6 +3323,11 @@
             "columnName": "state",
             "affinity": "TEXT",
             "notNull": true
+          },
+          {
+            "fieldPath": "previewJson",
+            "columnName": "previewJson",
+            "affinity": "TEXT"
           }
         ],
         "primaryKey": {
@@ -3612,7 +3699,7 @@
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '59fef30c7e19b402da78fa891cfaaf63')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '1369ffc3b4e53ed9ce5c284945934dbc')"
     ]
   }
 }

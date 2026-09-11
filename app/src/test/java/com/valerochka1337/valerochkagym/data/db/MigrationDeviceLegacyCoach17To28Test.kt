@@ -30,7 +30,7 @@ import org.robolectric.annotation.Config
 /** Opens the schema-only device probe through the same Room builder used in production. */
 @RunWith(RobolectricTestRunner::class)
 @Config(application = android.app.Application::class)
-class MigrationDeviceLegacyCoach17To27Test {
+class MigrationDeviceLegacyCoach17To28Test {
   private val context = ApplicationProvider.getApplicationContext<Context>()
   private val name = DatabaseExporter.DATABASE_NAME
 
