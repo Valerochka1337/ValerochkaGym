@@ -539,22 +539,40 @@ internal fun ActiveWorkoutContent(
             Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 16.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-      Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        Column(Modifier.weight(1f)) {
-          RestTimerPill(restTimer = restTimer, heartRateReading = heartRateReading, onAddRestSeconds = onAddRestSeconds, onSkipRest = onSkipRest)
-          CurrentSetPrimaryAction(restTimer = restTimer, activeSetId = activeSetId, onComplete = setActions.complete)
-        }
-        CoachActionButton(unreadCoachMessages = unreadCoachMessages, onOpenCoach = onOpenCoach)
-      }
       if (showBottomFinish) {
-        Spacer(Modifier.height(8.dp))
-        PillButton(
-            text = "Завершить тренировку",
-            onClick = requestFinish,
-            enabled = !state.isFinishing,
-            leadingIcon = Icons.Default.Check,
-            modifier = Modifier.fillMaxWidth(),
-        )
+        Row(
+            verticalAlignment = Alignment.Bottom,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+          PillButton(
+              text = "Завершить тренировку",
+              onClick = requestFinish,
+              enabled = !state.isFinishing,
+              leadingIcon = Icons.Default.Check,
+              modifier = Modifier.weight(1f),
+          )
+          CoachActionButton(unreadCoachMessages = unreadCoachMessages, onOpenCoach = onOpenCoach)
+        }
+      } else {
+        Row(
+            verticalAlignment = Alignment.Bottom,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+          Column(Modifier.weight(1f)) {
+            RestTimerPill(
+                restTimer = restTimer,
+                heartRateReading = heartRateReading,
+                onAddRestSeconds = onAddRestSeconds,
+                onSkipRest = onSkipRest,
+            )
+            CurrentSetPrimaryAction(
+                restTimer = restTimer,
+                activeSetId = activeSetId,
+                onComplete = setActions.complete,
+            )
+          }
+          CoachActionButton(unreadCoachMessages = unreadCoachMessages, onOpenCoach = onOpenCoach)
+        }
       }
     }
   }
@@ -804,7 +822,6 @@ private fun RestTimerPill(
     Row(
         modifier =
             Modifier.fillMaxWidth()
-                .padding(bottom = 12.dp)
                 .clip(CircleShape)
                 .background(MaterialTheme.colorScheme.primary)
                 .height(56.dp),

@@ -77,12 +77,14 @@ constructor(
                 full.exercises.firstOrNull { it.sets.any { set -> set.id == setId } }
                     ?: return@withTransaction null
             if (section.sets.single { it.id == setId }.isCompleted) return@withTransaction null
+            val completesWorkout =
+                full.exercises.flatMap { it.sets }.none { set -> !set.isCompleted && set.id != setId }
             workoutDao.setSetCompleted(setId, true, System.currentTimeMillis())
             database.openHelper.writableDatabase.execSQL(
                 "UPDATE workouts SET coachRevision = coachRevision + 1 WHERE id=?",
                 arrayOf<Any?>(workoutId),
             )
-            if (!settings.restAutostart) null
+            if (completesWorkout || !settings.restAutostart) null
             else if (settings.heartRateRestEnabled) Int.MIN_VALUE
             else resolver(full, section.exercise.id)
           }

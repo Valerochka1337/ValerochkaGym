@@ -58,6 +58,18 @@ class WorkoutEditorTest : RoomDaoTest() {
   }
 
   @Test
+  fun `completing the final set does not start rest`() = runTest {
+    val workout = insertWorkout("active", startedAt = 1_000)
+    val setId = insertSet(insertWorkoutExercise(workout, exercise("Active")), 0, reps = 8)
+    val engine = RestTimerEngine(backgroundScope) { 0L }
+
+    completionEditor(engine, settingsWithRest(90)).completeSetFromUser(setId)
+
+    assertTrue(db.workoutDao().getSet(setId)!!.isCompleted)
+    assertNull(engine.state.value)
+  }
+
+  @Test
   fun `routine rest overrides the configured default when completing a set`() = runTest {
     val exerciseId = exercise("Routine")
     val routineId = db.routineDao().upsertRoutine(RoutineEntity(name = "Routine"))
@@ -77,7 +89,9 @@ class WorkoutEditorTest : RoomDaoTest() {
         "UPDATE workouts SET routineId=? WHERE id=?",
         arrayOf<Any?>(routineId, workoutId),
     )
-    val setId = insertSet(insertWorkoutExercise(workoutId, exerciseId), 0, reps = 8)
+    val workoutExercise = insertWorkoutExercise(workoutId, exerciseId)
+    val setId = insertSet(workoutExercise, 0, reps = 8)
+    insertSet(workoutExercise, 1, reps = 8)
     val engine = RestTimerEngine(backgroundScope) { 0L }
 
     completionEditor(engine, settingsWithRest(90)).completeSetFromUser(setId)
@@ -1250,7 +1264,10 @@ class WorkoutEditorTest : RoomDaoTest() {
 
   private suspend fun seedActiveSet(): Long {
     val workout = insertWorkout("active", startedAt = 1_000)
-    return insertSet(insertWorkoutExercise(workout, exercise("Active")), 0, reps = 8)
+    val workoutExercise = insertWorkoutExercise(workout, exercise("Active"))
+    return insertSet(workoutExercise, 0, reps = 8).also {
+      insertSet(workoutExercise, 1, reps = 8)
+    }
   }
 
   private suspend fun seedFinishedSet(): Long {

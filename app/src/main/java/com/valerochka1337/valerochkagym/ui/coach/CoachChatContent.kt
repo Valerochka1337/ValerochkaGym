@@ -211,29 +211,47 @@ fun CoachChatContent(
                       Spacer(Modifier.height(12.dp))
                     }
                     var expanded by remember(action.title, action.kind) { mutableStateOf(false) }
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                      Icon(
-                          when (action.kind) {
-                            "replace",
-                            "swap",
-                            "move" -> Icons.Default.SwapVert
-                            "delete" -> Icons.Default.RemoveCircleOutline
-                            "add" -> Icons.Default.AddCircleOutline
-                            "rest",
-                            "time" -> Icons.Default.Timer
-                            "undo" -> Icons.Default.History
-                            else -> Icons.Default.Edit
-                          },
-                          contentDescription = null,
-                          tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                      )
-                      Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(action.kind.actionTypeLabel(), style = MaterialTheme.typography.titleSmall)
-                        if (expanded) {
+                    Column(Modifier.fillMaxWidth()) {
+                      Row(
+                          horizontalArrangement = Arrangement.spacedBy(12.dp),
+                          verticalAlignment = Alignment.CenterVertically,
+                      ) {
+                        Icon(
+                            when (action.kind) {
+                              "replace",
+                              "swap",
+                              "move" -> Icons.Default.SwapVert
+                              "delete" -> Icons.Default.RemoveCircleOutline
+                              "add" -> Icons.Default.AddCircleOutline
+                              "rest",
+                              "time" -> Icons.Default.Timer
+                              "undo" -> Icons.Default.History
+                              else -> Icons.Default.Edit
+                            },
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Text(
+                            action.kind.actionTypeLabel(),
+                            style = MaterialTheme.typography.titleSmall,
+                            modifier = Modifier.weight(1f),
+                        )
+                        IconButton(
+                            onClick = { expanded = !expanded },
+                            modifier = Modifier.testTag("coach-proposal-action:$index"),
+                        ) {
+                          Icon(
+                              if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                              contentDescription =
+                                  if (expanded) "Скрыть подробности" else "Показать подробности",
+                          )
+                        }
+                      }
+                      if (expanded) {
+                        Column(
+                            modifier = Modifier.padding(start = 36.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
                           Text(
                               action.title,
                               style = MaterialTheme.typography.bodyMedium,
@@ -247,15 +265,6 @@ fun CoachChatContent(
                             )
                           }
                         }
-                      }
-                      IconButton(
-                          onClick = { expanded = !expanded },
-                          modifier = Modifier.testTag("coach-proposal-action:$index"),
-                      ) {
-                        Icon(
-                            if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                            contentDescription = if (expanded) "Скрыть подробности" else "Показать подробности",
-                        )
                       }
                     }
                   }
@@ -350,7 +359,8 @@ private fun CoachComposer(
       Row(verticalAlignment = Alignment.Bottom) {
         OutlinedTextField(
             value = state.draft, onValueChange = { if (it.length <= 4000) onDraftChange(it) },
-            label = { Text("Сообщение тренеру") }, modifier = Modifier.weight(1f).testTag("coach-input"),
+            label = { Text("Сообщение тренеру") },
+            modifier = Modifier.weight(1f).heightIn(min = 56.dp).testTag("coach-input"),
             minLines = 1, maxLines = 4,
         )
         Spacer(Modifier.width(8.dp))
@@ -384,23 +394,31 @@ private fun AppliedActionMessage(message: CoachChatMessage, result: CoachActionR
       shape = MaterialTheme.shapes.medium,
       modifier = Modifier.fillMaxWidth(0.72f).testTag("coach-action-result:${message.id}"),
   ) {
-    Row(
-        modifier = Modifier.fillMaxWidth().clickable { expanded = !expanded }.padding(12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-      Icon(if (result.accepted) Icons.Default.CheckCircle else Icons.Default.Cancel, contentDescription = null)
-      Text(
-          "${if (result.accepted) "Применено" else "Отклонено"} · ${result.kind.actionTypeLabel()}",
-          style = MaterialTheme.typography.labelLarge,
-          modifier = Modifier.weight(1f),
-      )
-      Icon(
-          if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-          contentDescription = if (expanded) "Скрыть подробности" else "Показать подробности",
-      )
+    Column {
+      Row(
+          modifier = Modifier.fillMaxWidth().clickable { expanded = !expanded }.padding(12.dp),
+          verticalAlignment = Alignment.CenterVertically,
+          horizontalArrangement = Arrangement.spacedBy(8.dp),
+      ) {
+        Icon(if (result.accepted) Icons.Default.CheckCircle else Icons.Default.Cancel, contentDescription = null)
+        Text(
+            "${if (result.accepted) "Применено" else "Отклонено"} · ${result.kind.actionTypeLabel()}",
+            style = MaterialTheme.typography.labelLarge,
+            modifier = Modifier.weight(1f),
+        )
+        Icon(
+            if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+            contentDescription = if (expanded) "Скрыть подробности" else "Показать подробности",
+        )
+      }
+      if (expanded) {
+        Text(
+            result.details,
+            Modifier.padding(start = 12.dp, end = 12.dp, bottom = 12.dp),
+            style = MaterialTheme.typography.bodySmall,
+        )
+      }
     }
-    if (expanded) Text(result.details, Modifier.padding(start = 12.dp, end = 12.dp, bottom = 12.dp), style = MaterialTheme.typography.bodySmall)
   }
 }
 
