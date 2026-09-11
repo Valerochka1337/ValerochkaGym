@@ -36,7 +36,7 @@ class CoachConversationServiceTest : RoomDaoTest() {
   @Test
   fun `retry calls AI again without duplicating user message or its journal entry`() = runTest {
     val workout = activeWorkout()
-    val gateway = RecordingGateway("""{"text":"broken""" )
+    val gateway = RecordingGateway("""{"text":"broken""")
     val service = conversation(gateway)
     service.attach(backgroundScope)
     assertTrue(service.send(workout, "Перенеси Хаммер"))
@@ -59,7 +59,7 @@ class CoachConversationServiceTest : RoomDaoTest() {
   @Test
   fun `retry rejects errors from another account`() = runTest {
     val workout = activeWorkout()
-    val gateway = RecordingGateway("""{"text":"broken""" )
+    val gateway = RecordingGateway("""{"text":"broken""")
     val service = conversation(gateway)
     service.attach(backgroundScope)
     assertTrue(service.send(workout, "Перенеси Хаммер"))
@@ -82,25 +82,32 @@ class CoachConversationServiceTest : RoomDaoTest() {
   }
 
   @Test
-  fun `text followup supersedes all pending proposals without adding rejection messages`() = runTest {
-    val workout = activeWorkout()
-    val proposal = com.valerochka1337.valerochkagym.data.db.entity.CoachProposalEntity(
-        id = "old", accountId = "user", workoutId = workout, baseRevision = 0,
-        beforeSummary = "Было", afterSummary = "Замена", packetJson = "{}",
-        expiresAt = Long.MAX_VALUE,
-    )
-    db.coachDao().saveProposal(proposal)
-    db.coachDao().saveProposal(proposal.copy(id = "older"))
-    val service = conversation(RecordingGateway())
-    service.attach(backgroundScope)
-    assertFalse(service.send(workout, " "))
-    assertTrue(db.coachDao().pendingProposal(workout) != null)
-    assertTrue(service.send(workout, "Предложи другую замену"))
-    assertNull(db.coachDao().pendingProposal(workout))
-    assertFalse(service.confirm(workout, "old"))
-    assertFalse(service.confirm(workout, "older"))
-    assertFalse(db.coachDao().messages(workout).any { it.text.startsWith("REJECTED|") })
-  }
+  fun `text followup supersedes all pending proposals without adding rejection messages`() =
+      runTest {
+        val workout = activeWorkout()
+        val proposal =
+            com.valerochka1337.valerochkagym.data.db.entity.CoachProposalEntity(
+                id = "old",
+                accountId = "user",
+                workoutId = workout,
+                baseRevision = 0,
+                beforeSummary = "Было",
+                afterSummary = "Замена",
+                packetJson = "{}",
+                expiresAt = Long.MAX_VALUE,
+            )
+        db.coachDao().saveProposal(proposal)
+        db.coachDao().saveProposal(proposal.copy(id = "older"))
+        val service = conversation(RecordingGateway())
+        service.attach(backgroundScope)
+        assertFalse(service.send(workout, " "))
+        assertTrue(db.coachDao().pendingProposal(workout) != null)
+        assertTrue(service.send(workout, "Предложи другую замену"))
+        assertNull(db.coachDao().pendingProposal(workout))
+        assertFalse(service.confirm(workout, "old"))
+        assertFalse(service.confirm(workout, "older"))
+        assertFalse(db.coachDao().messages(workout).any { it.text.startsWith("REJECTED|") })
+      }
 
   @Test
   fun `sending immediately after attach is processed from the bounded queue`() = runTest {

@@ -1,14 +1,13 @@
 package com.valerochka1337.valerochkagym.ui.coach
 
-import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.relocation.BringIntoViewRequester
-import androidx.compose.foundation.relocation.bringIntoViewRequester
-import androidx.compose.runtime.withFrameNanos
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
@@ -20,13 +19,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
@@ -67,7 +67,7 @@ data class CoachChatUiState(
 ) {
   fun retryText(message: CoachChatMessage): String? {
     if (!message.failed || messages.lastOrNull()?.id != message.id || proposal != null || readOnly)
-      return null
+        return null
     return messages.dropLast(1).lastOrNull { it.role == "user" }?.text
   }
 
@@ -104,16 +104,23 @@ fun CoachChatContent(
   var conversationHeight by remember { mutableStateOf(0) }
   val imeBottom = imeInsets.getBottom(LocalDensity.current)
   var openedHistory by remember { mutableStateOf(false) }
-  val itemCount = state.messages.size.coerceAtLeast(1) +
-      (if (state.status != null) 1 else 0) + (if (state.error != null) 1 else 0) +
-      (if (state.readOnly || state.proposal != null) 1 else 0)
-  LaunchedEffect(state.messages.lastOrNull()?.id, state.proposal?.id, state.status, state.readOnly) {
+  val itemCount =
+      state.messages.size.coerceAtLeast(1) +
+          (if (state.status != null) 1 else 0) +
+          (if (state.error != null) 1 else 0) +
+          (if (state.readOnly || state.proposal != null) 1 else 0)
+  LaunchedEffect(
+      state.messages.lastOrNull()?.id,
+      state.proposal?.id,
+      state.status,
+      state.readOnly,
+  ) {
     val layout = listState.layoutInfo
-    val nearBottom = layout.visibleItemsInfo.lastOrNull()?.index?.let {
-      it >= layout.totalItemsCount - 3
-    } != false
+    val nearBottom =
+        layout.visibleItemsInfo.lastOrNull()?.index?.let { it >= layout.totalItemsCount - 3 } !=
+            false
     if (!openedHistory || nearBottom) {
-      withFrameNanos { }
+      withFrameNanos {}
       listState.scrollToItem(itemCount - 1, Int.MAX_VALUE)
       if (state.messages.isNotEmpty()) openedHistory = true
     }
@@ -122,7 +129,7 @@ fun CoachChatContent(
   // each layout change, without moving the app bar or changing the window origin.
   LaunchedEffect(imeBottom, conversationHeight) {
     if (imeBottom > 0 && !state.readOnly) {
-      withFrameNanos { }
+      withFrameNanos {}
       listState.scrollToItem(itemCount - 1, Int.MAX_VALUE)
     }
   }
@@ -154,10 +161,17 @@ fun CoachChatContent(
         }
       },
   ) { padding ->
-    Box(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding), contentAlignment = Alignment.TopCenter) {
+    Box(
+        Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding),
+        contentAlignment = Alignment.TopCenter,
+    ) {
       LazyColumn(
           state = listState,
-          modifier = Modifier.widthIn(max = 960.dp).fillMaxSize().onSizeChanged { conversationHeight = it.height }.testTag("coach-conversation"),
+          modifier =
+              Modifier.widthIn(max = 960.dp)
+                  .fillMaxSize()
+                  .onSizeChanged { conversationHeight = it.height }
+                  .testTag("coach-conversation"),
           contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
           verticalArrangement = Arrangement.spacedBy(12.dp),
       ) {
@@ -175,53 +189,86 @@ fun CoachChatContent(
             return@items
           }
           val isUser = message.role == "user"
-          Box(Modifier.fillMaxWidth(), contentAlignment = if (isUser) Alignment.CenterEnd else Alignment.CenterStart) {
-          Surface(
-              color = if (isUser) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
-              contentColor = if (isUser) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
-              shape = MaterialTheme.shapes.large,
-              modifier = Modifier.fillMaxWidth(0.86f).testTag("coach-message:${message.id}").semantics(mergeDescendants = true) {},
+          Box(
+              Modifier.fillMaxWidth(),
+              contentAlignment = if (isUser) Alignment.CenterEnd else Alignment.CenterStart,
           ) {
-            Column(Modifier.padding(16.dp)) {
-            Text(
-                when (message.role) {
-                  "user" -> "Вы"
-                  "assistant" -> "Тренер"
-                  else -> "Действие"
-                },
-                style = MaterialTheme.typography.labelLarge,
-            )
-            Spacer(Modifier.height(8.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-              Text(message.text, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
-              state.retryText(message)?.let {
-                IconButton(
-                    onClick = { haptics.tap(); onRetry(message.id) },
-                    enabled = !state.busy,
-                    modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp),
-                ) { Icon(Icons.Rounded.Refresh, "Повторить запрос") }
+            Surface(
+                color =
+                    if (isUser) MaterialTheme.colorScheme.primaryContainer
+                    else MaterialTheme.colorScheme.surfaceContainerHigh,
+                contentColor =
+                    if (isUser) MaterialTheme.colorScheme.onPrimaryContainer
+                    else MaterialTheme.colorScheme.onSurface,
+                shape = MaterialTheme.shapes.large,
+                modifier =
+                    Modifier.fillMaxWidth(0.86f).testTag("coach-message:${message.id}").semantics(
+                        mergeDescendants = true
+                    ) {},
+            ) {
+              Column(Modifier.padding(16.dp)) {
+                Text(
+                    when (message.role) {
+                      "user" -> "Вы"
+                      "assistant" -> "Тренер"
+                      else -> "Действие"
+                    },
+                    style = MaterialTheme.typography.labelLarge,
+                )
+                Spacer(Modifier.height(8.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                  Text(
+                      message.text,
+                      modifier = Modifier.weight(1f),
+                      style = MaterialTheme.typography.bodyLarge,
+                  )
+                  state.retryText(message)?.let {
+                    IconButton(
+                        onClick = {
+                          haptics.tap()
+                          onRetry(message.id)
+                        },
+                        enabled = !state.busy,
+                        modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp),
+                    ) {
+                      Icon(Icons.Rounded.Refresh, "Повторить запрос")
+                    }
+                  }
+                }
+                message.status
+                    ?.takeIf { it.isNotBlank() && !(isUser && it == "Обрабатывается") }
+                    ?.let {
+                      Spacer(Modifier.height(8.dp))
+                      Text(
+                          it,
+                          style = MaterialTheme.typography.bodySmall,
+                          color = MaterialTheme.colorScheme.onSurfaceVariant,
+                      )
+                    }
               }
             }
-            message.status
-                ?.takeIf { it.isNotBlank() && !(isUser && it == "Обрабатывается") }
-                ?.let {
-                  Spacer(Modifier.height(8.dp))
-                  Text(
-                      it,
-                      style = MaterialTheme.typography.bodySmall,
-                      color = MaterialTheme.colorScheme.onSurfaceVariant,
-                  )
-                }
-            }
-          }
           }
         }
         state.status?.let { status ->
           item(key = "status") {
-            GymCard(Modifier.fillMaxWidth().testTag("coach-status").semantics { liveRegion = LiveRegionMode.Polite }) {
-              Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            GymCard(
+                Modifier.fillMaxWidth().testTag("coach-status").semantics {
+                  liveRegion = LiveRegionMode.Polite
+                }
+            ) {
+              Row(
+                  verticalAlignment = Alignment.CenterVertically,
+                  horizontalArrangement = Arrangement.spacedBy(12.dp),
+              ) {
                 CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
-                Column { Text("Тренер отвечает", style = MaterialTheme.typography.titleSmall); Text(status, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                Column {
+                  Text("Тренер отвечает", style = MaterialTheme.typography.titleSmall)
+                  Text(
+                      status,
+                      style = MaterialTheme.typography.bodyMedium,
+                      color = MaterialTheme.colorScheme.onSurfaceVariant,
+                  )
+                }
               }
             }
           }
@@ -256,7 +303,7 @@ fun CoachChatContent(
                     val revealAction = remember { BringIntoViewRequester() }
                     LaunchedEffect(expanded) {
                       if (expanded) {
-                        withFrameNanos { }
+                        withFrameNanos {}
                         revealAction.bringIntoView()
                       }
                     }
@@ -335,10 +382,11 @@ fun CoachChatContent(
                         onConfirm(proposal.id)
                       },
                       enabled = !state.busy && proposal.preview?.actions?.isEmpty() != true,
-                      colors = ButtonDefaults.buttonColors(
-                          containerColor = actionColors.acceptedContainer,
-                          contentColor = actionColors.onAcceptedContainer,
-                      ),
+                      colors =
+                          ButtonDefaults.buttonColors(
+                              containerColor = actionColors.acceptedContainer,
+                              contentColor = actionColors.onAcceptedContainer,
+                          ),
                       modifier = Modifier.weight(1f).testTag("coach-apply"),
                   ) {
                     Text("Принять", maxLines = 1)
@@ -349,10 +397,11 @@ fun CoachChatContent(
                         onCancel(proposal.id)
                       },
                       enabled = !state.busy,
-                      colors = ButtonDefaults.buttonColors(
-                          containerColor = actionColors.rejectedContainer,
-                          contentColor = actionColors.onRejectedContainer,
-                      ),
+                      colors =
+                          ButtonDefaults.buttonColors(
+                              containerColor = actionColors.rejectedContainer,
+                              contentColor = actionColors.onRejectedContainer,
+                          ),
                       modifier = Modifier.weight(1f).testTag("coach-cancel"),
                   ) {
                     Text("Отклонить")
@@ -394,31 +443,40 @@ private fun CoachComposer(
   }
   Surface(modifier = Modifier.windowInsetsPadding(imeInsets), tonalElevation = 3.dp) {
     Column(
-        Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 8.dp),
+        Modifier.fillMaxWidth()
+            .navigationBarsPadding()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
       LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         state.quickReplies.forEach { phrase ->
           item(key = phrase) {
             SuggestionChip(
-                onClick = { submit(phrase) }, label = { Text(phrase, maxLines = 1, softWrap = false) },
-                enabled = !state.busy, modifier = Modifier.heightIn(min = 48.dp).testTag("coach-quick-reply:$phrase"))
+                onClick = { submit(phrase) },
+                label = { Text(phrase, maxLines = 1, softWrap = false) },
+                enabled = !state.busy,
+                modifier = Modifier.heightIn(min = 48.dp).testTag("coach-quick-reply:$phrase"),
+            )
           }
         }
       }
       Row(verticalAlignment = Alignment.Bottom) {
         OutlinedTextField(
-            value = state.draft, onValueChange = { if (it.length <= 4000) onDraftChange(it) },
+            value = state.draft,
+            onValueChange = { if (it.length <= 4000) onDraftChange(it) },
             label = { Text("Сообщение тренеру") },
             modifier = Modifier.weight(1f).heightIn(min = 56.dp).testTag("coach-input"),
-            minLines = 1, maxLines = 4,
+            minLines = 1,
+            maxLines = 4,
         )
         Spacer(Modifier.width(8.dp))
         FilledIconButton(
             onClick = { submit(state.draft.trim()) },
             enabled = state.draft.isNotBlank() && !state.busy,
             modifier = Modifier.size(56.dp).testTag("coach-send"),
-        ) { Icon(Icons.Default.Send, contentDescription = "Отправить сообщение") }
+        ) {
+          Icon(Icons.Default.Send, contentDescription = "Отправить сообщение")
+        }
       }
     }
   }
@@ -440,16 +498,22 @@ private fun AppliedActionMessage(message: CoachChatMessage, result: CoachActionR
   val revealAction = remember { BringIntoViewRequester() }
   LaunchedEffect(expanded) {
     if (expanded) {
-      withFrameNanos { }
+      withFrameNanos {}
       revealAction.bringIntoView()
     }
   }
   val actionColors = LocalCoachActionColors.current
   Surface(
-      color = if (result.accepted) actionColors.acceptedContainer else actionColors.rejectedContainer,
-      contentColor = if (result.accepted) actionColors.onAcceptedContainer else actionColors.onRejectedContainer,
+      color =
+          if (result.accepted) actionColors.acceptedContainer else actionColors.rejectedContainer,
+      contentColor =
+          if (result.accepted) actionColors.onAcceptedContainer
+          else actionColors.onRejectedContainer,
       shape = MaterialTheme.shapes.medium,
-      modifier = Modifier.fillMaxWidth(0.72f).bringIntoViewRequester(revealAction).testTag("coach-action-result:${message.id}"),
+      modifier =
+          Modifier.fillMaxWidth(0.72f)
+              .bringIntoViewRequester(revealAction)
+              .testTag("coach-action-result:${message.id}"),
   ) {
     Column {
       Row(
@@ -457,7 +521,10 @@ private fun AppliedActionMessage(message: CoachChatMessage, result: CoachActionR
           verticalAlignment = Alignment.CenterVertically,
           horizontalArrangement = Arrangement.spacedBy(8.dp),
       ) {
-        Icon(if (result.accepted) Icons.Default.CheckCircle else Icons.Default.Cancel, contentDescription = null)
+        Icon(
+            if (result.accepted) Icons.Default.CheckCircle else Icons.Default.Cancel,
+            contentDescription = null,
+        )
         Text(
             "${if (result.accepted) "Применено" else "Отклонено"} · ${result.kind.actionTypeLabel()}",
             style = MaterialTheme.typography.labelLarge,
@@ -482,16 +549,19 @@ private fun AppliedActionMessage(message: CoachChatMessage, result: CoachActionR
 private fun String.actionResult(accepted: Boolean): CoachActionResult {
   val fields = split('|', limit = 3)
   return if (fields.size == 3) CoachActionResult(accepted, fields[1], fields[2])
-  else CoachActionResult(accepted, "change", removePrefix(if (accepted) "APPLIED|" else "REJECTED|"))
+  else
+      CoachActionResult(accepted, "change", removePrefix(if (accepted) "APPLIED|" else "REJECTED|"))
 }
 
 private fun String.actionTypeLabel(): String =
     when (this) {
-      "replace", "swap" -> "Замена"
+      "replace",
+      "swap" -> "Замена"
       "move" -> "Перестановка"
       "delete" -> "Удаление"
       "add" -> "Добавление"
-      "rest", "time" -> "Отдых"
+      "rest",
+      "time" -> "Отдых"
       "undo" -> "Отмена"
       else -> "Изменение"
     }

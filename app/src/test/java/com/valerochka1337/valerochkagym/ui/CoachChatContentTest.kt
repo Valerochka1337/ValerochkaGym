@@ -10,8 +10,8 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import com.valerochka1337.valerochkagym.ui.coach.*
 import com.valerochka1337.valerochkagym.ui.theme.GymTheme
-import org.junit.Assert.assertTrue
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -58,11 +58,18 @@ abstract class CoachChatSemanticsBase {
     compose.setContent {
       GymTheme {
         CoachChatContent(
-            state = CoachChatUiState(messages = (1..40).map {
-              CoachChatMessage("message-$it", "user", "Сообщение $it")
-            }),
-            onBack = {}, onDraftChange = {}, onSend = {}, onConfirm = {},
-            onCancel = {}, onUndo = {}, onDisableInitiative = {},
+            state =
+                CoachChatUiState(
+                    messages =
+                        (1..40).map { CoachChatMessage("message-$it", "user", "Сообщение $it") }
+                ),
+            onBack = {},
+            onDraftChange = {},
+            onSend = {},
+            onConfirm = {},
+            onCancel = {},
+            onUndo = {},
+            onDisableInitiative = {},
             imeInsets = WindowInsets(bottom = keyboardHeight.value),
         )
       }
@@ -95,10 +102,22 @@ abstract class CoachChatSemanticsBase {
   fun `failed answer retries AI turn without sending a user message at large font scale`() {
     val sent = mutableListOf<String>()
     val retried = mutableListOf<String>()
-    content(CoachChatUiState(messages = listOf(
-        CoachChatMessage("user", "user", "Перенеси Хаммер"),
-        CoachChatMessage("error", "assistant", "Не удалось обработать запрос", failed = true),
-    )), sent = { sent += it }, retried = { retried += it })
+    content(
+        CoachChatUiState(
+            messages =
+                listOf(
+                    CoachChatMessage("user", "user", "Перенеси Хаммер"),
+                    CoachChatMessage(
+                        "error",
+                        "assistant",
+                        "Не удалось обработать запрос",
+                        failed = true,
+                    ),
+                )
+        ),
+        sent = { sent += it },
+        retried = { retried += it },
+    )
     compose.onNodeWithText("Не удалось обработать запрос", substring = true).assertIsDisplayed()
     compose.onNodeWithContentDescription("Повторить запрос").assertIsDisplayed().performClick()
     assertEquals(emptyList<String>(), sent)
@@ -107,36 +126,61 @@ abstract class CoachChatSemanticsBase {
 
   @Test
   fun `retry is disabled while another request runs`() {
-    content(CoachChatUiState(busy = true, messages = listOf(
-        CoachChatMessage("user", "user", "Перенеси Хаммер"),
-        CoachChatMessage("error", "assistant", "Не удалось обработать запрос", failed = true),
-    )))
+    content(
+        CoachChatUiState(
+            busy = true,
+            messages =
+                listOf(
+                    CoachChatMessage("user", "user", "Перенеси Хаммер"),
+                    CoachChatMessage(
+                        "error",
+                        "assistant",
+                        "Не удалось обработать запрос",
+                        failed = true,
+                    ),
+                ),
+        )
+    )
     compose.onNodeWithContentDescription("Повторить запрос").assertIsNotEnabled()
   }
 
   @Test
   fun `historical errors and finished workouts do not offer retry`() {
     val user = CoachChatMessage("user", "user", "Перенеси Хаммер")
-    val error = CoachChatMessage("error", "assistant", "Не удалось обработать запрос", failed = true)
-    assertEquals(null, CoachChatUiState(messages = listOf(user, error), readOnly = true).retryText(error))
-    assertEquals(null, CoachChatUiState(messages = listOf(user, error, user.copy(id = "new"))).retryText(error))
+    val error =
+        CoachChatMessage("error", "assistant", "Не удалось обработать запрос", failed = true)
+    assertEquals(
+        null,
+        CoachChatUiState(messages = listOf(user, error), readOnly = true).retryText(error),
+    )
+    assertEquals(
+        null,
+        CoachChatUiState(messages = listOf(user, error, user.copy(id = "new"))).retryText(error),
+    )
     assertEquals(null, CoachChatUiState(messages = listOf(error)).retryText(error))
   }
 
   @Test
   fun `opening a long conversation shows the last message`() {
-    content(CoachChatUiState(messages = (1..40).map {
-      CoachChatMessage("message-$it", "user", "Сообщение $it")
-    }))
+    content(
+        CoachChatUiState(
+            messages = (1..40).map { CoachChatMessage("message-$it", "user", "Сообщение $it") }
+        )
+    )
     compose.onNodeWithText("Сообщение 40", substring = true).assertIsDisplayed()
   }
 
   @Test
   fun `processing is hidden on user messages while interrupted status remains visible`() {
-    content(CoachChatUiState(messages = listOf(
-        CoachChatMessage("processing", "user", "Замени упражнение", "Обрабатывается"),
-        CoachChatMessage("interrupted", "user", "Добавь подход", "Запрос прерван"),
-    )))
+    content(
+        CoachChatUiState(
+            messages =
+                listOf(
+                    CoachChatMessage("processing", "user", "Замени упражнение", "Обрабатывается"),
+                    CoachChatMessage("interrupted", "user", "Добавь подход", "Запрос прерван"),
+                )
+        )
+    )
     compose.onNodeWithText("Обрабатывается", substring = true).assertDoesNotExist()
     compose.onNodeWithText("Запрос прерван", substring = true).assertExists()
   }
@@ -269,10 +313,7 @@ abstract class CoachChatSemanticsBase {
   fun `quick phrase sends immediately and preserves editable input at font scale two`() {
     val sent = mutableListOf<String>()
     content(CoachChatUiState(draft = "Мой черновик"), sent = sent::add)
-    compose
-        .onNodeWithText("Добавь подход")
-        .assertHeightIsAtLeast(48.dp)
-        .performClick()
+    compose.onNodeWithText("Добавь подход").assertHeightIsAtLeast(48.dp).performClick()
     assertEquals(listOf("Добавь подход"), sent)
     compose.onNodeWithTag("coach-input").assertTextContains("Мой черновик")
     compose.onNodeWithText("Осталось 20 минут").assertDoesNotExist()

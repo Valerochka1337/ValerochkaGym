@@ -78,7 +78,9 @@ constructor(
                     ?: return@withTransaction null
             if (section.sets.single { it.id == setId }.isCompleted) return@withTransaction null
             val completesWorkout =
-                full.exercises.flatMap { it.sets }.none { set -> !set.isCompleted && set.id != setId }
+                full.exercises
+                    .flatMap { it.sets }
+                    .none { set -> !set.isCompleted && set.id != setId }
             workoutDao.setSetCompleted(setId, true, System.currentTimeMillis())
             database.openHelper.writableDatabase.execSQL(
                 "UPDATE workouts SET coachRevision = coachRevision + 1 WHERE id=?",

@@ -26,15 +26,14 @@ data class CoachActionColors(
     val onRejectedContainer: Color,
 )
 
-val LocalCoachActionColors =
-    staticCompositionLocalOf {
-      CoachActionColors(
-          acceptedContainer = Color(0xFF1D5138),
-          onAcceptedContainer = Color(0xFFE5F7EA),
-          rejectedContainer = Color(0xFF70211E),
-          onRejectedContainer = Color(0xFFFFDAD6),
-      )
-    }
+val LocalCoachActionColors = staticCompositionLocalOf {
+  CoachActionColors(
+      acceptedContainer = Color(0xFF1D5138),
+      onAcceptedContainer = Color(0xFFE5F7EA),
+      rejectedContainer = Color(0xFF70211E),
+      onRejectedContainer = Color(0xFFFFDAD6),
+  )
+}
 
 /** Material 3 Expressive theme with independent appearance and palette preferences. */
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)

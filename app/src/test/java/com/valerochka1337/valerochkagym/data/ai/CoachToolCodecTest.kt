@@ -7,28 +7,90 @@ import org.junit.Test
 class CoachToolCodecTest {
   @Test
   fun `tool output retains portable fields metadata and null omission`() {
-    val set = com.valerochka1337.valerochkagym.domain.SnapshotSet("set", 0, true, 50.0, 6, null,
-        originalReps = 10, targetReps = 8, actualReps = 6)
-    val snapshot = com.valerochka1337.valerochkagym.domain.WorkoutSnapshot("owner", "workout", 3,
-        listOf(com.valerochka1337.valerochkagym.domain.SnapshotExercise("section", 1, "exercise", "Жим", sets = listOf(set))),
-        rest = com.valerochka1337.valerochkagym.domain.SnapshotRest("rest", 90, 30, 0),
-        pulse = com.valerochka1337.valerochkagym.domain.SnapshotPulse(120, 123L))
+    val set =
+        com.valerochka1337.valerochkagym.domain.SnapshotSet(
+            "set",
+            0,
+            true,
+            50.0,
+            6,
+            null,
+            originalReps = 10,
+            targetReps = 8,
+            actualReps = 6,
+        )
+    val snapshot =
+        com.valerochka1337.valerochkagym.domain.WorkoutSnapshot(
+            "owner",
+            "workout",
+            3,
+            listOf(
+                com.valerochka1337.valerochkagym.domain.SnapshotExercise(
+                    "section",
+                    1,
+                    "exercise",
+                    "Жим",
+                    sets = listOf(set),
+                )
+            ),
+            rest = com.valerochka1337.valerochkagym.domain.SnapshotRest("rest", 90, 30, 0),
+            pulse = com.valerochka1337.valerochkagym.domain.SnapshotPulse(120, 123L),
+        )
     val output = Json.parseToJsonElement(CoachToolCodec.snapshotJson(snapshot)).jsonObject
     assertEquals(JsonPrimitive("workout"), output["workout_id"])
     assertEquals(JsonPrimitive(3), output["revision"])
     assertFalse("occupied_equipment" in output)
-    assertEquals(Json.parseToJsonElement("{\"bpm\":120,\"measured_at_millis\":123}"), output["pulse"])
-    assertEquals(Json.parseToJsonElement("{\"start_id\":\"rest\",\"planned_seconds\":90,\"remaining_seconds\":30}"), output["rest"])
-    val row = output.getValue("exercises").jsonArray.single().jsonObject.getValue("sets").jsonArray.single().jsonObject
+    assertEquals(
+        Json.parseToJsonElement("{\"bpm\":120,\"measured_at_millis\":123}"),
+        output["pulse"],
+    )
+    assertEquals(
+        Json.parseToJsonElement(
+            "{\"start_id\":\"rest\",\"planned_seconds\":90,\"remaining_seconds\":30}"
+        ),
+        output["rest"],
+    )
+    val row =
+        output
+            .getValue("exercises")
+            .jsonArray
+            .single()
+            .jsonObject
+            .getValue("sets")
+            .jsonArray
+            .single()
+            .jsonObject
     assertEquals(JsonPrimitive(10), row["original_reps"])
     assertEquals(JsonPrimitive(8), row["target_reps"])
     assertEquals(JsonPrimitive(6), row["actual_reps"])
     assertFalse("duration_sec" in row)
     assertFalse("account_id" in output)
-    val found = CoachToolCodec.foundJson(listOf(com.valerochka1337.valerochkagym.domain.FoundCoachExercise("e", "Жим", setOf("b", "a"), emptySet())))
-    assertEquals("""{"exercises":[{"exercise_id":"e","name":"Жим","muscles":["a","b"],"equipment":[]}]}""", found)
-    val history = CoachToolCodec.historyJson(listOf(com.valerochka1337.valerochkagym.data.db.entity.WorkoutSetEntity(
-        workoutExerciseId = 1, setIndex = 2, completedAt = 123L, reps = 6)))
+    val found =
+        CoachToolCodec.foundJson(
+            listOf(
+                com.valerochka1337.valerochkagym.domain.FoundCoachExercise(
+                    "e",
+                    "Жим",
+                    setOf("b", "a"),
+                    emptySet(),
+                )
+            )
+        )
+    assertEquals(
+        """{"exercises":[{"exercise_id":"e","name":"Жим","muscles":["a","b"],"equipment":[]}]}""",
+        found,
+    )
+    val history =
+        CoachToolCodec.historyJson(
+            listOf(
+                com.valerochka1337.valerochkagym.data.db.entity.WorkoutSetEntity(
+                    workoutExerciseId = 1,
+                    setIndex = 2,
+                    completedAt = 123L,
+                    reps = 6,
+                )
+            )
+        )
     assertEquals("""{"history":[{"completed_at":123,"set_index":2,"reps":6}]}""", history)
   }
 
@@ -221,13 +283,20 @@ class CoachToolCodecTest {
 
   @Test
   fun `reorder accepts bounded operation explanation from model response`() {
-    val result = submit(
-        """{"action":"reorder_exercises","section_ids":["$OTHER","$SECTION"],"reason":"Перенести жим в Хаммере на место занятого жима лёжа"}"""
-    )
+    val result =
+        submit(
+            """{"action":"reorder_exercises","section_ids":["$OTHER","$SECTION"],"reason":"Перенести жим в Хаммере на место занятого жима лёжа"}"""
+        )
     assertEquals(listOf(CoachChangeIntent.Reorder(listOf(OTHER, SECTION))), result.operations)
-    rejectedSubmit("""{"action":"reorder_exercises","section_ids":["$OTHER","$SECTION"],"reason":42}""")
-    rejectedSubmit("""{"action":"reorder_exercises","section_ids":["$OTHER","$SECTION"],"reason":"${"x".repeat(1201)}"}""")
-    rejectedSubmit("""{"action":"reorder_exercises","section_ids":["$OTHER","$SECTION"],"approved":true}""")
+    rejectedSubmit(
+        """{"action":"reorder_exercises","section_ids":["$OTHER","$SECTION"],"reason":42}"""
+    )
+    rejectedSubmit(
+        """{"action":"reorder_exercises","section_ids":["$OTHER","$SECTION"],"reason":"${"x".repeat(1201)}"}"""
+    )
+    rejectedSubmit(
+        """{"action":"reorder_exercises","section_ids":["$OTHER","$SECTION"],"approved":true}"""
+    )
   }
 
   private fun decode(name: String, arguments: String) =

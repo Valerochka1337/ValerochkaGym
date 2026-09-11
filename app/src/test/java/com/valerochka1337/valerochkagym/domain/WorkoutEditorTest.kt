@@ -1265,9 +1265,7 @@ class WorkoutEditorTest : RoomDaoTest() {
   private suspend fun seedActiveSet(): Long {
     val workout = insertWorkout("active", startedAt = 1_000)
     val workoutExercise = insertWorkoutExercise(workout, exercise("Active"))
-    return insertSet(workoutExercise, 0, reps = 8).also {
-      insertSet(workoutExercise, 1, reps = 8)
-    }
+    return insertSet(workoutExercise, 0, reps = 8).also { insertSet(workoutExercise, 1, reps = 8) }
   }
 
   private suspend fun seedFinishedSet(): Long {

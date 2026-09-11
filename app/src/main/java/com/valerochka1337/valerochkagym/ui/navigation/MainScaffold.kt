@@ -6,11 +6,11 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -202,7 +202,9 @@ private fun MainDestinationContent(
     content: @Composable (Modifier) -> Unit,
 ) {
   Scaffold(
-      contentWindowInsets = if (ownsSystemInsets) WindowInsets(0, 0, 0, 0) else androidx.compose.material3.ScaffoldDefaults.contentWindowInsets,
+      contentWindowInsets =
+          if (ownsSystemInsets) WindowInsets(0, 0, 0, 0)
+          else androidx.compose.material3.ScaffoldDefaults.contentWindowInsets,
       bottomBar = {
         AnimatedVisibility(
             visible = showResumeBanner,

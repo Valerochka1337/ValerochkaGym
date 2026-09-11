@@ -6,21 +6,27 @@ import org.junit.Test
 class CoachReplyTest {
   @Test
   fun `embedded fenced reply separates options from prose`() {
-    val reply = CoachReply.decode("""Хаммер уже на позиции 4.
+    val reply =
+        CoachReply.decode(
+            """Хаммер уже на позиции 4.
       ```json
       {"text":"Хаммер уже на позиции 4. Перенести?", "quick_replies":["Перенеси", "Оставь"]}
       ```
       Дополнительное пояснение.
-    """)
+    """
+        )
     assertEquals("Хаммер уже на позиции 4. Перенести?", reply.text)
     assertEquals(listOf("Перенеси", "Оставь"), reply.quickReplies)
   }
 
   @Test
   fun `reply options appended to prose are extracted`() {
-    val reply = CoachReply.decode("""Хаммер уже на позиции 4.
+    val reply =
+        CoachReply.decode(
+            """Хаммер уже на позиции 4.
       {"quick_replies":["Перенеси", "Оставь"]}
-    """)
+    """
+        )
     assertEquals("Хаммер уже на позиции 4.", reply.text)
     assertEquals(listOf("Перенеси", "Оставь"), reply.quickReplies)
   }

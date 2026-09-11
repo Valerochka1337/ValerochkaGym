@@ -183,7 +183,9 @@ constructor(
     return enqueue(request)
   }
 
-  /** Retry the original turn without inserting a second user message or replaying local commands. */
+  /**
+   * Retry the original turn without inserting a second user message or replaying local commands.
+   */
   suspend fun retry(workoutId: String, errorMessageId: String): Boolean {
     if (consumer?.isActive != true || workoutId in stoppedWorkouts) return false
     val requestScope = ownerScope ?: return false
@@ -191,30 +193,55 @@ constructor(
     val session = sessions.snapshot() ?: return false
     val accountId = session.tokens.userId
     val snapshot = reader.snapshot(accountId, workoutId, session.epoch) ?: return false
-    val request = writes.write {
-      database.withTransaction {
-        if (generation != sentGeneration || consumer?.isActive != true ||
-            workoutId in stoppedWorkouts || !belongsToLiveAccount(accountId, session.epoch) ||
-            workoutId in running.value || pendingRequests.values.any { it.workoutId == workoutId })
-          return@withTransaction null
-        val workout = database.workoutDao().getWorkoutFull(workoutId)?.workout
-        if (workout == null || workout.finishedAt != null ||
-            database.coachDao().pendingProposal(workoutId) != null) return@withTransaction null
-        val messages = database.coachDao().messages(workoutId)
-        val failure = messages.lastOrNull() ?: return@withTransaction null
-        if (failure.id != errorMessageId || failure.accountId != accountId ||
-            failure.role != "assistant" || (failure.status != "ERROR" &&
-                !failure.text.startsWith("Не удалось обработать запрос тренера.")))
-          return@withTransaction null
-        val original = messages.dropLast(1).lastOrNull { it.role == "user" }
-            ?: return@withTransaction null
-        if (original.accountId != accountId || original.status in setOf("PENDING", "PROCESSING"))
-          return@withTransaction null
-        database.coachDao().setMessageStatus(original.id, "PENDING")
-        PendingRequest(original.id, accountId, session.epoch, workoutId, original.text,
-            snapshot, sentGeneration, requestScope, retry = true)
-      }
-    } ?: return false
+    val request =
+        writes.write {
+          database.withTransaction {
+            if (
+                generation != sentGeneration ||
+                    consumer?.isActive != true ||
+                    workoutId in stoppedWorkouts ||
+                    !belongsToLiveAccount(accountId, session.epoch) ||
+                    workoutId in running.value ||
+                    pendingRequests.values.any { it.workoutId == workoutId }
+            )
+                return@withTransaction null
+            val workout = database.workoutDao().getWorkoutFull(workoutId)?.workout
+            if (
+                workout == null ||
+                    workout.finishedAt != null ||
+                    database.coachDao().pendingProposal(workoutId) != null
+            )
+                return@withTransaction null
+            val messages = database.coachDao().messages(workoutId)
+            val failure = messages.lastOrNull() ?: return@withTransaction null
+            if (
+                failure.id != errorMessageId ||
+                    failure.accountId != accountId ||
+                    failure.role != "assistant" ||
+                    (failure.status != "ERROR" &&
+                        !failure.text.startsWith("Не удалось обработать запрос тренера."))
+            )
+                return@withTransaction null
+            val original =
+                messages.dropLast(1).lastOrNull { it.role == "user" } ?: return@withTransaction null
+            if (
+                original.accountId != accountId || original.status in setOf("PENDING", "PROCESSING")
+            )
+                return@withTransaction null
+            database.coachDao().setMessageStatus(original.id, "PENDING")
+            PendingRequest(
+                original.id,
+                accountId,
+                session.epoch,
+                workoutId,
+                original.text,
+                snapshot,
+                sentGeneration,
+                requestScope,
+                retry = true,
+            )
+          }
+        } ?: return false
     return enqueue(request)
   }
 
@@ -253,8 +280,7 @@ constructor(
     val proposal = database.coachDao().pendingProposalForId(proposalId)
     if (proposal?.accountId != accountId || proposal.workoutId != workoutId) return false
     val actionKind =
-        com.valerochka1337.valerochkagym.domain.WorkoutApprovalPreview
-            .decode(proposal.previewJson)
+        com.valerochka1337.valerochkagym.domain.WorkoutApprovalPreview.decode(proposal.previewJson)
             ?.actions
             ?.firstOrNull()
             ?.kind ?: "change"
@@ -285,8 +311,7 @@ constructor(
     val proposal = database.coachDao().pendingProposalForId(proposalId)
     if (proposal?.accountId != accountId || proposal.workoutId != workoutId) return false
     val actionKind =
-        com.valerochka1337.valerochkagym.domain.WorkoutApprovalPreview
-            .decode(proposal.previewJson)
+        com.valerochka1337.valerochkagym.domain.WorkoutApprovalPreview.decode(proposal.previewJson)
             ?.actions
             ?.firstOrNull()
             ?.kind ?: "change"
@@ -350,7 +375,8 @@ constructor(
       }
       database.coachDao().setMessageStatus(request.messageId, "PROCESSING")
       val snapshot = request.snapshot
-      (if (request.retry) null else LocalWorkoutCommandParser.parse(request.text, snapshot))?.let { local ->
+      (if (request.retry) null else LocalWorkoutCommandParser.parse(request.text, snapshot))?.let {
+          local ->
         val receipt =
             editor.submit(
                 request.accountId,
@@ -495,14 +521,20 @@ constructor(
           }
           is CoachToolRequest.Find ->
               setStage(request.workoutId, "Подбираем упражнение…").let {
-              CoachToolOutcome(
-                  CoachToolCodec.foundJson(
-                      reader.find(snapshot, decoded.query, decoded.equipmentIds, decoded.muscleIds)
-                  )
-              ) }
+                CoachToolOutcome(
+                    CoachToolCodec.foundJson(
+                        reader.find(
+                            snapshot,
+                            decoded.query,
+                            decoded.equipmentIds,
+                            decoded.muscleIds,
+                        )
+                    )
+                )
+              }
           is CoachToolRequest.History ->
               setStage(request.workoutId, "Сверяем историю…").let {
-              CoachToolOutcome(CoachToolCodec.historyJson(reader.history(decoded.exerciseId)))
+                CoachToolOutcome(CoachToolCodec.historyJson(reader.history(decoded.exerciseId)))
               }
           is CoachToolRequest.Submit -> {
             setStage(request.workoutId, "Готовим изменения…")
@@ -636,7 +668,8 @@ constructor(
         val currentContext = context ?: CoachSessionContextEntity(workoutId, accountId)
         if (!isCurrent() || !belongsToLiveAccount(accountId, expectedSessionEpoch))
             return@withTransaction false
-        // A textual follow-up replaces the unanswered proposal in the same transaction as the message.
+        // A textual follow-up replaces the unanswered proposal in the same transaction as the
+        // message.
         if (role == "user") database.coachDao().supersedePendingProposals(accountId, workoutId)
         val nextContext =
             if (role == "user" && database.coachDao().pendingProposal(workoutId) == null) {

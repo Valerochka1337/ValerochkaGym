@@ -7,6 +7,7 @@ import java.io.IOException
 import java.io.InterruptedIOException
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlin.time.Duration.Companion.milliseconds
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.currentCoroutineContext
@@ -15,7 +16,6 @@ import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonPrimitive
 import retrofit2.HttpException
-import kotlin.time.Duration.Companion.milliseconds
 
 enum class CoachRunStatus {
   ANSWER,

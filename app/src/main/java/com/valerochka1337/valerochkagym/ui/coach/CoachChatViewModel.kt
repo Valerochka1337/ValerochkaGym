@@ -45,11 +45,14 @@ constructor(
                   it.id,
                   it.role,
                   if (it.text.startsWith("Не удалось обработать запрос тренера."))
-                    "Не удалось обработать запрос" else it.text,
+                      "Не удалось обработать запрос"
+                  else it.text,
                   it.status.toUiStatus(),
                   it.quickRepliesJson?.let(CoachReply::decodeQuickReplies),
-                  failed = it.role == "assistant" && (it.status == "ERROR" ||
-                      it.text.startsWith("Не удалось обработать запрос тренера.")),
+                  failed =
+                      it.role == "assistant" &&
+                          (it.status == "ERROR" ||
+                              it.text.startsWith("Не удалось обработать запрос тренера.")),
               )
             },
             proposal?.let {

@@ -11,22 +11,36 @@ data class CoachReply(val text: String, val quickReplies: List<String> = emptyLi
     fun decode(raw: String): CoachReply {
       val trimmed = raw.trim()
       val candidate = trimmed.removePrefix("```json").removePrefix("```").removeSuffix("```").trim()
-      structuredReply(candidate)?.let { return it }
+      structuredReply(candidate)?.let {
+        return it
+      }
 
       // Recover complete objects embedded in prose or Markdown without displaying wire metadata.
       jsonObjects(candidate).toList().asReversed().forEach { (start, objectText) ->
-        structuredReply(objectText)?.let { return it }
+        structuredReply(objectText)?.let {
+          return it
+        }
         val value = Json.parseToJsonElement(objectText) as? JsonObject
         if (value?.keys == setOf("quick_replies")) {
-          val prose = candidate.substring(0, start).trim().removeSuffix("```json")
-              .removeSuffix("```").trim()
+          val prose =
+              candidate
+                  .substring(0, start)
+                  .trim()
+                  .removeSuffix("```json")
+                  .removeSuffix("```")
+                  .trim()
           if (prose.isNotEmpty() && !prose.contains("quick_replies"))
-            return CoachReply(prose, decodeQuickReplies(value["quick_replies"]?.toString()))
+              return CoachReply(prose, decodeQuickReplies(value["quick_replies"]?.toString()))
         }
       }
 
-      require(!candidate.startsWith("{") && !candidate.contains("\"quick_replies\"") &&
-          !candidate.contains("\"text\"")) { "Malformed coach reply" }
+      require(
+          !candidate.startsWith("{") &&
+              !candidate.contains("\"quick_replies\"") &&
+              !candidate.contains("\"text\"")
+      ) {
+        "Malformed coach reply"
+      }
       return CoachReply(trimmed)
     }
 
@@ -46,11 +60,13 @@ data class CoachReply(val text: String, val quickReplies: List<String> = emptyLi
       var escaped = false
       raw.forEachIndexed { index, char ->
         if (depth == 0) {
-          if (char == '{') { start = index; depth = 1 }
+          if (char == '{') {
+            start = index
+            depth = 1
+          }
         } else if (quoted) {
           if (escaped) escaped = false
-          else if (char == '\\') escaped = true
-          else if (char == '"') quoted = false
+          else if (char == '\\') escaped = true else if (char == '"') quoted = false
         } else {
           when (char) {
             '"' -> quoted = true
@@ -60,7 +76,7 @@ data class CoachReply(val text: String, val quickReplies: List<String> = emptyLi
               if (depth == 0) {
                 val candidate = raw.substring(start, index + 1)
                 if (runCatching { Json.parseToJsonElement(candidate) }.isSuccess)
-                  yield(start to candidate)
+                    yield(start to candidate)
               }
             }
           }

@@ -3,8 +3,8 @@ package com.valerochka1337.valerochkagym.ui.active
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
 import com.valerochka1337.valerochkagym.data.db.dao.CoachDao
+import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
 import com.valerochka1337.valerochkagym.data.db.relation.WorkoutFull
 import com.valerochka1337.valerochkagym.domain.ActiveWorkoutRepository
 import com.valerochka1337.valerochkagym.domain.ActiveWorkoutUnavailableException
@@ -230,7 +230,8 @@ constructor(
   private val unreadCoachMessages: StateFlow<Int> =
       activeWorkout
           .flatMapLatest { workout ->
-            workout?.workout?.id?.let { id -> coachDao?.observeUnreadAssistantCount(id) } ?: flowOf(0)
+            workout?.workout?.id?.let { id -> coachDao?.observeUnreadAssistantCount(id) }
+                ?: flowOf(0)
           }
           .stateIn(viewModelScope, SharingStarted.WhileSubscribed(SUBSCRIPTION_TIMEOUT_MS), 0)
 
@@ -275,7 +276,8 @@ constructor(
               base,
               note,
               hintEdit,
-              hints, unread ->
+              hints,
+              unread ->
             ActiveWorkoutUiState(
                 loading = !base.loaded,
                 workout = base.workout,

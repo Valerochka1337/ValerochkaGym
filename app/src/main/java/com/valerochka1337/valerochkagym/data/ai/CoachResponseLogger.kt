@@ -12,7 +12,10 @@ internal object CoachResponseLogger {
       // Leave room for the prefix and up to four UTF-8 bytes per character in Logcat entries.
       val chunks = responseBody.chunked(800)
       chunks.forEachIndexed { index, chunk ->
-        Log.d("LiveCoachAI", "request=$requestId model=$model part=${index + 1}/${chunks.size}\n$chunk")
+        Log.d(
+            "LiveCoachAI",
+            "request=$requestId model=$model part=${index + 1}/${chunks.size}\n$chunk",
+        )
       }
     }
   }

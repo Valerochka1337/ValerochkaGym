@@ -3,8 +3,8 @@ package com.valerochka1337.valerochkagym.ui.coach
 import android.app.Activity
 import android.content.ContextWrapper
 import android.view.WindowManager
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.platform.LocalContext
@@ -20,13 +20,16 @@ fun CoachChatScreen(
   val state by viewModel.uiState.collectAsStateWithLifecycle()
   val context = LocalContext.current
   DisposableEffect(context) {
-    val activity = generateSequence(context) { (it as? ContextWrapper)?.baseContext }
-        .filterIsInstance<Activity>().firstOrNull()
+    val activity =
+        generateSequence(context) { (it as? ContextWrapper)?.baseContext }
+            .filterIsInstance<Activity>()
+            .firstOrNull()
     val window = activity?.window
     val previousMode = window?.attributes?.softInputMode
     // Edge-to-edge delivers IME insets to Compose; disable Android's automatic panning.
     window?.setSoftInputMode(
-        (previousMode ?: 0) and WindowManager.LayoutParams.SOFT_INPUT_MASK_ADJUST.inv() or
+        (previousMode ?: 0) and
+            WindowManager.LayoutParams.SOFT_INPUT_MASK_ADJUST.inv() or
             WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
     )
     onDispose { if (previousMode != null) window.setSoftInputMode(previousMode) }

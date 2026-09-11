@@ -15,11 +15,18 @@ interface CoachDao {
   @Query("SELECT * FROM coach_messages WHERE workoutId=:workoutId ORDER BY createdAt, id")
   suspend fun messages(workoutId: String): List<CoachMessageEntity>
 
-  @Query("SELECT COUNT(*) FROM coach_messages WHERE workoutId=:workoutId AND role='assistant' AND readAt IS NULL")
+  @Query(
+      "SELECT COUNT(*) FROM coach_messages WHERE workoutId=:workoutId AND role='assistant' AND readAt IS NULL"
+  )
   fun observeUnreadAssistantCount(workoutId: String): Flow<Int>
 
-  @Query("UPDATE coach_messages SET readAt=:readAt WHERE workoutId=:workoutId AND role='assistant' AND readAt IS NULL")
-  suspend fun markAssistantMessagesRead(workoutId: String, readAt: Long = System.currentTimeMillis()): Int
+  @Query(
+      "UPDATE coach_messages SET readAt=:readAt WHERE workoutId=:workoutId AND role='assistant' AND readAt IS NULL"
+  )
+  suspend fun markAssistantMessagesRead(
+      workoutId: String,
+      readAt: Long = System.currentTimeMillis(),
+  ): Int
 
   @Insert(onConflict = OnConflictStrategy.REPLACE)
   suspend fun saveMessage(message: CoachMessageEntity)
@@ -61,7 +68,9 @@ interface CoachDao {
   @Query("UPDATE coach_proposals SET state=:state WHERE id=:id")
   suspend fun setProposalState(id: String, state: String)
 
-  @Query("UPDATE coach_proposals SET state='SUPERSEDED' WHERE accountId=:accountId AND workoutId=:workoutId AND state='PENDING'")
+  @Query(
+      "UPDATE coach_proposals SET state='SUPERSEDED' WHERE accountId=:accountId AND workoutId=:workoutId AND state='PENDING'"
+  )
   suspend fun supersedePendingProposals(accountId: String, workoutId: String)
 
   @Query("SELECT * FROM coach_command_receipts WHERE operationId=:operationId")
