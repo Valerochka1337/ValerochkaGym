@@ -20,6 +20,7 @@ data class WorkoutSnapshot(
     val excludedExerciseIds: Set<Long> = emptySet(),
     val feelings: Set<String> = emptySet(),
     val pulse: SnapshotPulse? = null,
+    val futureRestSeconds: Int? = null,
 )
 
 data class SnapshotExercise(

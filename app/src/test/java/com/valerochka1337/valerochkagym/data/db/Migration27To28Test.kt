@@ -5,13 +5,13 @@ import androidx.room.Room
 import androidx.room.testing.MigrationTestHelper
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.platform.app.InstrumentationRegistry
-import com.valerochka1337.valerochkagym.domain.WorkoutChangeSet
-import com.valerochka1337.valerochkagym.domain.CommandResult
-import com.valerochka1337.valerochkagym.domain.CommandAuthority
-import com.valerochka1337.valerochkagym.domain.WorkoutEditor
-import com.valerochka1337.valerochkagym.domain.WorkoutWriteQueue
 import com.valerochka1337.valerochkagym.data.backend.BackendSessionStore
 import com.valerochka1337.valerochkagym.data.backend.BackendTokens
+import com.valerochka1337.valerochkagym.domain.CommandAuthority
+import com.valerochka1337.valerochkagym.domain.CommandResult
+import com.valerochka1337.valerochkagym.domain.WorkoutChangeSet
+import com.valerochka1337.valerochkagym.domain.WorkoutEditor
+import com.valerochka1337.valerochkagym.domain.WorkoutWriteQueue
 import com.valerochka1337.valerochkagym.service.RestTimerEngine
 import com.valerochka1337.valerochkagym.service.WallClock
 import kotlinx.coroutines.CoroutineScope
@@ -96,9 +96,14 @@ class Migration27To28Test {
             val migratedPacket =
                 Json.decodeFromString(
                     WorkoutChangeSet.Packet.serializer(),
-                    Json.parseToJsonElement(row.getString(4)).jsonObject.getValue("packet").toString(),
+                    Json.parseToJsonElement(row.getString(4))
+                        .jsonObject
+                        .getValue("packet")
+                        .toString(),
                 )
-            assertTrue(migratedPacket.operations.single() is WorkoutChangeSet.Operation.RestoreWorkout)
+            assertTrue(
+                migratedPacket.operations.single() is WorkoutChangeSet.Operation.RestoreWorkout
+            )
             assertEquals(7, row.getLong(5))
             assertEquals(0, row.getLong(6))
             assertEquals(1, row.getLong(7))
@@ -204,6 +209,7 @@ class Migration27To28Test {
                 GymDatabase::class.java,
                 name,
             )
+            .addMigrations(GymDatabase.MIGRATION_28_29)
             .allowMainThreadQueries()
             .build()
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
@@ -257,6 +263,7 @@ class Migration27To28Test {
                 GymDatabase::class.java,
                 name,
             )
+            .addMigrations(GymDatabase.MIGRATION_28_29)
             .allowMainThreadQueries()
             .build()
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
@@ -336,7 +343,9 @@ class Migration27To28Test {
 
   private class FakeSession : BackendSessionStore {
     override val session =
-        MutableStateFlow<BackendTokens?>(BackendTokens("owner", "owner@example.com", "access", "refresh"))
+        MutableStateFlow<BackendTokens?>(
+            BackendTokens("owner", "owner@example.com", "access", "refresh")
+        )
 
     override fun save(tokens: BackendTokens?) {
       session.value = tokens

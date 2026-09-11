@@ -259,6 +259,12 @@ constructor(
                     calculated.steps,
                     exerciseNames = calculated.catalogue.mapValues { it.value.name },
                 )
+            val preview =
+                WorkoutApprovalFormatter.describe(
+                    calculated.steps,
+                    calculated.catalogue.mapValues { it.value.name },
+                )
+            require(preview.actions.isNotEmpty()) { "No changes to approve" }
             if (!belongsToLiveAccount(accountId, expectedSessionEpoch) || !isCurrent()) {
               return@withTransaction ModelProposalSaveResult.Unavailable
             }
@@ -268,7 +274,7 @@ constructor(
                     workoutId = workoutId,
                     baseRevision = workout.coachRevision,
                     beforeSummary = summary.before,
-                    afterSummary = summary.after,
+                    afterSummary = preview.text(),
                     packet = packet,
                     expiresAt = expiresAt,
                 )
@@ -279,7 +285,8 @@ constructor(
                     workoutId = workoutId,
                     baseRevision = proposal.baseRevision,
                     beforeSummary = summary.before,
-                    afterSummary = summary.after,
+                    afterSummary = preview.text(),
+                    previewJson = json.encodeToString(WorkoutApprovalPreview.serializer(), preview),
                     packetJson = json.encodeToString(WorkoutChangeSet.Packet.serializer(), packet),
                     expiresAt = expiresAt,
                 )
@@ -533,6 +540,7 @@ constructor(
                   )
                 },
             rest = rest,
+            futureRestSeconds = context.futureRestSeconds,
             availableTimeMinutes = context.availableTimeMinutes,
             excludedExerciseIds = Json.decodeFromString(context.excludedExerciseIdsJson),
         )

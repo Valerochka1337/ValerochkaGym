@@ -221,7 +221,7 @@ class CoachConversationServiceTest : RoomDaoTest() {
         db.coachDao().observeMessages(workout).first { it.firstOrNull()?.status == "DELIVERED" }
     val proposal = requireNotNull(db.coachDao().pendingProposal(workout)) { messages.toString() }
     assertEquals(before, db.workoutDao().getWorkoutFull(workout))
-    assertTrue(proposal.afterSummary.contains("6 повт."))
+    assertTrue(proposal.afterSummary.contains("→ 6"))
     assertTrue(conversation.confirm(workout, proposal.id))
     assertEquals(6, db.workoutDao().getSet(set.id)!!.reps)
     assertEquals(1, gateway.calls)
@@ -307,7 +307,7 @@ class CoachConversationServiceTest : RoomDaoTest() {
     db.coachDao().observeMessages(workout).first { it.firstOrNull()?.status == "DELIVERED" }
     val proposal = requireNotNull(db.coachDao().pendingProposal(workout))
     assertEquals(1L, proposal.baseRevision)
-    assertTrue(proposal.afterSummary.contains("6 повт."))
+    assertTrue(proposal.afterSummary.contains("→ 6"))
     assertEquals(2, gateway.calls)
     assertEquals(5, db.workoutDao().getSet(set.id)!!.reps)
   }

@@ -94,6 +94,9 @@ class WorkoutChangeSummaryTest : RoomDaoTest() {
     val proposal =
         requireNotNull(editor.saveProposal("owner", snapshot.workoutId, packet, 0, Long.MAX_VALUE))
     assertEquals(before, db.workoutDao().getWorkoutFull(snapshot.workoutId))
+    val saved = requireNotNull(db.coachDao().pendingProposalForId(proposal.id))
+    val preview = requireNotNull(WorkoutApprovalPreview.decode(saved.previewJson))
+    assertEquals(proposal.afterSummary, preview.text())
     return WorkoutChangeSummary.Summary(proposal.beforeSummary, proposal.afterSummary)
   }
 
@@ -103,8 +106,8 @@ class WorkoutChangeSummaryTest : RoomDaoTest() {
     assertTrue(result.before.contains("Жим, подход 2"))
     assertTrue(result.before.contains("8 повт."))
     assertTrue(result.before.contains("не выполнен"))
-    assertTrue(result.after.contains("6 повт."))
-    assertTrue(result.after.endsWith("выполнен"))
+    assertTrue(result.after.contains("Повторения: 8 → 6"))
+    assertTrue(result.after.endsWith("Отметить выполненным"))
     assertFalse(result.after.contains("не выполнен"))
   }
 
@@ -117,24 +120,31 @@ class WorkoutChangeSummaryTest : RoomDaoTest() {
     assertTrue(result.before.contains("60 кг"))
     assertTrue(result.after.contains("20 кг"))
     assertFalse(result.after.contains("60 кг"))
-    assertTrue(result.after.contains("Сохранить 1 выполненных подходов"))
+    assertTrue(result.after.contains("Выполненные подходы «Жим» сохранятся: 1"))
     assertTrue(result.after.contains("Отжимания"))
   }
 
   @Test
-  fun `unknown replacement weight previews preserved results without copying source load`() = runTest {
-    val result =
-        summary(
-            WorkoutChangeSet.Operation.ReplaceRemaining("section", "new", 2, listOf("next"), null)
-        )
+  fun `unknown replacement weight previews preserved results without copying source load`() =
+      runTest {
+        val result =
+            summary(
+                WorkoutChangeSet.Operation.ReplaceRemaining(
+                    "section",
+                    "new",
+                    2,
+                    listOf("next"),
+                    null,
+                )
+            )
 
-    assertTrue(result.before.contains("Жим, подход 2: 60 кг · 8 повт."))
-    assertTrue(result.after.contains("Отжимания"))
-    assertTrue(result.after.contains("1. 8 повт."))
-    assertTrue(result.after.contains("Сохранить 1 выполненных подходов «Жим»"))
-    assertFalse(result.after.contains("60 кг"))
-    assertFalse(result.after.contains("кг"))
-  }
+        assertTrue(result.before.contains("Жим, подход 2: 60 кг · 8 повт."))
+        assertTrue(result.after.contains("Отжимания"))
+        assertTrue(result.after.contains("1 подход × 8 повт. · вес не задан"))
+        assertTrue(result.after.contains("Выполненные подходы «Жим» сохранятся: 1"))
+        assertFalse(result.after.contains("60 кг"))
+        assertFalse(result.after.contains("кг"))
+      }
 
   @Test
   fun `undo without a restorable entry cannot render misleading approval`() = runTest {
@@ -150,8 +160,8 @@ class WorkoutChangeSummaryTest : RoomDaoTest() {
         summary(
             WorkoutChangeSet.Operation.EditSet("next", clearFields = setOf("weight_kg", "reps"))
         )
-    assertTrue(result.after.contains("значения не заданы"))
-    assertFalse(result.after.contains("60 кг"))
+    assertTrue(result.after.contains("Вес: 60 кг → не задано"))
+    assertTrue(result.after.contains("Повторения: 8 → не задано"))
   }
 
   @Test
@@ -176,7 +186,8 @@ class WorkoutChangeSummaryTest : RoomDaoTest() {
             ),
         )
     assertTrue(result.before.endsWith("Шаг 2:\n1. B\n2. C\n3. A"))
-    assertTrue(result.after.endsWith("Шаг 2:\n1. C\n2. B\n3. A"))
+    assertTrue(result.after.contains("Поменять местами «C» и «A»"))
+    assertFalse(result.after.contains("Шаг"))
   }
 
   @Test
@@ -194,9 +205,10 @@ class WorkoutChangeSummaryTest : RoomDaoTest() {
             ),
         )
     assertTrue(result.before.contains("Шаг 2:\nЖим, подход 2: 50 кг · 8 повт."))
-    assertTrue(result.after.contains("Шаг 2:\nЖим, подход 2: 50 кг · 6 повт."))
+    assertTrue(result.after.contains("Вес: 60 кг → 50 кг"))
+    assertTrue(result.after.contains("Повторения: 8 → 6"))
     assertTrue(result.before.endsWith("Шаг 4:\nДоступное время: 20 мин"))
-    assertTrue(result.after.endsWith("Шаг 4:\nОставшееся доступное время: 10 мин"))
+    assertTrue(result.after.endsWith("Доступное время: не задано → 10 мин"))
   }
 
   @Test

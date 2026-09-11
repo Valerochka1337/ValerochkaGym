@@ -538,7 +538,7 @@ class WorkoutEditorTest : RoomDaoTest() {
             before,
             workoutFull(workout).exercises.sortedBy { it.workoutExercise.position },
         )
-        assertTrue(proposal.afterSummary.contains("Удалить упражнение «Source»"))
+        assertTrue(proposal.afterSummary.contains("Заменить «Source»"))
         assertEquals(
             CommandResult.APPLIED,
             editor.confirmProposal("user", proposal.id, "replace-unstarted").result,
@@ -1071,7 +1071,7 @@ class WorkoutEditorTest : RoomDaoTest() {
         val undo = WorkoutChangeSet.Packet(listOf(WorkoutChangeSet.Operation.UndoLast))
         val undoProposal =
             requireNotNull(editor.saveProposal("user", workout, undo, 1, Long.MAX_VALUE))
-        assertTrue(undoProposal.afterSummary.contains("60 кг · 8 повт."))
+        assertTrue(undoProposal.afterSummary.contains("8 повт. · 60 кг"))
         assertEquals(
             CommandResult.APPLIED,
             editor.confirmProposal("user", undoProposal.id, "undo-composite").result,

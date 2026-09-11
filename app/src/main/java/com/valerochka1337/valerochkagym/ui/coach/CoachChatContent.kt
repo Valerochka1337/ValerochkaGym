@@ -6,6 +6,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -17,6 +18,7 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import com.valerochka1337.valerochkagym.domain.WorkoutApprovalPreview
 import com.valerochka1337.valerochkagym.ui.components.GymCard
 import com.valerochka1337.valerochkagym.ui.haptics.gymHaptics
 
@@ -27,7 +29,12 @@ data class CoachChatMessage(
     val status: String? = null,
 )
 
-data class CoachChatProposal(val id: String, val before: String, val after: String)
+data class CoachChatProposal(
+    val id: String,
+    val before: String,
+    val after: String,
+    val preview: WorkoutApprovalPreview? = null,
+)
 
 data class CoachChatUiState(
     val workoutName: String = "Тренировка",
@@ -153,11 +160,51 @@ fun CoachChatContent(
                     modifier = Modifier.semantics { heading() },
                 )
                 Spacer(Modifier.height(12.dp))
-                Text("Было", style = MaterialTheme.typography.labelLarge)
-                Text(proposal.before)
-                Spacer(Modifier.height(12.dp))
-                Text("Станет", style = MaterialTheme.typography.labelLarge)
-                Text(proposal.after)
+                if (proposal.preview != null) {
+                  proposal.preview.actions.forEachIndexed { index, action ->
+                    if (index > 0) {
+                      Spacer(Modifier.height(12.dp))
+                      HorizontalDivider()
+                      Spacer(Modifier.height(12.dp))
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                      Icon(
+                          when (action.kind) {
+                            "replace",
+                            "swap",
+                            "move" -> Icons.Default.SwapVert
+                            "delete" -> Icons.Default.RemoveCircleOutline
+                            "add" -> Icons.Default.AddCircleOutline
+                            "rest",
+                            "time" -> Icons.Default.Timer
+                            "undo" -> Icons.Default.History
+                            else -> Icons.Default.Edit
+                          },
+                          contentDescription = null,
+                          tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                      )
+                      Column(
+                          Modifier.weight(1f),
+                          verticalArrangement = Arrangement.spacedBy(4.dp),
+                      ) {
+                        Text(action.title, style = MaterialTheme.typography.titleSmall)
+                        action.details.forEach {
+                          Text(
+                              it,
+                              style = MaterialTheme.typography.bodyMedium,
+                              color = MaterialTheme.colorScheme.onSurfaceVariant,
+                          )
+                        }
+                      }
+                    }
+                  }
+                } else {
+                  Text("Было", style = MaterialTheme.typography.labelLarge)
+                  Text(proposal.before)
+                  Spacer(Modifier.height(12.dp))
+                  Text("Станет", style = MaterialTheme.typography.labelLarge)
+                  Text(proposal.after)
+                }
                 Spacer(Modifier.height(12.dp))
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -168,10 +215,10 @@ fun CoachChatContent(
                         haptics.confirm()
                         onConfirm(proposal.id)
                       },
-                      enabled = !state.busy,
+                      enabled = !state.busy && proposal.preview?.actions?.isEmpty() != true,
                       modifier = Modifier.testTag("coach-apply"),
                   ) {
-                    Text("Применить")
+                    Text("Применить изменения")
                   }
                   OutlinedButton(
                       onClick = {
@@ -181,7 +228,7 @@ fun CoachChatContent(
                       enabled = !state.busy,
                       modifier = Modifier.testTag("coach-cancel"),
                   ) {
-                    Text("Отмена")
+                    Text("Отклонить")
                   }
                 }
               }

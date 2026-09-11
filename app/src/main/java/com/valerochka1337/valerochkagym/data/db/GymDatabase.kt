@@ -140,7 +140,7 @@ import kotlinx.serialization.json.JsonPrimitive
             CoachSessionContextEntity::class,
             CoachSyncStateEntity::class,
         ],
-    version = 28,
+    version = 29,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -1069,6 +1069,14 @@ abstract class GymDatabase : RoomDatabase() {
           }
         }
 
+    /** v28 → v29: persist an optional structured approval preview. */
+    val MIGRATION_28_29: Migration =
+        object : Migration(28, 29) {
+          override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE coach_proposals ADD COLUMN previewJson TEXT")
+          }
+        }
+
     /** v27 → v28: remove transient occupied equipment from durable Coach context. */
     val MIGRATION_27_28: Migration =
         object : Migration(27, 28) {
@@ -1128,12 +1136,14 @@ abstract class GymDatabase : RoomDatabase() {
               else
                   legacyCoachJson.encodeToString(
                       JsonObject.serializer(),
-                      JsonObject(entry.toMutableMap().apply {
-                        put(
-                            "context",
-                            JsonObject(context.filterKeys { it != "occupiedEquipmentJson" }),
-                        )
-                      }),
+                      JsonObject(
+                          entry.toMutableMap().apply {
+                            put(
+                                "context",
+                                JsonObject(context.filterKeys { it != "occupiedEquipmentJson" }),
+                            )
+                          }
+                      ),
                   )
           else -> null
         }
@@ -1143,18 +1153,17 @@ abstract class GymDatabase : RoomDatabase() {
     }
 
     private fun markRetiredOccupiedEquipmentProposalsStale(db: SupportSQLiteDatabase) {
-      val staleIds =
-          buildList {
-            db.query("SELECT id,packetJson FROM coach_proposals WHERE state='PENDING'").use { rows ->
-              val id = rows.getColumnIndexOrThrow("id")
-              val packet = rows.getColumnIndexOrThrow("packetJson")
-              while (rows.moveToNext()) {
-                if (containsRetiredOccupiedEquipmentOperation(rows.getString(packet))) {
-                  add(rows.getString(id))
-                }
-              }
+      val staleIds = buildList {
+        db.query("SELECT id,packetJson FROM coach_proposals WHERE state='PENDING'").use { rows ->
+          val id = rows.getColumnIndexOrThrow("id")
+          val packet = rows.getColumnIndexOrThrow("packetJson")
+          while (rows.moveToNext()) {
+            if (containsRetiredOccupiedEquipmentOperation(rows.getString(packet))) {
+              add(rows.getString(id))
             }
           }
+        }
+      }
       staleIds.forEach { id ->
         db.execSQL(
             "UPDATE coach_proposals SET state='STALE' WHERE id=? AND state='PENDING'",
@@ -1385,6 +1394,7 @@ abstract class GymDatabase : RoomDatabase() {
             MIGRATION_25_26,
             MIGRATION_26_27,
             MIGRATION_27_28,
+            MIGRATION_28_29,
         )
 
     private val legacyCoachJson = Json {

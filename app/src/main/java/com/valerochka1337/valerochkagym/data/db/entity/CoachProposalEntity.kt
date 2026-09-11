@@ -28,4 +28,5 @@ data class CoachProposalEntity(
     val packetJson: String,
     val expiresAt: Long,
     val state: String = "PENDING",
+    val previewJson: String? = null,
 )

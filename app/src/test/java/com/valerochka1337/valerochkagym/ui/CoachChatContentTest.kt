@@ -23,6 +23,7 @@ abstract class CoachChatSemanticsBase {
       initial: CoachChatUiState,
       applied: (String) -> Unit = {},
       sent: (String) -> Unit = {},
+      canceled: (String) -> Unit = {},
   ) {
     val state = mutableStateOf(initial)
     compose.setContent {
@@ -38,7 +39,7 @@ abstract class CoachChatSemanticsBase {
                 applied(id)
                 state.value = state.value.copy(busy = true, status = "Применяем изменения…")
               },
-              onCancel = {},
+              onCancel = canceled,
               onUndo = {},
               onDisableInitiative = { state.value = state.value.copy(initiativeEnabled = false) },
           )
@@ -95,6 +96,63 @@ abstract class CoachChatSemanticsBase {
         .assertIsNotEnabled()
         .assertHeightIsAtLeast(48.dp)
         .assertWidthIsAtLeast(48.dp)
+  }
+
+  @Test
+  fun `structured proposal displays exact changes and applies the entire packet`() {
+    val applied = mutableListOf<String>()
+    content(
+        CoachChatUiState(
+            proposal =
+                CoachChatProposal(
+                    "structured",
+                    "legacy before",
+                    "legacy after",
+                    com.valerochka1337.valerochkagym.domain.WorkoutApprovalPreview(
+                        listOf(
+                            com.valerochka1337.valerochkagym.domain.ApprovalAction(
+                                "edit",
+                                "Жим · подход 3",
+                                listOf("Вес: 60 кг → 55 кг"),
+                            ),
+                            com.valerochka1337.valerochkagym.domain.ApprovalAction(
+                                "move",
+                                "Переместить тягу в начало тренировки",
+                            ),
+                        )
+                    ),
+                )
+        ),
+        applied = applied::add,
+    )
+    compose.onNodeWithTag("coach-conversation").performScrollToNode(hasTestTag("coach-proposal"))
+    compose.onNodeWithText("Жим · подход 3").assertExists()
+    compose.onNodeWithText("Вес: 60 кг → 55 кг").assertExists()
+    compose.onNodeWithText("legacy before").assertDoesNotExist()
+    compose.onNodeWithTag("coach-apply").performScrollTo().assertIsEnabled().performClick()
+    assertEquals(listOf("structured"), applied)
+    compose.onNodeWithTag("coach-apply").assertIsNotEnabled()
+  }
+
+  @Test
+  fun `empty structured proposal disables apply and still allows rejecting the packet`() {
+    val canceled = mutableListOf<String>()
+    content(
+        CoachChatUiState(
+            proposal =
+                CoachChatProposal(
+                    "empty",
+                    "",
+                    "",
+                    com.valerochka1337.valerochkagym.domain.WorkoutApprovalPreview(emptyList()),
+                )
+        ),
+        canceled = canceled::add,
+    )
+    compose.onNodeWithTag("coach-conversation").performScrollToNode(hasTestTag("coach-proposal"))
+    compose.onNodeWithTag("coach-apply").performScrollTo().assertIsNotEnabled()
+    compose.onNodeWithTag("coach-cancel").performScrollTo().performClick()
+    assertEquals(listOf("empty"), canceled)
   }
 
   @Test

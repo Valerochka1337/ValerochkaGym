@@ -40,7 +40,16 @@ constructor(
       ) { messages, proposal, context, draftValue ->
         PersistedChat(
             messages.map { CoachChatMessage(it.id, it.role, it.text, it.status.toUiStatus()) },
-            proposal?.let { CoachChatProposal(it.id, it.beforeSummary, it.afterSummary) },
+            proposal?.let {
+              CoachChatProposal(
+                  it.id,
+                  it.beforeSummary,
+                  it.afterSummary,
+                  com.valerochka1337.valerochkagym.domain.WorkoutApprovalPreview.decode(
+                      it.previewJson
+                  ),
+              )
+            },
             context,
             draftValue,
         )
