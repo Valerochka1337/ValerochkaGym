@@ -120,9 +120,9 @@ constructor(
                 return@withTimeout result(
                     "Модель вернула пустой ответ. Проверьте выбранную модель."
                 )
-            if (text.length > MAX_ANSWER_CHARS)
-                return@withTimeout result("Ответ модели слишком длинный. Уточните запрос.")
             val reply = CoachReply.decode(text)
+            if (reply.text.length > MAX_ANSWER_CHARS)
+                return@withTimeout result("Ответ модели слишком длинный. Уточните запрос.")
             return@withTimeout CoachRunResult(
                 reply.text,
                 requests,

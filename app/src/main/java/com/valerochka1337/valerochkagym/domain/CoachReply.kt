@@ -11,11 +11,23 @@ data class CoachReply(val text: String, val quickReplies: List<String> = emptyLi
     fun decode(raw: String): CoachReply {
       val trimmed = raw.trim()
       val candidate = trimmed.removePrefix("```json").removePrefix("```").removeSuffix("```").trim()
+      structuredReply(candidate)?.let { return it }
+
+      // Some providers prepend a plain-language draft before repeating the actual structured
+      // response. Prefer that trailing valid object so JSON is never rendered in the chat bubble.
+      candidate.indices.reversed().asSequence()
+          .filter { candidate[it] == '{' }
+          .mapNotNull { structuredReply(candidate.substring(it).trim()) }
+          .firstOrNull()
+          ?.let { return it }
+
+      require(!candidate.startsWith("{")) { "Malformed coach reply" }
+      return CoachReply(trimmed)
+    }
+
+    private fun structuredReply(candidate: String): CoachReply? {
       val value = runCatching { Json.parseToJsonElement(candidate) }.getOrNull() as? JsonObject
-      if (value == null) {
-        require(!candidate.startsWith("{")) { "Malformed coach reply" }
-        return CoachReply(trimmed)
-      }
+      if (value == null) return null
       val text = (value["text"] as? JsonPrimitive)?.takeIf { it.isString }?.content?.trim()
       require(!text.isNullOrEmpty()) { "Missing coach reply text" }
       return CoachReply(text, decodeQuickReplies(value["quick_replies"]?.toString()))
