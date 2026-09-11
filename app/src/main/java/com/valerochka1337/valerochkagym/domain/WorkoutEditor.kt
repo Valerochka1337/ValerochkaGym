@@ -830,18 +830,20 @@ constructor(
         op.replacementWeightKg == null ||
             op.replacementWeightKg.isFinite() && op.replacementWeightKg > 0
     )
+    val completed = source.sets.filter { it.isCompleted }
+    val keepsSource = completed.isNotEmpty()
     state.sections =
-        state.sections.map { row ->
+        state.sections.mapNotNull { row ->
           when {
-            row == source -> row.copy(sets = row.sets.filter { it.isCompleted })
-            row.position > source.position -> row.copy(position = row.position + 1)
+            row == source -> if (keepsSource) row.copy(sets = completed) else null
+            keepsSource && row.position > source.position -> row.copy(position = row.position + 1)
             else -> row
           }
         } +
             RestoreSection(
                 op.destinationSectionId,
                 replacement.id,
-                source.position + 1,
+                source.position + if (keepsSource) 1 else 0,
                 unfinished.mapIndexed { index, set ->
                   set.forReplacement(index, sourceType, replacement.type, op.replacementWeightKg)
                 },

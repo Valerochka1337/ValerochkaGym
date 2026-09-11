@@ -95,7 +95,9 @@ object WorkoutChangeSummary {
                           replacement.sets
                               .mapIndexed { index, target -> "${index + 1}. ${load(target)}" }
                               .joinToString("\n") +
-                          "\nСохранить ${exercise.sets.count { it.completed }} выполненных подходов «${exercise.name}».",
+                          if (exercise.sets.any { it.completed })
+                              "\nСохранить ${exercise.sets.count { it.completed }} выполненных подходов «${exercise.name}»."
+                          else "\nУдалить упражнение «${exercise.name}» из тренировки.",
                   )
                 }
                 is WorkoutChangeSet.Operation.MoveExercise -> {

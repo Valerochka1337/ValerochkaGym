@@ -500,6 +500,103 @@ class WorkoutEditorTest : RoomDaoTest() {
   }
 
   @Test
+  fun `model replacement removes unstarted exercise preserves order and restores it on undo`() =
+      runTest {
+        val workout = insertWorkout("workout")
+        val first = insertWorkoutExercise(workout, exercise("First"), position = 0)
+        val sourceExercise = exercise("Source")
+        val source = insertWorkoutExercise(workout, sourceExercise, position = 1)
+        val last = insertWorkoutExercise(workout, exercise("Last"), position = 2)
+        insertSet(first, 0, reps = 10)
+        val setId = insertSet(source, 0, weightKg = 60.0, reps = 8)
+        insertSet(source, 1, weightKg = 60.0, reps = 8)
+        insertSet(last, 0, reps = 10)
+        val replacement = exercise("New exercise without history")
+        val replacementSyncId = requireNotNull(db.exerciseDao().getById(replacement)).syncId
+        val before = workoutFull(workout).exercises.sortedBy { it.workoutExercise.position }
+        val original = before[1]
+        val editor =
+            coordinator(RestTimerEngine(backgroundScope, WallClock { testScheduler.currentTime }))
+        val proposal =
+            assertIsSaved(
+                editor.saveModelProposalResult(
+                    "user",
+                    workout,
+                    0,
+                    listOf(
+                        CoachChangeIntent.Replace(
+                            original.workoutExercise.sectionId,
+                            replacementSyncId,
+                            original.sets.map { it.syncId },
+                            25.0,
+                        )
+                    ),
+                    Long.MAX_VALUE,
+                )
+            )
+        assertEquals(
+            before,
+            workoutFull(workout).exercises.sortedBy { it.workoutExercise.position },
+        )
+        assertTrue(proposal.afterSummary.contains("Удалить упражнение «Source»"))
+        assertEquals(
+            CommandResult.APPLIED,
+            editor.confirmProposal("user", proposal.id, "replace-unstarted").result,
+        )
+        val after = workoutFull(workout).exercises.sortedBy { it.workoutExercise.position }
+        assertEquals(
+            listOf(
+                before[0].workoutExercise.exerciseId,
+                replacement,
+                before[2].workoutExercise.exerciseId,
+            ),
+            after.map { it.workoutExercise.exerciseId },
+        )
+        assertEquals(listOf(0, 1, 2), after.map { it.workoutExercise.position })
+        assertEquals(
+            original.sets.map { it.syncId }.toSet(),
+            after[1].sets.map { it.syncId }.toSet(),
+        )
+        assertEquals(2, after[1].sets.size)
+        assertTrue(
+            after[1].sets.all {
+              it.weightKg == 25.0 && it.targetWeightKg == 25.0 && !it.isCompleted
+            }
+        )
+        assertNotNull(db.workoutDao().getSet(setId))
+        assertEquals(before[0], after[0])
+        assertEquals(before[2], after[2])
+        val undo =
+            requireNotNull(
+                editor.saveProposal(
+                    "user",
+                    workout,
+                    WorkoutChangeSet.Packet(listOf(WorkoutChangeSet.Operation.UndoLast)),
+                    1,
+                    Long.MAX_VALUE,
+                )
+            )
+        assertEquals(
+            CommandResult.APPLIED,
+            editor.confirmProposal("user", undo.id, "undo-unstarted").result,
+        )
+        val restored = workoutFull(workout).exercises.sortedBy { it.workoutExercise.position }
+        assertEquals(
+            before.map { it.workoutExercise.sectionId },
+            restored.map { it.workoutExercise.sectionId },
+        )
+        assertEquals(
+            before.map { it.workoutExercise.exerciseId },
+            restored.map { it.workoutExercise.exerciseId },
+        )
+        assertEquals(
+            original.sets.map { it.syncId }.toSet(),
+            restored[1].sets.map { it.syncId }.toSet(),
+        )
+        assertTrue(restored[1].sets.all { it.weightKg == 60.0 && it.reps == 8 })
+      }
+
+  @Test
   fun `replacement uses a resolved history weight and creates a distinct section`() = runTest {
     val oldExercise = exercise("Old")
     val replacement = exercise("New")
