@@ -18,6 +18,7 @@ fun CoachChatScreen(
   // A restored active workout has durable Room state but no process-local conversation consumer.
   // Starting the foreground owner is safe only while the observed workout is still active.
   LaunchedEffect(state.readOnly) { if (!state.readOnly) WorkoutSessionService.start(context) }
+  LaunchedEffect(state.messages) { viewModel.markAssistantMessagesRead() }
   CoachChatContent(
       state = state,
       onBack = onBack,

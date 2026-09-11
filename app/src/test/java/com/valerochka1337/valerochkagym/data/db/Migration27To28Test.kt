@@ -209,7 +209,11 @@ class Migration27To28Test {
                 GymDatabase::class.java,
                 name,
             )
-            .addMigrations(GymDatabase.MIGRATION_28_29, GymDatabase.MIGRATION_29_30)
+            .addMigrations(
+                GymDatabase.MIGRATION_28_29,
+                GymDatabase.MIGRATION_29_30,
+                GymDatabase.MIGRATION_30_31,
+            )
             .allowMainThreadQueries()
             .build()
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
@@ -263,7 +267,11 @@ class Migration27To28Test {
                 GymDatabase::class.java,
                 name,
             )
-            .addMigrations(GymDatabase.MIGRATION_28_29, GymDatabase.MIGRATION_29_30)
+            .addMigrations(
+                GymDatabase.MIGRATION_28_29,
+                GymDatabase.MIGRATION_29_30,
+                GymDatabase.MIGRATION_30_31,
+            )
             .allowMainThreadQueries()
             .build()
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)

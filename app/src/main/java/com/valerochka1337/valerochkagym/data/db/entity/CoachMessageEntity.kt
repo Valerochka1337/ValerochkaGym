@@ -27,4 +27,6 @@ data class CoachMessageEntity(
     val createdAt: Long,
     val status: String = "DELIVERED",
     val quickRepliesJson: String? = null,
+    /** Only assistant replies participate in the Live Coach unread counter. */
+    val readAt: Long? = null,
 )

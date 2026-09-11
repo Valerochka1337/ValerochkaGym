@@ -73,15 +73,16 @@ constructor(
               persisted,
               transient,
               conversation.runningWorkouts,
+              conversation.runningStages,
               workoutDao.observeWorkout(workoutId),
-          ) { persistedValue, transientValue, running, workout ->
+          ) { persistedValue, transientValue, running, stages, workout ->
             CoachChatUiState(
                 workoutName = workout?.name ?: "Тренировка",
                 messages = persistedValue.messages,
                 proposal = persistedValue.proposal,
                 draft = persistedValue.draft,
                 busy = transientValue.actionBusy || workoutId in running,
-                status = transientValue.status,
+                status = transientValue.status ?: stages[workoutId],
                 error = transientValue.error,
                 readOnly = workout == null || workout.finishedAt != null,
                 initiativeEnabled = persistedValue.context?.initiativeEnabled ?: true,
@@ -128,6 +129,11 @@ constructor(
   fun undo() = action { conversation.undo(workoutId) }
 
   fun disableInitiative() = action { conversation.disableInitiative(workoutId) }
+
+  /** Called by the visible chat host, including when a reply arrives while it is open. */
+  fun markAssistantMessagesRead() {
+    viewModelScope.launch { coachDao.markAssistantMessagesRead(workoutId) }
+  }
 
   private fun action(block: suspend () -> Boolean) {
     if (busyAction.value) return

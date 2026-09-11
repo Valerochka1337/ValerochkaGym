@@ -15,6 +15,12 @@ interface CoachDao {
   @Query("SELECT * FROM coach_messages WHERE workoutId=:workoutId ORDER BY createdAt, id")
   suspend fun messages(workoutId: String): List<CoachMessageEntity>
 
+  @Query("SELECT COUNT(*) FROM coach_messages WHERE workoutId=:workoutId AND role='assistant' AND readAt IS NULL")
+  fun observeUnreadAssistantCount(workoutId: String): Flow<Int>
+
+  @Query("UPDATE coach_messages SET readAt=:readAt WHERE workoutId=:workoutId AND role='assistant' AND readAt IS NULL")
+  suspend fun markAssistantMessagesRead(workoutId: String, readAt: Long = System.currentTimeMillis()): Int
+
   @Insert(onConflict = OnConflictStrategy.REPLACE)
   suspend fun saveMessage(message: CoachMessageEntity)
 

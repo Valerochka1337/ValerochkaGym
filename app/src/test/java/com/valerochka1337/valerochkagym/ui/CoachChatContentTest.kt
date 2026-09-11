@@ -126,6 +126,8 @@ abstract class CoachChatSemanticsBase {
         applied = applied::add,
     )
     compose.onNodeWithTag("coach-conversation").performScrollToNode(hasTestTag("coach-proposal"))
+    compose.onNodeWithText("Изменение").assertExists()
+    compose.onNodeWithTag("coach-proposal-action:0").performClick()
     compose.onNodeWithText("Жим · подход 3").assertExists()
     compose.onNodeWithText("Вес: 60 кг → 55 кг").assertExists()
     compose.onNodeWithText("legacy before").assertDoesNotExist()
@@ -167,22 +169,19 @@ abstract class CoachChatSemanticsBase {
     )
     compose.onNodeWithTag("coach-status").assertExists()
     compose.onNodeWithTag("coach-error").assertExists()
-    compose.onNodeWithTag("coach-conversation").performScrollToNode(hasTestTag("coach-send"))
-    compose.onNodeWithTag("coach-send").performScrollTo().assertIsNotEnabled()
+    compose.onNodeWithTag("coach-send").assertIsNotEnabled()
   }
 
   @Test
   fun `quick phrase sends immediately and preserves editable input at font scale two`() {
     val sent = mutableListOf<String>()
     content(CoachChatUiState(draft = "Мой черновик"), sent = sent::add)
-    compose.onNodeWithTag("coach-conversation").performScrollToNode(hasText("Добавь подход"))
     compose
         .onNodeWithText("Добавь подход")
-        .performScrollTo()
         .assertHeightIsAtLeast(48.dp)
         .performClick()
     assertEquals(listOf("Добавь подход"), sent)
-    compose.onNodeWithTag("coach-input").performScrollTo().assertTextContains("Мой черновик")
+    compose.onNodeWithTag("coach-input").assertTextContains("Мой черновик")
     compose.onNodeWithText("Осталось 20 минут").assertDoesNotExist()
     compose.onNodeWithText("Увеличь отдых").assertDoesNotExist()
   }
@@ -205,8 +204,7 @@ abstract class CoachChatSemanticsBase {
         ),
         sent = sent::add,
     )
-    compose.onNodeWithTag("coach-conversation").performScrollToNode(hasText("Оставим жим"))
-    compose.onNodeWithText("Оставим жим").performScrollTo().performClick()
+    compose.onNodeWithText("Оставим жим").performClick()
     assertEquals(listOf("Оставим жим"), sent)
     compose.onNodeWithText("Тренажёр занят").assertDoesNotExist()
     compose.onNodeWithText("Добавь подход").assertDoesNotExist()
@@ -228,7 +226,6 @@ abstract class CoachChatSemanticsBase {
                 ),
         )
     )
-    compose.onNodeWithTag("coach-conversation").performScrollToNode(hasText("Да, замени"))
     compose.onNodeWithText("Да, замени").assertIsNotEnabled()
   }
 }

@@ -4,6 +4,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
+import com.valerochka1337.valerochkagym.data.db.dao.CoachDao
 import com.valerochka1337.valerochkagym.data.db.relation.WorkoutFull
 import com.valerochka1337.valerochkagym.domain.ActiveWorkoutRepository
 import com.valerochka1337.valerochkagym.domain.ActiveWorkoutUnavailableException
@@ -67,6 +68,7 @@ data class ActiveWorkoutUiState(
     val personalHintEdit: ActivePersonalHintEditDraft? = null,
     val hintsByExercise: Map<Long, ExercisePersonalHint> = emptyMap(),
     val isFinishing: Boolean = false,
+    val unreadCoachMessages: Int = 0,
 )
 
 /** A note draft is scoped to stable Room ids so a delayed result cannot affect another target. */
@@ -141,6 +143,7 @@ constructor(
     private val savedStateHandle: SavedStateHandle,
     private val personalHintRepository: ExercisePersonalHintRepository,
     private val permissionRecoveryController: PermissionRecoveryController? = null,
+    private val coachDao: CoachDao? = null,
 ) : ViewModel() {
 
   @Inject
@@ -155,6 +158,7 @@ constructor(
       savedStateHandle: SavedStateHandle,
       personalHintRepository: ExercisePersonalHintRepository,
       permissionRecoveryController: PermissionRecoveryController? = null,
+      coachDao: CoachDao,
   ) : this(
       repository,
       previousSetsUseCase,
@@ -166,6 +170,7 @@ constructor(
       savedStateHandle,
       personalHintRepository,
       permissionRecoveryController,
+      coachDao,
   )
 
   /** Состояние таймера отдыха (null = неактивен) — пилюля на экране подписана прямо на движок. */
@@ -222,6 +227,13 @@ constructor(
               emptyMap(),
           )
 
+  private val unreadCoachMessages: StateFlow<Int> =
+      activeWorkout
+          .flatMapLatest { workout ->
+            workout?.workout?.id?.let { id -> coachDao?.observeUnreadAssistantCount(id) } ?: flowOf(0)
+          }
+          .stateIn(viewModelScope, SharingStarted.WhileSubscribed(SUBSCRIPTION_TIMEOUT_MS), 0)
+
   private val tickerFlow: Flow<Long> = flow {
     while (true) {
       emit(System.currentTimeMillis())
@@ -259,11 +271,11 @@ constructor(
           )
 
   val uiState: StateFlow<ActiveWorkoutUiState> =
-      combine(baseUiState, noteEdit, personalHintEdit, hintsByExercise) {
+      combine(baseUiState, noteEdit, personalHintEdit, hintsByExercise, unreadCoachMessages) {
               base,
               note,
               hintEdit,
-              hints ->
+              hints, unread ->
             ActiveWorkoutUiState(
                 loading = !base.loaded,
                 workout = base.workout,
@@ -273,6 +285,7 @@ constructor(
                 personalHintEdit = hintEdit,
                 hintsByExercise = hints,
                 isFinishing = base.isFinishing,
+                unreadCoachMessages = unread,
             )
           }
           .stateIn(

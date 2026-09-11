@@ -66,6 +66,9 @@ constructor(
   private val requests = Channel<PendingRequest>(capacity = 1)
   private val running = MutableStateFlow<Set<String>>(emptySet())
   val runningWorkouts: StateFlow<Set<String>> = running
+  private val stages = MutableStateFlow<Map<String, String>>(emptyMap())
+  /** Ephemeral detail of the currently running request; Room remains the transcript source. */
+  val runningStages: StateFlow<Map<String, String>> = stages
   private val coachAlerts = MutableSharedFlow<String>(extraBufferCapacity = 4)
   val alerts = coachAlerts.asSharedFlow()
   private val lifecycle = Any()
@@ -195,6 +198,7 @@ constructor(
       markInterrupted(request)
       return false
     }
+    setStage(workoutId, "Отправляем сообщение…")
     try {
       requests.send(request)
     } catch (error: CancellationException) {
@@ -209,12 +213,18 @@ constructor(
     val accountId = session.tokens.userId
     val proposal = database.coachDao().pendingProposalForId(proposalId)
     if (proposal?.accountId != accountId || proposal.workoutId != workoutId) return false
+    val actionKind =
+        com.valerochka1337.valerochkagym.domain.WorkoutApprovalPreview
+            .decode(proposal.previewJson)
+            ?.actions
+            ?.firstOrNull()
+            ?.kind ?: "change"
     val receipt =
         editor.confirmProposal(accountId, proposalId, UUID.randomUUID().toString(), session.epoch)
     val text =
         when (receipt.result) {
           com.valerochka1337.valerochkagym.domain.CommandResult.APPLIED ->
-              "Применено:\n${proposal.afterSummary}"
+              "APPLIED|$actionKind|${proposal.afterSummary}"
           com.valerochka1337.valerochkagym.domain.CommandResult.REPLAYED ->
               "Предложение уже было применено."
           else -> "Предложение устарело: состояние тренировки изменилось."
@@ -233,6 +243,14 @@ constructor(
   suspend fun cancel(workoutId: String, proposalId: String): Boolean {
     val session = sessions.snapshot() ?: return false
     val accountId = session.tokens.userId
+    val proposal = database.coachDao().pendingProposalForId(proposalId)
+    if (proposal?.accountId != accountId || proposal.workoutId != workoutId) return false
+    val actionKind =
+        com.valerochka1337.valerochkagym.domain.WorkoutApprovalPreview
+            .decode(proposal.previewJson)
+            ?.actions
+            ?.firstOrNull()
+            ?.kind ?: "change"
     val cancelled = editor.cancelProposal(accountId, proposalId, session.epoch)
     if (cancelled)
         appendMessage(
@@ -240,7 +258,7 @@ constructor(
             accountId,
             workoutId,
             "system",
-            "Предложение отменено.",
+            "REJECTED|$actionKind|${proposal.afterSummary}",
             expectedSessionEpoch = session.epoch,
         )
     return cancelled
@@ -284,6 +302,7 @@ constructor(
 
   private suspend fun runRequest(request: PendingRequest) {
     running.value = running.value + request.workoutId
+    setStage(request.workoutId, "Проверяем тренировку…")
     var interrupted = false
     try {
       if (!isCurrent(request)) {
@@ -331,6 +350,7 @@ constructor(
               .filter { it.id != request.messageId && it.role in setOf("user", "assistant") }
               .map { CoachHistoryMessage(it.role, it.text) }
               .toList()
+      setStage(request.workoutId, "Формируем ответ…")
       val result =
           agent.reply(
               snapshot = snapshot,
@@ -380,6 +400,7 @@ constructor(
       } finally {
         pendingRequests.remove(request.messageId)
         running.value = running.value - request.workoutId
+        stages.value = stages.value - request.workoutId
       }
     }
   }
@@ -414,6 +435,7 @@ constructor(
       call: com.valerochka1337.valerochkagym.data.ai.AiApiToolCall,
   ): CoachToolOutcome =
       try {
+        setStage(request.workoutId, "Проверяем данные тренировки…")
         if (!isCurrent(request))
             return CoachToolOutcome(
                 "Аккаунт изменился. Не выполняй действие.",
@@ -421,6 +443,7 @@ constructor(
             )
         when (val decoded = CoachToolCodec.decode(call)) {
           CoachToolRequest.State -> {
+            setStage(request.workoutId, "Проверяем текущий подход…")
             val fresh = freshSnapshot(request)
             if (fresh == null)
                 CoachToolOutcome(
@@ -430,14 +453,18 @@ constructor(
             else CoachToolOutcome(CoachToolCodec.snapshotJson(fresh))
           }
           is CoachToolRequest.Find ->
+              setStage(request.workoutId, "Подбираем упражнение…").let {
               CoachToolOutcome(
                   CoachToolCodec.foundJson(
                       reader.find(snapshot, decoded.query, decoded.equipmentIds, decoded.muscleIds)
                   )
-              )
+              ) }
           is CoachToolRequest.History ->
+              setStage(request.workoutId, "Сверяем историю…").let {
               CoachToolOutcome(CoachToolCodec.historyJson(reader.history(decoded.exerciseId)))
+              }
           is CoachToolRequest.Submit -> {
+            setStage(request.workoutId, "Готовим изменения…")
             when (
                 val result =
                     editor.saveModelProposalResult(
@@ -587,6 +614,7 @@ constructor(
                     createdAt,
                     status,
                     quickRepliesJson,
+                    readAt = if (role == "assistant") null else null,
                 )
             )
         database
@@ -613,6 +641,10 @@ constructor(
         true
       }
     }
+  }
+
+  private fun setStage(workoutId: String, stage: String) {
+    stages.value = stages.value + (workoutId to stage)
   }
 
   suspend fun considerInitiative(

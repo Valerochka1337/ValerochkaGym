@@ -140,7 +140,7 @@ import kotlinx.serialization.json.JsonPrimitive
             CoachSessionContextEntity::class,
             CoachSyncStateEntity::class,
         ],
-    version = 30,
+    version = 31,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -1077,6 +1077,15 @@ abstract class GymDatabase : RoomDatabase() {
           }
         }
 
+    /** v30 → v31: existing coach history was already seen; future assistant replies are unread. */
+    val MIGRATION_30_31: Migration =
+        object : Migration(30, 31) {
+          override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE coach_messages ADD COLUMN readAt INTEGER")
+            db.execSQL("UPDATE coach_messages SET readAt=createdAt WHERE role='assistant'")
+          }
+        }
+
     /** v28 → v29: persist an optional structured approval preview. */
     val MIGRATION_28_29: Migration =
         object : Migration(28, 29) {
@@ -1404,6 +1413,7 @@ abstract class GymDatabase : RoomDatabase() {
             MIGRATION_27_28,
             MIGRATION_28_29,
             MIGRATION_29_30,
+            MIGRATION_30_31,
         )
 
     private val legacyCoachJson = Json {
