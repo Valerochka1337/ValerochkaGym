@@ -32,7 +32,11 @@ constructor(
    */
   suspend operator fun invoke(setId: Long) {
     val workout = repository.observeActive().first()
+    // A correction to a completed result must not restart rest. Capture its prior state before the
+    // write because the repository flow may update immediately.
+    val wasCompleted = repository.getSet(setId)?.isCompleted == true
     repository.toggleSetCompleted(setId, true)
+    if (wasCompleted) return
     val exerciseId =
         workout
             ?.exercises

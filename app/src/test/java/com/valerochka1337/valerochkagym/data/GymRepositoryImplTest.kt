@@ -116,6 +116,7 @@ class GymRepositoryImplTest : RoomDaoTest() {
     )
     assertTrue(repository.getGym(gym)!!.exercises.isEmpty())
     assertEquals(1, tableCount("workout_sets"))
+    assertEquals(1L, db.workoutDao().getWorkoutFull("active")!!.workout.coachRevision)
   }
 
   @Test

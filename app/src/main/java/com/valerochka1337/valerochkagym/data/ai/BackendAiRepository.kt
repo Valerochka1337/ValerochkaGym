@@ -1,6 +1,8 @@
 package com.valerochka1337.valerochkagym.data.ai
 
 import android.net.Uri
+import android.util.Log
+import com.valerochka1337.valerochkagym.BuildConfig
 import com.valerochka1337.valerochkagym.data.backend.BackendException
 import com.valerochka1337.valerochkagym.data.backend.BackendResponse
 import com.valerochka1337.valerochkagym.data.backend.BackendTransport
@@ -52,6 +54,9 @@ constructor(
     if (!isUsable(ready) || !isCurrent(ready)) return unavailable()
     val requestId = UUID.randomUUID().toString()
     return try {
+      if (BuildConfig.DEBUG) {
+        Log.d(EXERCISE_LOG_TAG, "POST $EXERCISE_PATH requestId=$requestId started")
+      }
       val response =
           actionResponse(
               EXERCISE_PATH,
@@ -89,8 +94,31 @@ constructor(
     } catch (error: CancellationException) {
       throw error
     } catch (error: BackendException) {
+      // Opt-in exercise diagnostics: never log request bodies or authentication headers.
+      if (BuildConfig.DEBUG) {
+        val message =
+            error.message
+                .replace(trimmed, "[description]")
+                .replace('\n', ' ')
+                .replace('\r', ' ')
+                .take(1_000)
+        Log.e(
+            EXERCISE_LOG_TAG,
+            "POST $EXERCISE_PATH requestId=$requestId failed: " +
+                "http=${error.status} code=${error.code} message=$message",
+        )
+      }
       ExerciseAiGenerationResult.Failure(actionMessage(error))
-    } catch (_: Exception) {
+    } catch (error: Exception) {
+      if (BuildConfig.DEBUG) {
+        // Exception messages can contain request data; keep types and the failure location only.
+        Log.e(
+            EXERCISE_LOG_TAG,
+            "POST $EXERCISE_PATH requestId=$requestId failed: " +
+                "exception=${error.javaClass.name} cause=${error.cause?.javaClass?.name} " +
+                "at=${error.stackTrace.firstOrNull()}",
+        )
+      }
       ExerciseAiGenerationResult.Failure("Не удалось подготовить упражнение")
     }
   }
@@ -341,6 +369,7 @@ constructor(
       }
 
   private companion object {
+    const val EXERCISE_LOG_TAG = "ExerciseAI"
     const val MAX_DESCRIPTION_CODE_POINTS = 2_000
     const val EXERCISE_PATH = "/ai/exercise-drafts"
     const val INBODY_PATH = "/ai/inbody-drafts"

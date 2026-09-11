@@ -5,6 +5,7 @@ import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
+import java.util.UUID
 
 @Entity(
     tableName = "workout_sets",
@@ -17,7 +18,7 @@ import androidx.room.PrimaryKey
                 onDelete = ForeignKey.CASCADE,
             ),
         ],
-    indices = [Index("workoutExerciseId")],
+    indices = [Index("workoutExerciseId"), Index(value = ["syncId"], unique = true)],
 )
 data class WorkoutSetEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
@@ -31,4 +32,25 @@ data class WorkoutSetEntity(
     val isCompleted: Boolean = false,
     val completedAt: Long? = null,
     @ColumnInfo(defaultValue = "''") val note: String = "",
+    /** Stable portable identity. It is deliberately independent of the local Room primary key. */
+    @ColumnInfo(defaultValue = "''") val syncId: String = UUID.randomUUID().toString(),
+    val originalWeightKg: Double? = null,
+    val originalReps: Int? = null,
+    val originalDurationSec: Int? = null,
+    val originalSpeedKmh: Double? = null,
+    val originalInclinePct: Double? = null,
+    val targetWeightKg: Double? = null,
+    val targetReps: Int? = null,
+    val targetDurationSec: Int? = null,
+    val targetSpeedKmh: Double? = null,
+    val targetInclinePct: Double? = null,
+    val actualWeightKg: Double? = null,
+    val actualReps: Int? = null,
+    val actualDurationSec: Int? = null,
+    val actualSpeedKmh: Double? = null,
+    val actualInclinePct: Double? = null,
+    @ColumnInfo(defaultValue = "'UNKNOWN'") val setType: String = "UNKNOWN",
+    @ColumnInfo(defaultValue = "'[]'") val reportedFeelingsJson: String = "[]",
+    val restSnapshotJson: String? = null,
+    @ColumnInfo(defaultValue = "0") val coachMutationRevision: Long = 0,
 )

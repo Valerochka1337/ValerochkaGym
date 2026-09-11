@@ -73,6 +73,22 @@ class CompleteSetUseCaseTest : RoomDaoTest() {
   }
 
   @Test
+  fun `completing an already completed set does not restart rest`() = runTest {
+    val setId = seedActiveWorkout()
+    settingsRepository = settingsWithRest(90)
+    val engine = RestTimerEngine(backgroundScope) { 0L }
+    val useCase = CompleteSetUseCase(repository, restDurationResolver(), engine, settingsRepository)
+    useCase(setId)
+    val firstStartId = engine.currentStartId()
+    engine.skip()
+
+    useCase(setId)
+
+    assertNull(engine.state.value)
+    assertTrue(firstStartId != null)
+  }
+
+  @Test
   fun `with autostart disabled the set is marked but rest does not start`() = runTest {
     val setId = seedActiveWorkout()
     settingsRepository =

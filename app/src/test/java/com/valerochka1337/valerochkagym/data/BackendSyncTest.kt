@@ -3,6 +3,7 @@ package com.valerochka1337.valerochkagym.data
 import androidx.room.withTransaction
 import com.valerochka1337.valerochkagym.data.backend.*
 import com.valerochka1337.valerochkagym.data.calendar.CalendarMigrationGate
+import com.valerochka1337.valerochkagym.data.db.LegacyCoachArchiveRegistry
 import com.valerochka1337.valerochkagym.data.db.LocalEquipmentCatalog
 import com.valerochka1337.valerochkagym.data.db.entity.*
 import java.io.IOException
@@ -29,6 +30,26 @@ class BackendSyncTest : RoomDaoTest() {
           updatedAt = 1,
           equipmentRequirementState = EquipmentRequirementState.KNOWN,
       )
+
+  @Test
+  fun `account replacement purges retained legacy coach archives`() = runTest {
+    SyncSchema.install(raw)
+    val sync = BackendSync(db, Server(), Store())
+    sync.claim("user-a")
+    sync.run()
+    LegacyCoachArchiveRegistry.archiveTableNames().forEachIndexed { index, table ->
+      raw.execSQL("CREATE TABLE `$table` (id INTEGER PRIMARY KEY)")
+      raw.execSQL("INSERT INTO `$table` VALUES(?)", arrayOf(index))
+    }
+
+    sync.claim("user-b")
+
+    LegacyCoachArchiveRegistry.archiveTableNames().forEach { table ->
+      raw.query("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", arrayOf(table)).use {
+        assertFalse(it.moveToFirst())
+      }
+    }
+  }
 
   private class Store : BackendSessionStore {
     override val session =
@@ -57,6 +78,7 @@ class BackendSyncTest : RoomDaoTest() {
 
     val records = linkedMapOf<String, CloudRecord>()
     val operations = mutableMapOf<String, Pair<CloudPush, CloudAck>>()
+    val sentBodies = mutableListOf<JsonObject>()
     var revision = 0L
     var loseNextResponse = false
     var failBeforeCommit = false
@@ -82,6 +104,8 @@ class BackendSyncTest : RoomDaoTest() {
         }
 
     override suspend fun authorized(method: String, path: String, body: JsonElement?): JsonElement {
+      if (path.startsWith("/coach/journal"))
+          return json.encodeToJsonElement(CoachJournalPage(emptyList(), watermark = 0))
       if (method == "GET") {
         getReads++
         onGet?.invoke(getReads)
@@ -95,7 +119,8 @@ class BackendSyncTest : RoomDaoTest() {
         failBeforeCommit = false
         throw IOException("Offline before commit")
       }
-      val push = json.decodeFromJsonElement<CloudPush>(body!!)
+      sentBodies += body!!.jsonObject
+      val push = json.decodeFromJsonElement<CloudPush>(body)
       postAttempts++
       beforePost?.also {
         beforePost = null
@@ -139,9 +164,16 @@ class BackendSyncTest : RoomDaoTest() {
         retryOnUnauthorized: Boolean,
         maxResponseBytes: Int?,
     ): BackendResponse {
-      rawPosts += rawBody
+      if (method == "POST") rawPosts += rawBody
       return BackendResponse(
-          body = authorized(method, path, json.parseToJsonElement(rawBody.decodeToString())),
+          body =
+              authorized(
+                  method,
+                  path,
+                  rawBody
+                      .takeIf { it.isNotEmpty() }
+                      ?.let { json.parseToJsonElement(it.decodeToString()) },
+              ),
           rawBody = byteArrayOf(),
           acceptedCapabilities = accepted,
           owner = expectedOwner,
@@ -1199,6 +1231,111 @@ class BackendSyncTest : RoomDaoTest() {
     assertEquals(2, server.postAttempts)
     assertEquals(0, tableCount("backend_outbox"))
     assertEquals(1, server.records.size)
+  }
+
+  @Test
+  fun `legacy outbox preserves omitted fields and then sends current coach snapshot`() = runTest {
+    SyncSchema.install(raw)
+    raw.execSQL(
+        "UPDATE backend_state SET owner='user-a',phase='OWNED',initialMergeAcknowledged=1 WHERE id=1"
+    )
+    insertWorkout("history", finishedAt = 2000)
+    val current = PortableData(raw).snapshot().getValue("workout:history")
+    val legacy = JsonObject(current - "coachRevision")
+    val push =
+        CloudPush("old-operation", listOf(CloudChange("workout", "history", 0, payload = legacy)))
+    val server = Server()
+    val oldBody = JsonObject(server.json.encodeToJsonElement(push).jsonObject - "catalogRevision")
+    raw.execSQL(
+        "INSERT INTO backend_outbox(id,owner,requestJson) VALUES(1,'user-a',?)",
+        arrayOf(oldBody.toString()),
+    )
+    BackendSync(db, server, Store()).run()
+    assertEquals(oldBody, server.sentBodies.first())
+    assertEquals(2, server.operations.size)
+    assertEquals(current, server.records.getValue("workout:history").payload)
+  }
+
+  @Test
+  fun `legacy workout imports preserve set UUID and leave unknown coaching data empty`() = runTest {
+    val exerciseId = db.exerciseDao().insert(exercise())
+    insertWorkout("history", finishedAt = 2000)
+    val section = insertWorkoutExercise("history", exerciseId)
+    insertSet(section, 0, weightKg = 40.0, reps = 8, isCompleted = true)
+    val portable = PortableData(raw)
+    val before = portable.snapshot().getValue("workout:history")
+    val oldSet =
+        before
+            .getValue("exercises")
+            .jsonArray
+            .single()
+            .jsonObject
+            .getValue("sets")
+            .jsonArray
+            .single()
+            .jsonObject
+    val legacyFields =
+        setOf(
+            "setIndex",
+            "weightKg",
+            "reps",
+            "durationSec",
+            "speedKmh",
+            "inclinePct",
+            "isCompleted",
+            "completedAt",
+        )
+    val sections =
+        before.getValue("exercises").jsonArray.map { sectionJson ->
+          JsonObject(
+              sectionJson.jsonObject +
+                  ("sets" to
+                      JsonArray(listOf(JsonObject(oldSet.filterKeys { it in legacyFields }))))
+          )
+        }
+    val legacy = JsonObject((before - "coachRevision") + ("exercises" to JsonArray(sections)))
+    repeat(2) {
+      portable.apply(listOf(CloudRecord("workout", "history", 1, payload = legacy)), emptyList())
+    }
+    val restored = portable.snapshot().getValue("workout:history")
+    val set =
+        restored
+            .getValue("exercises")
+            .jsonArray
+            .single()
+            .jsonObject
+            .getValue("sets")
+            .jsonArray
+            .single()
+            .jsonObject
+    assertEquals(oldSet["syncId"], set["syncId"])
+    assertEquals(JsonNull, set["originalWeightKg"])
+    assertEquals(JsonNull, set["actualReps"])
+    assertEquals(JsonPrimitive("[]"), set["reportedFeelingsJson"])
+    assertEquals(JsonPrimitive("UNKNOWN"), set["setType"])
+    assertEquals(JsonPrimitive(40.0), set["weightKg"])
+    assertEquals(JsonPrimitive(0), restored["coachRevision"])
+  }
+
+  @Test
+  fun `same owner signing in during upload retains the old operation for retry`() = runTest {
+    val server = Server()
+    val store = Store()
+    val sync = BackendSync(db, server, store)
+    SyncSchema.install(raw)
+    sync.claim("user-a")
+    db.exerciseDao().insert(exercise())
+    server.afterCommit = { store.save(store.session.value) }
+    try {
+      sync.run()
+      fail("Old session must not acknowledge")
+    } catch (error: BackendException) {
+      assertEquals("owner_changed", error.code)
+    }
+    assertEquals(1, tableCount("backend_outbox"))
+    sync.run()
+    assertEquals(0, tableCount("backend_outbox"))
+    assertEquals(1, server.operations.size)
   }
 
   @Test

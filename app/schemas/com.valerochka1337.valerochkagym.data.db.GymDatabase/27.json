@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 27,
-    "identityHash": "aea3946413c371299c89fa51ac6a7f9a",
+    "identityHash": "a5903d89f19f81e4b3c18f7c4854bf8b",
     "entities": [
       {
         "tableName": "backend_state",
@@ -319,78 +319,6 @@
           "autoGenerate": false,
           "columnNames": [
             "id"
-          ]
-        }
-      },
-      {
-        "tableName": "workout_preparations",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`owner` TEXT NOT NULL, `requestId` TEXT NOT NULL, `intentJson` TEXT NOT NULL, `replacesJson` TEXT NOT NULL, `requestJson` TEXT, `revision` INTEGER, `catalogRevision` INTEGER, `generation` INTEGER, `state` TEXT NOT NULL, `errorCode` TEXT, `proposalJson` TEXT, PRIMARY KEY(`owner`))",
-        "fields": [
-          {
-            "fieldPath": "owner",
-            "columnName": "owner",
-            "affinity": "TEXT",
-            "notNull": true
-          },
-          {
-            "fieldPath": "requestId",
-            "columnName": "requestId",
-            "affinity": "TEXT",
-            "notNull": true
-          },
-          {
-            "fieldPath": "intentJson",
-            "columnName": "intentJson",
-            "affinity": "TEXT",
-            "notNull": true
-          },
-          {
-            "fieldPath": "replacesJson",
-            "columnName": "replacesJson",
-            "affinity": "TEXT",
-            "notNull": true
-          },
-          {
-            "fieldPath": "requestJson",
-            "columnName": "requestJson",
-            "affinity": "TEXT"
-          },
-          {
-            "fieldPath": "revision",
-            "columnName": "revision",
-            "affinity": "INTEGER"
-          },
-          {
-            "fieldPath": "catalogRevision",
-            "columnName": "catalogRevision",
-            "affinity": "INTEGER"
-          },
-          {
-            "fieldPath": "generation",
-            "columnName": "generation",
-            "affinity": "INTEGER"
-          },
-          {
-            "fieldPath": "state",
-            "columnName": "state",
-            "affinity": "TEXT",
-            "notNull": true
-          },
-          {
-            "fieldPath": "errorCode",
-            "columnName": "errorCode",
-            "affinity": "TEXT"
-          },
-          {
-            "fieldPath": "proposalJson",
-            "columnName": "proposalJson",
-            "affinity": "TEXT"
-          }
-        ],
-        "primaryKey": {
-          "autoGenerate": false,
-          "columnNames": [
-            "owner"
           ]
         }
       },
@@ -2705,7 +2633,7 @@
       },
       {
         "tableName": "workouts",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `routineId` INTEGER, `name` TEXT NOT NULL, `startedAt` INTEGER NOT NULL, `finishedAt` INTEGER, `note` TEXT NOT NULL, `uploadStatus` TEXT NOT NULL, `uploadError` TEXT, PRIMARY KEY(`id`), FOREIGN KEY(`routineId`) REFERENCES `routines`(`id`) ON UPDATE NO ACTION ON DELETE SET NULL )",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `routineId` INTEGER, `name` TEXT NOT NULL, `startedAt` INTEGER NOT NULL, `finishedAt` INTEGER, `note` TEXT NOT NULL, `uploadStatus` TEXT NOT NULL, `uploadError` TEXT, `coachRevision` INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(`id`), FOREIGN KEY(`routineId`) REFERENCES `routines`(`id`) ON UPDATE NO ACTION ON DELETE SET NULL )",
         "fields": [
           {
             "fieldPath": "id",
@@ -2751,6 +2679,13 @@
             "fieldPath": "uploadError",
             "columnName": "uploadError",
             "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "coachRevision",
+            "columnName": "coachRevision",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
           }
         ],
         "primaryKey": {
@@ -2950,7 +2885,7 @@
       },
       {
         "tableName": "workout_sets",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `workoutExerciseId` INTEGER NOT NULL, `setIndex` INTEGER NOT NULL, `weightKg` REAL, `reps` INTEGER, `durationSec` INTEGER, `speedKmh` REAL, `inclinePct` REAL, `isCompleted` INTEGER NOT NULL, `completedAt` INTEGER, `note` TEXT NOT NULL DEFAULT '', FOREIGN KEY(`workoutExerciseId`) REFERENCES `workout_exercises`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `workoutExerciseId` INTEGER NOT NULL, `setIndex` INTEGER NOT NULL, `weightKg` REAL, `reps` INTEGER, `durationSec` INTEGER, `speedKmh` REAL, `inclinePct` REAL, `isCompleted` INTEGER NOT NULL, `completedAt` INTEGER, `note` TEXT NOT NULL DEFAULT '', `syncId` TEXT NOT NULL DEFAULT '', `originalWeightKg` REAL, `originalReps` INTEGER, `originalDurationSec` INTEGER, `originalSpeedKmh` REAL, `originalInclinePct` REAL, `targetWeightKg` REAL, `targetReps` INTEGER, `targetDurationSec` INTEGER, `targetSpeedKmh` REAL, `targetInclinePct` REAL, `actualWeightKg` REAL, `actualReps` INTEGER, `actualDurationSec` INTEGER, `actualSpeedKmh` REAL, `actualInclinePct` REAL, `setType` TEXT NOT NULL DEFAULT 'UNKNOWN', `reportedFeelingsJson` TEXT NOT NULL DEFAULT '[]', `restSnapshotJson` TEXT, `coachMutationRevision` INTEGER NOT NULL DEFAULT 0, FOREIGN KEY(`workoutExerciseId`) REFERENCES `workout_exercises`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
         "fields": [
           {
             "fieldPath": "id",
@@ -3012,6 +2947,114 @@
             "affinity": "TEXT",
             "notNull": true,
             "defaultValue": "''"
+          },
+          {
+            "fieldPath": "syncId",
+            "columnName": "syncId",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "''"
+          },
+          {
+            "fieldPath": "originalWeightKg",
+            "columnName": "originalWeightKg",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "originalReps",
+            "columnName": "originalReps",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "originalDurationSec",
+            "columnName": "originalDurationSec",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "originalSpeedKmh",
+            "columnName": "originalSpeedKmh",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "originalInclinePct",
+            "columnName": "originalInclinePct",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "targetWeightKg",
+            "columnName": "targetWeightKg",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "targetReps",
+            "columnName": "targetReps",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "targetDurationSec",
+            "columnName": "targetDurationSec",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "targetSpeedKmh",
+            "columnName": "targetSpeedKmh",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "targetInclinePct",
+            "columnName": "targetInclinePct",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "actualWeightKg",
+            "columnName": "actualWeightKg",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "actualReps",
+            "columnName": "actualReps",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "actualDurationSec",
+            "columnName": "actualDurationSec",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "actualSpeedKmh",
+            "columnName": "actualSpeedKmh",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "actualInclinePct",
+            "columnName": "actualInclinePct",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "setType",
+            "columnName": "setType",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "'UNKNOWN'"
+          },
+          {
+            "fieldPath": "reportedFeelingsJson",
+            "columnName": "reportedFeelingsJson",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "'[]'"
+          },
+          {
+            "fieldPath": "restSnapshotJson",
+            "columnName": "restSnapshotJson",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "coachMutationRevision",
+            "columnName": "coachMutationRevision",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
           }
         ],
         "primaryKey": {
@@ -3029,6 +3072,15 @@
             ],
             "orders": [],
             "createSql": "CREATE INDEX IF NOT EXISTS `index_workout_sets_workoutExerciseId` ON `${TABLE_NAME}` (`workoutExerciseId`)"
+          },
+          {
+            "name": "index_workout_sets_syncId",
+            "unique": true,
+            "columnNames": [
+              "syncId"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_workout_sets_syncId` ON `${TABLE_NAME}` (`syncId`)"
           }
         ],
         "foreignKeys": [
@@ -3044,11 +3096,529 @@
             ]
           }
         ]
+      },
+      {
+        "tableName": "coach_messages",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `accountId` TEXT NOT NULL, `workoutId` TEXT NOT NULL, `role` TEXT NOT NULL, `text` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, `status` TEXT NOT NULL, PRIMARY KEY(`id`), FOREIGN KEY(`workoutId`) REFERENCES `workouts`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "accountId",
+            "columnName": "accountId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "workoutId",
+            "columnName": "workoutId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "role",
+            "columnName": "role",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "text",
+            "columnName": "text",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "status",
+            "columnName": "status",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_coach_messages_workoutId",
+            "unique": false,
+            "columnNames": [
+              "workoutId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_coach_messages_workoutId` ON `${TABLE_NAME}` (`workoutId`)"
+          },
+          {
+            "name": "index_coach_messages_accountId",
+            "unique": false,
+            "columnNames": [
+              "accountId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_coach_messages_accountId` ON `${TABLE_NAME}` (`accountId`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "workouts",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "workoutId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "coach_proposals",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `accountId` TEXT NOT NULL, `workoutId` TEXT NOT NULL, `baseRevision` INTEGER NOT NULL, `beforeSummary` TEXT NOT NULL, `afterSummary` TEXT NOT NULL, `packetJson` TEXT NOT NULL, `expiresAt` INTEGER NOT NULL, `state` TEXT NOT NULL, PRIMARY KEY(`id`), FOREIGN KEY(`workoutId`) REFERENCES `workouts`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "accountId",
+            "columnName": "accountId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "workoutId",
+            "columnName": "workoutId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "baseRevision",
+            "columnName": "baseRevision",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "beforeSummary",
+            "columnName": "beforeSummary",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "afterSummary",
+            "columnName": "afterSummary",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "packetJson",
+            "columnName": "packetJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "expiresAt",
+            "columnName": "expiresAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "state",
+            "columnName": "state",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_coach_proposals_workoutId",
+            "unique": false,
+            "columnNames": [
+              "workoutId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_coach_proposals_workoutId` ON `${TABLE_NAME}` (`workoutId`)"
+          },
+          {
+            "name": "index_coach_proposals_accountId",
+            "unique": false,
+            "columnNames": [
+              "accountId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_coach_proposals_accountId` ON `${TABLE_NAME}` (`accountId`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "workouts",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "workoutId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "coach_command_receipts",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`operationId` TEXT NOT NULL, `accountId` TEXT NOT NULL, `workoutId` TEXT NOT NULL, `revision` INTEGER NOT NULL, `result` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, PRIMARY KEY(`operationId`), FOREIGN KEY(`workoutId`) REFERENCES `workouts`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "operationId",
+            "columnName": "operationId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "accountId",
+            "columnName": "accountId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "workoutId",
+            "columnName": "workoutId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "revision",
+            "columnName": "revision",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "result",
+            "columnName": "result",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "operationId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_coach_command_receipts_workoutId",
+            "unique": false,
+            "columnNames": [
+              "workoutId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_coach_command_receipts_workoutId` ON `${TABLE_NAME}` (`workoutId`)"
+          },
+          {
+            "name": "index_coach_command_receipts_accountId",
+            "unique": false,
+            "columnNames": [
+              "accountId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_coach_command_receipts_accountId` ON `${TABLE_NAME}` (`accountId`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "workouts",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "workoutId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "coach_journal",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `accountId` TEXT NOT NULL, `workoutId` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, `payload` TEXT NOT NULL, `uploaded` INTEGER NOT NULL, `deviceId` TEXT, PRIMARY KEY(`id`), FOREIGN KEY(`workoutId`) REFERENCES `workouts`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "accountId",
+            "columnName": "accountId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "workoutId",
+            "columnName": "workoutId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "payload",
+            "columnName": "payload",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "uploaded",
+            "columnName": "uploaded",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "deviceId",
+            "columnName": "deviceId",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_coach_journal_workoutId",
+            "unique": false,
+            "columnNames": [
+              "workoutId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_coach_journal_workoutId` ON `${TABLE_NAME}` (`workoutId`)"
+          },
+          {
+            "name": "index_coach_journal_accountId",
+            "unique": false,
+            "columnNames": [
+              "accountId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_coach_journal_accountId` ON `${TABLE_NAME}` (`accountId`)"
+          },
+          {
+            "name": "index_coach_journal_uploaded",
+            "unique": false,
+            "columnNames": [
+              "uploaded"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_coach_journal_uploaded` ON `${TABLE_NAME}` (`uploaded`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "workouts",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "workoutId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "coach_session_context",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`workoutId` TEXT NOT NULL, `accountId` TEXT NOT NULL, `availableTimeMinutes` INTEGER, `availableTimeEndsAtMillis` INTEGER, `futureRestSeconds` INTEGER, `occupiedEquipmentJson` TEXT NOT NULL, `excludedExerciseIdsJson` TEXT NOT NULL, `lastUndoPacketJson` TEXT, `lastUndoRevision` INTEGER, `initiativeEnabled` INTEGER NOT NULL, `initiativeWelcomed` INTEGER NOT NULL, `initiativeAutomaticCount` INTEGER NOT NULL, `initiativeLastAutomaticAtMillis` INTEGER, `initiativeAskedExerciseIdsJson` TEXT NOT NULL, `initiativeEndReminderSent` INTEGER NOT NULL, `initiativePendingInteraction` INTEGER NOT NULL, PRIMARY KEY(`workoutId`), FOREIGN KEY(`workoutId`) REFERENCES `workouts`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "workoutId",
+            "columnName": "workoutId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "accountId",
+            "columnName": "accountId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "availableTimeMinutes",
+            "columnName": "availableTimeMinutes",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "availableTimeEndsAtMillis",
+            "columnName": "availableTimeEndsAtMillis",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "futureRestSeconds",
+            "columnName": "futureRestSeconds",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "occupiedEquipmentJson",
+            "columnName": "occupiedEquipmentJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "excludedExerciseIdsJson",
+            "columnName": "excludedExerciseIdsJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastUndoPacketJson",
+            "columnName": "lastUndoPacketJson",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "lastUndoRevision",
+            "columnName": "lastUndoRevision",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "initiativeEnabled",
+            "columnName": "initiativeEnabled",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "initiativeWelcomed",
+            "columnName": "initiativeWelcomed",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "initiativeAutomaticCount",
+            "columnName": "initiativeAutomaticCount",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "initiativeLastAutomaticAtMillis",
+            "columnName": "initiativeLastAutomaticAtMillis",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "initiativeAskedExerciseIdsJson",
+            "columnName": "initiativeAskedExerciseIdsJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "initiativeEndReminderSent",
+            "columnName": "initiativeEndReminderSent",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "initiativePendingInteraction",
+            "columnName": "initiativePendingInteraction",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "workoutId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_coach_session_context_accountId",
+            "unique": false,
+            "columnNames": [
+              "accountId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_coach_session_context_accountId` ON `${TABLE_NAME}` (`accountId`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "workouts",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "workoutId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "coach_sync_state",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`accountId` TEXT NOT NULL, `deviceId` TEXT NOT NULL, `watermark` INTEGER NOT NULL, PRIMARY KEY(`accountId`))",
+        "fields": [
+          {
+            "fieldPath": "accountId",
+            "columnName": "accountId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "deviceId",
+            "columnName": "deviceId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "watermark",
+            "columnName": "watermark",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "accountId"
+          ]
+        }
       }
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'aea3946413c371299c89fa51ac6a7f9a')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'a5903d89f19f81e4b3c18f7c4854bf8b')"
     ]
   }
 }

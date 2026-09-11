@@ -138,6 +138,7 @@ fun ActiveWorkoutScreen(
     onNavigateBack: () -> Unit,
     onAddExercise: () -> Unit,
     onExerciseClick: (Long) -> Unit,
+    onOpenCoach: () -> Unit = {},
     modifier: Modifier = Modifier,
     viewModel: ActiveWorkoutViewModel = hiltViewModel(),
 ) {
@@ -229,6 +230,7 @@ fun ActiveWorkoutScreen(
                   onReorderExercises = viewModel::reorderExercises,
                   onAddExercise = onAddExercise,
                   onExerciseClick = onExerciseClick,
+                  onOpenCoach = onOpenCoach,
                   onFinish = viewModel::finish,
                   onDiscard = viewModel::discard,
                   onAddRestSeconds = viewModel::addRestSeconds,
@@ -324,6 +326,7 @@ internal fun ActiveWorkoutContent(
     onReorderExercises: (List<Long>) -> Unit,
     onAddExercise: () -> Unit,
     onExerciseClick: (Long) -> Unit,
+    onOpenCoach: () -> Unit = {},
     onFinish: () -> Unit,
     onDiscard: () -> Unit,
     onAddRestSeconds: (Int) -> Unit,
@@ -432,6 +435,7 @@ internal fun ActiveWorkoutContent(
         onFinish = requestFinish,
         onDiscard = { showDiscardDialog = true },
         onEditNote = onEditWorkoutNote,
+        onOpenCoach = onOpenCoach,
     )
 
     LazyColumn(
@@ -882,6 +886,7 @@ private fun ActiveWorkoutHeader(
     onFinish: () -> Unit,
     onDiscard: () -> Unit,
     onEditNote: () -> Unit,
+    onOpenCoach: () -> Unit,
 ) {
   // Собираем таймер только здесь, чтобы посекундный тик не рекомпозил список подходов.
   val elapsed by elapsedSeconds.collectAsStateWithLifecycle()
@@ -929,6 +934,13 @@ private fun ActiveWorkoutHeader(
             expanded = menuExpanded,
             onDismissRequest = { menuExpanded = false },
         ) {
+          DropdownMenuItem(
+              text = { Text("Открыть чат с тренером") },
+              onClick = {
+                menuExpanded = false
+                onOpenCoach()
+              },
+          )
           DropdownMenuItem(
               text = { Text("Заметка к тренировке") },
               onClick = {

@@ -205,7 +205,7 @@ class BackendApi @Inject constructor(private val tokens: BackendSessionStore) : 
   private var baseUrl = DEFAULT_BASE_URL
   private val refreshMutex = Mutex()
 
-  private fun execute(
+  private suspend fun execute(
       method: String,
       path: String,
       body: ByteArray?,
@@ -233,7 +233,7 @@ class BackendApi @Inject constructor(private val tokens: BackendSessionStore) : 
     val request =
         Request.Builder()
             .url("${baseUrl}v1$path")
-            .header("X-Gym-Sync-Version", "2")
+            .header("X-Gym-Sync-Version", "3")
             .header("X-Gym-Capabilities", requestedCapabilities)
             .method(
                 method,
@@ -247,45 +247,73 @@ class BackendApi @Inject constructor(private val tokens: BackendSessionStore) : 
     headers
         .filterKeys { it != "X-Gym-Capabilities" }
         .forEach { (name, value) -> request.header(name, value) }
-    client.newCall(request.build()).execute().use { response ->
-      val accepted =
-          response
-              .header("X-Gym-Capabilities")
-              ?.split(',')
-              ?.map(String::trim)
-              ?.filter(String::isNotEmpty)
-              ?.toSet() ?: emptySet()
-      val bytes =
-          response.body.byteStream().use { input ->
-            val out = java.io.ByteArrayOutputStream()
-            val buffer = ByteArray(8192)
-            var size = 0
-            while (true) {
-              val read = input.read(buffer)
-              if (read < 0) break
-              size += read
-              if (size > maxResponseBytes)
-                  throw BackendException(413, "response_too_large", "Ответ сервера слишком большой")
-              out.write(buffer, 0, read)
+    val call = client.newCall(request.build())
+    if (path == "/ai/coach-turn" || path == "/ai/coach-models") {
+      call.timeout().timeout(60, TimeUnit.SECONDS)
+      return kotlinx.coroutines.suspendCancellableCoroutine { continuation ->
+        continuation.invokeOnCancellation { call.cancel() }
+        call.enqueue(
+            object : okhttp3.Callback {
+              override fun onFailure(call: okhttp3.Call, error: java.io.IOException) {
+                continuation.resumeWith(Result.failure(error))
+              }
+
+              override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) {
+                val result = runCatching {
+                  response.use { parseResponse(it, owner, sessionEpoch, maxResponseBytes) }
+                }
+                continuation.resumeWith(result)
+              }
             }
-            out.toByteArray()
-          }
-      val parsed =
-          try {
-            json.parseToJsonElement(bytes.decodeToString().ifBlank { "{}" })
-          } catch (_: Exception) {
-            JsonObject(emptyMap())
-          }
-      if (!response.isSuccessful) {
-        val error = parsed as? JsonObject
-        throw BackendException(
-            response.code,
-            error?.get("code")?.jsonPrimitive?.content ?: "http_error",
-            error?.get("message")?.jsonPrimitive?.content ?: "Сервер недоступен. Повторите позже",
         )
       }
-      return BackendResponse(parsed, bytes, accepted, owner, sessionEpoch)
     }
+    return call.execute().use { parseResponse(it, owner, sessionEpoch, maxResponseBytes) }
+  }
+
+  private fun parseResponse(
+      response: okhttp3.Response,
+      owner: String?,
+      sessionEpoch: Long,
+      maxResponseBytes: Int,
+  ): BackendResponse {
+    val accepted =
+        response
+            .header("X-Gym-Capabilities")
+            ?.split(',')
+            ?.map(String::trim)
+            ?.filter(String::isNotEmpty)
+            ?.toSet() ?: emptySet()
+    val bytes =
+        response.body.byteStream().use { input ->
+          val out = java.io.ByteArrayOutputStream()
+          val buffer = ByteArray(8192)
+          var size = 0
+          while (true) {
+            val read = input.read(buffer)
+            if (read < 0) break
+            size += read
+            if (size > maxResponseBytes)
+                throw BackendException(413, "response_too_large", "Ответ сервера слишком большой")
+            out.write(buffer, 0, read)
+          }
+          out.toByteArray()
+        }
+    val parsed =
+        try {
+          json.parseToJsonElement(bytes.decodeToString().ifBlank { "{}" })
+        } catch (_: Exception) {
+          JsonObject(emptyMap())
+        }
+    if (!response.isSuccessful) {
+      val error = parsed as? JsonObject
+      throw BackendException(
+          response.code,
+          error?.get("code")?.jsonPrimitive?.content ?: "http_error",
+          error?.get("message")?.jsonPrimitive?.content ?: "Сервер недоступен. Повторите позже",
+      )
+    }
+    return BackendResponse(parsed, bytes, accepted, owner, sessionEpoch)
   }
 
   override suspend fun public(method: String, path: String, body: JsonElement?): JsonElement =

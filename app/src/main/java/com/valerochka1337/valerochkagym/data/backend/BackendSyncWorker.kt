@@ -29,7 +29,18 @@ constructor(
         Result.success()
       } catch (e: Exception) {
         if (e is kotlinx.coroutines.CancellationException) throw e
-        if (e is BackendException && e.status in setOf(400, 401, 403, 409, 413)) Result.failure()
+        if (
+            e is BackendException &&
+                e.code in
+                    setOf(
+                        "workout_not_acknowledged",
+                        "journal_workout_missing",
+                        "journal_page_limit",
+                    )
+        )
+            Result.retry()
+        else if (e is BackendException && e.status in setOf(400, 401, 403, 409, 413))
+            Result.failure()
         else Result.retry()
       }
 }
@@ -63,7 +74,7 @@ constructor(
     // Room writes and the trigger's durable dirty marker commit together. The periodic job also
     // discovers committed writes if the process died before an invalidation callback was delivered.
     database.invalidationTracker.addObserver(
-        object : InvalidationTracker.Observer(SyncSchema.trackedTables) {
+        object : InvalidationTracker.Observer(SyncSchema.trackedTables + arrayOf("coach_journal")) {
           override fun onInvalidated(tables: Set<String>) {
             enqueue()
           }

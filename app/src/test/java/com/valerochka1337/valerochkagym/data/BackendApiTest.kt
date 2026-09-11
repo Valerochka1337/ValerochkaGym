@@ -5,6 +5,7 @@ import com.valerochka1337.valerochkagym.data.backend.BackendException
 import com.valerochka1337.valerochkagym.data.backend.BackendSessionStore
 import com.valerochka1337.valerochkagym.data.backend.BackendTokens
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.buildJsonObject
 import okhttp3.Interceptor
@@ -19,6 +20,52 @@ import org.junit.Assert.fail
 import org.junit.Test
 
 class BackendApiTest {
+  @Test
+  fun `coach cancellation cancels the network call without waiting for provider response`() =
+      kotlinx.coroutines.runBlocking {
+        val entered = kotlinx.coroutines.CompletableDeferred<okhttp3.Call>()
+        val release = java.util.concurrent.CountDownLatch(1)
+        val client =
+            OkHttpClient.Builder()
+                .addInterceptor { chain ->
+                  entered.complete(chain.call())
+                  release.await(5, java.util.concurrent.TimeUnit.SECONDS)
+                  Response.Builder()
+                      .request(chain.request())
+                      .protocol(Protocol.HTTP_1_1)
+                      .code(200)
+                      .message("OK")
+                      .body("{}".toResponseBody())
+                      .build()
+                }
+                .build()
+        val api = BackendApi(Store(), client, "https://test.invalid/")
+        val request = launch {
+          api.authorizedRawResponse(
+              "POST",
+              "/ai/coach-turn",
+              "{}".encodeToByteArray(),
+              expectedOwner = "owner-a",
+              expectedSessionEpoch = 0,
+              retryOnUnauthorized = false,
+          )
+        }
+        try {
+          val call = kotlinx.coroutines.withTimeout(3000) { entered.await() }
+          assertEquals(
+              java.util.concurrent.TimeUnit.SECONDS.toNanos(60),
+              call.timeout().timeoutNanos(),
+          )
+          request.cancel()
+          kotlinx.coroutines.withTimeout(3000) { request.join() }
+          assertTrue(call.isCanceled())
+        } finally {
+          release.countDown()
+          request.cancel()
+          client.dispatcher.executorService.shutdown()
+        }
+      }
+
   private class Store : BackendSessionStore {
     override val session =
         MutableStateFlow<BackendTokens?>(

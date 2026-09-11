@@ -566,6 +566,14 @@ class CalendarViewModelTest {
       RoutineWithCount(routine = RoutineEntity(id = id, name = name), exerciseCount = 0)
 
   private class FakeWorkoutDao(private val finished: List<WorkoutEntity>) : WorkoutDao {
+    override suspend fun latestComparableCompletedWeight(
+        exerciseId: Long,
+        excludeWorkoutId: String,
+    ): Double? = null
+
+    override suspend fun coachCompletedSetsForExercise(exerciseId: Long) =
+        emptyList<com.valerochka1337.valerochkagym.data.db.relation.CoachCompletedSetRow>()
+
     override fun observeFinishedExerciseHistory() =
         flowOf(
             emptyList<com.valerochka1337.valerochkagym.data.db.relation.ExerciseWorkoutHistoryRow>()

@@ -215,6 +215,14 @@ class ExerciseCatalogRepositoryImplTest {
   }
 
   private class FakeWorkoutDao : WorkoutDao {
+    override suspend fun latestComparableCompletedWeight(
+        exerciseId: Long,
+        excludeWorkoutId: String,
+    ): Double? = null
+
+    override suspend fun coachCompletedSetsForExercise(exerciseId: Long) =
+        emptyList<com.valerochka1337.valerochkagym.data.db.relation.CoachCompletedSetRow>()
+
     val history = MutableStateFlow<List<ExerciseWorkoutHistoryRow>>(emptyList())
 
     override fun observeFinishedExerciseHistory() = history

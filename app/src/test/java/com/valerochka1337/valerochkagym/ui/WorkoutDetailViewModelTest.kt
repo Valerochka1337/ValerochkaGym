@@ -448,6 +448,14 @@ class WorkoutDetailViewModelTest {
       )
 
   private class FakeWorkoutDao(val full: WorkoutFull?) : WorkoutDao {
+    override suspend fun latestComparableCompletedWeight(
+        exerciseId: Long,
+        excludeWorkoutId: String,
+    ): Double? = null
+
+    override suspend fun coachCompletedSetsForExercise(exerciseId: Long) =
+        emptyList<com.valerochka1337.valerochkagym.data.db.relation.CoachCompletedSetRow>()
+
     override fun observeFinishedExerciseHistory() =
         flowOf(
             emptyList<com.valerochka1337.valerochkagym.data.db.relation.ExerciseWorkoutHistoryRow>()

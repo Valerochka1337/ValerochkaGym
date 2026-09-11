@@ -91,6 +91,8 @@ class WorkoutSessionService : LifecycleService() {
 
   @Inject lateinit var heartRateMonitor: HeartRateMonitor
 
+  @Inject lateinit var coachConversation: CoachConversationService
+
   private val notificationManager: NotificationManager by lazy {
     getSystemService(NotificationManager::class.java)
   }
@@ -100,10 +102,6 @@ class WorkoutSessionService : LifecycleService() {
   private var accent: AccentColor = AccentColor.DEFAULT
   private var usesConnectedDeviceForegroundType = false
   private var connectedDeviceForegroundPromotionFailed = false
-
-  // Защита от преждевременного stopSelf: гасим сервис только увидев, что тренировка исчезла
-  // ПОСЛЕ того как хотя бы раз её наблюдали.
-  private var sawWorkout = false
 
   /**
    * Внутренний приёмник действий уведомления. Не экспортируется.
@@ -142,9 +140,11 @@ class WorkoutSessionService : LifecycleService() {
         RECEIVER_NOT_EXPORTED,
     )
     observeWearCommands()
+    coachConversation.attach(lifecycleScope)
     xiaomiWearWorkoutBridge.start()
     observeHeartRate()
     observeState()
+    observeCoachAlerts()
   }
 
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -162,6 +162,7 @@ class WorkoutSessionService : LifecycleService() {
   }
 
   override fun onDestroy() {
+    coachConversation.detach()
     heartRateMonitor.stop()
     xiaomiWearWorkoutBridge.stop()
     unregisterReceiver(actionReceiver)
@@ -184,20 +185,33 @@ class WorkoutSessionService : LifecycleService() {
             currentRest = rest
             accent = accentValue
             if (workout == null) {
+              currentWorkout?.workout?.id?.let(coachConversation::stopWorkout)
               xiaomiWearWorkoutBridge.publish(workout = null, rest = null)
               heartRateMonitor.stop()
-              if (sawWorkout) stopSelf()
+              stopSelf()
               return@collect
             }
-            sawWorkout = true
             currentWorkout = workout
             xiaomiWearWorkoutBridge.publish(workout, rest)
+            lifecycleScope.launch { coachConversation.considerInitiative(workout.workout.id) }
             // Обновляем и во время отдыха: там подписан только что закрытый подход, а его
             // правят кнопкой «Изменить» прямо из этого уведомления.
             updateForegroundNotification()
           }
     }
     lifecycleScope.launch { restTimerEngine.finished.collect { onRestFinished() } }
+  }
+
+  /** The content stays private: an alert only tells the athlete that the chat has an update. */
+  private fun observeCoachAlerts() {
+    lifecycleScope.launch {
+      coachConversation.alerts.collect { workoutId ->
+        notificationManager.notify(
+            CoachAlertNotificationFactory.NOTIFICATION_ID,
+            CoachAlertNotificationFactory.build(this@WorkoutSessionService, workoutId),
+        )
+      }
+    }
   }
 
   /** Команды RPK проходят через те же движки, что и действия системного уведомления. */
@@ -557,6 +571,7 @@ class WorkoutSessionService : LifecycleService() {
             }
     notificationManager.createNotificationChannel(session)
     notificationManager.createNotificationChannel(restDone)
+    CoachAlertNotificationFactory.createChannel(notificationManager)
   }
 
   companion object {
@@ -570,10 +585,8 @@ class WorkoutSessionService : LifecycleService() {
     private const val REST_DONE_CHANNEL_ID = "rest_timer"
     private const val REST_DONE_CHANNEL_NAME = "Окончание отдыха"
     private const val REST_DONE_CHANNEL_DESC = "Сигнал о том, что отдых закончился"
-
     private const val SESSION_NOTIFICATION_ID = 1001
     private const val REST_DONE_NOTIFICATION_ID = 1002
-
     private const val ACTION_REST_ADD_15 = "com.valerochka1337.valerochkagym.action.REST_ADD_15"
     private const val ACTION_REST_SKIP = "com.valerochka1337.valerochkagym.action.REST_SKIP"
     private const val ACTION_SET_STEP_DOWN = "com.valerochka1337.valerochkagym.action.SET_STEP_DOWN"

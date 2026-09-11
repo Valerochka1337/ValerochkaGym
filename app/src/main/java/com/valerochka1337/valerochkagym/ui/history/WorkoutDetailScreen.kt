@@ -68,6 +68,7 @@ import com.valerochka1337.valerochkagym.ui.haptics.gymHaptics
 fun WorkoutDetailScreen(
     onBack: () -> Unit,
     onExerciseClick: (Long) -> Unit,
+    onOpenCoach: () -> Unit = {},
     modifier: Modifier = Modifier,
     viewModel: WorkoutDetailViewModel = hiltViewModel(),
 ) {
@@ -96,6 +97,7 @@ fun WorkoutDetailScreen(
               haptics.tap()
               viewModel.openSaveAsProgram()
             },
+            onOpenCoach = onOpenCoach,
             onDelete = { showDeleteDialog = true },
         )
 
@@ -192,6 +194,7 @@ private fun DetailHeader(
     onBack: () -> Unit,
     canSaveAsProgram: Boolean,
     onSaveAsProgram: () -> Unit,
+    onOpenCoach: () -> Unit,
     onDelete: () -> Unit,
 ) {
   Row(
@@ -239,6 +242,12 @@ private fun DetailHeader(
       ) {
         Text("Сохранить")
       }
+    }
+    TextButton(
+        onClick = onOpenCoach,
+        modifier = Modifier.semantics { contentDescription = "Открыть историю чата с тренером" },
+    ) {
+      Text("Чат")
     }
     IconButton(onClick = onDelete) {
       Icon(

@@ -10,6 +10,7 @@ import com.valerochka1337.valerochkagym.data.db.entity.WorkoutEntity
 import com.valerochka1337.valerochkagym.data.db.entity.WorkoutExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.WorkoutSetEntity
 import com.valerochka1337.valerochkagym.data.db.relation.AnalyticsSetRow
+import com.valerochka1337.valerochkagym.data.db.relation.CoachCompletedSetRow
 import com.valerochka1337.valerochkagym.data.db.relation.ExerciseWorkoutHistoryRow
 import com.valerochka1337.valerochkagym.data.db.relation.WorkoutFull
 import kotlinx.coroutines.flow.Flow
@@ -218,6 +219,48 @@ interface WorkoutDao {
         """,
   )
   suspend fun maxCompletedWeight(exerciseId: Long, excludeWorkoutId: String): Double?
+
+  /** Most recent comparable completed working weight, never a lifetime personal record. */
+  @Query(
+      """
+        SELECT ws.weightKg FROM workout_sets ws
+        JOIN workout_exercises we ON we.id = ws.workoutExerciseId
+        JOIN workouts w ON w.id = we.workoutId
+        WHERE we.exerciseId = :exerciseId
+          AND w.finishedAt IS NOT NULL
+          AND w.id != :excludeWorkoutId
+          AND ws.isCompleted = 1
+          AND ws.weightKg IS NOT NULL
+          AND ws.setType IN ('WORK', 'UNKNOWN')
+        ORDER BY COALESCE(ws.completedAt, w.finishedAt) DESC, ws.id DESC
+        LIMIT 1
+      """,
+  )
+  suspend fun latestComparableCompletedWeight(exerciseId: Long, excludeWorkoutId: String): Double?
+
+  /** Current and completed sessions for one stable catalogue exercise, newest first. */
+  @Query(
+      """
+        SELECT ws.syncId AS setId,
+               w.id AS workoutId,
+               e.syncId AS exerciseId,
+               e.name AS exerciseName,
+               ws.setIndex AS setIndex,
+               ws.weightKg AS weightKg,
+               ws.reps AS reps,
+               COALESCE(ws.completedAt, w.startedAt) AS completedAtMillis,
+               w.finishedAt AS workoutFinishedAtMillis,
+               ws.setType AS setType,
+               ws.reportedFeelingsJson AS reportedFeelingsJson
+        FROM workout_sets ws
+        JOIN workout_exercises we ON we.id = ws.workoutExerciseId
+        JOIN workouts w ON w.id = we.workoutId
+        JOIN exercises e ON e.id = we.exerciseId
+        WHERE we.exerciseId = :exerciseId AND ws.isCompleted = 1
+        ORDER BY completedAtMillis DESC
+      """,
+  )
+  suspend fun coachCompletedSetsForExercise(exerciseId: Long): List<CoachCompletedSetRow>
 
   @Query("UPDATE workouts SET uploadStatus = :status, uploadError = :error WHERE id = :workoutId")
   suspend fun setUploadStatus(workoutId: String, status: UploadStatus, error: String?)

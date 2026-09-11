@@ -1,5 +1,8 @@
 package com.valerochka1337.valerochkagym.service
 
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import kotlin.concurrent.thread
 import kotlin.time.Duration.Companion.milliseconds
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.launch
@@ -254,6 +257,21 @@ class RestTimerEngineTest {
   }
 
   @Test
+  fun `stale rest identity cannot extend or skip a newer timer`() = runTest {
+    val engine = engine()
+    val first = engine.start(60)
+    val second = engine.start(30)
+
+    assertTrue(!engine.addSeconds(first, 15))
+    assertTrue(!engine.skip(first))
+    assertEquals(30, (engine.state.value as? RestTimerState.Timed)?.remainingSec)
+    assertTrue(engine.addSeconds(second, 15))
+    assertEquals(45, (engine.state.value as? RestTimerState.Timed)?.remainingSec)
+    assertTrue(engine.skip(second))
+    assertNull(engine.state.value)
+  }
+
+  @Test
   fun `start with zero seconds leaves the timer inactive and emits nothing`() = runTest {
     val engine = engine()
     val finished = collectFinished(engine)
@@ -277,6 +295,37 @@ class RestTimerEngineTest {
     advanceSeconds(5)
     assertNull(engine.state.value)
     assertTrue(finished.isEmpty())
+  }
+
+  @Test
+  fun `stale guarded commands racing a replacement cannot mutate the replacement`() = runTest {
+    val engine = engine()
+    repeat(100) {
+      val oldStartId = engine.start(30)
+      val ready = CountDownLatch(1)
+      val done = CountDownLatch(3)
+      thread {
+        ready.await()
+        engine.skip(oldStartId)
+        done.countDown()
+      }
+      thread {
+        ready.await()
+        engine.addSeconds(oldStartId, 15)
+        done.countDown()
+      }
+      thread {
+        ready.await()
+        engine.start(60)
+        done.countDown()
+      }
+      ready.countDown()
+      assertTrue(done.await(2, TimeUnit.SECONDS))
+      val timed = engine.state.value as? RestTimerState.Timed
+      assertEquals(60, timed?.totalSec)
+      assertEquals(60, timed?.remainingSec)
+      assertTrue(engine.currentStartId() != oldStartId)
+    }
   }
 
   @Test
