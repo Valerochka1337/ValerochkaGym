@@ -3,16 +3,13 @@ package com.valerochka1337.valerochkagym.ui.calendarai
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.valerochka1337.valerochkagym.data.ai.CalendarAiIntent
-import com.valerochka1337.valerochkagym.data.ai.CalendarAiRepository
 import com.valerochka1337.valerochkagym.data.backend.BackendSessionStore
 import com.valerochka1337.valerochkagym.data.backend.BackendSync
 import com.valerochka1337.valerochkagym.data.db.LocalEquipmentCatalog
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseDao
 import com.valerochka1337.valerochkagym.data.db.dao.GymDao
 import com.valerochka1337.valerochkagym.data.db.entity.Muscle
-import com.valerochka1337.valerochkagym.data.profile.AiProfilePromptDecision
 import com.valerochka1337.valerochkagym.data.profile.AiProfilePromptGate
-import com.valerochka1337.valerochkagym.data.profile.AiProfilePromptKind
 import com.valerochka1337.valerochkagym.domain.displayName
 import com.valerochka1337.valerochkagym.service.WallClock
 import com.valerochka1337.valerochkagym.ui.profile.AiProfilePromptUi
@@ -33,6 +30,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
@@ -71,7 +69,7 @@ data class CalendarAiUiState(
 class CalendarAiViewModel
 @Inject
 constructor(
-    private val repository: CalendarAiRepository,
+    private val repository: com.valerochka1337.valerochkagym.data.ai.WorkoutPreparationRepository,
     private val sessions: BackendSessionStore,
     private val sync: BackendSync,
     private val profileGate: AiProfilePromptGate,
@@ -93,6 +91,9 @@ constructor(
                   )
           )
       )
+  private val _saved = Channel<Long>(Channel.BUFFERED)
+  val saved = _saved.receiveAsFlow().filter { it == sessions.sessionEpoch }
+
   private val _openProposal = Channel<Pair<Long, String>>(Channel.BUFFERED)
   val openProposal =
       _openProposal.receiveAsFlow().filter { it.first == sessions.sessionEpoch }.map { it.second }
@@ -103,6 +104,7 @@ constructor(
   private var generation = 0L
   private var sessionEpoch = sessions.sessionEpoch
   private var transferVersion: Any? = null
+  private var formEdited = false
 
   val uiState: StateFlow<CalendarAiUiState> =
       combine(mutableState, exercises.getAll(), gyms.observeGyms(), LocalEquipmentCatalog.state) {
@@ -128,13 +130,48 @@ constructor(
 
   init {
     viewModelScope.launch {
+      val initialEpoch = sessions.sessionEpoch
+      val row = repository.current.first()
+      val intent =
+          row?.let {
+            com.valerochka1337.valerochkagym.data.trainingproposal.ProposalWire.json
+                .decodeFromString<CalendarAiIntent>(it.intentJson)
+          }
+      if (
+          intent != null &&
+              !formEdited &&
+              initialEpoch == sessions.sessionEpoch &&
+              row.owner == sessions.session.value?.userId
+      ) {
+        val dateTime =
+            Instant.ofEpochMilli(intent.startsAtMillis).atZone(ZoneId.of(intent.timeZoneId))
+        mutableState.update {
+          it.copy(
+              form =
+                  CalendarAiForm(
+                      date = dateTime.toLocalDate().toString(),
+                      time = dateTime.toLocalTime().format(timeFormatter),
+                      timeZoneId = intent.timeZoneId,
+                      gymIds = intent.gymIds.toSet(),
+                      excludedExerciseIds = intent.excludedExerciseIds.toSet(),
+                      excludedEquipmentIds = intent.excludedEquipmentIds.toSet(),
+                      priorityMuscles = intent.priorityMuscles.toSet(),
+                      includeNotes = intent.includeNotes,
+                      availableDurationMinutes = intent.availableDurationMinutes.toString(),
+                      preferences = intent.preferences.orEmpty(),
+                  )
+          )
+        }
+      }
+    }
+    viewModelScope.launch {
       combine(sessions.session, sync.transfer) { _, transfer -> transfer }
           .collect { transfer ->
             val epochChanged = sessionEpoch != sessions.sessionEpoch
             val transferChanged = transferVersion != null && transferVersion != transfer
             sessionEpoch = sessions.sessionEpoch
             transferVersion = transfer
-            if (epochChanged || transferChanged) invalidateForContextChange()
+            if (epochChanged) invalidateForContextChange()
           }
     }
   }
@@ -172,24 +209,7 @@ constructor(
     val intent = intentOrNull() ?: return showFormError()
     val token = ++generation
     val epoch = sessions.sessionEpoch
-    request =
-        viewModelScope.launch {
-          when (val decision = profileGate.request(AiProfilePromptKind.CALENDAR)) {
-            AiProfilePromptDecision.Proceed -> generateIntent(token, epoch, intent)
-            AiProfilePromptDecision.Busy -> setError(token, "Подождите ответа на предложение")
-            AiProfilePromptDecision.Stale ->
-                setError(token, "Аккаунт изменился, заполните форму заново")
-            is AiProfilePromptDecision.Show -> {
-              if (token == generation && epoch == sessions.sessionEpoch) {
-                mutableState.update {
-                  it.copy(profilePrompt = AiProfilePromptUi(decision.token, decision.kind))
-                }
-              } else {
-                profileGate.cancel(decision.token)
-              }
-            }
-          }
-        }
+    request = viewModelScope.launch { generateIntent(token, epoch, intent) }
   }
 
   fun acknowledgeProfilePrompt(token: String) {
@@ -233,10 +253,10 @@ constructor(
     if (token != generation || epoch != sessions.sessionEpoch) return
     mutableState.update { it.copy(generating = true, error = null) }
     try {
-      val proposal = repository.generate(intent)
+      repository.enqueue(intent)
       if (token != generation || epoch != sessions.sessionEpoch) return
       mutableState.update { it.copy(generating = false) }
-      _openProposal.send(epoch to proposal.proposalId)
+      _saved.send(epoch)
     } catch (error: CancellationException) {
       if (token == generation && epoch == sessions.sessionEpoch) {
         mutableState.update { it.copy(generating = false) }
@@ -316,6 +336,7 @@ constructor(
   }
 
   private fun updateForm(change: CalendarAiForm.() -> CalendarAiForm) {
+    formEdited = true
     mutableState.update { state -> state.copy(form = state.form.change(), error = null) }
   }
 

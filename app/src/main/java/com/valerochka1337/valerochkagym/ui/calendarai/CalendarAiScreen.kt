@@ -21,9 +21,13 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
@@ -46,6 +50,7 @@ fun CalendarAiScreen(
 ) {
   val state by viewModel.uiState.collectAsStateWithLifecycle()
   val haptics = gymHaptics()
+  LaunchedEffect(viewModel, onBack) { viewModel.saved.collect { onBack() } }
   LaunchedEffect(viewModel, onOpenProposal) { viewModel.openProposal.collect(onOpenProposal) }
   LaunchedEffect(viewModel, onOpenProfile) { viewModel.openProfile.collect { onOpenProfile() } }
   CalendarAiContent(
@@ -96,6 +101,7 @@ internal fun CalendarAiContent(
     onPromptDisable: (String) -> Unit,
     onPromptDismiss: (String) -> Unit,
 ) {
+  var extras by rememberSaveable { mutableStateOf(false) }
   GlowBackground {
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
       val horizontalPadding = if (maxWidth < 600.dp) 16.dp else 24.dp
@@ -111,69 +117,78 @@ internal fun CalendarAiContent(
           IconButton(onClick = onBack) {
             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад")
           }
-          Text("AI-план в календарь", style = MaterialTheme.typography.headlineSmall)
+          Text("Подготовить следующую тренировку", style = MaterialTheme.typography.headlineSmall)
         }
         Text(
-            "AI подготовит одно предложение. Программа и план появятся только после вашего утверждения.",
+            "Выберите дату и условия. Расчёт продолжится в фоне; результат появится в календаре. Программа и план создаются только после подтверждения.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         CalendarAiTimeCard(state.form, onDate, onTime, onZone, onDuration)
         ChoiceCard("Залы", state.gyms, state.form.gymIds, onGym, "Доступных залов нет.")
-        ChoiceCard(
-            "Исключить упражнения",
-            state.exercises,
-            state.form.excludedExerciseIds,
-            onExcludedExercise,
-            "Упражнения загрузятся после синхронизации.",
-        )
-        ChoiceCard(
-            "Исключить оборудование",
-            state.equipment,
-            state.form.excludedEquipmentIds,
-            onExcludedEquipment,
-            "Оборудование не найдено.",
-        )
-        ChoiceCard(
-            "Приоритетные мышцы",
-            state.muscles,
-            state.form.priorityMuscles,
-            onPriorityMuscle,
-            null,
-        )
-        GymCard(modifier = Modifier.fillMaxWidth()) {
-          Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(modifier = Modifier.weight(1f)) {
-              Text("Использовать заметки", style = MaterialTheme.typography.titleMedium)
-              Text(
-                  "Заметки завершённых тренировок и личные подсказки помогут составить запрос.",
-                  style = MaterialTheme.typography.bodySmall,
-                  color = MaterialTheme.colorScheme.onSurfaceVariant,
+        if (state.form.gymIds.isEmpty()) Text("Без привязки к залу: доступны все упражнения")
+        TextButton(onClick = { extras = !extras }) {
+          Text(
+              if (extras) "Скрыть дополнительные пожелания"
+              else "Исключения и дополнительные пожелания"
+          )
+        }
+        if (extras) {
+          ChoiceCard(
+              "Исключить упражнения",
+              state.exercises,
+              state.form.excludedExerciseIds,
+              onExcludedExercise,
+              "Упражнения загрузятся после синхронизации.",
+          )
+          ChoiceCard(
+              "Исключить оборудование",
+              state.equipment,
+              state.form.excludedEquipmentIds,
+              onExcludedEquipment,
+              "Оборудование не найдено.",
+          )
+          ChoiceCard(
+              "Приоритетные мышцы",
+              state.muscles,
+              state.form.priorityMuscles,
+              onPriorityMuscle,
+              null,
+          )
+          GymCard(modifier = Modifier.fillMaxWidth()) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+              Column(modifier = Modifier.weight(1f)) {
+                Text("Использовать заметки", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "Заметки завершённых тренировок и личные подсказки помогут составить запрос.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+              }
+              Switch(
+                  checked = state.form.includeNotes,
+                  onCheckedChange = onIncludeNotes,
+                  modifier = Modifier.semantics { contentDescription = "Использовать заметки" },
               )
             }
-            Switch(
-                checked = state.form.includeNotes,
-                onCheckedChange = onIncludeNotes,
-                modifier = Modifier.semantics { contentDescription = "Использовать заметки" },
+          }
+          GymCard(modifier = Modifier.fillMaxWidth()) {
+            Text("Дополнительно", style = MaterialTheme.typography.titleMedium)
+            OutlinedTextField(
+                value = state.form.currentState,
+                onValueChange = onCurrentState,
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Текущее состояние (необязательно)") },
+                minLines = 2,
+            )
+            OutlinedTextField(
+                value = state.form.preferences,
+                onValueChange = onPreferences,
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Предпочтения (необязательно)") },
+                minLines = 2,
             )
           }
-        }
-        GymCard(modifier = Modifier.fillMaxWidth()) {
-          Text("Дополнительно", style = MaterialTheme.typography.titleMedium)
-          OutlinedTextField(
-              value = state.form.currentState,
-              onValueChange = onCurrentState,
-              modifier = Modifier.fillMaxWidth(),
-              label = { Text("Текущее состояние (необязательно)") },
-              minLines = 2,
-          )
-          OutlinedTextField(
-              value = state.form.preferences,
-              onValueChange = onPreferences,
-              modifier = Modifier.fillMaxWidth(),
-              label = { Text("Предпочтения (необязательно)") },
-              minLines = 2,
-          )
         }
         state.error?.let { message ->
           Text(
@@ -183,11 +198,10 @@ internal fun CalendarAiContent(
           )
         }
         PillButton(
-            text = if (state.generating) "Готовим предложение…" else "Создать предложение",
+            text = if (state.generating) "Сохраняем заявку…" else "Начать расчёт",
             onClick = onGenerate,
             enabled = !state.generating,
-            modifier =
-                Modifier.fillMaxWidth().semantics { contentDescription = "Создать AI-предложение" },
+            modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Начать расчёт" },
         )
       }
     }

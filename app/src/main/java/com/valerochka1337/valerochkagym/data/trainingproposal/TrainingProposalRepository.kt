@@ -62,7 +62,17 @@ constructor(
       withContext(Dispatchers.IO) {
         val session = session()
         guard(session)
-        val proposal = api.detail(session, id)
+        val proposal =
+            try {
+              api.detail(session, id)
+            } catch (error: java.io.IOException) {
+              guard(session)
+              val cached =
+                  database.preparationDao().get(session.tokens.userId)?.proposalJson?.let {
+                    ProposalWire.json.decodeFromString<TrainingProposal>(it)
+                  }
+              cached?.takeIf { it.proposalId == id } ?: throw error
+            }
         database.withTransaction {
           guard(session)
           val owner = session.tokens.userId
@@ -147,6 +157,22 @@ constructor(
                       )
                   dao.operation(owner, proposal.proposalId, proposal.currentVersion)
                       ?: run {
+                        val preparation = database.preparationDao().get(owner)
+                        val preparedProposal =
+                            preparation?.proposalJson?.let {
+                              ProposalWire.json.decodeFromString<TrainingProposal>(it)
+                            }
+                        if (
+                            preparedProposal?.proposalId == proposal.proposalId &&
+                                (preparation.state != "READY" ||
+                                    preparation.generation !=
+                                        database.preparationDao().generation(owner))
+                        )
+                            throw BackendException(
+                                409,
+                                "proposal_stale",
+                                "Предложение нужно обновить",
+                            )
                         if (
                             proposal.status !in
                                 setOf(ProposalStatus.PENDING, ProposalStatus.APPROVED) ||

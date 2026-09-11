@@ -29,6 +29,32 @@ class CalendarAiComposeTest {
   @get:Rule val compose = createComposeRule()
 
   @Test
+  fun `paused preparation exposes retry at font scale two`() {
+    var retries = 0
+    compose.setContent {
+      val density = LocalDensity.current
+      CompositionLocalProvider(LocalDensity provides Density(density.density, fontScale = 2f)) {
+        GymTheme {
+          WorkoutPreparationCardContent(
+              com.valerochka1337.valerochkagym.data.ai.PreparationEntity(
+                  "owner",
+                  "id",
+                  "{}",
+                  "[]",
+                  state = "PAUSED_WAITING",
+              ),
+              onPrepare = { retries++ },
+              onOpen = {},
+          )
+        }
+      }
+    }
+    compose.onNodeWithText("Следующая тренировка").assertIsDisplayed()
+    compose.onNodeWithText("Повторить").assertIsDisplayed().assertIsEnabled().performClick()
+    compose.runOnIdle { assertEquals(1, retries) }
+  }
+
+  @Test
   fun `calendar ai form sends selected gym and edited duration only when user creates proposal`() {
     var generated = 0
     var state = sampleState()
@@ -83,7 +109,7 @@ class CalendarAiComposeTest {
     compose.onNodeWithText("Дом").performClick()
     compose.onNodeWithText("Доступное время, мин").performTextReplacement("75")
     compose
-        .onNodeWithContentDescription("Создать AI-предложение")
+        .onNodeWithContentDescription("Начать расчёт")
         .performScrollTo()
         .assertIsEnabled()
         .performClick()
@@ -172,10 +198,7 @@ class CalendarAiComposeTest {
     }
 
     compose.onNodeWithText("Когда тренироваться").assertIsDisplayed()
-    compose
-        .onNodeWithContentDescription("Создать AI-предложение")
-        .performScrollTo()
-        .assertIsEnabled()
+    compose.onNodeWithContentDescription("Начать расчёт").performScrollTo().assertIsEnabled()
   }
 }
 

@@ -66,7 +66,7 @@ data class CalendarAiIntent(
 }
 
 @Serializable
-private data class CalendarRequest(
+internal data class CalendarRequest(
     val requestId: String,
     val expectedRevision: Long,
     val expectedCatalogRevision: Long,
@@ -83,14 +83,14 @@ private data class CalendarRequest(
 )
 
 @Serializable
-private data class CalendarContext(
+internal data class CalendarContext(
     val revision: Long,
     val catalogRevision: Long,
     val capturedAtMillis: Long,
 )
 
 @Serializable
-private data class CalendarResponse(
+internal data class CalendarResponse(
     val requestId: String,
     val context: CalendarContext,
     val proposal: TrainingProposal,
@@ -105,7 +105,10 @@ constructor(
     private val db: GymDatabase,
     private val clock: WallClock,
 ) {
-  suspend fun generate(intent: CalendarAiIntent): TrainingProposal {
+  internal suspend fun prepare(
+      intent: CalendarAiIntent,
+      id: String,
+  ): Pair<SyncReady.Ready, CalendarRequest> {
     checkLocal(intent.valid(clock.nowMillis()), "ai_invalid_intent")
     val ready =
         when (val result = readySource.await()) {
@@ -132,6 +135,8 @@ constructor(
           )
     }
     guard()
+    guard()
+
     val gyms = db.gymDao().getGyms().filterNot { it.archived }
     checkLocal(intent.gymIds.all { id -> gyms.any { it.syncId == id } }, "ai_gym_unavailable")
     val selected = gyms.filter { it.syncId in intent.gymIds }
@@ -152,8 +157,6 @@ constructor(
             .map { it.syncId }
             .toSet()
     checkLocal(allowed.isNotEmpty(), "ai_no_candidates")
-    guard()
-    val id = UUID.randomUUID().toString()
     val request =
         CalendarRequest(
             id,
@@ -170,6 +173,15 @@ constructor(
             intent.currentState,
             intent.preferences,
         )
+    return ready to request
+  }
+
+  suspend fun generate(intent: CalendarAiIntent): TrainingProposal {
+    val id = UUID.randomUUID().toString()
+    val (ready, request) = prepare(intent, id)
+    suspend fun guard() {
+      checkLocal(readySource.isCurrent(ready), "ai_context_stale")
+    }
     val response =
         api.authorizedRawResponse(
             "POST",
@@ -194,6 +206,38 @@ constructor(
             result.context.catalogRevision == ready.catalogRevision &&
             result.context.capturedAtMillis >= 0
     )
+    return validate(intent, ready, result)
+  }
+
+  internal suspend fun validate(
+      intent: CalendarAiIntent,
+      ready: SyncReady.Ready,
+      result: CalendarResponse,
+  ): TrainingProposal {
+    suspend fun guard() {
+      checkLocal(readySource.isCurrent(ready), "ai_context_stale")
+      checkLocal(!db.healthDao().hasActiveWorkout(), "workout_active")
+    }
+    val gyms = db.gymDao().getGyms().filterNot { it.archived }
+    checkLocal(intent.gymIds.all { id -> gyms.any { it.syncId == id } }, "ai_gym_unavailable")
+    val selected = gyms.filter { it.syncId in intent.gymIds }
+    val equipment = selected.flatMap { db.gymDao().getGymEquipmentIds(it.id) }.toSet()
+    val exercises = db.exerciseDao().getAllOnce().filterNot { it.archived }
+    val requirements =
+        db.exerciseDao().getRequirements(exercises.map { it.id }).groupBy { it.exerciseId }
+    val allowed =
+        exercises
+            .filter { e ->
+              val req = requirements[e.id].orEmpty().map { it.equipmentId }
+              e.syncId !in intent.excludedExerciseIds &&
+                  req.none { it in intent.excludedEquipmentIds } &&
+                  (intent.gymIds.isEmpty() ||
+                      e.equipmentRequirementState == EquipmentRequirementState.KNOWN &&
+                          req.all { LocalEquipmentCatalog.covers(equipment, it) })
+            }
+            .map { it.syncId }
+            .toSet()
+    checkLocal(allowed.isNotEmpty(), "ai_no_candidates")
     val p = result.proposal
     checkResponse(
         ProposalWire.valid(p) &&
