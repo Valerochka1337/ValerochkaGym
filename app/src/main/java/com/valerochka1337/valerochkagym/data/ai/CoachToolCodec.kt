@@ -1,5 +1,8 @@
 package com.valerochka1337.valerochkagym.data.ai
 
+import com.valerochka1337.valerochkagym.data.db.entity.WorkoutSetEntity
+import com.valerochka1337.valerochkagym.domain.FoundCoachExercise
+import com.valerochka1337.valerochkagym.domain.WorkoutSnapshot
 import java.util.UUID
 import kotlinx.serialization.json.*
 
@@ -83,6 +86,180 @@ class CoachToolValidationException(message: String) : IllegalArgumentException(m
 
 /** Strict local parser remains authoritative even for providers that ignore JSON Schema. */
 object CoachToolCodec {
+  fun snapshotJson(snapshot: WorkoutSnapshot): String =
+      json.encodeToString(
+          buildJsonObject {
+            put("workout_id", snapshot.workoutId)
+            put("revision", snapshot.revision)
+            put("elapsed_seconds", snapshot.elapsedSeconds)
+            snapshot.availableTimeMinutes?.let { put("available_time_minutes", it) }
+            put("occupied_equipment", stringArray(snapshot.occupiedEquipment))
+            put(
+                "excluded_exercise_ids",
+                buildJsonArray {
+                  snapshot.excludedExerciseIds.sorted().forEach { add(JsonPrimitive(it)) }
+                },
+            )
+            put("feelings", stringArray(snapshot.feelings))
+            snapshot.pulse?.let { pulse ->
+              put(
+                  "pulse",
+                  buildJsonObject {
+                    put("bpm", pulse.bpm)
+                    put("measured_at_millis", pulse.measuredAtMillis)
+                  },
+              )
+            }
+            snapshot.currentSetId?.let { put("current_set_id", it) }
+            snapshot.previousSetId?.let { put("previous_set_id", it) }
+            snapshot.nextSetId?.let { put("next_set_id", it) }
+            snapshot.rest?.let { rest ->
+              put(
+                  "rest",
+                  buildJsonObject {
+                    put("start_id", rest.startId)
+                    rest.plannedSeconds?.let { put("planned_seconds", it) }
+                    rest.remainingSeconds?.let { put("remaining_seconds", it) }
+                  },
+              )
+            }
+            put(
+                "exercises",
+                buildJsonArray {
+                  snapshot.exercises.forEach { exercise ->
+                    add(
+                        buildJsonObject {
+                          put("section_id", exercise.sectionId)
+                          put("exercise_id", exercise.exerciseSyncId)
+                          put("name", exercise.name)
+                          put("position", exercise.position)
+                          put("muscles", stringArray(exercise.muscleIds))
+                          put("equipment", stringArray(exercise.equipmentIds))
+                          put(
+                              "sets",
+                              buildJsonArray {
+                                exercise.sets.forEach { set ->
+                                  add(
+                                      buildJsonObject {
+                                        put("set_id", set.syncId)
+                                        put("index", set.setIndex)
+                                        put("completed", set.completed)
+                                        set.completedAt?.let { put("completed_at", it) }
+                                        set.weightKg?.let { put("weight_kg", it) }
+                                        set.reps?.let { put("reps", it) }
+                                        set.durationSec?.let { put("duration_sec", it) }
+                                        set.speedKmh?.let { put("speed_kmh", it) }
+                                        set.inclinePct?.let { put("incline_pct", it) }
+                                        put("set_type", set.setType)
+                                        set.originalWeightKg?.let { put("original_weight_kg", it) }
+                                        set.originalReps?.let { put("original_reps", it) }
+                                        set.originalDurationSec?.let {
+                                          put("original_duration_sec", it)
+                                        }
+                                        set.originalSpeedKmh?.let { put("original_speed_kmh", it) }
+                                        set.originalInclinePct?.let {
+                                          put("original_incline_pct", it)
+                                        }
+                                        set.targetWeightKg?.let { put("target_weight_kg", it) }
+                                        set.targetReps?.let { put("target_reps", it) }
+                                        set.targetDurationSec?.let {
+                                          put("target_duration_sec", it)
+                                        }
+                                        set.targetSpeedKmh?.let { put("target_speed_kmh", it) }
+                                        set.targetInclinePct?.let { put("target_incline_pct", it) }
+                                        set.actualWeightKg?.let { put("actual_weight_kg", it) }
+                                        set.actualReps?.let { put("actual_reps", it) }
+                                        set.actualDurationSec?.let {
+                                          put("actual_duration_sec", it)
+                                        }
+                                        set.actualSpeedKmh?.let { put("actual_speed_kmh", it) }
+                                        set.actualInclinePct?.let { put("actual_incline_pct", it) }
+                                        put("reported_feelings", stringArray(set.reportedFeelings))
+                                      }
+                                  )
+                                }
+                              },
+                          )
+                          put(
+                              "history",
+                              buildJsonArray {
+                                exercise.history.forEach { row ->
+                                  add(
+                                      buildJsonObject {
+                                        put("completed_at", row.completedAt)
+                                        put("set_index", row.setIndex)
+                                        row.weightKg?.let { put("weight_kg", it) }
+                                        row.reps?.let { put("reps", it) }
+                                        row.durationSec?.let { put("duration_sec", it) }
+                                        row.speedKmh?.let { put("speed_kmh", it) }
+                                        row.inclinePct?.let { put("incline_pct", it) }
+                                        put("set_type", row.setType)
+                                      }
+                                  )
+                                }
+                              },
+                          )
+                        }
+                    )
+                  }
+                },
+            )
+          },
+      )
+
+  private fun stringArray(values: Set<String>) = buildJsonArray {
+    values.sorted().forEach { add(JsonPrimitive(it)) }
+  }
+
+  fun foundJson(exercises: List<FoundCoachExercise>): String {
+    return json.encodeToString(
+        buildJsonObject {
+          put(
+              "exercises",
+              buildJsonArray {
+                exercises.forEach { exercise ->
+                  add(
+                      buildJsonObject {
+                        put("exercise_id", exercise.id)
+                        put("name", exercise.name)
+                        put("muscles", stringArray(exercise.muscles))
+                        put("equipment", stringArray(exercise.equipment))
+                      }
+                  )
+                }
+              },
+          )
+        }
+    )
+  }
+
+  fun historyJson(history: List<WorkoutSetEntity>): String {
+    return json.encodeToString(
+        buildJsonObject {
+          put(
+              "history",
+              buildJsonArray {
+                history.forEach { set ->
+                  set.completedAt?.let { at ->
+                    add(
+                        buildJsonObject {
+                          put("completed_at", at)
+                          put("set_index", set.setIndex)
+                          set.weightKg?.let { put("weight_kg", it) }
+                          set.reps?.let { put("reps", it) }
+                          set.durationSec?.let { put("duration_sec", it) }
+                          set.speedKmh?.let { put("speed_kmh", it) }
+                          set.inclinePct?.let { put("incline_pct", it) }
+                        }
+                    )
+                  }
+                }
+              },
+          )
+        }
+    )
+  }
+
   private val json = Json {
     isLenient = false
     ignoreUnknownKeys = false

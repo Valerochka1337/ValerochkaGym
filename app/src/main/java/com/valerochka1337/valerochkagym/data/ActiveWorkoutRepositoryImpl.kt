@@ -119,17 +119,23 @@ constructor(
 
   override suspend fun getSet(setId: Long): WorkoutSetEntity? = workoutDao.getSet(setId)
 
-  override suspend fun updateSet(set: WorkoutSetEntity) =
+  override suspend fun mutateSet(
+      setId: Long,
+      transform: (WorkoutSetEntity) -> WorkoutSetEntity,
+  ): Boolean =
       writes.write {
         database.withTransaction {
-          // Numeric/completion mutators may hold an older entity while a note editor saves. The
-          // note has its own guarded write and must never be erased by that stale snapshot.
-          val current = workoutDao.getSet(set.id) ?: return@withTransaction
-          val workoutId = activeWorkoutIdForSet(set.id) ?: return@withTransaction
-          workoutDao.updateSet(set.copy(note = current.note))
+          val current = workoutDao.getSet(setId) ?: return@withTransaction false
+          val workoutId = activeWorkoutIdForSet(setId) ?: return@withTransaction false
+          workoutDao.updateSet(transform(current).copy(id = current.id, note = current.note))
           incrementCoachRevision(workoutId)
+          true
         }
       }
+
+  override suspend fun updateSet(set: WorkoutSetEntity) {
+    mutateSet(set.id) { current -> set.copy(note = current.note) }
+  }
 
   override suspend fun saveWorkoutNote(workoutId: String, text: String): NoteSaveResult {
     val note = text.trim()

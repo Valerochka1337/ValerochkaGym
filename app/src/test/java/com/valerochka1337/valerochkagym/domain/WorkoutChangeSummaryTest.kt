@@ -1,9 +1,17 @@
 package com.valerochka1337.valerochkagym.domain
 
+import com.valerochka1337.valerochkagym.data.RoomDaoTest
+import com.valerochka1337.valerochkagym.data.backend.BackendSessionStore
+import com.valerochka1337.valerochkagym.data.backend.BackendTokens
+import com.valerochka1337.valerochkagym.data.db.entity.*
+import com.valerochka1337.valerochkagym.service.RestTimerEngine
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.runTest
 import org.junit.Assert.*
 import org.junit.Test
 
-class WorkoutChangeSummaryTest {
+class WorkoutChangeSummaryTest : RoomDaoTest() {
   private val done = SnapshotSet("done", 0, true, 60.0, 8, null)
   private val next = SnapshotSet("next", 1, false, 60.0, 8, null)
   private val snapshot =
@@ -14,15 +22,83 @@ class WorkoutChangeSummaryTest {
           listOf(SnapshotExercise("section", 1, name = "Жим", sets = listOf(done, next))),
       )
 
-  private fun summary(op: WorkoutChangeSet.Operation) =
-      WorkoutChangeSummary.describe(
-          snapshot,
-          WorkoutChangeSet.Packet(listOf(op)),
-          mapOf(2L to "Отжимания"),
-      )
+  private suspend fun TestScope.summary(op: WorkoutChangeSet.Operation) =
+      summary(snapshot, WorkoutChangeSet.Packet(listOf(op)))
+
+  private suspend fun TestScope.summary(
+      snapshot: WorkoutSnapshot,
+      packet: WorkoutChangeSet.Packet,
+  ): WorkoutChangeSummary.Summary {
+    db.workoutDao().deleteWorkout(snapshot.workoutId)
+    db.workoutDao().insertWorkout(WorkoutEntity(snapshot.workoutId, null, "Тренировка", 0, null))
+    val exercises =
+        (snapshot.exercises.map { it.exerciseId to it.name } + (2L to "Отжимания")).distinctBy {
+          it.first
+        }
+    for ((id, name) in exercises) if (db.exerciseDao().getById(id) == null)
+        db.exerciseDao()
+            .insert(
+                ExerciseEntity(
+                    id = id,
+                    name = name,
+                    muscleGroup = MuscleGroup.CHEST,
+                    type = ExerciseType.STRENGTH,
+                )
+            )
+    for (row in snapshot.exercises) {
+      val id =
+          db.workoutDao()
+              .insertWorkoutExercise(
+                  WorkoutExerciseEntity(
+                      workoutId = snapshot.workoutId,
+                      exerciseId = row.exerciseId,
+                      sectionId = row.sectionId,
+                      position = row.position,
+                  )
+              )
+      for (set in row.sets) db.workoutDao()
+          .insertSet(
+              WorkoutSetEntity(
+                  workoutExerciseId = id,
+                  setIndex = set.setIndex,
+                  syncId = set.syncId,
+                  weightKg = set.weightKg,
+                  reps = set.reps,
+                  durationSec = set.durationSec,
+                  isCompleted = set.completed,
+              )
+          )
+    }
+    db.openHelper.writableDatabase.execSQL(
+        "INSERT OR REPLACE INTO backend_state (id, owner, generation, phase, initialMergeAcknowledged) VALUES (1, 'owner', 0, 'OWNED', 1)"
+    )
+    val session =
+        object : BackendSessionStore {
+          override val session =
+              MutableStateFlow<BackendTokens?>(BackendTokens("owner", "a@b.c", "a", "r"))
+
+          override fun save(tokens: BackendTokens?) {
+            session.value = tokens
+          }
+        }
+    val editor =
+        WorkoutEditor(
+            db,
+            db.workoutDao(),
+            db.coachDao(),
+            RestTimerEngine(backgroundScope) { 0L },
+            session,
+            WorkoutWriteQueue(),
+        )
+    val before = db.workoutDao().getWorkoutFull(snapshot.workoutId)
+    val proposal =
+        requireNotNull(editor.saveProposal("owner", snapshot.workoutId, packet, 0, Long.MAX_VALUE))
+    assertEquals(before, db.workoutDao().getWorkoutFull(snapshot.workoutId))
+    return WorkoutChangeSummary.Summary(proposal.beforeSummary, proposal.afterSummary)
+  }
 
   @Test
-  fun `result preview names the exact set and changed completion state`() {
+  fun `result preview names the exact set and changed completion state`() = runTest {
     val result = summary(WorkoutChangeSet.Operation.EditSet("next", reps = 6, recordResult = true))
     assertTrue(result.before.contains("Жим, подход 2"))
     assertTrue(result.before.contains("8 повт."))
@@ -33,7 +109,7 @@ class WorkoutChangeSummaryTest {
   }
 
   @Test
-  fun `replacement preview uses resolved new load and preserves completed work`() {
+  fun `replacement preview uses resolved new load and preserves completed work`() = runTest {
     val result =
         summary(
             WorkoutChangeSet.Operation.ReplaceRemaining("section", "new", 2, listOf("next"), 20.0)
@@ -46,7 +122,7 @@ class WorkoutChangeSummaryTest {
   }
 
   @Test
-  fun `unresolved replacement and undo cannot render misleading approval`() {
+  fun `unresolved replacement and undo cannot render misleading approval`() = runTest {
     listOf(
             WorkoutChangeSet.Operation.ReplaceRemaining("section", "new", 2, listOf("next"), null),
             WorkoutChangeSet.Operation.UndoLast,
@@ -55,12 +131,12 @@ class WorkoutChangeSummaryTest {
           try {
             summary(op)
             fail("Missing preview facts must be rejected")
-          } catch (_: IllegalArgumentException) {}
+          } catch (_: IllegalArgumentException) {} catch (_: IllegalStateException) {}
         }
   }
 
   @Test
-  fun `clearing a load explicitly shows that no values remain`() {
+  fun `clearing a load explicitly shows that no values remain`() = runTest {
     val result =
         summary(
             WorkoutChangeSet.Operation.EditSet("next", clearFields = setOf("weight_kg", "reps"))
@@ -70,7 +146,7 @@ class WorkoutChangeSummaryTest {
   }
 
   @Test
-  fun `second move previews the order produced by the first move`() {
+  fun `second move previews the order produced by the first move`() = runTest {
     val workout =
         snapshot.copy(
             exercises =
@@ -81,7 +157,7 @@ class WorkoutChangeSummaryTest {
                 )
         )
     val result =
-        WorkoutChangeSummary.describe(
+        summary(
             workout,
             WorkoutChangeSet.Packet(
                 listOf(
@@ -95,9 +171,9 @@ class WorkoutChangeSummaryTest {
   }
 
   @Test
-  fun `successive edits and context changes use the preceding values`() {
+  fun `successive edits and context changes use the preceding values`() = runTest {
     val result =
-        WorkoutChangeSummary.describe(
+        summary(
             snapshot,
             WorkoutChangeSet.Packet(
                 listOf(
@@ -115,7 +191,7 @@ class WorkoutChangeSummaryTest {
   }
 
   @Test
-  fun `impossible replacement and deletion cannot become approval cards`() {
+  fun `impossible replacement and deletion cannot become approval cards`() = runTest {
     val workout =
         snapshot.copy(
             exercises =
@@ -131,13 +207,9 @@ class WorkoutChangeSummaryTest {
         )
         .forEach { op ->
           try {
-            WorkoutChangeSummary.describe(
-                workout,
-                WorkoutChangeSet.Packet(listOf(op)),
-                mapOf(2L to "Тяга"),
-            )
+            summary(workout, WorkoutChangeSet.Packet(listOf(op)))
             fail("Invalid packet must be rejected before approval")
-          } catch (_: IllegalArgumentException) {}
+          } catch (_: IllegalArgumentException) {} catch (_: IllegalStateException) {}
         }
   }
 }

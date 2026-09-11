@@ -199,6 +199,16 @@ class WorkoutSetMutatorTest {
       writes += set
     }
 
+    override suspend fun mutateSet(
+        setId: Long,
+        transform: (WorkoutSetEntity) -> WorkoutSetEntity,
+    ): Boolean {
+      val set = current.takeIf { it.id == setId } ?: return false
+      current = transform(set)
+      writes += current
+      return true
+    }
+
     override suspend fun updateCompletedSetNumbers(
         set: WorkoutSetEntity,
         type: ExerciseType,

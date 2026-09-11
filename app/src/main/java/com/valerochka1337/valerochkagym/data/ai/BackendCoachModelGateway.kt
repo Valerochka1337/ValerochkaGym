@@ -1,7 +1,5 @@
 package com.valerochka1337.valerochkagym.data.ai
 
-import android.util.Log
-import com.valerochka1337.valerochkagym.BuildConfig
 import com.valerochka1337.valerochkagym.data.backend.BackendException
 import com.valerochka1337.valerochkagym.data.backend.BackendSessionStore
 import com.valerochka1337.valerochkagym.data.backend.BackendTransport
@@ -9,7 +7,6 @@ import com.valerochka1337.valerochkagym.data.settings.SettingsRepository
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -46,27 +43,7 @@ constructor(
       tools: List<AiApiTool>,
   ): AiApiChatResponse {
     val requestId = UUID.randomUUID().toString()
-    return try {
-      completeTurn(requestId, expectedOwner, expectedSessionEpoch, messages, tools)
-    } catch (error: CancellationException) {
-      debugLog(requestId, "cancelled: ${error.javaClass.simpleName}")
-      throw error
-    } catch (error: BackendException) {
-      debugLog(
-          requestId,
-          "failed: http=${error.status} code=${error.code} message=${error.message.take(1_000)}",
-          isError = true,
-      )
-      throw error
-    } catch (error: Exception) {
-      debugLog(
-          requestId,
-          "failed: exception=${error.javaClass.name} message=${error.message?.take(1_000)} " +
-              "at=${error.stackTrace.firstOrNull()}",
-          isError = true,
-      )
-      throw error
-    }
+    return completeTurn(requestId, expectedOwner, expectedSessionEpoch, messages, tools)
   }
 
   private suspend fun completeTurn(
@@ -100,7 +77,6 @@ constructor(
     val body = wireJson.encodeToString(CoachTurnRequest.serializer(), request).encodeToByteArray()
     require(body.size <= MAX_REQUEST_BYTES) { "Coach request is too large" }
     pin(expectedOwner, expectedSessionEpoch)
-    debugLog(requestId, "POST /ai/coach-turn model=$model started")
     val response =
         backend.authorizedRawResponse(
             method = "POST",
@@ -119,25 +95,11 @@ constructor(
     }
     pin(expectedOwner, expectedSessionEpoch)
     val responseBody = response.rawBody.decodeToString()
-    debugLog(requestId, "POST /ai/coach-turn response=$responseBody")
     val decoded = wireJson.decodeFromString(CoachTurnResponse.serializer(), responseBody)
     require(decoded.requestId == request.requestId) { "Coach response correlation changed" }
     require(decoded.model == request.model) { "Coach response model changed" }
     pin(expectedOwner, expectedSessionEpoch)
     return decoded.completion
-  }
-
-  private fun debugLog(requestId: String, message: String, isError: Boolean = false) {
-    if (!BuildConfig.DEBUG) return
-    // Best-effort diagnostics must not change request handling, including in local JVM tests.
-    // Only responses are logged; outgoing conversation history and auth headers are omitted.
-    runCatching {
-      val parts = message.chunked(LOG_CHUNK_CHARS)
-      parts.forEachIndexed { index, part ->
-        val line = "requestId=$requestId part=${index + 1}/${parts.size} $part"
-        if (isError) Log.e(LOG_TAG, line) else Log.d(LOG_TAG, line)
-      }
-    }
   }
 
   override suspend fun catalog(
@@ -203,8 +165,6 @@ constructor(
   }
 
   companion object {
-    private const val LOG_TAG = "LiveCoachAI"
-    private const val LOG_CHUNK_CHARS = 1_000
     private const val MAX_REQUEST_BYTES = 512 * 1024
     private const val MAX_RESPONSE_BYTES = 256 * 1024
     private const val MAX_MESSAGES = 80

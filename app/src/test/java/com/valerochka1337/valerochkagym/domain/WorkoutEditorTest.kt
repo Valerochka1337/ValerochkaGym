@@ -1,5 +1,11 @@
 package com.valerochka1337.valerochkagym.domain
 
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.booleanPreferencesKey
+import androidx.datastore.preferences.core.emptyPreferences
+import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.mutablePreferencesOf
 import com.valerochka1337.valerochkagym.data.RoomDaoTest
 import com.valerochka1337.valerochkagym.data.backend.BackendSessionStore
 import com.valerochka1337.valerochkagym.data.backend.BackendTokens
@@ -7,7 +13,11 @@ import com.valerochka1337.valerochkagym.data.db.entity.CoachSessionContextEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleGroup
+import com.valerochka1337.valerochkagym.data.db.entity.RoutineEntity
+import com.valerochka1337.valerochkagym.data.db.entity.RoutineExerciseEntity
+import com.valerochka1337.valerochkagym.data.settings.SettingsRepository
 import com.valerochka1337.valerochkagym.service.RestTimerEngine
+import com.valerochka1337.valerochkagym.service.RestTimerState
 import com.valerochka1337.valerochkagym.service.WallClock
 import com.valerochka1337.valerochkagym.service.heartrate.HeartRateConnectionState
 import com.valerochka1337.valerochkagym.service.heartrate.HeartRateDevice
@@ -20,6 +30,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.test.runTest
@@ -32,7 +43,180 @@ import org.junit.Assert.fail
 import org.junit.Test
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
-class WorkoutMutationCoordinatorTest : RoomDaoTest() {
+class WorkoutEditorTest : RoomDaoTest() {
+  @Test
+  fun `completing a set marks it done and starts rest from settings`() = runTest {
+    val setId = seedActiveSet()
+    val engine = RestTimerEngine(backgroundScope) { 0L }
+
+    completionEditor(engine, settingsWithRest(90)).completeSetFromUser(setId)
+
+    assertTrue(db.workoutDao().getSet(setId)!!.isCompleted)
+    assertEquals(90, (engine.state.value as? RestTimerState.Timed)?.totalSec)
+    assertEquals(90_000L, (engine.state.value as? RestTimerState.Timed)?.endsAtMillis)
+  }
+
+  @Test
+  fun `routine rest overrides the configured default when completing a set`() = runTest {
+    val exerciseId = exercise("Routine")
+    val routineId = db.routineDao().upsertRoutine(RoutineEntity(name = "Routine"))
+    db.routineDao()
+        .insertRoutineExercises(
+            listOf(
+                RoutineExerciseEntity(
+                    routineId = routineId,
+                    exerciseId = exerciseId,
+                    position = 0,
+                    restSeconds = 45,
+                )
+            )
+        )
+    val workoutId = insertWorkout("active", startedAt = 1_000)
+    db.openHelper.writableDatabase.execSQL(
+        "UPDATE workouts SET routineId=? WHERE id=?",
+        arrayOf<Any?>(routineId, workoutId),
+    )
+    val setId = insertSet(insertWorkoutExercise(workoutId, exerciseId), 0, reps = 8)
+    val engine = RestTimerEngine(backgroundScope) { 0L }
+
+    completionEditor(engine, settingsWithRest(90)).completeSetFromUser(setId)
+
+    assertEquals(45, (engine.state.value as? RestTimerState.Timed)?.totalSec)
+  }
+
+  @Test
+  fun `completing an inactive set leaves it unchanged and does not start rest`() = runTest {
+    seedActiveSet()
+    val staleSetId = seedFinishedSet()
+    val engine = RestTimerEngine(backgroundScope) { 0L }
+
+    completionEditor(engine, settingsWithRest(90)).completeSetFromUser(staleSetId)
+
+    assertFalse(db.workoutDao().getSet(staleSetId)!!.isCompleted)
+    assertNull(engine.state.value)
+  }
+
+  @Test
+  fun `completing an already completed set does not restart rest`() = runTest {
+    val setId = seedActiveSet()
+    val engine = RestTimerEngine(backgroundScope) { 0L }
+    val editor = completionEditor(engine, settingsWithRest(90))
+    editor.completeSetFromUser(setId)
+    val firstStartId = engine.currentStartId()
+    engine.skip()
+
+    editor.completeSetFromUser(setId)
+
+    assertTrue(firstStartId != null)
+    assertNull(engine.state.value)
+  }
+
+  @Test
+  fun `autostart disabled completes the set without starting rest`() = runTest {
+    val setId = seedActiveSet()
+    val engine = RestTimerEngine(backgroundScope) { 0L }
+    val settings =
+        SettingsRepository(
+            FakeDataStore(mutablePreferencesOf(booleanPreferencesKey("rest_autostart") to false))
+        )
+
+    completionEditor(engine, settings).completeSetFromUser(setId)
+
+    assertTrue(db.workoutDao().getSet(setId)!!.isCompleted)
+    assertNull(engine.state.value)
+  }
+
+  @Test
+  fun `heart rate rest snapshots its configured threshold when completing a set`() = runTest {
+    val setId = seedActiveSet()
+    val engine = RestTimerEngine(backgroundScope) { 0L }
+    val settings =
+        SettingsRepository(
+            FakeDataStore(
+                mutablePreferencesOf(
+                    booleanPreferencesKey("heart_rate_rest_enabled") to true,
+                    intPreferencesKey("heart_rate_rest_threshold_bpm") to 110,
+                )
+            )
+        )
+
+    completionEditor(engine, settings).completeSetFromUser(setId)
+
+    assertEquals(RestTimerState.HeartRate(110, 10, 0), engine.state.value)
+  }
+
+  @Test
+  fun `guest completion writes the active set and starts rest`() = runTest {
+    val setId = seedActiveSet()
+    session.save(null)
+    val engine = RestTimerEngine(backgroundScope) { 0L }
+
+    completionEditor(engine, settingsWithRest(30)).completeSetFromUser(setId)
+
+    assertTrue(db.workoutDao().getSet(setId)!!.isCompleted)
+    assertEquals(30, (engine.state.value as? RestTimerState.Timed)?.totalSec)
+  }
+
+  @Test
+  fun `proposal packet and legacy undo fixtures stay compatible`() = runTest {
+    val workoutId = insertWorkout("fixture")
+    val exerciseId = exercise()
+    val sectionId =
+        db.workoutDao()
+            .insertWorkoutExercise(
+                com.valerochka1337.valerochkagym.data.db.entity.WorkoutExerciseEntity(
+                    workoutId = workoutId,
+                    exerciseId = exerciseId,
+                    sectionId = "section-fixture",
+                    position = 0,
+                )
+            )
+    db.workoutDao()
+        .insertSet(
+            com.valerochka1337.valerochkagym.data.db.entity.WorkoutSetEntity(
+                workoutExerciseId = sectionId,
+                setIndex = 0,
+                syncId = "set-fixture",
+                weightKg = 50.0,
+                reps = 8,
+            )
+        )
+    val originalSetId = db.workoutDao().getSetsForWorkoutExercise(sectionId).single().id
+    val coordinator =
+        coordinator(RestTimerEngine(backgroundScope, WallClock { testScheduler.currentTime }))
+    val packet =
+        WorkoutChangeSet.Packet(listOf(WorkoutChangeSet.Operation.EditSet("set-fixture", reps = 6)))
+    val proposal =
+        requireNotNull(coordinator.saveProposal("user", workoutId, packet, 0, Long.MAX_VALUE))
+    val packetFixture =
+        """{"operations":[{"type":"com.valerochka1337.valerochkagym.domain.WorkoutChangeSet.Operation.EditSet","setSyncId":"set-fixture","weightKg":null,"reps":6,"durationSec":null,"speedKmh":null,"inclinePct":null,"completed":null,"clearFields":[],"recordResult":false}]}"""
+    assertEquals(packetFixture, db.coachDao().pendingProposalForId(proposal.id)!!.packetJson)
+
+    assertEquals(
+        CommandResult.APPLIED,
+        coordinator.submit("user", workoutId, "fixture-edit", 0, packet, authority(packet)).result,
+    )
+    val undoFixture =
+        """{"packet":{"operations":[{"type":"com.valerochka1337.valerochkagym.domain.WorkoutChangeSet.Operation.RestoreWorkout","sections":[{"sectionId":"section-fixture","exerciseId":1,"position":0,"sets":[{"syncId":"set-fixture","setIndex":0,"weightKg":50.0,"reps":8,"durationSec":null,"speedKmh":null,"inclinePct":null,"isCompleted":false,"completedAt":null,"originalWeightKg":null,"originalReps":null,"originalDurationSec":null,"originalSpeedKmh":null,"originalInclinePct":null,"targetWeightKg":null,"targetReps":null,"targetDurationSec":null,"targetSpeedKmh":null,"targetInclinePct":null,"actualWeightKg":null,"actualReps":null,"actualDurationSec":null,"actualSpeedKmh":null,"actualInclinePct":null,"setType":"UNKNOWN","reportedFeelingsJson":"[]","restSnapshotJson":null,"coachMutationRevision":0,"note":""}]}]}]},"context":{"availableTimeMinutes":null,"availableTimeEndsAtMillis":null,"futureRestSeconds":null,"occupiedEquipmentJson":"[]","excludedExerciseIdsJson":"[]"}}"""
+    assertEquals(undoFixture, db.coachDao().context(workoutId)!!.lastUndoPacketJson)
+
+    val legacyFixture = undoFixture.replace(",\"note\":\"\"", "")
+    db.coachDao()
+        .saveContext(
+            db.coachDao()
+                .context(workoutId)!!
+                .copy(lastUndoPacketJson = legacyFixture, lastUndoRevision = 1)
+        )
+    val undo = WorkoutChangeSet.Packet(listOf(WorkoutChangeSet.Operation.UndoLast))
+    assertEquals(
+        CommandResult.APPLIED,
+        coordinator.submit("user", workoutId, "fixture-undo", 1, undo, authority(undo)).result,
+    )
+    assertEquals(8, workoutFull(workoutId).exercises.single().sets.single().reps)
+    assertEquals(sectionId, workoutFull(workoutId).exercises.single().workoutExercise.id)
+    assertEquals(originalSetId, workoutFull(workoutId).exercises.single().sets.single().id)
+  }
+
   @Test
   fun `invalid later operation rolls back the entire packet and does not start rest`() = runTest {
     val workoutId = insertWorkout("workout")
@@ -103,7 +287,7 @@ class WorkoutMutationCoordinatorTest : RoomDaoTest() {
             coordinator(RestTimerEngine(backgroundScope, WallClock { testScheduler.currentTime }))
         val packet =
             WorkoutChangeSet.Packet(
-                listOf(WorkoutChangeSet.Operation.SetOccupiedEquipment(setOf("rack")))
+                listOf(WorkoutChangeSet.Operation.SetOccupiedEquipment(setOf("x".repeat(70_000))))
             )
 
         try {
@@ -112,8 +296,6 @@ class WorkoutMutationCoordinatorTest : RoomDaoTest() {
               workoutId = workoutId,
               packet = packet,
               expectedRevision = 0,
-              beforeSummary = "x".repeat(70_000),
-              afterSummary = "Станет",
               expiresAt = Long.MAX_VALUE,
           )
           fail("Expected the journal byte limit to reject the proposal")
@@ -238,8 +420,6 @@ class WorkoutMutationCoordinatorTest : RoomDaoTest() {
                     workoutId,
                     proposed,
                     0,
-                    "Было",
-                    "Станет",
                     Long.MAX_VALUE,
                 ),
             )
@@ -431,11 +611,12 @@ class WorkoutMutationCoordinatorTest : RoomDaoTest() {
                 occupiedEquipmentJson = "[\"rack\"]",
             )
         )
-    val timer = RestTimerEngine(backgroundScope, WallClock { testScheduler.currentTime })
+    val timer = RestTimerEngine(backgroundScope, WallClock { 0L })
     timer.start(60)
     assertNotNull(timer.currentStartId())
     assertNotNull(timer.state.value)
-    val service = WorkoutControlService(db, coordinator(timer), timer, session)
+    coordinator(timer)
+    val service = CoachWorkoutReader(db, timer, session)
 
     val snapshot = service.snapshot("user", workout)!!
 
@@ -462,10 +643,10 @@ class WorkoutMutationCoordinatorTest : RoomDaoTest() {
         db.workoutDao().updateSet(earlier.copy(completedAt = 100L))
         val pulseAt = System.currentTimeMillis()
         val timer = RestTimerEngine(backgroundScope, WallClock { testScheduler.currentTime })
+        coordinator(timer)
         val service =
-            WorkoutControlService(
+            CoachWorkoutReader(
                 db,
-                coordinator(timer),
                 timer,
                 session,
                 FakeHeartRateMonitor(HeartRateReading(132, pulseAt)),
@@ -487,8 +668,8 @@ class WorkoutMutationCoordinatorTest : RoomDaoTest() {
     insertSet(section, 1, reps = 8, isCompleted = true)
     val nextId = insertSet(section, 2, reps = 8)
     val timer = RestTimerEngine(backgroundScope, WallClock { testScheduler.currentTime })
-    val snapshot =
-        WorkoutControlService(db, coordinator(timer), timer, session).snapshot("user", workout)!!
+    coordinator(timer)
+    val snapshot = CoachWorkoutReader(db, timer, session).snapshot("user", workout)!!
 
     assertEquals(db.workoutDao().getSet(currentId)!!.syncId, snapshot.currentSetId)
     assertEquals(db.workoutDao().getSet(nextId)!!.syncId, snapshot.nextSetId)
@@ -504,21 +685,6 @@ class WorkoutMutationCoordinatorTest : RoomDaoTest() {
         db.workoutDao().getSet(nextId)!!.syncId,
         (packet.operations.single() as WorkoutChangeSet.Operation.EditSet).setSyncId,
     )
-  }
-
-  @Test
-  fun `user reply clears an initiative wait when no proposal is pending`() = runTest {
-    val workout = insertWorkout("workout")
-    val timer = RestTimerEngine(backgroundScope, WallClock { testScheduler.currentTime })
-    val control = WorkoutControlService(db, coordinator(timer), timer, session)
-    db.coachDao()
-        .saveContext(
-            CoachSessionContextEntity(workout, "user", initiativePendingInteraction = true)
-        )
-
-    assertTrue(control.appendMessage("reply", "user", workout, "user", "Продолжаю"))
-
-    assertFalse(db.coachDao().context(workout)!!.initiativePendingInteraction)
   }
 
   @Test
@@ -558,21 +724,289 @@ class WorkoutMutationCoordinatorTest : RoomDaoTest() {
     }
   }
 
+  @Test
+  fun `composite replacement preview confirmation and undo preserve identities and full set data`() =
+      runTest {
+        val workout = insertWorkout("composite")
+        val sourceId = insertWorkoutExercise(workout, exercise("Жим"))
+        val source = db.workoutDao().getWorkoutExercises(workout).single()
+        val doneId = insertSet(sourceId, 0, weightKg = 60.0, reps = 8, isCompleted = true)
+        val nextId = insertSet(sourceId, 1, weightKg = 60.0, reps = 8)
+        val done =
+            db.workoutDao()
+                .getSet(doneId)!!
+                .copy(note = "результат", actualReps = 8, originalReps = 10)
+        val next =
+            db.workoutDao()
+                .getSet(nextId)!!
+                .copy(
+                    note = "техника",
+                    originalReps = 10,
+                    targetReps = 8,
+                    restSnapshotJson = "{\"seconds\":90}",
+                    setType = "WORKING",
+                )
+        db.workoutDao().updateSet(done)
+        db.workoutDao().updateSet(next)
+        val cardio =
+            db.exerciseDao()
+                .insert(
+                    ExerciseEntity(
+                        name = "Дорожка",
+                        type = ExerciseType.CARDIO,
+                        muscleGroup = MuscleGroup.CHEST,
+                    )
+                )
+        val timer = RestTimerEngine(backgroundScope) { 0L }
+        val editor = coordinator(timer)
+        val packet =
+            WorkoutChangeSet.Packet(
+                listOf(
+                    WorkoutChangeSet.Operation.EditSet(
+                        next.syncId,
+                        clearFields = setOf("weight_kg", "reps"),
+                    ),
+                    WorkoutChangeSet.Operation.ReplaceRemaining(
+                        source.sectionId,
+                        "replacement",
+                        cardio,
+                        listOf(next.syncId),
+                        null,
+                    ),
+                    WorkoutChangeSet.Operation.EditSet(
+                        next.syncId,
+                        durationSec = 120,
+                        speedKmh = 6.0,
+                    ),
+                    WorkoutChangeSet.Operation.ReportFeelings(next.syncId, setOf("FATIGUE")),
+                    WorkoutChangeSet.Operation.AddSet("replacement"),
+                )
+            )
+        val before = workoutFull(workout)
+        val proposal =
+            requireNotNull(editor.saveProposal("user", workout, packet, 0, Long.MAX_VALUE))
+        assertEquals(before, workoutFull(workout))
+        assertNull(timer.state.value)
+        assertTrue(proposal.afterSummary.contains("120 с · 6 км/ч"))
+        assertFalse(proposal.afterSummary.substringAfter("Шаг 2:").contains("8 повт."))
+        assertEquals(
+            CommandResult.APPLIED,
+            editor.confirmProposal("user", proposal.id, "apply-composite").result,
+        )
+        val moved = db.workoutDao().getSet(nextId)!!
+        assertEquals(next.syncId, moved.syncId)
+        assertEquals(next.note, moved.note)
+        assertEquals(next.restSnapshotJson, moved.restSnapshotJson)
+        assertEquals(next.setType, moved.setType)
+        assertEquals(120, moved.targetDurationSec)
+        assertNull(moved.originalReps)
+        assertNull(moved.actualDurationSec)
+        assertEquals(done, db.workoutDao().getSet(doneId))
+        assertEquals(
+            2,
+            workoutFull(workout)
+                .exercises
+                .single { it.workoutExercise.sectionId == "replacement" }
+                .sets
+                .size,
+        )
+        val undo = WorkoutChangeSet.Packet(listOf(WorkoutChangeSet.Operation.UndoLast))
+        val undoProposal =
+            requireNotNull(editor.saveProposal("user", workout, undo, 1, Long.MAX_VALUE))
+        assertTrue(undoProposal.afterSummary.contains("60 кг · 8 повт."))
+        assertEquals(
+            CommandResult.APPLIED,
+            editor.confirmProposal("user", undoProposal.id, "undo-composite").result,
+        )
+        assertEquals(source, db.workoutDao().getWorkoutExercises(workout).single())
+        assertEquals(next.copy(coachMutationRevision = 2), db.workoutDao().getSet(nextId))
+        assertEquals(done, db.workoutDao().getSet(doneId))
+      }
+
+  @Test
+  fun `manual transform waiting behind confirmation reads the confirmed value`() = runTest {
+    val workout = insertWorkout("race")
+    val section = insertWorkoutExercise(workout, exercise())
+    val setId = insertSet(section, 0, reps = 8)
+    val set = db.workoutDao().getSet(setId)!!
+    val timer = RestTimerEngine(backgroundScope) { 0L }
+    val writes = WorkoutWriteQueue()
+    val editor = coordinator(timer, writes)
+    val repository =
+        com.valerochka1337.valerochkagym.data.ActiveWorkoutRepositoryImpl(
+            db,
+            db.workoutDao(),
+            db.routineDao(),
+            writes = writes,
+        )
+    val packet =
+        WorkoutChangeSet.Packet(listOf(WorkoutChangeSet.Operation.EditSet(set.syncId, reps = 6)))
+    val proposal = requireNotNull(editor.saveProposal("user", workout, packet, 0, Long.MAX_VALUE))
+    lateinit var confirm: kotlinx.coroutines.Deferred<CommandReceipt>
+    lateinit var manual: kotlinx.coroutines.Deferred<Boolean>
+    writes.write {
+      confirm =
+          async(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
+            editor.confirmProposal("user", proposal.id, "confirm")
+          }
+      manual =
+          async(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
+            repository.mutateSet(setId) { it.copy(reps = it.reps!! + 1) }
+          }
+      assertEquals(8, db.workoutDao().getSet(setId)!!.reps)
+    }
+    assertEquals(CommandResult.APPLIED, confirm.await().result)
+    assertTrue(manual.await())
+    assertEquals(7, db.workoutDao().getSet(setId)!!.reps)
+    assertEquals(2L, workoutFull(workout).workout.coachRevision)
+  }
+
+  @Test
+  fun `completion queued behind workout finish cannot start rest or modify the finished set`() =
+      runTest {
+        val setId = seedActiveSet()
+        val workout = db.workoutDao().getActiveWorkoutId()!!
+        val writes = WorkoutWriteQueue()
+        val timer = RestTimerEngine(backgroundScope) { 0L }
+        val settings = settingsWithRest(90)
+        val editor =
+            WorkoutEditor(
+                db,
+                db.workoutDao(),
+                db.coachDao(),
+                timer,
+                session,
+                writes,
+                RestDurationResolver(db.routineDao(), settings),
+                settings,
+            )
+        val repository =
+            com.valerochka1337.valerochkagym.data.ActiveWorkoutRepositoryImpl(
+                db,
+                db.workoutDao(),
+                db.routineDao(),
+                writes = writes,
+            )
+        lateinit var finish: kotlinx.coroutines.Deferred<Unit>
+        lateinit var complete: kotlinx.coroutines.Deferred<Unit>
+        writes.write {
+          finish =
+              async(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
+                repository.finish(workout)
+              }
+          complete =
+              async(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
+                editor.completeSetFromUser(setId)
+              }
+        }
+        finish.await()
+        complete.await()
+        assertNotNull(workoutFull(workout).workout.finishedAt)
+        assertNull(timer.state.value)
+        assertTrue(db.workoutDao().getSet(setId)?.isCompleted != true)
+      }
+
+  @Test
+  fun `completion does not replace rest started while it waits for the workout lock`() = runTest {
+    val setId = seedActiveSet()
+    val writes = WorkoutWriteQueue()
+    val timer = RestTimerEngine(backgroundScope) { 0L }
+    val settings = settingsWithRest(90)
+    val editor =
+        WorkoutEditor(
+            db,
+            db.workoutDao(),
+            db.coachDao(),
+            timer,
+            session,
+            writes,
+            RestDurationResolver(db.routineDao(), settings),
+            settings,
+        )
+    lateinit var complete: kotlinx.coroutines.Deferred<Unit>
+    var startId: String? = null
+    writes.write {
+      complete =
+          async(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
+            editor.completeSetFromUser(setId)
+          }
+      timer.start(30)
+      startId = timer.currentStartId()
+    }
+    complete.await()
+    assertTrue(db.workoutDao().getSet(setId)!!.isCompleted)
+    assertEquals(startId, timer.currentStartId())
+    assertEquals(30, (timer.state.value as RestTimerState.Timed).totalSec)
+  }
+
+  @Test
+  fun `proposal invalidated after journal preparation rolls back all durable rows`() = runTest {
+    val workout = insertWorkout("stale-proposal")
+    val editor = coordinator(RestTimerEngine(backgroundScope) { 0L })
+    var checks = 0
+    try {
+      editor.saveProposal(
+          "user",
+          workout,
+          WorkoutChangeSet.Packet(
+              listOf(WorkoutChangeSet.Operation.SetOccupiedEquipment(setOf("rack")))
+          ),
+          0,
+          Long.MAX_VALUE,
+          isCurrent = { ++checks < 3 },
+      )
+      fail("Final request fence must roll back")
+    } catch (_: IllegalStateException) {}
+    assertNull(db.coachDao().pendingProposal(workout))
+    assertTrue(db.coachDao().pendingJournal("user", 100).isEmpty())
+    assertEquals(0L, workoutFull(workout).workout.coachRevision)
+  }
+
   private val session = FakeSession()
 
-  private fun coordinator(timer: RestTimerEngine): WorkoutMutationCoordinator {
+  private fun coordinator(
+      timer: RestTimerEngine,
+      writes: WorkoutWriteQueue = WorkoutWriteQueue(),
+  ): WorkoutEditor {
     db.openHelper.writableDatabase.execSQL(
         "INSERT OR REPLACE INTO backend_state (id, owner, generation, phase, initialMergeAcknowledged) VALUES (1, 'user', 0, 'OWNED', 1)",
     )
-    return WorkoutMutationCoordinator(
+    return WorkoutEditor(
         db,
         db.workoutDao(),
         db.coachDao(),
         timer,
         session,
-        WorkoutWriteQueue(),
+        writes,
     )
   }
+
+  private fun completionEditor(timer: RestTimerEngine, settings: SettingsRepository) =
+      WorkoutEditor(
+          db,
+          db.workoutDao(),
+          db.coachDao(),
+          timer,
+          session,
+          WorkoutWriteQueue(),
+          RestDurationResolver(db.routineDao(), settings),
+          settings,
+      )
+
+  private suspend fun seedActiveSet(): Long {
+    val workout = insertWorkout("active", startedAt = 1_000)
+    return insertSet(insertWorkoutExercise(workout, exercise("Active")), 0, reps = 8)
+  }
+
+  private suspend fun seedFinishedSet(): Long {
+    val workout = insertWorkout("finished", startedAt = 1_000, finishedAt = 2_000)
+    return insertSet(insertWorkoutExercise(workout, exercise("Finished")), 0, reps = 8)
+  }
+
+  private fun settingsWithRest(seconds: Int) =
+      SettingsRepository(
+          FakeDataStore(mutablePreferencesOf(intPreferencesKey("default_rest_seconds") to seconds)),
+      )
 
   private fun authority(packet: WorkoutChangeSet.Packet) =
       CommandAuthority.local(packet, CommandAuthority.Anchors(null, null, null))
@@ -608,5 +1042,15 @@ class WorkoutMutationCoordinatorTest : RoomDaoTest() {
     override fun stop() = Unit
 
     override fun reportError(message: String) = Unit
+  }
+
+  private class FakeDataStore(prefs: Preferences = emptyPreferences()) : DataStore<Preferences> {
+    private val state = MutableStateFlow(prefs)
+
+    override val data: Flow<Preferences> = state
+
+    override suspend fun updateData(
+        transform: suspend (t: Preferences) -> Preferences
+    ): Preferences = transform(state.value).also { state.value = it }
   }
 }

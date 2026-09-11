@@ -26,8 +26,8 @@ import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
 import com.valerochka1337.valerochkagym.data.db.relation.WorkoutFull
 import com.valerochka1337.valerochkagym.data.settings.SettingsRepository
 import com.valerochka1337.valerochkagym.domain.ActiveWorkoutRepository
-import com.valerochka1337.valerochkagym.domain.CompleteSetUseCase
 import com.valerochka1337.valerochkagym.domain.SessionFocus
+import com.valerochka1337.valerochkagym.domain.WorkoutEditor
 import com.valerochka1337.valerochkagym.domain.WorkoutSetMutator
 import com.valerochka1337.valerochkagym.domain.currentFocus
 import com.valerochka1337.valerochkagym.domain.formatSet
@@ -85,7 +85,7 @@ class WorkoutSessionService : LifecycleService() {
 
   @Inject lateinit var setMutator: WorkoutSetMutator
 
-  @Inject lateinit var completeSetUseCase: CompleteSetUseCase
+  @Inject lateinit var workoutEditor: WorkoutEditor
 
   @Inject lateinit var xiaomiWearWorkoutBridge: XiaomiWearWorkoutBridge
 
@@ -308,7 +308,7 @@ class WorkoutSessionService : LifecycleService() {
 
   private fun completeCurrentSet() {
     val setId = currentWorkout?.currentFocus()?.set?.id ?: return
-    lifecycleScope.launch { completeSetUseCase(setId) }
+    lifecycleScope.launch { workoutEditor.completeSetFromUser(setId) }
   }
 
   /** Правит только что закрытый подход по строке из инлайн-поля («60x8»). Мусор игнорируется. */

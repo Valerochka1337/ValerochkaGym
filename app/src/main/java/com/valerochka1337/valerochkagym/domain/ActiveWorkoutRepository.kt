@@ -28,6 +28,16 @@ interface ActiveWorkoutRepository {
   /** Текущее состояние подхода из БД (для сериализованного read-modify-write степперов). */
   suspend fun getSet(setId: Long): WorkoutSetEntity?
 
+  /** Reads, transforms and writes one active set while holding the process-wide writer. */
+  suspend fun mutateSet(
+      setId: Long,
+      transform: (WorkoutSetEntity) -> WorkoutSetEntity,
+  ): Boolean {
+    val current = getSet(setId) ?: return false
+    updateSet(transform(current))
+    return true
+  }
+
   suspend fun updateSet(set: WorkoutSetEntity)
 
   suspend fun saveWorkoutNote(workoutId: String, text: String): NoteSaveResult =

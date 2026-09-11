@@ -11,9 +11,9 @@ import com.valerochka1337.valerochkagym.data.backend.BackendSessionStore
 import com.valerochka1337.valerochkagym.data.backend.BackendTokens
 import com.valerochka1337.valerochkagym.data.db.entity.CoachProposalEntity
 import com.valerochka1337.valerochkagym.data.db.entity.CoachSessionContextEntity
+import com.valerochka1337.valerochkagym.domain.CoachWorkoutReader
 import com.valerochka1337.valerochkagym.domain.WorkoutChangeSet
-import com.valerochka1337.valerochkagym.domain.WorkoutControlService
-import com.valerochka1337.valerochkagym.domain.WorkoutMutationCoordinator
+import com.valerochka1337.valerochkagym.domain.WorkoutEditor
 import com.valerochka1337.valerochkagym.domain.WorkoutWriteQueue
 import com.valerochka1337.valerochkagym.service.CoachConversationService
 import com.valerochka1337.valerochkagym.service.RestTimerEngine
@@ -135,7 +135,7 @@ class CoachChatViewModelTest : RoomDaoTest() {
   private fun TestScope.conversation(): CoachConversationService {
     val timer = RestTimerEngine(backgroundScope, WallClock { testScheduler.currentTime })
     val coordinator =
-        WorkoutMutationCoordinator(
+        WorkoutEditor(
             db,
             db.workoutDao(),
             db.coachDao(),
@@ -143,8 +143,8 @@ class CoachChatViewModelTest : RoomDaoTest() {
             session,
             WorkoutWriteQueue(),
         )
-    val control = WorkoutControlService(db, coordinator, timer, session)
-    return CoachConversationService(CoachAgent(NoopGateway), control, db, session)
+    val control = CoachWorkoutReader(db, timer, session)
+    return CoachConversationService(CoachAgent(NoopGateway), control, coordinator, db, session)
   }
 
   private val session = FakeSession()

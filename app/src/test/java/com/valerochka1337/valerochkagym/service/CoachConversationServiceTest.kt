@@ -13,14 +13,16 @@ import com.valerochka1337.valerochkagym.data.backend.BackendTokens
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
 import com.valerochka1337.valerochkagym.data.db.entity.MuscleGroup
-import com.valerochka1337.valerochkagym.domain.WorkoutControlService
-import com.valerochka1337.valerochkagym.domain.WorkoutMutationCoordinator
+import com.valerochka1337.valerochkagym.domain.CoachWorkoutReader
+import com.valerochka1337.valerochkagym.domain.WorkoutEditor
 import com.valerochka1337.valerochkagym.domain.WorkoutWriteQueue
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Assert.assertEquals
@@ -61,8 +63,8 @@ class CoachConversationServiceTest : RoomDaoTest() {
       runTest {
         val workoutId = activeWorkout()
         val gateway = RecordingGateway()
-        val control = control()
-        control.appendMessage(
+        val conversation = conversation(gateway)
+        conversation.appendMessage(
             "old-message",
             "user",
             workoutId,
@@ -71,7 +73,6 @@ class CoachConversationServiceTest : RoomDaoTest() {
             createdAt = 0,
             status = "PENDING",
         )
-        val conversation = conversation(gateway, control)
 
         conversation.attach(backgroundScope)
         assertEquals(
@@ -159,7 +160,6 @@ class CoachConversationServiceTest : RoomDaoTest() {
 
         conversation.stopWorkout(workoutId)
         conversation.detach()
-        conversation.attach(backgroundScope)
         assertEquals(
             "INTERRUPTED",
             db.coachDao()
@@ -168,8 +168,230 @@ class CoachConversationServiceTest : RoomDaoTest() {
                 .single()
                 .status,
         )
+        conversation.attach(backgroundScope)
         assertEquals(0, gateway.calls)
       }
+
+  @Test
+  fun `model tool proposal changes Room only after confirmation`() = runTest {
+    val workout = activeWorkout()
+    val before = db.workoutDao().getWorkoutFull(workout)!!
+    val set = before.exercises.single().sets.single()
+    val gateway =
+        object : RecordingGateway() {
+          override suspend fun complete(
+              expectedOwner: String,
+              expectedSessionEpoch: Long?,
+              messages: List<AiApiMessage>,
+              tools: List<AiApiTool>,
+          ): AiApiChatResponse {
+            calls++
+            return AiApiChatResponse(
+                choices =
+                    listOf(
+                        AiApiChoice(
+                            AiApiResponseMessage(
+                                toolCalls =
+                                    listOf(
+                                        com.valerochka1337.valerochkagym.data.ai.AiApiToolCall(
+                                            "proposal-tool",
+                                            function =
+                                                com.valerochka1337.valerochkagym.data.ai
+                                                    .AiApiToolCallFunction(
+                                                        "submit_workout_changes",
+                                                        """{"base_revision":0,"operations":[{"action":"edit_set","set_id":"${set.syncId}","values":{"reps":6}}]}""",
+                                                    ),
+                                        )
+                                    )
+                            )
+                        )
+                    )
+            )
+          }
+        }
+    val conversation = conversation(gateway)
+    conversation.attach(
+        kotlinx.coroutines.CoroutineScope(
+            backgroundScope.coroutineContext + kotlinx.coroutines.Dispatchers.Default
+        )
+    )
+    assertTrue(conversation.send(workout, "Предложи облегчить оставшийся подход"))
+    val messages =
+        db.coachDao().observeMessages(workout).first { it.firstOrNull()?.status == "DELIVERED" }
+    val proposal = requireNotNull(db.coachDao().pendingProposal(workout)) { messages.toString() }
+    assertEquals(before, db.workoutDao().getWorkoutFull(workout))
+    assertTrue(proposal.afterSummary.contains("6 повт."))
+    assertTrue(conversation.confirm(workout, proposal.id))
+    assertEquals(6, db.workoutDao().getSet(set.id)!!.reps)
+    assertEquals(1, gateway.calls)
+    assertEquals(1L, db.workoutDao().getWorkoutFull(workout)!!.workout.coachRevision)
+  }
+
+  @Test
+  fun `session replacement interrupts the old request without appending assistant or journal`() =
+      runTest {
+        val workout = activeWorkout()
+        val gateway = BlockingGateway()
+        val conversation = conversation(gateway)
+        conversation.attach(
+            kotlinx.coroutines.CoroutineScope(
+                backgroundScope.coroutineContext + kotlinx.coroutines.Dispatchers.Default
+            )
+        )
+        assertTrue(conversation.send(workout, "Подожди"))
+        gateway.started.await()
+        val context = db.coachDao().context(workout)
+        val journal = db.coachDao().pendingJournal("user", 100)
+        session.save(BackendTokens("user", "user@example.com", "other-access", "other-refresh"))
+        db.coachDao().observeMessages(workout).first { it.singleOrNull()?.status == "INTERRUPTED" }
+        assertEquals(context, db.coachDao().context(workout))
+        assertEquals(journal, db.coachDao().pendingJournal("user", 100))
+        assertEquals(listOf("user"), db.coachDao().messages(workout).map { it.role })
+      }
+
+  @Test
+  fun `detach interrupts an in flight request and preserves its transcript journal and context`() =
+      runTest {
+        val workout = activeWorkout()
+        val gateway = BlockingGateway()
+        val conversation = conversation(gateway)
+        conversation.attach(
+            kotlinx.coroutines.CoroutineScope(
+                backgroundScope.coroutineContext + kotlinx.coroutines.Dispatchers.Default
+            )
+        )
+        assertTrue(conversation.send(workout, "Подожди"))
+        gateway.started.await()
+        val context = db.coachDao().context(workout)
+        val journal = db.coachDao().pendingJournal("user", 100)
+        conversation.detach()
+        db.coachDao().observeMessages(workout).first { it.singleOrNull()?.status == "INTERRUPTED" }
+        assertEquals(context, db.coachDao().context(workout))
+        assertEquals(journal, db.coachDao().pendingJournal("user", 100))
+        assertEquals(listOf("user"), db.coachDao().messages(workout).map { it.role })
+      }
+
+  @Test
+  fun `request becoming stale during append rolls back message context and journal together`() =
+      runTest {
+        val workout = activeWorkout()
+        val conversation = conversation(RecordingGateway())
+        var checks = 0
+        try {
+          conversation.appendMessage(
+              "late",
+              "user",
+              workout,
+              "assistant",
+              "Поздно",
+              isCurrent = { ++checks == 1 },
+          )
+          org.junit.Assert.fail("Late request must roll back")
+        } catch (_: IllegalStateException) {}
+        assertTrue(db.coachDao().messages(workout).isEmpty())
+        assertTrue(db.coachDao().pendingJournal("user", 100).isEmpty())
+        org.junit.Assert.assertNull(db.coachDao().context(workout))
+      }
+
+  @Test
+  fun `concurrent initiative checks consume their quota with exactly one message and journal`() =
+      runTest {
+        val workout = activeWorkout()
+        val conversation = conversation(RecordingGateway())
+        val decisions =
+            kotlinx.coroutines.coroutineScope {
+              listOf(
+                      async { conversation.considerInitiative(workout) },
+                      async { conversation.considerInitiative(workout) },
+                  )
+                  .map { it.await() }
+            }
+        assertEquals(1, decisions.count { it })
+        assertEquals(1, db.coachDao().messages(workout).size)
+        assertEquals(1, db.coachDao().pendingJournal("user", 100).size)
+        assertTrue(db.coachDao().context(workout)!!.initiativeWelcomed)
+      }
+
+  @Test
+  fun `newer message supersedes a model request without recording its late answer`() = runTest {
+    val workout = activeWorkout()
+    val started = CompletableDeferred<Unit>()
+    val gateway =
+        object : RecordingGateway() {
+          var first = true
+
+          override suspend fun complete(
+              expectedOwner: String,
+              expectedSessionEpoch: Long?,
+              messages: List<AiApiMessage>,
+              tools: List<AiApiTool>,
+          ): AiApiChatResponse {
+            if (first) {
+              first = false
+              started.complete(Unit)
+              return CompletableDeferred<AiApiChatResponse>().await()
+            }
+            return super.complete(expectedOwner, expectedSessionEpoch, messages, tools)
+          }
+        }
+    val conversation = conversation(gateway)
+    conversation.attach(
+        kotlinx.coroutines.CoroutineScope(
+            backgroundScope.coroutineContext + kotlinx.coroutines.Dispatchers.Default
+        )
+    )
+    assertTrue(conversation.send(workout, "Первый вопрос"))
+    started.await()
+    assertTrue(conversation.send(workout, "Новый вопрос"))
+    val messages =
+        db.coachDao().observeMessages(workout).first { rows ->
+          rows.size == 3 && rows.filter { it.role == "user" }.any { it.status == "DELIVERED" }
+        }
+    assertEquals("INTERRUPTED", messages.single { it.text == "Первый вопрос" }.status)
+    assertEquals(1, messages.count { it.role == "assistant" })
+    assertEquals(3, db.coachDao().pendingJournal("user", 100).size)
+  }
+
+  @Test
+  fun `stop after message commit prevents its registration from reviving the request`() = runTest {
+    val workout = activeWorkout()
+    val gateway = RecordingGateway()
+    val conversation = conversation(gateway)
+    conversation.attach(backgroundScope)
+    val dispatcher = PausingDispatcher()
+    val sending = async(dispatcher) { conversation.send(workout, "Не возобновляй после остановки") }
+    var stoppedAfterCommit = false
+    while (!sending.isCompleted) {
+      val continuation = dispatcher.tasks.receive()
+      if (!stoppedAfterCommit && db.coachDao().messages(workout).any { it.status == "PENDING" }) {
+        conversation.stopWorkout(workout)
+        stoppedAfterCommit = true
+      }
+      continuation.run()
+    }
+    assertTrue(stoppedAfterCommit)
+    assertFalse(sending.await())
+    val message =
+        db.coachDao()
+            .observeMessages(workout)
+            .first { it.singleOrNull()?.status == "INTERRUPTED" }
+            .single()
+    assertEquals("user", message.role)
+    assertEquals(1, db.coachDao().pendingJournal("user", 100).size)
+    conversation.detach()
+    conversation.attach(backgroundScope)
+    runCurrent()
+    assertEquals(0, gateway.calls)
+  }
+
+  private class PausingDispatcher : kotlinx.coroutines.CoroutineDispatcher() {
+    val tasks =
+        kotlinx.coroutines.channels.Channel<Runnable>(kotlinx.coroutines.channels.Channel.UNLIMITED)
+
+    override fun dispatch(context: kotlin.coroutines.CoroutineContext, block: Runnable) {
+      check(tasks.trySend(block).isSuccess)
+    }
+  }
 
   private suspend fun activeWorkout(): String {
     val workoutId = insertWorkout("active")
@@ -190,24 +412,31 @@ class CoachConversationServiceTest : RoomDaoTest() {
     return workoutId
   }
 
-  private fun TestScope.control(): WorkoutControlService {
+  private fun TestScope.conversation(gateway: CoachModelGateway): CoachConversationService {
     val timer = RestTimerEngine(backgroundScope, WallClock { testScheduler.currentTime })
-    val coordinator =
-        WorkoutMutationCoordinator(
-            db,
-            db.workoutDao(),
-            db.coachDao(),
-            timer,
-            session,
-            WorkoutWriteQueue(),
-        )
-    return WorkoutControlService(db, coordinator, timer, session)
+    val writes = WorkoutWriteQueue()
+    val editor = WorkoutEditor(db, db.workoutDao(), db.coachDao(), timer, session, writes)
+    val reader = CoachWorkoutReader(db, timer, session)
+    return CoachConversationService(CoachAgent(gateway), reader, editor, db, session, writes)
   }
 
-  private fun TestScope.conversation(
-      gateway: CoachModelGateway,
-      control: WorkoutControlService = control(),
-  ) = CoachConversationService(CoachAgent(gateway), control, db, session)
+  @Test
+  fun `user reply clears an initiative wait when no proposal is pending`() = runTest {
+    val workout = activeWorkout()
+    db.coachDao()
+        .saveContext(
+            com.valerochka1337.valerochkagym.data.db.entity.CoachSessionContextEntity(
+                workout,
+                "user",
+                initiativePendingInteraction = true,
+            )
+        )
+    assertTrue(
+        conversation(RecordingGateway())
+            .appendMessage("reply", "user", workout, "user", "Продолжаю")
+    )
+    assertFalse(db.coachDao().context(workout)!!.initiativePendingInteraction)
+  }
 
   private val session = FakeSession()
 
