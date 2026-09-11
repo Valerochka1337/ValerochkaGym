@@ -180,17 +180,56 @@ constructor(
             sentGeneration,
             requestScope,
         )
+    return enqueue(request)
+  }
+
+  /** Retry the original turn without inserting a second user message or replaying local commands. */
+  suspend fun retry(workoutId: String, errorMessageId: String): Boolean {
+    if (consumer?.isActive != true || workoutId in stoppedWorkouts) return false
+    val requestScope = ownerScope ?: return false
+    val sentGeneration = generation
+    val session = sessions.snapshot() ?: return false
+    val accountId = session.tokens.userId
+    val snapshot = reader.snapshot(accountId, workoutId, session.epoch) ?: return false
+    val request = writes.write {
+      database.withTransaction {
+        if (generation != sentGeneration || consumer?.isActive != true ||
+            workoutId in stoppedWorkouts || !belongsToLiveAccount(accountId, session.epoch) ||
+            workoutId in running.value || pendingRequests.values.any { it.workoutId == workoutId })
+          return@withTransaction null
+        val workout = database.workoutDao().getWorkoutFull(workoutId)?.workout
+        if (workout == null || workout.finishedAt != null ||
+            database.coachDao().pendingProposal(workoutId) != null) return@withTransaction null
+        val messages = database.coachDao().messages(workoutId)
+        val failure = messages.lastOrNull() ?: return@withTransaction null
+        if (failure.id != errorMessageId || failure.accountId != accountId ||
+            failure.role != "assistant" || (failure.status != "ERROR" &&
+                !failure.text.startsWith("Не удалось обработать запрос тренера.")))
+          return@withTransaction null
+        val original = messages.dropLast(1).lastOrNull { it.role == "user" }
+            ?: return@withTransaction null
+        if (original.accountId != accountId || original.status in setOf("PENDING", "PROCESSING"))
+          return@withTransaction null
+        database.coachDao().setMessageStatus(original.id, "PENDING")
+        PendingRequest(original.id, accountId, session.epoch, workoutId, original.text,
+            snapshot, sentGeneration, requestScope, retry = true)
+      }
+    } ?: return false
+    return enqueue(request)
+  }
+
+  private suspend fun enqueue(request: PendingRequest): Boolean {
     val accepted =
         synchronized(lifecycle) {
           if (
-              sentGeneration != generation ||
+              request.generation != generation ||
                   consumer?.isActive != true ||
-                  workoutId in stoppedWorkouts
+                  request.workoutId in stoppedWorkouts
           )
               false
           else {
-            latestRequests[workoutId] = id
-            pendingRequests[id] = request
+            latestRequests[request.workoutId] = request.messageId
+            pendingRequests[request.messageId] = request
             true
           }
         }
@@ -198,7 +237,7 @@ constructor(
       markInterrupted(request)
       return false
     }
-    setStage(workoutId, "Отправляем сообщение…")
+    setStage(request.workoutId, "Отправляем сообщение…")
     try {
       requests.send(request)
     } catch (error: CancellationException) {
@@ -311,7 +350,7 @@ constructor(
       }
       database.coachDao().setMessageStatus(request.messageId, "PROCESSING")
       val snapshot = request.snapshot
-      LocalWorkoutCommandParser.parse(request.text, snapshot)?.let { local ->
+      (if (request.retry) null else LocalWorkoutCommandParser.parse(request.text, snapshot))?.let { local ->
         val receipt =
             editor.submit(
                 request.accountId,
@@ -347,7 +386,8 @@ constructor(
               .coachDao()
               .messages(request.workoutId)
               .asSequence()
-              .filter { it.id != request.messageId && it.role in setOf("user", "assistant") }
+              .takeWhile { it.id != request.messageId }
+              .filter { it.role in setOf("user", "assistant") && it.status != "ERROR" }
               .map { CoachHistoryMessage(it.role, it.text) }
               .toList()
       setStage(request.workoutId, "Формируем ответ…")
@@ -377,6 +417,7 @@ constructor(
             "assistant",
             result.text,
             quickRepliesJson = CoachReply.encodeQuickReplies(result.quickReplies),
+            status = if (result.status == CoachRunStatus.ERROR) "ERROR" else "DELIVERED",
             expectedSessionEpoch = request.sessionEpoch,
             isCurrent = { isCurrent(request) },
         )
@@ -519,7 +560,7 @@ constructor(
         throw error
       } catch (_: Exception) {
         CoachToolOutcome(
-            "Не удалось обработать запрос тренера. Попробуйте ещё раз.",
+            "Не удалось обработать запрос",
             CoachRunStatus.ERROR,
         )
       }
@@ -595,6 +636,8 @@ constructor(
         val currentContext = context ?: CoachSessionContextEntity(workoutId, accountId)
         if (!isCurrent() || !belongsToLiveAccount(accountId, expectedSessionEpoch))
             return@withTransaction false
+        // A textual follow-up replaces the unanswered proposal in the same transaction as the message.
+        if (role == "user") database.coachDao().supersedePendingProposals(accountId, workoutId)
         val nextContext =
             if (role == "user" && database.coachDao().pendingProposal(workoutId) == null) {
               currentContext.copy(initiativePendingInteraction = false)
@@ -804,6 +847,7 @@ constructor(
       val snapshot: WorkoutSnapshot,
       val generation: Long,
       val scope: CoroutineScope,
+      val retry: Boolean = false,
   )
 
   companion object {

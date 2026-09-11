@@ -13,15 +13,20 @@ data class CoachReply(val text: String, val quickReplies: List<String> = emptyLi
       val candidate = trimmed.removePrefix("```json").removePrefix("```").removeSuffix("```").trim()
       structuredReply(candidate)?.let { return it }
 
-      // Some providers prepend a plain-language draft before repeating the actual structured
-      // response. Prefer that trailing valid object so JSON is never rendered in the chat bubble.
-      candidate.indices.reversed().asSequence()
-          .filter { candidate[it] == '{' }
-          .mapNotNull { structuredReply(candidate.substring(it).trim()) }
-          .firstOrNull()
-          ?.let { return it }
+      // Recover complete objects embedded in prose or Markdown without displaying wire metadata.
+      jsonObjects(candidate).toList().asReversed().forEach { (start, objectText) ->
+        structuredReply(objectText)?.let { return it }
+        val value = Json.parseToJsonElement(objectText) as? JsonObject
+        if (value?.keys == setOf("quick_replies")) {
+          val prose = candidate.substring(0, start).trim().removeSuffix("```json")
+              .removeSuffix("```").trim()
+          if (prose.isNotEmpty() && !prose.contains("quick_replies"))
+            return CoachReply(prose, decodeQuickReplies(value["quick_replies"]?.toString()))
+        }
+      }
 
-      require(!candidate.startsWith("{")) { "Malformed coach reply" }
+      require(!candidate.startsWith("{") && !candidate.contains("\"quick_replies\"") &&
+          !candidate.contains("\"text\"")) { "Malformed coach reply" }
       return CoachReply(trimmed)
     }
 
@@ -29,8 +34,38 @@ data class CoachReply(val text: String, val quickReplies: List<String> = emptyLi
       val value = runCatching { Json.parseToJsonElement(candidate) }.getOrNull() as? JsonObject
       if (value == null) return null
       val text = (value["text"] as? JsonPrimitive)?.takeIf { it.isString }?.content?.trim()
-      require(!text.isNullOrEmpty()) { "Missing coach reply text" }
+      if (text.isNullOrEmpty()) return null
       return CoachReply(text, decodeQuickReplies(value["quick_replies"]?.toString()))
+    }
+
+    /** Braces inside escaped JSON strings do not delimit objects. */
+    private fun jsonObjects(raw: String): Sequence<Pair<Int, String>> = sequence {
+      var start = -1
+      var depth = 0
+      var quoted = false
+      var escaped = false
+      raw.forEachIndexed { index, char ->
+        if (depth == 0) {
+          if (char == '{') { start = index; depth = 1 }
+        } else if (quoted) {
+          if (escaped) escaped = false
+          else if (char == '\\') escaped = true
+          else if (char == '"') quoted = false
+        } else {
+          when (char) {
+            '"' -> quoted = true
+            '{' -> depth++
+            '}' -> {
+              depth--
+              if (depth == 0) {
+                val candidate = raw.substring(start, index + 1)
+                if (runCatching { Json.parseToJsonElement(candidate) }.isSuccess)
+                  yield(start to candidate)
+              }
+            }
+          }
+        }
+      }
     }
 
     fun decodeQuickReplies(raw: String?): List<String> {

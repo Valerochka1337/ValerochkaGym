@@ -309,7 +309,10 @@ object CoachToolCodec {
 
   private fun operation(obj: JsonObject): CoachChangeIntent {
     val action = obj.text("action")
-    fun keys(vararg names: String) = obj.keys(names.toSet() + "action")
+    // Providers sometimes attach the package explanation to an individual operation.
+    // Accept only this bounded metadata; all executable fields remain strictly validated.
+    obj.optionalText("reason", 1200)
+    fun keys(vararg names: String) = obj.keys(names.toSet() + setOf("action", "reason"))
     return when (action) {
       "add_exercise" -> {
         keys("exercise_id")

@@ -61,6 +61,9 @@ interface CoachDao {
   @Query("UPDATE coach_proposals SET state=:state WHERE id=:id")
   suspend fun setProposalState(id: String, state: String)
 
+  @Query("UPDATE coach_proposals SET state='SUPERSEDED' WHERE accountId=:accountId AND workoutId=:workoutId AND state='PENDING'")
+  suspend fun supersedePendingProposals(accountId: String, workoutId: String)
+
   @Query("SELECT * FROM coach_command_receipts WHERE operationId=:operationId")
   suspend fun receipt(operationId: String): CoachCommandReceiptEntity?
 

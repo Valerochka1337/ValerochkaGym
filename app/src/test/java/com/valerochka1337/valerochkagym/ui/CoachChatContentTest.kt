@@ -1,5 +1,6 @@
 package com.valerochka1337.valerochkagym.ui
 
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.platform.LocalDensity
@@ -9,6 +10,7 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import com.valerochka1337.valerochkagym.ui.coach.*
 import com.valerochka1337.valerochkagym.ui.theme.GymTheme
+import org.junit.Assert.assertTrue
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -23,6 +25,7 @@ abstract class CoachChatSemanticsBase {
       initial: CoachChatUiState,
       applied: (String) -> Unit = {},
       sent: (String) -> Unit = {},
+      retried: (String) -> Unit = {},
       canceled: (String) -> Unit = {},
   ) {
     val state = mutableStateOf(initial)
@@ -35,6 +38,7 @@ abstract class CoachChatSemanticsBase {
               onBack = {},
               onDraftChange = { state.value = state.value.copy(draft = it) },
               onSend = sent,
+              onRetry = retried,
               onConfirm = { id ->
                 applied(id)
                 state.value = state.value.copy(busy = true, status = "Применяем изменения…")
@@ -46,6 +50,95 @@ abstract class CoachChatSemanticsBase {
         }
       }
     }
+  }
+
+  @Test
+  fun `keyboard raises composer and keeps latest message visible without moving header`() {
+    val keyboardHeight = mutableStateOf(0)
+    compose.setContent {
+      GymTheme {
+        CoachChatContent(
+            state = CoachChatUiState(messages = (1..40).map {
+              CoachChatMessage("message-$it", "user", "Сообщение $it")
+            }),
+            onBack = {}, onDraftChange = {}, onSend = {}, onConfirm = {},
+            onCancel = {}, onUndo = {}, onDisableInitiative = {},
+            imeInsets = WindowInsets(bottom = keyboardHeight.value),
+        )
+      }
+    }
+    val header = compose.onNodeWithText("Live Coach").fetchSemanticsNode().boundsInRoot
+    val input = compose.onNodeWithTag("coach-input").fetchSemanticsNode().boundsInRoot
+    val conversation = compose.onNodeWithTag("coach-conversation").fetchSemanticsNode().boundsInRoot
+    compose.onNodeWithTag("coach-input").performClick()
+    // Exercise intermediate animation frames as well as the fully open keyboard.
+    for (height in listOf(160, 320, 480)) {
+      compose.runOnIdle { keyboardHeight.value = height }
+      compose.waitForIdle()
+      assertEquals(header, compose.onNodeWithText("Live Coach").fetchSemanticsNode().boundsInRoot)
+      val raisedInput = compose.onNodeWithTag("coach-input").fetchSemanticsNode().boundsInRoot
+      assertEquals(input.top - height, raisedInput.top, 1f)
+      val viewport = compose.onNodeWithTag("coach-conversation").fetchSemanticsNode().boundsInRoot
+      assertEquals(conversation.top, viewport.top, 1f)
+      val last = compose.onNodeWithTag("coach-message:message-40").fetchSemanticsNode().boundsInRoot
+      assertTrue(last.top >= viewport.top)
+      assertTrue(last.bottom <= viewport.bottom)
+      assertTrue(last.bottom <= raisedInput.top)
+    }
+    compose.runOnIdle { keyboardHeight.value = 0 }
+    compose.waitForIdle()
+    assertEquals(input, compose.onNodeWithTag("coach-input").fetchSemanticsNode().boundsInRoot)
+    compose.onNodeWithText("Сообщение 40", substring = true).assertIsDisplayed()
+  }
+
+  @Test
+  fun `failed answer retries AI turn without sending a user message at large font scale`() {
+    val sent = mutableListOf<String>()
+    val retried = mutableListOf<String>()
+    content(CoachChatUiState(messages = listOf(
+        CoachChatMessage("user", "user", "Перенеси Хаммер"),
+        CoachChatMessage("error", "assistant", "Не удалось обработать запрос", failed = true),
+    )), sent = { sent += it }, retried = { retried += it })
+    compose.onNodeWithText("Не удалось обработать запрос", substring = true).assertIsDisplayed()
+    compose.onNodeWithContentDescription("Повторить запрос").assertIsDisplayed().performClick()
+    assertEquals(emptyList<String>(), sent)
+    assertEquals(listOf("error"), retried)
+  }
+
+  @Test
+  fun `retry is disabled while another request runs`() {
+    content(CoachChatUiState(busy = true, messages = listOf(
+        CoachChatMessage("user", "user", "Перенеси Хаммер"),
+        CoachChatMessage("error", "assistant", "Не удалось обработать запрос", failed = true),
+    )))
+    compose.onNodeWithContentDescription("Повторить запрос").assertIsNotEnabled()
+  }
+
+  @Test
+  fun `historical errors and finished workouts do not offer retry`() {
+    val user = CoachChatMessage("user", "user", "Перенеси Хаммер")
+    val error = CoachChatMessage("error", "assistant", "Не удалось обработать запрос", failed = true)
+    assertEquals(null, CoachChatUiState(messages = listOf(user, error), readOnly = true).retryText(error))
+    assertEquals(null, CoachChatUiState(messages = listOf(user, error, user.copy(id = "new"))).retryText(error))
+    assertEquals(null, CoachChatUiState(messages = listOf(error)).retryText(error))
+  }
+
+  @Test
+  fun `opening a long conversation shows the last message`() {
+    content(CoachChatUiState(messages = (1..40).map {
+      CoachChatMessage("message-$it", "user", "Сообщение $it")
+    }))
+    compose.onNodeWithText("Сообщение 40", substring = true).assertIsDisplayed()
+  }
+
+  @Test
+  fun `processing is hidden on user messages while interrupted status remains visible`() {
+    content(CoachChatUiState(messages = listOf(
+        CoachChatMessage("processing", "user", "Замени упражнение", "Обрабатывается"),
+        CoachChatMessage("interrupted", "user", "Добавь подход", "Запрос прерван"),
+    )))
+    compose.onNodeWithText("Обрабатывается", substring = true).assertDoesNotExist()
+    compose.onNodeWithText("Запрос прерван", substring = true).assertExists()
   }
 
   @Test

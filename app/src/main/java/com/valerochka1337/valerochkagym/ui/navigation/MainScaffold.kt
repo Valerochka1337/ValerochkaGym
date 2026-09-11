@@ -6,6 +6,8 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -130,6 +132,7 @@ fun MainScaffold(
     BoxWithConstraints(Modifier.fillMaxSize()) {
       val windowWidthClass = GymWindowWidthClass.from(maxWidth)
       MainDestinationContent(
+          ownsSystemInsets = currentDestination?.route == GymRoutes.COACH_CHAT,
           showResumeBanner = showResumeBanner,
           banner = banner,
           onResumeWorkout = { navController.navigate(GymRoutes.ACTIVE_WORKOUT) },
@@ -192,12 +195,14 @@ fun MainScaffold(
 
 @Composable
 private fun MainDestinationContent(
+    ownsSystemInsets: Boolean,
     showResumeBanner: Boolean,
     banner: SessionBannerState?,
     onResumeWorkout: () -> Unit,
     content: @Composable (Modifier) -> Unit,
 ) {
   Scaffold(
+      contentWindowInsets = if (ownsSystemInsets) WindowInsets(0, 0, 0, 0) else androidx.compose.material3.ScaffoldDefaults.contentWindowInsets,
       bottomBar = {
         AnimatedVisibility(
             visible = showResumeBanner,
@@ -212,7 +217,7 @@ private fun MainDestinationContent(
         }
       },
   ) { innerPadding ->
-    content(Modifier.padding(innerPadding))
+    content(Modifier.padding(innerPadding).consumeWindowInsets(innerPadding))
   }
 }
 

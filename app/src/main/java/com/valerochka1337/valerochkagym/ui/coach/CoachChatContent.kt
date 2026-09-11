@@ -2,6 +2,9 @@ package com.valerochka1337.valerochkagym.ui.coach
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -9,6 +12,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -16,6 +20,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -37,6 +43,7 @@ data class CoachChatMessage(
     val text: String,
     val status: String? = null,
     val quickReplies: List<String>? = null,
+    val failed: Boolean = false,
 )
 
 data class CoachChatProposal(
@@ -58,6 +65,12 @@ data class CoachChatUiState(
     val initiativeEnabled: Boolean = true,
     val canUndo: Boolean = false,
 ) {
+  fun retryText(message: CoachChatMessage): String? {
+    if (!message.failed || messages.lastOrNull()?.id != message.id || proposal != null || readOnly)
+      return null
+    return messages.dropLast(1).lastOrNull { it.role == "user" }?.text
+  }
+
   val quickReplies: List<String>
     get() =
         when {
@@ -82,17 +95,36 @@ fun CoachChatContent(
     onUndo: () -> Unit,
     onDisableInitiative: () -> Unit,
     modifier: Modifier = Modifier,
+    onRetry: (String) -> Unit = {},
+    imeInsets: WindowInsets = WindowInsets.ime,
 ) {
   val haptics = gymHaptics()
   val actionColors = LocalCoachActionColors.current
   val listState = rememberLazyListState()
-  LaunchedEffect(state.messages.lastOrNull()?.id) {
+  var conversationHeight by remember { mutableStateOf(0) }
+  val imeBottom = imeInsets.getBottom(LocalDensity.current)
+  var openedHistory by remember { mutableStateOf(false) }
+  val itemCount = state.messages.size.coerceAtLeast(1) +
+      (if (state.status != null) 1 else 0) + (if (state.error != null) 1 else 0) +
+      (if (state.readOnly || state.proposal != null) 1 else 0)
+  LaunchedEffect(state.messages.lastOrNull()?.id, state.proposal?.id, state.status, state.readOnly) {
     val layout = listState.layoutInfo
-    if (
-        layout.visibleItemsInfo.lastOrNull()?.index?.let { it >= layout.totalItemsCount - 3 } !=
-            false && state.messages.isNotEmpty()
-    )
-        listState.scrollToItem(state.messages.lastIndex)
+    val nearBottom = layout.visibleItemsInfo.lastOrNull()?.index?.let {
+      it >= layout.totalItemsCount - 3
+    } != false
+    if (!openedHistory || nearBottom) {
+      withFrameNanos { }
+      listState.scrollToItem(itemCount - 1, Int.MAX_VALUE)
+      if (state.messages.isNotEmpty()) openedHistory = true
+    }
+  }
+  // The composer reduces the viewport as the IME animates. Reveal the end after
+  // each layout change, without moving the app bar or changing the window origin.
+  LaunchedEffect(imeBottom, conversationHeight) {
+    if (imeBottom > 0 && !state.readOnly) {
+      withFrameNanos { }
+      listState.scrollToItem(itemCount - 1, Int.MAX_VALUE)
+    }
   }
   Scaffold(
       modifier = modifier.fillMaxSize(),
@@ -117,14 +149,15 @@ fun CoachChatContent(
               onSend = onSend,
               onUndo = onUndo,
               onDisableInitiative = onDisableInitiative,
+              imeInsets = imeInsets,
           )
         }
       },
   ) { padding ->
-    Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.TopCenter) {
+    Box(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding), contentAlignment = Alignment.TopCenter) {
       LazyColumn(
           state = listState,
-          modifier = Modifier.widthIn(max = 960.dp).fillMaxSize().testTag("coach-conversation"),
+          modifier = Modifier.widthIn(max = 960.dp).fillMaxSize().onSizeChanged { conversationHeight = it.height }.testTag("coach-conversation"),
           contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
           verticalArrangement = Arrangement.spacedBy(12.dp),
       ) {
@@ -159,9 +192,18 @@ fun CoachChatContent(
                 style = MaterialTheme.typography.labelLarge,
             )
             Spacer(Modifier.height(8.dp))
-            Text(message.text, style = MaterialTheme.typography.bodyLarge)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+              Text(message.text, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
+              state.retryText(message)?.let {
+                IconButton(
+                    onClick = { haptics.tap(); onRetry(message.id) },
+                    enabled = !state.busy,
+                    modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp),
+                ) { Icon(Icons.Rounded.Refresh, "Повторить запрос") }
+              }
+            }
             message.status
-                ?.takeIf { it.isNotBlank() }
+                ?.takeIf { it.isNotBlank() && !(isUser && it == "Обрабатывается") }
                 ?.let {
                   Spacer(Modifier.height(8.dp))
                   Text(
@@ -211,7 +253,14 @@ fun CoachChatContent(
                       Spacer(Modifier.height(12.dp))
                     }
                     var expanded by remember(action.title, action.kind) { mutableStateOf(false) }
-                    Column(Modifier.fillMaxWidth()) {
+                    val revealAction = remember { BringIntoViewRequester() }
+                    LaunchedEffect(expanded) {
+                      if (expanded) {
+                        withFrameNanos { }
+                        revealAction.bringIntoView()
+                      }
+                    }
+                    Column(Modifier.fillMaxWidth().bringIntoViewRequester(revealAction)) {
                       Row(
                           horizontalArrangement = Arrangement.spacedBy(12.dp),
                           verticalAlignment = Alignment.CenterVertically,
@@ -332,6 +381,7 @@ private fun CoachComposer(
     onSend: (String) -> Unit,
     onUndo: () -> Unit,
     onDisableInitiative: () -> Unit,
+    imeInsets: WindowInsets,
 ) {
   val haptics = gymHaptics()
   val focusManager = LocalFocusManager.current
@@ -342,7 +392,7 @@ private fun CoachComposer(
     focusManager.clearFocus()
     keyboardController?.hide()
   }
-  Surface(tonalElevation = 3.dp) {
+  Surface(modifier = Modifier.windowInsetsPadding(imeInsets), tonalElevation = 3.dp) {
     Column(
         Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -387,12 +437,19 @@ private fun CoachChatMessage.actionResult(): CoachActionResult? =
 @Composable
 private fun AppliedActionMessage(message: CoachChatMessage, result: CoachActionResult) {
   var expanded by remember(message.id) { mutableStateOf(false) }
+  val revealAction = remember { BringIntoViewRequester() }
+  LaunchedEffect(expanded) {
+    if (expanded) {
+      withFrameNanos { }
+      revealAction.bringIntoView()
+    }
+  }
   val actionColors = LocalCoachActionColors.current
   Surface(
       color = if (result.accepted) actionColors.acceptedContainer else actionColors.rejectedContainer,
       contentColor = if (result.accepted) actionColors.onAcceptedContainer else actionColors.onRejectedContainer,
       shape = MaterialTheme.shapes.medium,
-      modifier = Modifier.fillMaxWidth(0.72f).testTag("coach-action-result:${message.id}"),
+      modifier = Modifier.fillMaxWidth(0.72f).bringIntoViewRequester(revealAction).testTag("coach-action-result:${message.id}"),
   ) {
     Column {
       Row(

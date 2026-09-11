@@ -15,6 +15,7 @@ import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonPrimitive
 import retrofit2.HttpException
+import kotlin.time.Duration.Companion.milliseconds
 
 enum class CoachRunStatus {
   ANSWER,
@@ -82,7 +83,7 @@ constructor(
       return result("Напишите сообщение длиной до $MAX_MESSAGE_CHARS символов.")
     }
     return try {
-      withTimeout(TOTAL_MILLIS) {
+      withTimeout(TOTAL_MILLIS.milliseconds) {
         val names = tools.map { it.function.name }.toSet()
         require(names.size == tools.size && tools.all { it.type == "function" })
         val messages = mutableListOf(AiApiMessage.text("system", coachSystemPrompt))
@@ -215,7 +216,7 @@ constructor(
     } catch (_: IOException) {
       result("Нет подключения к модели. Проверьте сеть и повторите запрос.")
     } catch (_: Exception) {
-      result("Не удалось обработать ответ. Проверьте модель и повторите запрос.")
+      result("Не удалось обработать запрос")
     }
   }
 

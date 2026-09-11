@@ -219,6 +219,17 @@ class CoachToolCodecTest {
     } catch (_: CoachToolValidationException) {}
   }
 
+  @Test
+  fun `reorder accepts bounded operation explanation from model response`() {
+    val result = submit(
+        """{"action":"reorder_exercises","section_ids":["$OTHER","$SECTION"],"reason":"Перенести жим в Хаммере на место занятого жима лёжа"}"""
+    )
+    assertEquals(listOf(CoachChangeIntent.Reorder(listOf(OTHER, SECTION))), result.operations)
+    rejectedSubmit("""{"action":"reorder_exercises","section_ids":["$OTHER","$SECTION"],"reason":42}""")
+    rejectedSubmit("""{"action":"reorder_exercises","section_ids":["$OTHER","$SECTION"],"reason":"${"x".repeat(1201)}"}""")
+    rejectedSubmit("""{"action":"reorder_exercises","section_ids":["$OTHER","$SECTION"],"approved":true}""")
+  }
+
   private fun decode(name: String, arguments: String) =
       CoachToolCodec.decode(
           AiApiToolCall("test", function = AiApiToolCallFunction(name, arguments))

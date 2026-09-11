@@ -44,9 +44,12 @@ constructor(
               CoachChatMessage(
                   it.id,
                   it.role,
-                  it.text,
+                  if (it.text.startsWith("Не удалось обработать запрос тренера."))
+                    "Не удалось обработать запрос" else it.text,
                   it.status.toUiStatus(),
                   it.quickRepliesJson?.let(CoachReply::decodeQuickReplies),
+                  failed = it.role == "assistant" && (it.status == "ERROR" ||
+                      it.text.startsWith("Не удалось обработать запрос тренера.")),
               )
             },
             proposal?.let {
@@ -121,6 +124,8 @@ constructor(
       }
     }
   }
+
+  fun retry(errorMessageId: String) = action { conversation.retry(workoutId, errorMessageId) }
 
   fun confirm(id: String) = action { conversation.confirm(workoutId, id) }
 

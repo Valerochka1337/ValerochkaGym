@@ -34,6 +34,75 @@ import org.junit.Test
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class CoachConversationServiceTest : RoomDaoTest() {
   @Test
+  fun `retry calls AI again without duplicating user message or its journal entry`() = runTest {
+    val workout = activeWorkout()
+    val gateway = RecordingGateway("""{"text":"broken""" )
+    val service = conversation(gateway)
+    service.attach(backgroundScope)
+    assertTrue(service.send(workout, "Перенеси Хаммер"))
+    val failure = db.coachDao().observeMessages(workout).first { it.size == 2 }.last()
+    runCurrent()
+    val original = db.coachDao().messages(workout).first()
+    gateway.answerText = "Проверил тренировку."
+    assertTrue(service.retry(workout, failure.id))
+    assertFalse(service.retry(workout, failure.id))
+    val messages = db.coachDao().observeMessages(workout).first { it.size == 3 }
+    assertEquals(listOf(original.id), messages.filter { it.role == "user" }.map { it.id })
+    assertEquals("Проверил тренировку.", messages.last().text)
+    assertEquals(2, gateway.calls)
+    assertEquals(gateway.requests.first(), gateway.requests.last())
+    assertEquals(1, db.coachDao().pendingJournal("user", 100).count { it.id == original.id })
+    runCurrent()
+    assertFalse(service.retry(workout, failure.id))
+  }
+
+  @Test
+  fun `retry rejects errors from another account`() = runTest {
+    val workout = activeWorkout()
+    val gateway = RecordingGateway("""{"text":"broken""" )
+    val service = conversation(gateway)
+    service.attach(backgroundScope)
+    assertTrue(service.send(workout, "Перенеси Хаммер"))
+    val failure = db.coachDao().observeMessages(workout).first { it.size == 2 }.last()
+    runCurrent()
+    session.save(BackendTokens("other", "other@example.com", "access", "refresh"))
+    assertFalse(service.retry(workout, failure.id))
+    assertEquals(1, gateway.calls)
+  }
+
+  @Test
+  fun `malformed reply persists a short error eligible for retry`() = runTest {
+    val workout = activeWorkout()
+    val service = conversation(RecordingGateway("""{"text":"broken"""))
+    service.attach(backgroundScope)
+    assertTrue(service.send(workout, "Перенеси Хаммер"))
+    val answer = db.coachDao().observeMessages(workout).first { it.size == 2 }.last()
+    assertEquals("Не удалось обработать запрос", answer.text)
+    assertEquals("ERROR", answer.status)
+  }
+
+  @Test
+  fun `text followup supersedes all pending proposals without adding rejection messages`() = runTest {
+    val workout = activeWorkout()
+    val proposal = com.valerochka1337.valerochkagym.data.db.entity.CoachProposalEntity(
+        id = "old", accountId = "user", workoutId = workout, baseRevision = 0,
+        beforeSummary = "Было", afterSummary = "Замена", packetJson = "{}",
+        expiresAt = Long.MAX_VALUE,
+    )
+    db.coachDao().saveProposal(proposal)
+    db.coachDao().saveProposal(proposal.copy(id = "older"))
+    val service = conversation(RecordingGateway())
+    service.attach(backgroundScope)
+    assertFalse(service.send(workout, " "))
+    assertTrue(db.coachDao().pendingProposal(workout) != null)
+    assertTrue(service.send(workout, "Предложи другую замену"))
+    assertNull(db.coachDao().pendingProposal(workout))
+    assertFalse(service.confirm(workout, "old"))
+    assertFalse(service.confirm(workout, "older"))
+    assertFalse(db.coachDao().messages(workout).any { it.text.startsWith("REJECTED|") })
+  }
+
+  @Test
   fun `sending immediately after attach is processed from the bounded queue`() = runTest {
     val workoutId = activeWorkout()
     val gateway = RecordingGateway()
@@ -665,9 +734,10 @@ class CoachConversationServiceTest : RoomDaoTest() {
     }
   }
 
-  private open class RecordingGateway(val answerText: String = "Готов помочь.") :
+  private open class RecordingGateway(var answerText: String = "Готов помочь.") :
       CoachModelGateway {
     var calls = 0
+    val requests = mutableListOf<List<AiApiMessage>>()
     val owners = mutableListOf<String>()
     val epochs = mutableListOf<Long?>()
 
@@ -678,6 +748,7 @@ class CoachConversationServiceTest : RoomDaoTest() {
         tools: List<AiApiTool>,
     ): AiApiChatResponse {
       calls++
+      requests += messages
       owners += expectedOwner
       epochs += expectedSessionEpoch
       return AiApiChatResponse(
