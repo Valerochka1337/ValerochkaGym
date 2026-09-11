@@ -95,6 +95,7 @@ constructor(
     }
     pin(expectedOwner, expectedSessionEpoch)
     val responseBody = response.rawBody.decodeToString()
+    CoachResponseLogger.log(requestId, model, responseBody)
     val decoded = wireJson.decodeFromString(CoachTurnResponse.serializer(), responseBody)
     require(decoded.requestId == request.requestId) { "Coach response correlation changed" }
     require(decoded.model == request.model) { "Coach response model changed" }
