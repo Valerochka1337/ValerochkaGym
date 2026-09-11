@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.mutablePreferencesOf
 import com.valerochka1337.valerochkagym.data.RoomDaoTest
+import com.valerochka1337.valerochkagym.data.ai.CoachChangeIntent
 import com.valerochka1337.valerochkagym.data.backend.BackendSessionStore
 import com.valerochka1337.valerochkagym.data.backend.BackendTokens
 import com.valerochka1337.valerochkagym.data.db.entity.CoachSessionContextEntity
@@ -541,6 +542,163 @@ class WorkoutEditorTest : RoomDaoTest() {
   }
 
   @Test
+  fun `model replacement without history keeps source load out of the new strength sets`() =
+      runTest {
+        val sourceExercise = exercise("Source")
+        val replacement = exercise("Replacement")
+        val workout = insertWorkout("workout")
+        val source = insertWorkoutExercise(workout, sourceExercise)
+        insertSet(source, 0, weightKg = 80.0, reps = 8, isCompleted = true)
+        val unfinishedId = insertSet(source, 1, weightKg = 60.0, reps = 6)
+        val sourceRow = db.workoutDao().getWorkoutExercises(workout).single()
+        val unfinished = requireNotNull(db.workoutDao().getSet(unfinishedId))
+        val replacementSyncId = requireNotNull(db.exerciseDao().getById(replacement)).syncId
+        val editor =
+            coordinator(RestTimerEngine(backgroundScope, WallClock { testScheduler.currentTime }))
+
+        val result =
+            editor.saveModelProposalResult(
+                "user",
+                workout,
+                0,
+                listOf(
+                    CoachChangeIntent.Replace(
+                        sourceRow.sectionId,
+                        replacementSyncId,
+                        listOf(unfinished.syncId),
+                        null,
+                    )
+                ),
+                Long.MAX_VALUE,
+            )
+
+        val proposal = assertIsSaved(result)
+        assertEquals(
+            CommandResult.APPLIED,
+            editor.confirmProposal("user", proposal.id, "confirm-null-replacement").result,
+        )
+        val sections = workoutFull(workout).exercises
+        assertTrue(
+            sections
+                .single { it.workoutExercise.exerciseId == sourceExercise }
+                .sets
+                .single()
+                .isCompleted
+        )
+        val moved = sections.single { it.workoutExercise.exerciseId == replacement }.sets.single()
+        assertEquals(unfinished.syncId, moved.syncId)
+        assertFalse(moved.isCompleted)
+        assertEquals(6, moved.reps)
+        assertNull(moved.weightKg)
+        assertNull(moved.originalWeightKg)
+        assertNull(moved.targetWeightKg)
+        assertNull(moved.actualWeightKg)
+      }
+
+  @Test
+  fun `model replacement resolves its history but explicit weight wins`() = runTest {
+    val sourceExercise = exercise("Source")
+    val replacement = exercise("Replacement")
+    val history = insertWorkout("history", finishedAt = 2_000)
+    val historySection = insertWorkoutExercise(history, replacement)
+    insertSet(historySection, 0, weightKg = 42.5, reps = 8, isCompleted = true)
+    val workout = insertWorkout("workout")
+    val source = insertWorkoutExercise(workout, sourceExercise)
+    val unfinishedId = insertSet(source, 0, reps = 8)
+    val sourceRow = db.workoutDao().getWorkoutExercises(workout).single()
+    val unfinished = requireNotNull(db.workoutDao().getSet(unfinishedId))
+    val replacementSyncId = requireNotNull(db.exerciseDao().getById(replacement)).syncId
+    val editor =
+        coordinator(RestTimerEngine(backgroundScope, WallClock { testScheduler.currentTime }))
+
+    val fallback =
+        assertIsSaved(
+            editor.saveModelProposalResult(
+                "user",
+                workout,
+                0,
+                listOf(
+                    CoachChangeIntent.Replace(
+                        sourceRow.sectionId,
+                        replacementSyncId,
+                        listOf(unfinished.syncId),
+                        null,
+                    )
+                ),
+                Long.MAX_VALUE,
+            )
+        )
+    assertEquals(42.5, requireNotNull(replacementWeight(fallback)), 0.0)
+    assertTrue(editor.cancelProposal("user", fallback.id))
+
+    val explicit =
+        assertIsSaved(
+            editor.saveModelProposalResult(
+                "user",
+                workout,
+                0,
+                listOf(
+                    CoachChangeIntent.Replace(
+                        sourceRow.sectionId,
+                        replacementSyncId,
+                        listOf(unfinished.syncId),
+                        55.0,
+                    )
+                ),
+                Long.MAX_VALUE,
+            )
+        )
+    assertEquals(55.0, requireNotNull(replacementWeight(explicit)), 0.0)
+  }
+
+  @Test
+  fun `model proposal distinguishes live revision conflict invalid intent and unavailable request`() =
+      runTest {
+        val exercise = exercise("Source")
+        val workout = insertWorkout("workout")
+        val section = insertWorkoutExercise(workout, exercise)
+        val editor =
+            coordinator(RestTimerEngine(backgroundScope, WallClock { testScheduler.currentTime }))
+        val sectionId = db.workoutDao().getWorkoutExercises(workout).single().sectionId
+
+        assertEquals(
+            ModelProposalSaveResult.Stale,
+            editor.saveModelProposalResult(
+                "user",
+                workout,
+                1,
+                listOf(CoachChangeIntent.AddSet(sectionId)),
+                Long.MAX_VALUE,
+            ),
+        )
+        assertEquals(
+            ModelProposalSaveResult.Invalid,
+            editor.saveModelProposalResult(
+                "user",
+                workout,
+                0,
+                listOf(CoachChangeIntent.AddExercise("00000000-0000-0000-0000-000000000000")),
+                Long.MAX_VALUE,
+            ),
+        )
+        assertEquals(
+            ModelProposalSaveResult.Unavailable,
+            editor.saveModelProposalResult(
+                "user",
+                workout,
+                0,
+                listOf(CoachChangeIntent.AddSet(sectionId)),
+                Long.MAX_VALUE,
+            ) {
+              false
+            },
+        )
+        assertNull(db.coachDao().pendingProposal(workout))
+        assertTrue(db.coachDao().pendingJournal("user", 100).isEmpty())
+        assertEquals(0, tableCount("coach_command_receipts"))
+      }
+
+  @Test
   fun `replacement permits an explicitly weightless cardio exercise without inventing a load`() =
       runTest {
         val sourceExercise = exercise("Source")
@@ -947,19 +1105,16 @@ class WorkoutEditorTest : RoomDaoTest() {
     val workout = insertWorkout("stale-proposal")
     val editor = coordinator(RestTimerEngine(backgroundScope) { 0L })
     var checks = 0
-    try {
-      editor.saveProposal(
-          "user",
-          workout,
-          WorkoutChangeSet.Packet(
-              listOf(WorkoutChangeSet.Operation.SetAvailableTime(20))
-          ),
-          0,
-          Long.MAX_VALUE,
-          isCurrent = { ++checks < 3 },
-      )
-      fail("Final request fence must roll back")
-    } catch (_: IllegalStateException) {}
+    assertNull(
+        editor.saveProposal(
+            "user",
+            workout,
+            WorkoutChangeSet.Packet(listOf(WorkoutChangeSet.Operation.SetAvailableTime(20))),
+            0,
+            Long.MAX_VALUE,
+            isCurrent = { ++checks < 4 },
+        )
+    )
     assertNull(db.coachDao().pendingProposal(workout))
     assertTrue(db.coachDao().pendingJournal("user", 100).isEmpty())
     assertEquals(0L, workoutFull(workout).workout.coachRevision)
@@ -1013,6 +1168,15 @@ class WorkoutEditorTest : RoomDaoTest() {
 
   private fun authority(packet: WorkoutChangeSet.Packet) =
       CommandAuthority.local(packet, CommandAuthority.Anchors(null, null, null))
+
+  private fun assertIsSaved(result: ModelProposalSaveResult): WorkoutProposal {
+    assertTrue(result is ModelProposalSaveResult.Saved)
+    return (result as ModelProposalSaveResult.Saved).proposal
+  }
+
+  private fun replacementWeight(proposal: WorkoutProposal): Double? =
+      (proposal.packet.operations.single() as WorkoutChangeSet.Operation.ReplaceRemaining)
+          .replacementWeightKg
 
   private suspend fun exercise(
       name: String = "Exercise",

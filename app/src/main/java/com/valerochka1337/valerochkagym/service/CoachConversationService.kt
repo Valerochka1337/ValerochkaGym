@@ -19,6 +19,7 @@ import com.valerochka1337.valerochkagym.domain.CoachPerformanceSet
 import com.valerochka1337.valerochkagym.domain.CoachWorkoutReader
 import com.valerochka1337.valerochkagym.domain.CommandAuthority
 import com.valerochka1337.valerochkagym.domain.LocalWorkoutCommandParser
+import com.valerochka1337.valerochkagym.domain.ModelProposalSaveResult
 import com.valerochka1337.valerochkagym.domain.WorkoutEditor
 import com.valerochka1337.valerochkagym.domain.WorkoutSnapshot
 import com.valerochka1337.valerochkagym.domain.WorkoutWriteQueue
@@ -417,13 +418,15 @@ constructor(
                 CoachRunStatus.ERROR,
             )
         when (val decoded = CoachToolCodec.decode(call)) {
-          CoachToolRequest.State ->
-              CoachToolOutcome(
-                  CoachToolCodec.snapshotJson(
-                      reader.snapshot(request.accountId, request.workoutId, request.sessionEpoch)
-                          ?: snapshot
-                  )
-              )
+          CoachToolRequest.State -> {
+            val fresh = freshSnapshot(request)
+            if (fresh == null)
+                CoachToolOutcome(
+                    "Тренировка больше недоступна для изменений.",
+                    CoachRunStatus.ERROR,
+                )
+            else CoachToolOutcome(CoachToolCodec.snapshotJson(fresh))
+          }
           is CoachToolRequest.Find ->
               CoachToolOutcome(
                   CoachToolCodec.foundJson(
@@ -433,35 +436,79 @@ constructor(
           is CoachToolRequest.History ->
               CoachToolOutcome(CoachToolCodec.historyJson(reader.history(decoded.exerciseId)))
           is CoachToolRequest.Submit -> {
-            val proposal =
-                editor.saveModelProposal(
-                    request.accountId,
-                    request.workoutId,
-                    decoded.baseRevision,
-                    decoded.operations,
-                    expiresAt = System.currentTimeMillis() + PROPOSAL_TTL_MILLIS,
-                    expectedSessionEpoch = request.sessionEpoch,
-                    isCurrent = { isCurrent(request) },
-                )
-            if (proposal == null)
+            when (
+                val result =
+                    editor.saveModelProposalResult(
+                        request.accountId,
+                        request.workoutId,
+                        decoded.baseRevision,
+                        decoded.operations,
+                        expiresAt = System.currentTimeMillis() + PROPOSAL_TTL_MILLIS,
+                        expectedSessionEpoch = request.sessionEpoch,
+                        isCurrent = { isCurrent(request) },
+                    )
+            ) {
+              is ModelProposalSaveResult.Saved -> {
+                coachAlerts.emit(request.workoutId)
                 CoachToolOutcome(
-                    "Состояние тренировки изменилось. Получи актуальные данные и предложи изменение снова.",
-                    CoachRunStatus.ERROR,
+                    "Предложение сохранено для подтверждения: ${result.proposal.afterSummary}",
+                    CoachRunStatus.PROPOSAL,
                 )
-            else {
-              coachAlerts.emit(request.workoutId)
-              CoachToolOutcome(
-                  "Предложение сохранено для подтверждения: ${proposal.afterSummary}",
-                  CoachRunStatus.PROPOSAL,
-              )
+              }
+              ModelProposalSaveResult.Stale -> {
+                val fresh = freshSnapshot(request)
+                if (fresh == null)
+                    CoachToolOutcome(
+                        "Тренировка больше недоступна для изменений.",
+                        CoachRunStatus.ERROR,
+                    )
+                else
+                    CoachToolOutcome(
+                        recoveryJson(fresh),
+                        kind =
+                            com.valerochka1337.valerochkagym.data.ai.CoachToolOutcomeKind.RECOVERY,
+                    )
+              }
+              ModelProposalSaveResult.Invalid ->
+                  CoachToolOutcome(
+                      "Не удалось подготовить предложенное изменение. Уточните упражнение или параметры.",
+                      CoachRunStatus.ERROR,
+                  )
+              ModelProposalSaveResult.Unavailable ->
+                  CoachToolOutcome(
+                      "Тренировка больше недоступна для изменений.",
+                      CoachRunStatus.ERROR,
+                  )
             }
           }
         }
       } catch (error: CancellationException) {
         throw error
       } catch (_: Exception) {
-        CoachToolOutcome("Инструмент не принял аргументы. Уточни данные и не выполняй изменение.")
+        CoachToolOutcome(
+            "Не удалось обработать запрос тренера. Попробуйте ещё раз.",
+            CoachRunStatus.ERROR,
+        )
       }
+
+  private suspend fun freshSnapshot(request: PendingRequest): WorkoutSnapshot? {
+    if (!isCurrent(request) || !belongsToLiveAccount(request.accountId, request.sessionEpoch)) {
+      return null
+    }
+    val snapshot =
+        reader.snapshot(request.accountId, request.workoutId, request.sessionEpoch) ?: return null
+    return snapshot.takeIf {
+      isCurrent(request) && belongsToLiveAccount(request.accountId, request.sessionEpoch)
+    }
+  }
+
+  private fun recoveryJson(snapshot: WorkoutSnapshot): String =
+      buildJsonObject {
+            put("error", "revision_conflict")
+            put("instruction", "Создай новое предложение только по current_state с новой revision.")
+            put("current_state", Json.parseToJsonElement(CoachToolCodec.snapshotJson(snapshot)))
+          }
+          .toString()
 
   suspend fun setInitiativeEnabled(
       accountId: String,

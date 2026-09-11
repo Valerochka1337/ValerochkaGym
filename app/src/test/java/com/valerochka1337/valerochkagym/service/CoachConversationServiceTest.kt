@@ -27,6 +27,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -225,6 +226,90 @@ class CoachConversationServiceTest : RoomDaoTest() {
     assertEquals(6, db.workoutDao().getSet(set.id)!!.reps)
     assertEquals(1, gateway.calls)
     assertEquals(1L, db.workoutDao().getWorkoutFull(workout)!!.workout.coachRevision)
+  }
+
+  @Test
+  fun `live revision conflict returns fresh state for one corrected proposal`() = runTest {
+    val workout = activeWorkout()
+    val set = db.workoutDao().getWorkoutFull(workout)!!.exercises.single().sets.single()
+    val firstRequestStarted = CompletableDeferred<Unit>()
+    val releaseFirstResponse = CompletableDeferred<Unit>()
+    val correctedRequestStarted = CompletableDeferred<Unit>()
+    val releaseCorrectedResponse = CompletableDeferred<Unit>()
+    val gateway =
+        object : RecordingGateway() {
+          override suspend fun complete(
+              expectedOwner: String,
+              expectedSessionEpoch: Long?,
+              messages: List<AiApiMessage>,
+              tools: List<AiApiTool>,
+          ): AiApiChatResponse {
+            calls++
+            val arguments =
+                if (calls == 1) {
+                  firstRequestStarted.complete(Unit)
+                  releaseFirstResponse.await()
+                  """{"base_revision":0,"operations":[{"action":"edit_set","set_id":"${set.syncId}","values":{"reps":6}}]}"""
+                } else {
+                  val recovery = (messages.last().content as JsonPrimitive).content
+                  assertTrue(recovery.contains("revision_conflict"))
+                  val revision =
+                      requireNotNull(Regex("\\\"revision\\\":(\\d+)").find(recovery)).groupValues[1]
+                  correctedRequestStarted.complete(Unit)
+                  releaseCorrectedResponse.await()
+                  """{"base_revision":$revision,"operations":[{"action":"edit_set","set_id":"${set.syncId}","values":{"reps":6}}]}"""
+                }
+            return AiApiChatResponse(
+                choices =
+                    listOf(
+                        AiApiChoice(
+                            AiApiResponseMessage(
+                                toolCalls =
+                                    listOf(
+                                        com.valerochka1337.valerochkagym.data.ai.AiApiToolCall(
+                                            "proposal-$calls",
+                                            function =
+                                                com.valerochka1337.valerochkagym.data.ai
+                                                    .AiApiToolCallFunction(
+                                                        "submit_workout_changes",
+                                                        arguments,
+                                                    ),
+                                        )
+                                    )
+                            )
+                        )
+                    )
+            )
+          }
+        }
+    val conversation = conversation(gateway)
+    conversation.attach(
+        kotlinx.coroutines.CoroutineScope(
+            backgroundScope.coroutineContext + kotlinx.coroutines.Dispatchers.Default
+        )
+    )
+
+    assertTrue(conversation.send(workout, "Предложи шесть повторений"))
+    firstRequestStarted.await()
+    db.workoutDao().updateSet(set.copy(reps = 5))
+    db.openHelper.writableDatabase.execSQL(
+        "UPDATE workouts SET coachRevision = coachRevision + 1 WHERE id=?",
+        arrayOf<Any?>(workout),
+    )
+    val journalsBeforeRetry = db.coachDao().pendingJournal("user", 100)
+    releaseFirstResponse.complete(Unit)
+    correctedRequestStarted.await()
+    assertNull(db.coachDao().pendingProposal(workout))
+    assertEquals(journalsBeforeRetry, db.coachDao().pendingJournal("user", 100))
+    assertEquals(0, tableCount("coach_command_receipts"))
+    assertEquals(5, db.workoutDao().getSet(set.id)!!.reps)
+    releaseCorrectedResponse.complete(Unit)
+    db.coachDao().observeMessages(workout).first { it.firstOrNull()?.status == "DELIVERED" }
+    val proposal = requireNotNull(db.coachDao().pendingProposal(workout))
+    assertEquals(1L, proposal.baseRevision)
+    assertTrue(proposal.afterSummary.contains("6 повт."))
+    assertEquals(2, gateway.calls)
+    assertEquals(5, db.workoutDao().getSet(set.id)!!.reps)
   }
 
   @Test

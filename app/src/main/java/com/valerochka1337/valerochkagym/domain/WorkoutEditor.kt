@@ -33,6 +33,16 @@ import kotlinx.serialization.json.put
 private val SET_VALUE_FIELDS =
     setOf("weight_kg", "reps", "duration_sec", "speed_kmh", "incline_pct")
 
+sealed interface ModelProposalSaveResult {
+  data class Saved(val proposal: WorkoutProposal) : ModelProposalSaveResult
+
+  data object Stale : ModelProposalSaveResult
+
+  data object Invalid : ModelProposalSaveResult
+
+  data object Unavailable : ModelProposalSaveResult
+}
+
 /** Serialized, transactional packet writer. Packet helpers never call [submit]. */
 @Singleton
 class WorkoutEditor
@@ -163,7 +173,7 @@ constructor(
       }
 
   /** Saved proposals are app-owned data; confirmation never restores model-supplied authority. */
-  suspend fun saveModelProposal(
+  suspend fun saveModelProposalResult(
       accountId: String,
       workoutId: String,
       baseRevision: Long,
@@ -171,11 +181,17 @@ constructor(
       expiresAt: Long,
       expectedSessionEpoch: Long? = null,
       isCurrent: () -> Boolean = { true },
-  ): WorkoutProposal? {
+  ): ModelProposalSaveResult {
     // Preparation reads only local facts. Saving below recalculates under the checked revision.
-    if (!belongsToLiveAccount(accountId, expectedSessionEpoch) || !isCurrent()) return null
-    val full = workoutDao.getWorkoutFull(workoutId) ?: return null
-    if (full.workout.finishedAt != null || full.workout.coachRevision != baseRevision) return null
+    if (!belongsToLiveAccount(accountId, expectedSessionEpoch) || !isCurrent()) {
+      return ModelProposalSaveResult.Unavailable
+    }
+    val full = workoutDao.getWorkoutFull(workoutId) ?: return ModelProposalSaveResult.Unavailable
+    if (!belongsToLiveAccount(accountId, expectedSessionEpoch) || !isCurrent()) {
+      return ModelProposalSaveResult.Unavailable
+    }
+    if (full.workout.finishedAt != null) return ModelProposalSaveResult.Unavailable
+    if (full.workout.coachRevision != baseRevision) return ModelProposalSaveResult.Stale
     val snapshot =
         WorkoutSnapshot(
             accountId,
@@ -190,9 +206,13 @@ constructor(
               )
             },
         )
-    val packet = mapIntents(snapshot, intents) ?: return null
+    val packet = mapIntents(snapshot, intents)
+    if (!belongsToLiveAccount(accountId, expectedSessionEpoch) || !isCurrent()) {
+      return ModelProposalSaveResult.Unavailable
+    }
+    if (packet == null) return ModelProposalSaveResult.Invalid
     return try {
-      saveProposal(
+      saveProposalResult(
           accountId,
           workoutId,
           packet,
@@ -201,14 +221,81 @@ constructor(
           expectedSessionEpoch,
           isCurrent,
       )
-    } catch (error: CancellationException) {
-      throw error
     } catch (_: IllegalArgumentException) {
-      null
+      ModelProposalSaveResult.Invalid
     } catch (_: NoSuchElementException) {
-      null
+      ModelProposalSaveResult.Invalid
     }
   }
+
+  private suspend fun saveProposalResult(
+      accountId: String,
+      workoutId: String,
+      packet: WorkoutChangeSet.Packet,
+      expectedRevision: Long,
+      expiresAt: Long,
+      expectedSessionEpoch: Long?,
+      isCurrent: () -> Boolean,
+  ): ModelProposalSaveResult =
+      writes.write {
+        try {
+          database.withTransaction {
+            if (!belongsToLiveAccount(accountId, expectedSessionEpoch) || !isCurrent()) {
+              return@withTransaction ModelProposalSaveResult.Unavailable
+            }
+            val workout =
+                workoutDao.getWorkoutFull(workoutId)?.workout
+                    ?: return@withTransaction ModelProposalSaveResult.Unavailable
+            if (!belongsToLiveAccount(accountId, expectedSessionEpoch) || !isCurrent()) {
+              return@withTransaction ModelProposalSaveResult.Unavailable
+            }
+            if (workout.finishedAt != null)
+                return@withTransaction ModelProposalSaveResult.Unavailable
+            if (workout.coachRevision != expectedRevision)
+                return@withTransaction ModelProposalSaveResult.Stale
+            val calculated = calculate(accountId, workoutId, packet)
+            val summary =
+                WorkoutChangeSummary.describe(
+                    calculated.steps,
+                    exerciseNames = calculated.catalogue.mapValues { it.value.name },
+                )
+            if (!belongsToLiveAccount(accountId, expectedSessionEpoch) || !isCurrent()) {
+              return@withTransaction ModelProposalSaveResult.Unavailable
+            }
+            val proposal =
+                WorkoutProposal(
+                    accountId = accountId,
+                    workoutId = workoutId,
+                    baseRevision = workout.coachRevision,
+                    beforeSummary = summary.before,
+                    afterSummary = summary.after,
+                    packet = packet,
+                    expiresAt = expiresAt,
+                )
+            coachDao.saveProposal(
+                CoachProposalEntity(
+                    id = proposal.id,
+                    accountId = accountId,
+                    workoutId = workoutId,
+                    baseRevision = proposal.baseRevision,
+                    beforeSummary = summary.before,
+                    afterSummary = summary.after,
+                    packetJson = json.encodeToString(WorkoutChangeSet.Packet.serializer(), packet),
+                    expiresAt = expiresAt,
+                )
+            )
+            saveProposalJournal(proposal, packet)
+            if (!belongsToLiveAccount(accountId, expectedSessionEpoch) || !isCurrent()) {
+              throw ProposalUnavailable()
+            }
+            ModelProposalSaveResult.Saved(proposal)
+          }
+        } catch (error: CancellationException) {
+          throw error
+        } catch (_: ProposalUnavailable) {
+          ModelProposalSaveResult.Unavailable
+        }
+      }
 
   suspend fun saveProposal(
       accountId: String,
@@ -219,50 +306,17 @@ constructor(
       expectedSessionEpoch: Long? = null,
       isCurrent: () -> Boolean = { true },
   ): WorkoutProposal? =
-      writes.write {
-        database.withTransaction {
-          if (!belongsToLiveAccount(accountId, expectedSessionEpoch)) return@withTransaction null
-          val workout = workoutDao.getWorkoutFull(workoutId)?.workout ?: return@withTransaction null
-          if (workout.finishedAt != null || workout.coachRevision != expectedRevision)
-              return@withTransaction null
-          if (!isCurrent()) return@withTransaction null
-          val calculated = calculate(accountId, workoutId, packet)
-          val summary =
-              WorkoutChangeSummary.describe(
-                  calculated.steps,
-                  exerciseNames = calculated.catalogue.mapValues { it.value.name },
-              )
-          if (!belongsToLiveAccount(accountId, expectedSessionEpoch) || !isCurrent())
-              return@withTransaction null
-          WorkoutProposal(
-                  accountId = accountId,
-                  workoutId = workoutId,
-                  baseRevision = workout.coachRevision,
-                  beforeSummary = summary.before,
-                  afterSummary = summary.after,
-                  packet = packet,
-                  expiresAt = expiresAt,
-              )
-              .also { proposal ->
-                coachDao.saveProposal(
-                    CoachProposalEntity(
-                        id = proposal.id,
-                        accountId = accountId,
-                        workoutId = workoutId,
-                        baseRevision = proposal.baseRevision,
-                        beforeSummary = summary.before,
-                        afterSummary = summary.after,
-                        packetJson =
-                            json.encodeToString(WorkoutChangeSet.Packet.serializer(), packet),
-                        expiresAt = expiresAt,
-                    )
-                )
-                saveProposalJournal(proposal, packet)
-                if (!belongsToLiveAccount(accountId, expectedSessionEpoch) || !isCurrent())
-                    throw StaleCommand()
-              }
-        }
-      }
+      (saveProposalResult(
+              accountId,
+              workoutId,
+              packet,
+              expectedRevision,
+              expiresAt,
+              expectedSessionEpoch,
+              isCurrent,
+          )
+              as? ModelProposalSaveResult.Saved)
+          ?.proposal
 
   suspend fun confirmProposal(
       accountId: String,
@@ -772,7 +826,6 @@ constructor(
             op.unfinishedSetSyncIds.size == unfinished.size &&
             unfinished.map { it.syncId }.toSet() == op.unfinishedSetSyncIds.toSet()
     )
-    require(op.replacementWeightKg != null || replacement.type != ExerciseType.STRENGTH)
     require(
         op.replacementWeightKg == null ||
             op.replacementWeightKg.isFinite() && op.replacementWeightKg > 0
@@ -1195,16 +1248,11 @@ constructor(
               val replacement = byExerciseSync.getValue(intent.exerciseId)
               replacementWeights[intent] =
                   intent.weightKg
-                      ?: if (replacement.type == ExerciseType.STRENGTH) {
-                        database
-                            .workoutDao()
-                            .latestComparableCompletedWeight(replacement.id, snapshot.workoutId)
-                            ?: throw IllegalArgumentException(
-                                "Replacement weight has no completed history"
-                            )
-                      } else {
-                        null
-                      }
+                      ?: if (replacement.type == ExerciseType.STRENGTH)
+                          database
+                              .workoutDao()
+                              .latestComparableCompletedWeight(replacement.id, snapshot.workoutId)
+                      else null
             }
             val operations =
                 intents.map { intent ->
@@ -1325,4 +1373,6 @@ constructor(
       }
 
   private class StaleCommand : IllegalStateException()
+
+  private class ProposalUnavailable : IllegalStateException()
 }

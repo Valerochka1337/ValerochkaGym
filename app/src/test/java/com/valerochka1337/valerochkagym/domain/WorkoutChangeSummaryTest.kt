@@ -122,17 +122,26 @@ class WorkoutChangeSummaryTest : RoomDaoTest() {
   }
 
   @Test
-  fun `unresolved replacement and undo cannot render misleading approval`() = runTest {
-    listOf(
-            WorkoutChangeSet.Operation.ReplaceRemaining("section", "new", 2, listOf("next"), null),
-            WorkoutChangeSet.Operation.UndoLast,
+  fun `unknown replacement weight previews preserved results without copying source load`() = runTest {
+    val result =
+        summary(
+            WorkoutChangeSet.Operation.ReplaceRemaining("section", "new", 2, listOf("next"), null)
         )
-        .forEach { op ->
-          try {
-            summary(op)
-            fail("Missing preview facts must be rejected")
-          } catch (_: IllegalArgumentException) {} catch (_: IllegalStateException) {}
-        }
+
+    assertTrue(result.before.contains("Жим, подход 2: 60 кг · 8 повт."))
+    assertTrue(result.after.contains("Отжимания"))
+    assertTrue(result.after.contains("1. 8 повт."))
+    assertTrue(result.after.contains("Сохранить 1 выполненных подходов «Жим»"))
+    assertFalse(result.after.contains("60 кг"))
+    assertFalse(result.after.contains("кг"))
+  }
+
+  @Test
+  fun `undo without a restorable entry cannot render misleading approval`() = runTest {
+    try {
+      summary(WorkoutChangeSet.Operation.UndoLast)
+      fail("Missing preview facts must be rejected")
+    } catch (_: IllegalArgumentException) {} catch (_: IllegalStateException) {}
   }
 
   @Test

@@ -102,6 +102,49 @@ class CoachAgentTest {
   }
 
   @Test
+  fun `one app recovery lets the model submit a newly authored proposal`() = runTest {
+    val api = FakeCoachApi { index ->
+      if (index == 1) toolResponse(call("stale", MUTATION))
+      else toolResponse(call("corrected", MUTATION))
+    }
+    val dispatched = mutableListOf<String>()
+
+    val result =
+        agent(api).reply(snapshot(), "предложи замену", tools()) { call ->
+          dispatched += call.id
+          if (call.id == "stale")
+              CoachToolOutcome(
+                  "{\"error\":\"revision_conflict\",\"current_state\":{\"revision\":1}}",
+                  kind = CoachToolOutcomeKind.RECOVERY,
+              )
+          else CoachToolOutcome("Предложение сохранено", CoachRunStatus.PROPOSAL)
+        }
+
+    assertEquals(CoachRunStatus.PROPOSAL, result.status)
+    assertEquals(listOf("stale", "corrected"), dispatched)
+    assertEquals(2, result.requestCount)
+    assertEquals("tool", api.requests[1].messages.last().role)
+    assertTrue(api.requests[1].messages.last().content.toString().contains("revision_conflict"))
+  }
+
+  @Test
+  fun `a second recovery is terminal and does not request the model again`() = runTest {
+    val api = FakeCoachApi { toolResponse(call("stale-$it", MUTATION)) }
+
+    val result =
+        agent(api).reply(snapshot(), "предложи замену", tools()) {
+          CoachToolOutcome(
+              "{\"error\":\"revision_conflict\"}",
+              kind = CoachToolOutcomeKind.RECOVERY,
+          )
+        }
+
+    assertEquals(CoachRunStatus.ERROR, result.status)
+    assertEquals(2, result.requestCount)
+    assertEquals(2, result.toolCount)
+  }
+
+  @Test
   fun `applied command returns application receipt text without model success claim`() = runTest {
     val api = FakeCoachApi { toolResponse(call("change", MUTATION)) }
     val result =

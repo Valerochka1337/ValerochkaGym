@@ -37,12 +37,22 @@ data class CoachHistoryMessage(val role: String, val text: String) {
 }
 
 /** The application, never model arguments, decides whether an operation ends the turn. */
-data class CoachToolOutcome(val content: String, val terminal: CoachRunStatus? = null) {
+enum class CoachToolOutcomeKind {
+  STANDARD,
+  RECOVERY,
+}
+
+data class CoachToolOutcome(
+    val content: String,
+    val terminal: CoachRunStatus? = null,
+    val kind: CoachToolOutcomeKind = CoachToolOutcomeKind.STANDARD,
+) {
   init {
     require(
         terminal == null ||
             terminal in setOf(CoachRunStatus.APPLIED, CoachRunStatus.PROPOSAL, CoachRunStatus.ERROR)
     )
+    require(kind != CoachToolOutcomeKind.RECOVERY || terminal == null)
   }
 }
 
@@ -83,6 +93,7 @@ constructor(
         }
         messages += AiApiMessage.text("user", userText)
         val seenIds = mutableSetOf<String>()
+        var recoveryUsed = false
         for (request in 1..MAX_REQUESTS) {
           currentCoroutineContext().ensureActive()
           requests = request
@@ -144,10 +155,19 @@ constructor(
             // No further call, including already returned calls, is executed after this result.
             if (outcome.terminal != null)
                 return@withTimeout result(outcome.content, outcome.terminal)
+            if (outcome.kind == CoachToolOutcomeKind.RECOVERY) {
+              if (call.function.name != MUTATION_TOOL || recoveryUsed) {
+                return@withTimeout result(
+                    "Инструмент не вернул корректный результат изменения. Проверьте состояние тренировки."
+                )
+              }
+              recoveryUsed = true
+            }
             if (call.function.name == MUTATION_TOOL) {
-              return@withTimeout result(
-                  "Инструмент не вернул подтверждение изменения. Проверьте состояние тренировки."
-              )
+              if (outcome.kind != CoachToolOutcomeKind.RECOVERY)
+                  return@withTimeout result(
+                      "Инструмент не вернул подтверждение изменения. Проверьте состояние тренировки."
+                  )
             }
             if (outcome.content.length > MAX_TOOL_RESULT_CHARS)
                 return@withTimeout result("Контекст слишком большой. Уточните упражнение.")
