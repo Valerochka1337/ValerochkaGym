@@ -7,6 +7,10 @@ import androidx.credentials.exceptions.GetCredentialCancellationException
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.valerochka1337.valerochkagym.data.ai.CoachModelCatalog
+import com.valerochka1337.valerochkagym.data.ai.CoachModelCatalogSource
+import com.valerochka1337.valerochkagym.data.ai.CoachModelProbe
+import com.valerochka1337.valerochkagym.data.backend.BackendSessionStore
 import com.valerochka1337.valerochkagym.data.backup.ClearDataUseCase
 import com.valerochka1337.valerochkagym.data.backup.DatabaseExporter
 import com.valerochka1337.valerochkagym.data.backup.ExportResult
@@ -42,12 +46,15 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /** Шаг изменения отдыха по умолчанию и его нижняя граница (в секундах). */
 private const val MIN_REST_SECONDS = 15
@@ -105,6 +112,14 @@ private object NoOpWeeklyScheduleRepository : WeeklyScheduleRepository {
   override suspend fun hasRecoverableWorkForAccount(email: String) = true
 }
 
+private object UnavailableCoachModelCatalog : CoachModelCatalogSource {
+  override suspend fun catalog(
+      expectedOwner: String,
+      expectedSessionEpoch: Long?,
+  ): CoachModelCatalog =
+      CoachModelCatalog(available = false, defaultModel = null, models = emptyList())
+}
+
 private data class SettingsInputErrors(
     val spreadsheet: Boolean,
 )
@@ -126,7 +141,25 @@ data class SettingsUiState(
     val authBusy: Boolean = false,
     val spreadsheetError: Boolean = false,
     val authError: String? = null,
+    val coachModel: CoachModelUiState = CoachModelUiState(),
 )
+
+data class CoachModelUiState(
+    val loading: Boolean = false,
+    val available: Boolean? = null,
+    val defaultModel: String? = null,
+    val models: List<String> = emptyList(),
+    val selectedModel: String? = null,
+    val checking: Boolean = false,
+    /** The account-scoped preference write has not committed yet. */
+    val savingSelection: Boolean = false,
+    val status: String? = null,
+    /** Session that supplied [models]; prevents a stale catalog selecting for a new account. */
+    val catalogOwner: String? = null,
+    val catalogEpoch: Long? = null,
+)
+
+private data class CoachCatalogKey(val owner: String, val epoch: Long)
 
 /**
  * Бэкенд экрана настроек. Хранение делегируется [SettingsRepository], вход и OAuth — [GoogleAuth].
@@ -153,14 +186,21 @@ constructor(
     private val weeklyScheduleRepository: WeeklyScheduleRepository = NoOpWeeklyScheduleRepository,
     private val calendarIdentity: CalendarAccountIdentity = settingsRepository,
     private val savedStateHandle: SavedStateHandle = SavedStateHandle(),
+    private val coachModels: CoachModelCatalogSource = UnavailableCoachModelCatalog,
+    private val coachProbe: CoachModelProbe? = null,
+    private val backendSessions: BackendSessionStore? = null,
 ) : ViewModel() {
 
   private val authBusy = MutableStateFlow(savedStateHandle[AUTH_BUSY_KEY] ?: false)
   private val spreadsheetError = MutableStateFlow(false)
   private val authError = MutableStateFlow<String?>(null)
+  private val coachModel = MutableStateFlow(CoachModelUiState())
   private val calendarOperationLock = Any()
   private var runningCalendarAttemptNonce: String? = null
   private var resolvingConsentNonce: String? = null
+  private val coachModelPersistence = Mutex()
+  private var coachCatalogRequestGeneration = 0L
+  private var activeCoachCatalogRefresh: CoachCatalogKey? = null
 
   private val inputErrors = spreadsheetError.map { SettingsInputErrors(spreadsheet = it) }
 
@@ -181,12 +221,14 @@ constructor(
       combine(
               settingsRepository.settings,
               settingsAuxiliaryState,
-          ) { settings, auxiliary ->
+              coachModel,
+          ) { settings, auxiliary, currentCoachModel ->
             SettingsUiState(
                 settings = settings,
                 authBusy = auxiliary.authBusy,
                 spreadsheetError = auxiliary.inputErrors.spreadsheet,
                 authError = auxiliary.authError,
+                coachModel = currentCoachModel,
             )
           }
           .stateIn(
@@ -204,6 +246,178 @@ constructor(
 
   /** Короткие уведомления для snackbar (например, результат «Выгрузить всё»). */
   val messages: Flow<String> = _messages.receiveAsFlow()
+
+  init {
+    backendSessions?.let { sessions ->
+      viewModelScope.launch {
+        sessions.session.collect {
+          val snapshot = sessions.snapshot()
+          if (snapshot == null) {
+            coachModel.value =
+                CoachModelUiState(
+                    available = false,
+                    status = "Войдите в аккаунт Yarumo coach, чтобы выбрать модель тренера.",
+                )
+          } else {
+            refreshCoachModels(snapshot.tokens.userId, snapshot.epoch)
+          }
+        }
+      }
+    }
+  }
+
+  fun selectCoachModel(model: String?) {
+    val snapshot = backendSessions?.snapshot() ?: return
+    val owner = snapshot.tokens.userId
+    val epoch = snapshot.epoch
+    val current = coachModel.value
+    if (
+        current.available != true ||
+            current.checking ||
+            current.savingSelection ||
+            current.catalogOwner != owner ||
+            current.catalogEpoch != epoch
+    )
+        return
+    if (model != null && model !in current.models) return
+    // Do not display the new selection until the account-scoped preference commit succeeds: the
+    // model gateway reads that durable value for every turn and probe.
+    coachCatalogRequestGeneration++
+    coachModel.value = current.copy(savingSelection = true, status = null)
+    viewModelScope.launch {
+      var committed = false
+      var errorMessage: String? = null
+      try {
+        coachModelPersistence.withLock { settingsRepository.setCoachModel(owner, model) }
+        committed = true
+      } catch (cancellation: CancellationException) {
+        throw cancellation
+      } catch (_: Exception) {
+        errorMessage = "Не удалось сохранить модель тренера. Попробуйте ещё раз."
+      } finally {
+        // No suspended cleanup here: even a cancelled ViewModel must not leave the screen locked.
+        if (isCurrentCoachSession(owner, epoch)) {
+          val latest = coachModel.value
+          if (
+              latest.catalogOwner == owner && latest.catalogEpoch == epoch && latest.savingSelection
+          ) {
+            coachModel.value =
+                latest.copy(
+                    selectedModel = if (committed) model else latest.selectedModel,
+                    savingSelection = false,
+                    status = errorMessage ?: latest.status,
+                )
+          }
+        }
+      }
+    }
+  }
+
+  fun verifyCoachModel() {
+    val snapshot = backendSessions?.snapshot() ?: return
+    val probe = coachProbe ?: return
+    val current = coachModel.value
+    if (
+        current.available != true ||
+            current.checking ||
+            current.savingSelection ||
+            current.catalogOwner != snapshot.tokens.userId ||
+            current.catalogEpoch != snapshot.epoch
+    )
+        return
+    coachModel.value = current.copy(checking = true, status = null)
+    viewModelScope.launch {
+      val result = probe.verify(snapshot.tokens.userId, snapshot.epoch)
+      if (
+          backendSessions.snapshot()?.let {
+            it.tokens.userId == snapshot.tokens.userId && it.epoch == snapshot.epoch
+          } == true
+      ) {
+        val latest = coachModel.value
+        if (
+            latest.catalogOwner == snapshot.tokens.userId &&
+                latest.catalogEpoch == snapshot.epoch &&
+                latest.checking
+        ) {
+          coachModel.value = latest.copy(checking = false, status = result.message)
+        }
+      }
+    }
+  }
+
+  fun refreshCoachModels() {
+    val snapshot = backendSessions?.snapshot() ?: return
+    viewModelScope.launch { refreshCoachModels(snapshot.tokens.userId, snapshot.epoch) }
+  }
+
+  private suspend fun refreshCoachModels(owner: String, epoch: Long) {
+    val sessions = backendSessions ?: return
+    val key = CoachCatalogKey(owner, epoch)
+    val existing = coachModel.value
+    if (
+        activeCoachCatalogRefresh == key ||
+            (existing.savingSelection &&
+                existing.catalogOwner == owner &&
+                existing.catalogEpoch == epoch)
+    )
+        return
+    activeCoachCatalogRefresh = key
+    try {
+      val generation = ++coachCatalogRequestGeneration
+      coachModel.value = existing.copy(loading = true, status = null)
+      val result =
+          try {
+            Result.success(coachModels.catalog(owner, epoch))
+          } catch (cancellation: CancellationException) {
+            throw cancellation
+          } catch (error: Exception) {
+            Result.failure(error)
+          }
+      if (!isCurrentCoachRequest(owner, epoch, generation)) return
+      val state =
+          result.fold(
+              onSuccess = { catalog ->
+                coachModelPersistence.withLock {
+                  if (!isCurrentCoachRequest(owner, epoch, generation)) return@withLock null
+                  val saved = settingsRepository.coachModel(owner).first()
+                  if (!isCurrentCoachRequest(owner, epoch, generation)) return@withLock null
+                  val selected = saved?.takeIf { it in catalog.models }
+                  if (saved != null && selected == null) {
+                    settingsRepository.setCoachModel(owner, null)
+                    if (!isCurrentCoachRequest(owner, epoch, generation)) return@withLock null
+                  }
+                  CoachModelUiState(
+                      available = catalog.available,
+                      defaultModel = catalog.defaultModel,
+                      models = catalog.models,
+                      selectedModel = selected,
+                      status =
+                          if (catalog.available) null else "Серверный тренер пока не настроен.",
+                      catalogOwner = owner,
+                      catalogEpoch = epoch,
+                  )
+                }
+              },
+              onFailure = {
+                CoachModelUiState(
+                    available = false,
+                    status = "Не удалось получить модели тренера. Попробуйте ещё раз.",
+                    catalogOwner = owner,
+                    catalogEpoch = epoch,
+                )
+              },
+          ) ?: return
+      if (isCurrentCoachRequest(owner, epoch, generation)) coachModel.value = state
+    } finally {
+      if (activeCoachCatalogRefresh == key) activeCoachCatalogRefresh = null
+    }
+  }
+
+  private fun isCurrentCoachSession(owner: String, epoch: Long): Boolean =
+      backendSessions?.snapshot()?.let { it.tokens.userId == owner && it.epoch == epoch } == true
+
+  private fun isCurrentCoachRequest(owner: String, epoch: Long, generation: Long): Boolean =
+      coachCatalogRequestGeneration == generation && isCurrentCoachSession(owner, epoch)
 
   /** Every connection starts with an explicit account choice, independent of app sign-in. */
   fun connectCalendar(activity: Activity) {

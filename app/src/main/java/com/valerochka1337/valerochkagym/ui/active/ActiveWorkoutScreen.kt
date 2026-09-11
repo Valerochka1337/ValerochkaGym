@@ -5,13 +5,16 @@ import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
 import android.view.WindowManager
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FiniteAnimationSpec
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -42,11 +45,14 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -76,6 +82,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -138,6 +145,7 @@ fun ActiveWorkoutScreen(
     onNavigateBack: () -> Unit,
     onAddExercise: () -> Unit,
     onExerciseClick: (Long) -> Unit,
+    onOpenCoach: () -> Unit = {},
     modifier: Modifier = Modifier,
     viewModel: ActiveWorkoutViewModel = hiltViewModel(),
 ) {
@@ -229,6 +237,8 @@ fun ActiveWorkoutScreen(
                   onReorderExercises = viewModel::reorderExercises,
                   onAddExercise = onAddExercise,
                   onExerciseClick = onExerciseClick,
+                  onOpenCoach = onOpenCoach,
+                  unreadCoachMessages = state.unreadCoachMessages,
                   onFinish = viewModel::finish,
                   onDiscard = viewModel::discard,
                   onAddRestSeconds = viewModel::addRestSeconds,
@@ -324,6 +334,8 @@ internal fun ActiveWorkoutContent(
     onReorderExercises: (List<Long>) -> Unit,
     onAddExercise: () -> Unit,
     onExerciseClick: (Long) -> Unit,
+    onOpenCoach: () -> Unit = {},
+    unreadCoachMessages: Int = 0,
     onFinish: () -> Unit,
     onDiscard: () -> Unit,
     onAddRestSeconds: (Int) -> Unit,
@@ -432,6 +444,7 @@ internal fun ActiveWorkoutContent(
         onFinish = requestFinish,
         onDiscard = { showDiscardDialog = true },
         onEditNote = onEditWorkoutNote,
+        onOpenCoach = onOpenCoach,
     )
 
     LazyColumn(
@@ -526,26 +539,40 @@ internal fun ActiveWorkoutContent(
             Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 16.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-      RestTimerPill(
-          restTimer = restTimer,
-          heartRateReading = heartRateReading,
-          onAddRestSeconds = onAddRestSeconds,
-          onSkipRest = onSkipRest,
-      )
-      CurrentSetPrimaryAction(
-          restTimer = restTimer,
-          activeSetId = activeSetId,
-          onComplete = setActions.complete,
-      )
       if (showBottomFinish) {
-        Spacer(Modifier.height(8.dp))
-        PillButton(
-            text = "Завершить тренировку",
-            onClick = requestFinish,
-            enabled = !state.isFinishing,
-            leadingIcon = Icons.Default.Check,
-            modifier = Modifier.fillMaxWidth(),
-        )
+        Row(
+            verticalAlignment = Alignment.Bottom,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+          PillButton(
+              text = "Завершить тренировку",
+              onClick = requestFinish,
+              enabled = !state.isFinishing,
+              leadingIcon = Icons.Default.Check,
+              modifier = Modifier.weight(1f),
+          )
+          CoachActionButton(unreadCoachMessages = unreadCoachMessages, onOpenCoach = onOpenCoach)
+        }
+      } else {
+        Row(
+            verticalAlignment = Alignment.Bottom,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+          Column(Modifier.weight(1f)) {
+            RestTimerPill(
+                restTimer = restTimer,
+                heartRateReading = heartRateReading,
+                onAddRestSeconds = onAddRestSeconds,
+                onSkipRest = onSkipRest,
+            )
+            CurrentSetPrimaryAction(
+                restTimer = restTimer,
+                activeSetId = activeSetId,
+                onComplete = setActions.complete,
+            )
+          }
+          CoachActionButton(unreadCoachMessages = unreadCoachMessages, onOpenCoach = onOpenCoach)
+        }
       }
     }
   }
@@ -629,6 +656,42 @@ internal fun ActiveWorkoutContent(
         onSave = setActions.savePersonalHint,
         onCancel = setActions.cancelPersonalHint,
     )
+  }
+}
+
+@Composable
+private fun CoachActionButton(unreadCoachMessages: Int, onOpenCoach: () -> Unit) {
+  val haptics = gymHaptics()
+  val effectsMotion: FiniteAnimationSpec<Float> = GymMotion.effectsDefault()
+  val countText = if (unreadCoachMessages > 99) "99+" else unreadCoachMessages.toString()
+  val description =
+      if (unreadCoachMessages > 0)
+          "Открыть Live Coach, $unreadCoachMessages непрочитанных сообщений"
+      else "Открыть Live Coach"
+  BadgedBox(
+      badge = {
+        if (unreadCoachMessages > 0)
+            Badge {
+              AnimatedContent(
+                  targetState = countText,
+                  transitionSpec = { fadeIn(effectsMotion) togetherWith fadeOut(effectsMotion) },
+                  label = "coachUnreadCount",
+              ) {
+                Text(it)
+              }
+            }
+      },
+      modifier = Modifier.testTag("open-live-coach"),
+  ) {
+    androidx.compose.material3.FilledIconButton(
+        onClick = {
+          haptics.tap()
+          onOpenCoach()
+        },
+        modifier = Modifier.size(56.dp).semantics { contentDescription = description },
+    ) {
+      Icon(Icons.Default.AutoAwesome, contentDescription = null)
+    }
   }
 }
 
@@ -770,7 +833,6 @@ private fun RestTimerPill(
     Row(
         modifier =
             Modifier.fillMaxWidth()
-                .padding(bottom = 12.dp)
                 .clip(CircleShape)
                 .background(MaterialTheme.colorScheme.primary)
                 .height(56.dp),
@@ -882,6 +944,7 @@ private fun ActiveWorkoutHeader(
     onFinish: () -> Unit,
     onDiscard: () -> Unit,
     onEditNote: () -> Unit,
+    onOpenCoach: () -> Unit,
 ) {
   // Собираем таймер только здесь, чтобы посекундный тик не рекомпозил список подходов.
   val elapsed by elapsedSeconds.collectAsStateWithLifecycle()
@@ -908,16 +971,6 @@ private fun ActiveWorkoutHeader(
           onSelectDevice = onConnectHeartRate,
           onDismissSelection = onCancelHeartRateSelection,
       )
-      IconButton(
-          onClick = onFinish,
-          enabled = !isFinishing,
-          modifier = Modifier.size(48.dp),
-      ) {
-        Icon(
-            imageVector = Icons.Default.Check,
-            contentDescription = "Завершить тренировку",
-        )
-      }
       Box {
         IconButton(onClick = { menuExpanded = true }) {
           Icon(
@@ -929,6 +982,14 @@ private fun ActiveWorkoutHeader(
             expanded = menuExpanded,
             onDismissRequest = { menuExpanded = false },
         ) {
+          DropdownMenuItem(
+              text = { Text("Завершить тренировку") },
+              enabled = !isFinishing,
+              onClick = {
+                menuExpanded = false
+                onFinish()
+              },
+          )
           DropdownMenuItem(
               text = { Text("Заметка к тренировке") },
               onClick = {

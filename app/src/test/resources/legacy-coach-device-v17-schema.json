@@ -1,0 +1,651 @@
+{
+  "userVersion": 17,
+  "provenance": "Schema-only SQLite metadata read from the affected emulator; no row data or account values.",
+  "objects": [
+    {
+      "kind": "index",
+      "name": "index_body_measurements_measuredAt",
+      "sql": "CREATE INDEX `index_body_measurements_measuredAt` ON `body_measurements` (`measuredAt`)"
+    },
+    {
+      "kind": "index",
+      "name": "index_body_measurements_uploadStatus",
+      "sql": "CREATE INDEX `index_body_measurements_uploadStatus` ON `body_measurements` (`uploadStatus`)"
+    },
+    {
+      "kind": "index",
+      "name": "index_coach_journal_synced",
+      "sql": "CREATE INDEX index_coach_journal_synced ON coach_journal(synced)"
+    },
+    {
+      "kind": "index",
+      "name": "index_coach_journal_synced_createdAt",
+      "sql": "CREATE INDEX index_coach_journal_synced_createdAt ON coach_journal(synced,createdAt)"
+    },
+    {
+      "kind": "index",
+      "name": "index_coach_journal_workoutId",
+      "sql": "CREATE INDEX index_coach_journal_workoutId ON coach_journal(workoutId)"
+    },
+    {
+      "kind": "index",
+      "name": "index_coach_proposals_status",
+      "sql": "CREATE INDEX index_coach_proposals_status ON coach_proposals(status)"
+    },
+    {
+      "kind": "index",
+      "name": "index_coach_proposals_workoutId",
+      "sql": "CREATE INDEX index_coach_proposals_workoutId ON coach_proposals(workoutId)"
+    },
+    {
+      "kind": "index",
+      "name": "index_coach_sessions_status",
+      "sql": "CREATE INDEX index_coach_sessions_status ON coach_sessions(status)"
+    },
+    {
+      "kind": "index",
+      "name": "index_coach_sessions_workoutId",
+      "sql": "CREATE INDEX index_coach_sessions_workoutId ON coach_sessions(workoutId)"
+    },
+    {
+      "kind": "index",
+      "name": "index_coach_weight_exclusions_exerciseId",
+      "sql": "CREATE INDEX index_coach_weight_exclusions_exerciseId ON coach_weight_exclusions(exerciseId)"
+    },
+    {
+      "kind": "index",
+      "name": "index_coach_weight_exclusions_gymId",
+      "sql": "CREATE INDEX index_coach_weight_exclusions_gymId ON coach_weight_exclusions(gymId)"
+    },
+    {
+      "kind": "index",
+      "name": "index_exercise_equipment_exerciseId",
+      "sql": "CREATE INDEX `index_exercise_equipment_exerciseId` ON `exercise_equipment` (`exerciseId`)"
+    },
+    {
+      "kind": "index",
+      "name": "index_exercise_muscles_exerciseId",
+      "sql": "CREATE INDEX `index_exercise_muscles_exerciseId` ON `exercise_muscles` (`exerciseId`)"
+    },
+    {
+      "kind": "index",
+      "name": "index_exercises_syncId",
+      "sql": "CREATE UNIQUE INDEX `index_exercises_syncId` ON `exercises` (`syncId`)"
+    },
+    {
+      "kind": "index",
+      "name": "index_gym_equipment_gymId",
+      "sql": "CREATE INDEX `index_gym_equipment_gymId` ON `gym_equipment` (`gymId`)"
+    },
+    {
+      "kind": "index",
+      "name": "index_gym_exercises_exerciseId",
+      "sql": "CREATE INDEX `index_gym_exercises_exerciseId` ON `gym_exercises` (`exerciseId`)"
+    },
+    {
+      "kind": "index",
+      "name": "index_gyms_syncId",
+      "sql": "CREATE UNIQUE INDEX `index_gyms_syncId` ON `gyms` (`syncId`)"
+    },
+    {
+      "kind": "index",
+      "name": "index_routine_exercises_exerciseId",
+      "sql": "CREATE INDEX `index_routine_exercises_exerciseId` ON `routine_exercises` (`exerciseId`)"
+    },
+    {
+      "kind": "index",
+      "name": "index_routine_exercises_routineId",
+      "sql": "CREATE INDEX `index_routine_exercises_routineId` ON `routine_exercises` (`routineId`)"
+    },
+    {
+      "kind": "index",
+      "name": "index_routine_gyms_gymId",
+      "sql": "CREATE INDEX `index_routine_gyms_gymId` ON `routine_gyms` (`gymId`)"
+    },
+    {
+      "kind": "index",
+      "name": "index_routines_syncId",
+      "sql": "CREATE UNIQUE INDEX `index_routines_syncId` ON `routines` (`syncId`)"
+    },
+    {
+      "kind": "index",
+      "name": "index_scheduled_workouts_routineId",
+      "sql": "CREATE INDEX `index_scheduled_workouts_routineId` ON `scheduled_workouts` (`routineId`)"
+    },
+    {
+      "kind": "index",
+      "name": "index_workout_exercises_exerciseId",
+      "sql": "CREATE INDEX `index_workout_exercises_exerciseId` ON `workout_exercises` (`exerciseId`)"
+    },
+    {
+      "kind": "index",
+      "name": "index_workout_exercises_sectionId",
+      "sql": "CREATE UNIQUE INDEX `index_workout_exercises_sectionId` ON `workout_exercises` (`sectionId`)"
+    },
+    {
+      "kind": "index",
+      "name": "index_workout_exercises_workoutId",
+      "sql": "CREATE INDEX `index_workout_exercises_workoutId` ON `workout_exercises` (`workoutId`)"
+    },
+    {
+      "kind": "index",
+      "name": "index_workout_gyms_gymId",
+      "sql": "CREATE INDEX `index_workout_gyms_gymId` ON `workout_gyms` (`gymId`)"
+    },
+    {
+      "kind": "index",
+      "name": "index_workout_sets_syncId",
+      "sql": "CREATE UNIQUE INDEX index_workout_sets_syncId ON workout_sets(syncId)"
+    },
+    {
+      "kind": "index",
+      "name": "index_workout_sets_workoutExerciseId",
+      "sql": "CREATE INDEX `index_workout_sets_workoutExerciseId` ON `workout_sets` (`workoutExerciseId`)"
+    },
+    {
+      "kind": "index",
+      "name": "index_workouts_finishedAt",
+      "sql": "CREATE INDEX `index_workouts_finishedAt` ON `workouts` (`finishedAt`)"
+    },
+    {
+      "kind": "index",
+      "name": "index_workouts_routineId",
+      "sql": "CREATE INDEX `index_workouts_routineId` ON `workouts` (`routineId`)"
+    },
+    {
+      "kind": "table",
+      "name": "android_metadata",
+      "sql": "CREATE TABLE android_metadata (locale TEXT)"
+    },
+    {
+      "kind": "table",
+      "name": "backend_baseline",
+      "sql": "CREATE TABLE `backend_baseline` (`key` TEXT NOT NULL, `recordJson` TEXT NOT NULL, PRIMARY KEY(`key`))"
+    },
+    {
+      "kind": "table",
+      "name": "backend_outbox",
+      "sql": "CREATE TABLE `backend_outbox` (`id` INTEGER NOT NULL, `owner` TEXT NOT NULL, `requestJson` TEXT NOT NULL, PRIMARY KEY(`id`))"
+    },
+    {
+      "kind": "table",
+      "name": "backend_state",
+      "sql": "CREATE TABLE `backend_state` (`id` INTEGER NOT NULL, `owner` TEXT, `generation` INTEGER NOT NULL, PRIMARY KEY(`id`))"
+    },
+    {
+      "kind": "table",
+      "name": "body_measurements",
+      "sql": "CREATE TABLE `body_measurements` (`id` TEXT NOT NULL, `measuredAt` INTEGER NOT NULL, `weightKg` REAL, `skeletalMuscleMassKg` REAL, `bodyFatPercentage` REAL, `bodyFatMassKg` REAL, `visceralFatLevel` INTEGER, `waistHipRatio` REAL, `inBodyScore` INTEGER, `totalBodyWaterLiters` REAL, `proteinKg` REAL, `mineralsKg` REAL, `bodyMassIndex` REAL, `fatFreeMassKg` REAL, `basalMetabolicRateKcal` INTEGER, `recommendedCalorieIntakeKcal` INTEGER, `leftArmLeanMassKg` REAL, `leftArmLeanPercentage` REAL, `rightArmLeanMassKg` REAL, `rightArmLeanPercentage` REAL, `trunkLeanMassKg` REAL, `trunkLeanPercentage` REAL, `leftLegLeanMassKg` REAL, `leftLegLeanPercentage` REAL, `rightLegLeanMassKg` REAL, `rightLegLeanPercentage` REAL, `leftArmFatMassKg` REAL, `leftArmFatPercentage` REAL, `rightArmFatMassKg` REAL, `rightArmFatPercentage` REAL, `trunkFatMassKg` REAL, `trunkFatPercentage` REAL, `leftLegFatMassKg` REAL, `leftLegFatPercentage` REAL, `rightLegFatMassKg` REAL, `rightLegFatPercentage` REAL, `waistCm` REAL, `chestCm` REAL, `hipsCm` REAL, `rightRelaxedArmCm` REAL, `rightThighCm` REAL, `uploadStatus` TEXT NOT NULL, `uploadError` TEXT, PRIMARY KEY(`id`))"
+    },
+    {
+      "kind": "table",
+      "name": "catalog_equipment",
+      "sql": "CREATE TABLE `catalog_equipment` (`id` TEXT NOT NULL, `revision` INTEGER NOT NULL, `archived` INTEGER NOT NULL, `payload` TEXT NOT NULL, PRIMARY KEY(`id`))"
+    },
+    {
+      "kind": "table",
+      "name": "catalog_records",
+      "sql": "CREATE TABLE `catalog_records` (`key` TEXT NOT NULL, `recordJson` TEXT NOT NULL, PRIMARY KEY(`key`))"
+    },
+    {
+      "kind": "table",
+      "name": "catalog_state",
+      "sql": "CREATE TABLE `catalog_state` (`id` INTEGER NOT NULL, `revision` INTEGER NOT NULL, `active` INTEGER NOT NULL, `bootstrapped` INTEGER NOT NULL, `applying` INTEGER NOT NULL, `pendingSnapshot` TEXT, `originalOutbox` TEXT, `bootstrapSnapshot` TEXT, PRIMARY KEY(`id`))"
+    },
+    {
+      "kind": "table",
+      "name": "coach_journal",
+      "sql": "CREATE TABLE coach_journal (id TEXT NOT NULL,workoutId TEXT NOT NULL,deviceId TEXT NOT NULL,createdAt INTEGER NOT NULL,payloadJson TEXT NOT NULL,synced INTEGER NOT NULL,PRIMARY KEY(id),FOREIGN KEY(workoutId) REFERENCES workouts(id) ON UPDATE NO ACTION ON DELETE CASCADE)"
+    },
+    {
+      "kind": "table",
+      "name": "coach_proposals",
+      "sql": "CREATE TABLE coach_proposals (id TEXT NOT NULL,workoutId TEXT NOT NULL,snapshotId TEXT NOT NULL,decisionJson TEXT NOT NULL,inverseJson TEXT NOT NULL,affectedRevisionsJson TEXT NOT NULL,status TEXT NOT NULL,createdAt INTEGER NOT NULL,appliedAt INTEGER,PRIMARY KEY(id),FOREIGN KEY(workoutId) REFERENCES workouts(id) ON UPDATE NO ACTION ON DELETE CASCADE)"
+    },
+    {
+      "kind": "table",
+      "name": "coach_sessions",
+      "sql": "CREATE TABLE coach_sessions (workoutId TEXT NOT NULL,accountId TEXT,deviceId TEXT NOT NULL,revision INTEGER NOT NULL,rulesVersion TEXT NOT NULL,status TEXT NOT NULL,sessionJson TEXT NOT NULL,updatedAt INTEGER NOT NULL,PRIMARY KEY(workoutId),FOREIGN KEY(workoutId) REFERENCES workouts(id) ON UPDATE NO ACTION ON DELETE CASCADE)"
+    },
+    {
+      "kind": "table",
+      "name": "coach_sync_state",
+      "sql": "CREATE TABLE coach_sync_state (owner TEXT NOT NULL,watermark INTEGER NOT NULL DEFAULT 0,cursor TEXT,PRIMARY KEY(owner))"
+    },
+    {
+      "kind": "table",
+      "name": "coach_weight_exclusions",
+      "sql": "CREATE TABLE coach_weight_exclusions (gymId INTEGER NOT NULL,exerciseId TEXT NOT NULL,weightKg REAL NOT NULL,createdAt INTEGER NOT NULL,PRIMARY KEY(gymId,exerciseId,weightKg),FOREIGN KEY(gymId) REFERENCES gyms(id) ON UPDATE NO ACTION ON DELETE CASCADE,FOREIGN KEY(exerciseId) REFERENCES exercises(syncId) ON UPDATE NO ACTION ON DELETE CASCADE)"
+    },
+    {
+      "kind": "table",
+      "name": "configuration_tombstones",
+      "sql": "CREATE TABLE `configuration_tombstones` (`kind` TEXT NOT NULL, `syncId` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`kind`, `syncId`))"
+    },
+    {
+      "kind": "table",
+      "name": "exercise_equipment",
+      "sql": "CREATE TABLE `exercise_equipment` (`exerciseId` INTEGER NOT NULL, `equipmentId` TEXT NOT NULL, PRIMARY KEY(`exerciseId`, `equipmentId`), FOREIGN KEY(`exerciseId`) REFERENCES `exercises`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )"
+    },
+    {
+      "kind": "table",
+      "name": "exercise_muscles",
+      "sql": "CREATE TABLE `exercise_muscles` (`exerciseId` INTEGER NOT NULL, `muscle` TEXT NOT NULL, `contribution` INTEGER NOT NULL, PRIMARY KEY(`exerciseId`, `muscle`), FOREIGN KEY(`exerciseId`) REFERENCES `exercises`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )"
+    },
+    {
+      "kind": "table",
+      "name": "exercises",
+      "sql": "CREATE TABLE `exercises` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `name` TEXT NOT NULL, `muscleGroup` TEXT NOT NULL, `type` TEXT NOT NULL, `isCustom` INTEGER NOT NULL, `syncId` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, `needsMuscleMapReview` INTEGER NOT NULL, `equipmentRequirementState` TEXT NOT NULL DEFAULT 'UNKNOWN', `origin` TEXT NOT NULL DEFAULT 'PERSONAL', `archived` INTEGER NOT NULL DEFAULT 0)"
+    },
+    {
+      "kind": "table",
+      "name": "gym_equipment",
+      "sql": "CREATE TABLE `gym_equipment` (`gymId` INTEGER NOT NULL, `equipmentId` TEXT NOT NULL, PRIMARY KEY(`gymId`, `equipmentId`), FOREIGN KEY(`gymId`) REFERENCES `gyms`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )"
+    },
+    {
+      "kind": "table",
+      "name": "gym_exercises",
+      "sql": "CREATE TABLE `gym_exercises` (`gymId` INTEGER NOT NULL, `exerciseId` INTEGER NOT NULL, PRIMARY KEY(`gymId`, `exerciseId`), FOREIGN KEY(`gymId`) REFERENCES `gyms`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE , FOREIGN KEY(`exerciseId`) REFERENCES `exercises`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )"
+    },
+    {
+      "kind": "table",
+      "name": "gyms",
+      "sql": "CREATE TABLE `gyms` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `syncId` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, `name` TEXT NOT NULL, `inventoryConfigured` INTEGER NOT NULL DEFAULT 0, `origin` TEXT NOT NULL DEFAULT 'PERSONAL', `archived` INTEGER NOT NULL DEFAULT 0)"
+    },
+    {
+      "kind": "table",
+      "name": "muscle_load_upgrade_notice",
+      "sql": "CREATE TABLE `muscle_load_upgrade_notice` (`id` INTEGER NOT NULL, PRIMARY KEY(`id`))"
+    },
+    {
+      "kind": "table",
+      "name": "room_master_table",
+      "sql": "CREATE TABLE room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)"
+    },
+    {
+      "kind": "table",
+      "name": "routine_exercises",
+      "sql": "CREATE TABLE `routine_exercises` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `routineId` INTEGER NOT NULL, `exerciseId` INTEGER NOT NULL, `position` INTEGER NOT NULL, `restSeconds` INTEGER, `plannedSetsJson` TEXT NOT NULL, FOREIGN KEY(`routineId`) REFERENCES `routines`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE , FOREIGN KEY(`exerciseId`) REFERENCES `exercises`(`id`) ON UPDATE NO ACTION ON DELETE NO ACTION )"
+    },
+    {
+      "kind": "table",
+      "name": "routine_gyms",
+      "sql": "CREATE TABLE `routine_gyms` (`routineId` INTEGER NOT NULL, `gymId` INTEGER NOT NULL, PRIMARY KEY(`routineId`, `gymId`), FOREIGN KEY(`routineId`) REFERENCES `routines`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE , FOREIGN KEY(`gymId`) REFERENCES `gyms`(`id`) ON UPDATE NO ACTION ON DELETE NO ACTION )"
+    },
+    {
+      "kind": "table",
+      "name": "routines",
+      "sql": "CREATE TABLE `routines` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `syncId` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, `name` TEXT NOT NULL, `note` TEXT NOT NULL, `origin` TEXT NOT NULL DEFAULT 'PERSONAL', `archived` INTEGER NOT NULL DEFAULT 0)"
+    },
+    {
+      "kind": "table",
+      "name": "scheduled_workouts",
+      "sql": "CREATE TABLE `scheduled_workouts` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `routineId` INTEGER NOT NULL, `dateTimeMillis` INTEGER NOT NULL, `calendarEventId` TEXT NOT NULL, FOREIGN KEY(`routineId`) REFERENCES `routines`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )"
+    },
+    {
+      "kind": "table",
+      "name": "workout_exercises",
+      "sql": "CREATE TABLE `workout_exercises` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `workoutId` TEXT NOT NULL, `exerciseId` INTEGER NOT NULL, `sectionId` TEXT NOT NULL, `position` INTEGER NOT NULL, FOREIGN KEY(`workoutId`) REFERENCES `workouts`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE , FOREIGN KEY(`exerciseId`) REFERENCES `exercises`(`id`) ON UPDATE NO ACTION ON DELETE NO ACTION )"
+    },
+    {
+      "kind": "table",
+      "name": "workout_gyms",
+      "sql": "CREATE TABLE `workout_gyms` (`workoutId` TEXT NOT NULL, `gymId` INTEGER NOT NULL, PRIMARY KEY(`workoutId`, `gymId`), FOREIGN KEY(`workoutId`) REFERENCES `workouts`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE , FOREIGN KEY(`gymId`) REFERENCES `gyms`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )"
+    },
+    {
+      "kind": "table",
+      "name": "workout_sets",
+      "sql": "CREATE TABLE `workout_sets` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `workoutExerciseId` INTEGER NOT NULL, `setIndex` INTEGER NOT NULL, `weightKg` REAL, `reps` INTEGER, `durationSec` INTEGER, `speedKmh` REAL, `inclinePct` REAL, `isCompleted` INTEGER NOT NULL, `completedAt` INTEGER, syncId TEXT NOT NULL DEFAULT '', originalWeightKg REAL, originalReps INTEGER, originalDurationSec INTEGER, originalSpeedKmh REAL, originalInclinePct REAL, targetWeightKg REAL, targetReps INTEGER, targetDurationSec INTEGER, targetSpeedKmh REAL, targetInclinePct REAL, actualWeightKg REAL, actualReps INTEGER, actualDurationSec INTEGER, actualSpeedKmh REAL, actualInclinePct REAL, setType TEXT NOT NULL DEFAULT 'WORK', reportedFeelingsJson TEXT NOT NULL DEFAULT '[]', restSnapshotJson TEXT, coachMutationRevision INTEGER NOT NULL DEFAULT 0, FOREIGN KEY(`workoutExerciseId`) REFERENCES `workout_exercises`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )"
+    },
+    {
+      "kind": "table",
+      "name": "workouts",
+      "sql": "CREATE TABLE `workouts` (`id` TEXT NOT NULL, `routineId` INTEGER, `name` TEXT NOT NULL, `startedAt` INTEGER NOT NULL, `finishedAt` INTEGER, `note` TEXT NOT NULL, `uploadStatus` TEXT NOT NULL, `uploadError` TEXT, coachRevision INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(`id`), FOREIGN KEY(`routineId`) REFERENCES `routines`(`id`) ON UPDATE NO ACTION ON DELETE SET NULL )"
+    },
+    {
+      "kind": "trigger",
+      "name": "backend_body_measurements_delete",
+      "sql": "CREATE TRIGGER backend_body_measurements_delete AFTER DELETE ON body_measurements BEGIN UPDATE backend_state SET generation=generation+1 WHERE id=1; END"
+    },
+    {
+      "kind": "trigger",
+      "name": "backend_body_measurements_insert",
+      "sql": "CREATE TRIGGER backend_body_measurements_insert AFTER INSERT ON body_measurements BEGIN UPDATE backend_state SET generation=generation+1 WHERE id=1; END"
+    },
+    {
+      "kind": "trigger",
+      "name": "backend_body_measurements_update",
+      "sql": "CREATE TRIGGER backend_body_measurements_update AFTER UPDATE ON body_measurements BEGIN UPDATE backend_state SET generation=generation+1 WHERE id=1; END"
+    },
+    {
+      "kind": "trigger",
+      "name": "backend_exercise_equipment_delete",
+      "sql": "CREATE TRIGGER backend_exercise_equipment_delete AFTER DELETE ON exercise_equipment BEGIN UPDATE backend_state SET generation=generation+1 WHERE id=1; END"
+    },
+    {
+      "kind": "trigger",
+      "name": "backend_exercise_equipment_insert",
+      "sql": "CREATE TRIGGER backend_exercise_equipment_insert AFTER INSERT ON exercise_equipment BEGIN UPDATE backend_state SET generation=generation+1 WHERE id=1; END"
+    },
+    {
+      "kind": "trigger",
+      "name": "backend_exercise_equipment_update",
+      "sql": "CREATE TRIGGER backend_exercise_equipment_update AFTER UPDATE ON exercise_equipment BEGIN UPDATE backend_state SET generation=generation+1 WHERE id=1; END"
+    },
+    {
+      "kind": "trigger",
+      "name": "backend_exercise_muscles_delete",
+      "sql": "CREATE TRIGGER backend_exercise_muscles_delete AFTER DELETE ON exercise_muscles BEGIN UPDATE backend_state SET generation=generation+1 WHERE id=1; END"
+    },
+    {
+      "kind": "trigger",
+      "name": "backend_exercise_muscles_insert",
+      "sql": "CREATE TRIGGER backend_exercise_muscles_insert AFTER INSERT ON exercise_muscles BEGIN UPDATE backend_state SET generation=generation+1 WHERE id=1; END"
+    },
+    {
+      "kind": "trigger",
+      "name": "backend_exercise_muscles_update",
+      "sql": "CREATE TRIGGER backend_exercise_muscles_update AFTER UPDATE ON exercise_muscles BEGIN UPDATE backend_state SET generation=generation+1 WHERE id=1; END"
+    },
+    {
+      "kind": "trigger",
+      "name": "backend_exercises_delete",
+      "sql": "CREATE TRIGGER backend_exercises_delete AFTER DELETE ON exercises BEGIN UPDATE backend_state SET generation=generation+1 WHERE id=1; END"
+    },
+    {
+      "kind": "trigger",
+      "name": "backend_exercises_insert",
+      "sql": "CREATE TRIGGER backend_exercises_insert AFTER INSERT ON exercises BEGIN UPDATE backend_state SET generation=generation+1 WHERE id=1; END"
+    },
+    {
+      "kind": "trigger",
+      "name": "backend_exercises_update",
+      "sql": "CREATE TRIGGER backend_exercises_update AFTER UPDATE ON exercises BEGIN UPDATE backend_state SET generation=generation+1 WHERE id=1; END"
+    },
+    {
+      "kind": "trigger",
+      "name": "backend_gym_equipment_delete",
+      "sql": "CREATE TRIGGER backend_gym_equipment_delete AFTER DELETE ON gym_equipment BEGIN UPDATE backend_state SET generation=generation+1 WHERE id=1; END"
+    },
+    {
+      "kind": "trigger",
+      "name": "backend_gym_equipment_insert",
+      "sql": "CREATE TRIGGER backend_gym_equipment_insert AFTER INSERT ON gym_equipment BEGIN UPDATE backend_state SET generation=generation+1 WHERE id=1; END"
+    },
+    {
+      "kind": "trigger",
+      "name": "backend_gym_equipment_update",
+      "sql": "CREATE TRIGGER backend_gym_equipment_update AFTER UPDATE ON gym_equipment BEGIN UPDATE backend_state SET generation=generation+1 WHERE id=1; END"
+    },
+    {
+      "kind": "trigger",
+      "name": "backend_gym_exercises_delete",
+      "sql": "CREATE TRIGGER backend_gym_exercises_delete AFTER DELETE ON gym_exercises BEGIN UPDATE backend_state SET generation=generation+1 WHERE id=1; END"
+    },
+    {
+      "kind": "trigger",
+      "name": "backend_gym_exercises_insert",
+      "sql": "CREATE TRIGGER backend_gym_exercises_insert AFTER INSERT ON gym_exercises BEGIN UPDATE backend_state SET generation=generation+1 WHERE id=1; END"
+    },
+    {
+      "kind": "trigger",
+      "name": "backend_gym_exercises_update",
+      "sql": "CREATE TRIGGER backend_gym_exercises_update AFTER UPDATE ON gym_exercises BEGIN UPDATE backend_state SET generation=generation+1 WHERE id=1; END"
+    },
+    {
+      "kind": "trigger",
+      "name": "backend_gyms_delete",
+      "sql": "CREATE TRIGGER backend_gyms_delete AFTER DELETE ON gyms BEGIN UPDATE backend_state SET generation=generation+1 WHERE id=1; END"
+    },
+    {
+      "kind": "trigger",
+      "name": "backend_gyms_insert",
+      "sql": "CREATE TRIGGER backend_gyms_insert AFTER INSERT ON gyms BEGIN UPDATE backend_state SET generation=generation+1 WHERE id=1; END"
+    },
+    {
+      "kind": "trigger",
+      "name": "backend_gyms_update",
+      "sql": "CREATE TRIGGER backend_gyms_update AFTER UPDATE ON gyms BEGIN UPDATE backend_state SET generation=generation+1 WHERE id=1; END"
+    },
+    {
+      "kind": "trigger",
+      "name": "backend_routine_exercises_delete",
+      "sql": "CREATE TRIGGER backend_routine_exercises_delete AFTER DELETE ON routine_exercises BEGIN UPDATE backend_state SET generation=generation+1 WHERE id=1; END"
+    },
+    {
+      "kind": "trigger",
+      "name": "backend_routine_exercises_insert",
+      "sql": "CREATE TRIGGER backend_routine_exercises_insert AFTER INSERT ON routine_exercises BEGIN UPDATE backend_state SET generation=generation+1 WHERE id=1; END"
+    },
+    {
+      "kind": "trigger",
+      "name": "backend_routine_exercises_update",
+      "sql": "CREATE TRIGGER backend_routine_exercises_update AFTER UPDATE ON routine_exercises BEGIN UPDATE backend_state SET generation=generation+1 WHERE id=1; END"
+    },
+    {
+      "kind": "trigger",
+      "name": "backend_routine_gyms_delete",
+      "sql": "CREATE TRIGGER backend_routine_gyms_delete AFTER DELETE ON routine_gyms BEGIN UPDATE backend_state SET generation=generation+1 WHERE id=1; END"
+    },
+    {
+      "kind": "trigger",
+      "name": "backend_routine_gyms_insert",
+      "sql": "CREATE TRIGGER backend_routine_gyms_insert AFTER INSERT ON routine_gyms BEGIN UPDATE backend_state SET generation=generation+1 WHERE id=1; END"
+    },
+    {
+      "kind": "trigger",
+      "name": "backend_routine_gyms_update",
+      "sql": "CREATE TRIGGER backend_routine_gyms_update AFTER UPDATE ON routine_gyms BEGIN UPDATE backend_state SET generation=generation+1 WHERE id=1; END"
+    },
+    {
+      "kind": "trigger",
+      "name": "backend_routines_delete",
+      "sql": "CREATE TRIGGER backend_routines_delete AFTER DELETE ON routines BEGIN UPDATE backend_state SET generation=generation+1 WHERE id=1; END"
+    },
+    {
+      "kind": "trigger",
+      "name": "backend_routines_insert",
+      "sql": "CREATE TRIGGER backend_routines_insert AFTER INSERT ON routines BEGIN UPDATE backend_state SET generation=generation+1 WHERE id=1; END"
+    },
+    {
+      "kind": "trigger",
+      "name": "backend_routines_update",
+      "sql": "CREATE TRIGGER backend_routines_update AFTER UPDATE ON routines BEGIN UPDATE backend_state SET generation=generation+1 WHERE id=1; END"
+    },
+    {
+      "kind": "trigger",
+      "name": "backend_scheduled_workouts_delete",
+      "sql": "CREATE TRIGGER backend_scheduled_workouts_delete AFTER DELETE ON scheduled_workouts BEGIN UPDATE backend_state SET generation=generation+1 WHERE id=1; END"
+    },
+    {
+      "kind": "trigger",
+      "name": "backend_scheduled_workouts_insert",
+      "sql": "CREATE TRIGGER backend_scheduled_workouts_insert AFTER INSERT ON scheduled_workouts BEGIN UPDATE backend_state SET generation=generation+1 WHERE id=1; END"
+    },
+    {
+      "kind": "trigger",
+      "name": "backend_scheduled_workouts_update",
+      "sql": "CREATE TRIGGER backend_scheduled_workouts_update AFTER UPDATE ON scheduled_workouts BEGIN UPDATE backend_state SET generation=generation+1 WHERE id=1; END"
+    },
+    {
+      "kind": "trigger",
+      "name": "backend_workout_exercises_delete",
+      "sql": "CREATE TRIGGER backend_workout_exercises_delete AFTER DELETE ON workout_exercises BEGIN UPDATE backend_state SET generation=generation+1 WHERE id=1; END"
+    },
+    {
+      "kind": "trigger",
+      "name": "backend_workout_exercises_insert",
+      "sql": "CREATE TRIGGER backend_workout_exercises_insert AFTER INSERT ON workout_exercises BEGIN UPDATE backend_state SET generation=generation+1 WHERE id=1; END"
+    },
+    {
+      "kind": "trigger",
+      "name": "backend_workout_exercises_update",
+      "sql": "CREATE TRIGGER backend_workout_exercises_update AFTER UPDATE ON workout_exercises BEGIN UPDATE backend_state SET generation=generation+1 WHERE id=1; END"
+    },
+    {
+      "kind": "trigger",
+      "name": "backend_workout_gyms_delete",
+      "sql": "CREATE TRIGGER backend_workout_gyms_delete AFTER DELETE ON workout_gyms BEGIN UPDATE backend_state SET generation=generation+1 WHERE id=1; END"
+    },
+    {
+      "kind": "trigger",
+      "name": "backend_workout_gyms_insert",
+      "sql": "CREATE TRIGGER backend_workout_gyms_insert AFTER INSERT ON workout_gyms BEGIN UPDATE backend_state SET generation=generation+1 WHERE id=1; END"
+    },
+    {
+      "kind": "trigger",
+      "name": "backend_workout_gyms_update",
+      "sql": "CREATE TRIGGER backend_workout_gyms_update AFTER UPDATE ON workout_gyms BEGIN UPDATE backend_state SET generation=generation+1 WHERE id=1; END"
+    },
+    {
+      "kind": "trigger",
+      "name": "backend_workout_sets_delete",
+      "sql": "CREATE TRIGGER backend_workout_sets_delete AFTER DELETE ON workout_sets BEGIN UPDATE backend_state SET generation=generation+1 WHERE id=1; END"
+    },
+    {
+      "kind": "trigger",
+      "name": "backend_workout_sets_insert",
+      "sql": "CREATE TRIGGER backend_workout_sets_insert AFTER INSERT ON workout_sets BEGIN UPDATE backend_state SET generation=generation+1 WHERE id=1; END"
+    },
+    {
+      "kind": "trigger",
+      "name": "backend_workout_sets_update",
+      "sql": "CREATE TRIGGER backend_workout_sets_update AFTER UPDATE ON workout_sets BEGIN UPDATE backend_state SET generation=generation+1 WHERE id=1; END"
+    },
+    {
+      "kind": "trigger",
+      "name": "backend_workouts_delete",
+      "sql": "CREATE TRIGGER backend_workouts_delete AFTER DELETE ON workouts BEGIN UPDATE backend_state SET generation=generation+1 WHERE id=1; END"
+    },
+    {
+      "kind": "trigger",
+      "name": "backend_workouts_insert",
+      "sql": "CREATE TRIGGER backend_workouts_insert AFTER INSERT ON workouts BEGIN UPDATE backend_state SET generation=generation+1 WHERE id=1; END"
+    },
+    {
+      "kind": "trigger",
+      "name": "backend_workouts_update",
+      "sql": "CREATE TRIGGER backend_workouts_update AFTER UPDATE ON workouts BEGIN UPDATE backend_state SET generation=generation+1 WHERE id=1; END"
+    },
+    {
+      "kind": "trigger",
+      "name": "standard_exercise_equipment_delete",
+      "sql": "CREATE TRIGGER standard_exercise_equipment_delete BEFORE DELETE ON exercise_equipment WHEN (SELECT origin FROM exercises WHERE id=OLD.exerciseId)='STANDARD' AND (SELECT applying FROM catalog_state WHERE id=1)=0 BEGIN SELECT RAISE(ABORT,'Создайте личную копию стандартного объекта'); END"
+    },
+    {
+      "kind": "trigger",
+      "name": "standard_exercise_equipment_insert",
+      "sql": "CREATE TRIGGER standard_exercise_equipment_insert BEFORE INSERT ON exercise_equipment WHEN (SELECT origin FROM exercises WHERE id=NEW.exerciseId)='STANDARD' AND (SELECT applying FROM catalog_state WHERE id=1)=0 BEGIN SELECT RAISE(ABORT,'Создайте личную копию стандартного объекта'); END"
+    },
+    {
+      "kind": "trigger",
+      "name": "standard_exercise_equipment_update",
+      "sql": "CREATE TRIGGER standard_exercise_equipment_update BEFORE UPDATE ON exercise_equipment WHEN (SELECT origin FROM exercises WHERE id=OLD.exerciseId)='STANDARD' AND (SELECT applying FROM catalog_state WHERE id=1)=0 BEGIN SELECT RAISE(ABORT,'Создайте личную копию стандартного объекта'); END"
+    },
+    {
+      "kind": "trigger",
+      "name": "standard_exercise_muscles_delete",
+      "sql": "CREATE TRIGGER standard_exercise_muscles_delete BEFORE DELETE ON exercise_muscles WHEN (SELECT origin FROM exercises WHERE id=OLD.exerciseId)='STANDARD' AND (SELECT applying FROM catalog_state WHERE id=1)=0 BEGIN SELECT RAISE(ABORT,'Создайте личную копию стандартного объекта'); END"
+    },
+    {
+      "kind": "trigger",
+      "name": "standard_exercise_muscles_insert",
+      "sql": "CREATE TRIGGER standard_exercise_muscles_insert BEFORE INSERT ON exercise_muscles WHEN (SELECT origin FROM exercises WHERE id=NEW.exerciseId)='STANDARD' AND (SELECT applying FROM catalog_state WHERE id=1)=0 BEGIN SELECT RAISE(ABORT,'Создайте личную копию стандартного объекта'); END"
+    },
+    {
+      "kind": "trigger",
+      "name": "standard_exercise_muscles_update",
+      "sql": "CREATE TRIGGER standard_exercise_muscles_update BEFORE UPDATE ON exercise_muscles WHEN (SELECT origin FROM exercises WHERE id=OLD.exerciseId)='STANDARD' AND (SELECT applying FROM catalog_state WHERE id=1)=0 BEGIN SELECT RAISE(ABORT,'Создайте личную копию стандартного объекта'); END"
+    },
+    {
+      "kind": "trigger",
+      "name": "standard_exercises_delete",
+      "sql": "CREATE TRIGGER standard_exercises_delete BEFORE DELETE ON exercises WHEN OLD.origin='STANDARD' AND (SELECT applying FROM catalog_state WHERE id=1)=0 BEGIN SELECT RAISE(ABORT,'Создайте личную копию стандартного объекта'); END"
+    },
+    {
+      "kind": "trigger",
+      "name": "standard_exercises_update",
+      "sql": "CREATE TRIGGER standard_exercises_update BEFORE UPDATE ON exercises WHEN OLD.origin='STANDARD' AND (SELECT applying FROM catalog_state WHERE id=1)=0 BEGIN SELECT RAISE(ABORT,'Создайте личную копию стандартного объекта'); END"
+    },
+    {
+      "kind": "trigger",
+      "name": "standard_gym_equipment_delete",
+      "sql": "CREATE TRIGGER standard_gym_equipment_delete BEFORE DELETE ON gym_equipment WHEN (SELECT origin FROM gyms WHERE id=OLD.gymId)='STANDARD' AND (SELECT applying FROM catalog_state WHERE id=1)=0 BEGIN SELECT RAISE(ABORT,'Создайте личную копию стандартного объекта'); END"
+    },
+    {
+      "kind": "trigger",
+      "name": "standard_gym_equipment_insert",
+      "sql": "CREATE TRIGGER standard_gym_equipment_insert BEFORE INSERT ON gym_equipment WHEN (SELECT origin FROM gyms WHERE id=NEW.gymId)='STANDARD' AND (SELECT applying FROM catalog_state WHERE id=1)=0 BEGIN SELECT RAISE(ABORT,'Создайте личную копию стандартного объекта'); END"
+    },
+    {
+      "kind": "trigger",
+      "name": "standard_gym_equipment_update",
+      "sql": "CREATE TRIGGER standard_gym_equipment_update BEFORE UPDATE ON gym_equipment WHEN (SELECT origin FROM gyms WHERE id=OLD.gymId)='STANDARD' AND (SELECT applying FROM catalog_state WHERE id=1)=0 BEGIN SELECT RAISE(ABORT,'Создайте личную копию стандартного объекта'); END"
+    },
+    {
+      "kind": "trigger",
+      "name": "standard_gym_exercises_delete",
+      "sql": "CREATE TRIGGER standard_gym_exercises_delete BEFORE DELETE ON gym_exercises WHEN (SELECT origin FROM gyms WHERE id=OLD.gymId)='STANDARD' AND (SELECT applying FROM catalog_state WHERE id=1)=0 BEGIN SELECT RAISE(ABORT,'Создайте личную копию стандартного объекта'); END"
+    },
+    {
+      "kind": "trigger",
+      "name": "standard_gym_exercises_insert",
+      "sql": "CREATE TRIGGER standard_gym_exercises_insert BEFORE INSERT ON gym_exercises WHEN (SELECT origin FROM gyms WHERE id=NEW.gymId)='STANDARD' AND (SELECT applying FROM catalog_state WHERE id=1)=0 BEGIN SELECT RAISE(ABORT,'Создайте личную копию стандартного объекта'); END"
+    },
+    {
+      "kind": "trigger",
+      "name": "standard_gym_exercises_update",
+      "sql": "CREATE TRIGGER standard_gym_exercises_update BEFORE UPDATE ON gym_exercises WHEN (SELECT origin FROM gyms WHERE id=OLD.gymId)='STANDARD' AND (SELECT applying FROM catalog_state WHERE id=1)=0 BEGIN SELECT RAISE(ABORT,'Создайте личную копию стандартного объекта'); END"
+    },
+    {
+      "kind": "trigger",
+      "name": "standard_gyms_delete",
+      "sql": "CREATE TRIGGER standard_gyms_delete BEFORE DELETE ON gyms WHEN OLD.origin='STANDARD' AND (SELECT applying FROM catalog_state WHERE id=1)=0 BEGIN SELECT RAISE(ABORT,'Создайте личную копию стандартного объекта'); END"
+    },
+    {
+      "kind": "trigger",
+      "name": "standard_gyms_update",
+      "sql": "CREATE TRIGGER standard_gyms_update BEFORE UPDATE ON gyms WHEN OLD.origin='STANDARD' AND (SELECT applying FROM catalog_state WHERE id=1)=0 BEGIN SELECT RAISE(ABORT,'Создайте личную копию стандартного объекта'); END"
+    },
+    {
+      "kind": "trigger",
+      "name": "standard_routine_exercises_delete",
+      "sql": "CREATE TRIGGER standard_routine_exercises_delete BEFORE DELETE ON routine_exercises WHEN (SELECT origin FROM routines WHERE id=OLD.routineId)='STANDARD' AND (SELECT applying FROM catalog_state WHERE id=1)=0 BEGIN SELECT RAISE(ABORT,'Создайте личную копию стандартного объекта'); END"
+    },
+    {
+      "kind": "trigger",
+      "name": "standard_routine_exercises_insert",
+      "sql": "CREATE TRIGGER standard_routine_exercises_insert BEFORE INSERT ON routine_exercises WHEN (SELECT origin FROM routines WHERE id=NEW.routineId)='STANDARD' AND (SELECT applying FROM catalog_state WHERE id=1)=0 BEGIN SELECT RAISE(ABORT,'Создайте личную копию стандартного объекта'); END"
+    },
+    {
+      "kind": "trigger",
+      "name": "standard_routine_exercises_update",
+      "sql": "CREATE TRIGGER standard_routine_exercises_update BEFORE UPDATE ON routine_exercises WHEN (SELECT origin FROM routines WHERE id=OLD.routineId)='STANDARD' AND (SELECT applying FROM catalog_state WHERE id=1)=0 BEGIN SELECT RAISE(ABORT,'Создайте личную копию стандартного объекта'); END"
+    },
+    {
+      "kind": "trigger",
+      "name": "standard_routine_gyms_delete",
+      "sql": "CREATE TRIGGER standard_routine_gyms_delete BEFORE DELETE ON routine_gyms WHEN (SELECT origin FROM routines WHERE id=OLD.routineId)='STANDARD' AND (SELECT applying FROM catalog_state WHERE id=1)=0 BEGIN SELECT RAISE(ABORT,'Создайте личную копию стандартного объекта'); END"
+    },
+    {
+      "kind": "trigger",
+      "name": "standard_routine_gyms_insert",
+      "sql": "CREATE TRIGGER standard_routine_gyms_insert BEFORE INSERT ON routine_gyms WHEN (SELECT origin FROM routines WHERE id=NEW.routineId)='STANDARD' AND (SELECT applying FROM catalog_state WHERE id=1)=0 BEGIN SELECT RAISE(ABORT,'Создайте личную копию стандартного объекта'); END"
+    },
+    {
+      "kind": "trigger",
+      "name": "standard_routine_gyms_update",
+      "sql": "CREATE TRIGGER standard_routine_gyms_update BEFORE UPDATE ON routine_gyms WHEN (SELECT origin FROM routines WHERE id=OLD.routineId)='STANDARD' AND (SELECT applying FROM catalog_state WHERE id=1)=0 BEGIN SELECT RAISE(ABORT,'Создайте личную копию стандартного объекта'); END"
+    },
+    {
+      "kind": "trigger",
+      "name": "standard_routines_delete",
+      "sql": "CREATE TRIGGER standard_routines_delete BEFORE DELETE ON routines WHEN OLD.origin='STANDARD' AND (SELECT applying FROM catalog_state WHERE id=1)=0 BEGIN SELECT RAISE(ABORT,'Создайте личную копию стандартного объекта'); END"
+    },
+    {
+      "kind": "trigger",
+      "name": "standard_routines_update",
+      "sql": "CREATE TRIGGER standard_routines_update BEFORE UPDATE ON routines WHEN OLD.origin='STANDARD' AND (SELECT applying FROM catalog_state WHERE id=1)=0 BEGIN SELECT RAISE(ABORT,'Создайте личную копию стандартного объекта'); END"
+    }
+  ]
+}

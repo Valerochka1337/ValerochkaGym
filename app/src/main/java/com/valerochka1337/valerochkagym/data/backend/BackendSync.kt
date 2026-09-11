@@ -4,6 +4,7 @@ import androidx.room.withTransaction
 import com.valerochka1337.valerochkagym.data.calendar.CalendarMigrationGate
 import com.valerochka1337.valerochkagym.data.calendar.PersistedCalendarMigrationGate
 import com.valerochka1337.valerochkagym.data.db.GymDatabase
+import com.valerochka1337.valerochkagym.data.db.LegacyCoachArchiveRegistry
 import com.valerochka1337.valerochkagym.data.profile.ProfileValidator
 import com.valerochka1337.valerochkagym.data.trainingproposal.AcceptedProposalResult
 import java.nio.charset.StandardCharsets.UTF_8
@@ -31,6 +32,7 @@ constructor(
 ) : CalendarCloudStatus {
   val mutex = Mutex()
   private val catalog = CatalogSync(database, api)
+  private val coachJournal = CoachJournalSync(database, api, tokens)
   private val mutableCatalogConflict = MutableStateFlow(false)
   val catalogConflict = mutableCatalogConflict.asStateFlow()
   private val mutableTransfer =
@@ -342,12 +344,14 @@ constructor(
             "backend_baseline",
             "backend_conflict_copies",
             "backend_rejected_operations",
+            "coach_sync_state",
         )
         .forEach {
           val personal =
               if (it in setOf("exercises", "gyms", "routines")) " WHERE origin='PERSONAL'" else ""
           db.execSQL("DELETE FROM $it$personal")
         }
+    LegacyCoachArchiveRegistry.purge(db)
     profileScope?.let { db.execSQL("DELETE FROM profiles WHERE scope=?", arrayOf(it)) }
     profileScope?.let { owner ->
       db.execSQL("DELETE FROM workout_preparations WHERE owner=?", arrayOf(owner))
@@ -1156,6 +1160,7 @@ constructor(
                         state.copy(phase = GuestSyncPhase.OWNED, initialMergeAcknowledged = true)
                   }
                 }
+                coachJournal.run(user)
                 mutableStatus.value = "Данные синхронизированы"
                 mutableConflict.value = false
                 mutableCatalogConflict.value = false
@@ -1182,6 +1187,7 @@ constructor(
   private suspend fun send(user: String, push: CloudPush) {
     assertOwner(user)
     var sent = push
+    var acknowledgedSession: BackendSessionSnapshot? = null
     suspend fun post(value: CloudPush): CloudAck {
       val raw =
           db.query("SELECT requestJson FROM backend_outbox WHERE id=1 AND owner=?", arrayOf(user))
@@ -1204,9 +1210,14 @@ constructor(
               expectedSessionEpoch = dispatch.epoch,
               retryOnUnauthorized = true,
           )
-      if (response.owner != user || response.sessionEpoch != dispatch.epoch)
+      if (
+          response.owner != user ||
+              response.sessionEpoch != dispatch.epoch ||
+              tokens.snapshot() != dispatch
+      )
           throw BackendException(401, "owner_changed", "Аккаунт изменился")
       assertOwner(user)
+      acknowledgedSession = dispatch
       return api.json.decodeFromJsonElement(response.body)
     }
     val ack =
@@ -1249,6 +1260,8 @@ constructor(
         }
     database.withTransaction {
       assertOwner(user)
+      if (tokens.snapshot() != acknowledgedSession)
+          throw BackendException(401, "owner_changed", "Аккаунт изменился")
       sent.changes.forEach {
         saveBaseline(CloudRecord(it.kind, it.id, ack.revision, it.deleted, it.payload))
       }

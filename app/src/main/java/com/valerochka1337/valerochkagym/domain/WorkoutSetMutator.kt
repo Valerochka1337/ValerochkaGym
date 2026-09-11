@@ -61,8 +61,7 @@ constructor(
       for (mutation in mutations) {
         when (mutation) {
           is SetMutation -> {
-            val current = repository.getSet(mutation.setId) ?: continue
-            repository.updateSet(mutation.transform(current))
+            repository.mutateSet(mutation.setId, mutation.transform)
           }
 
           is CompletedSetNumberEdit -> {

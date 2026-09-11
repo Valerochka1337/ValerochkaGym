@@ -1,5 +1,6 @@
 package com.valerochka1337.valerochkagym.data.db.entity
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Index
@@ -27,4 +28,6 @@ data class WorkoutEntity(
     val note: String = "",
     val uploadStatus: UploadStatus = UploadStatus.PENDING,
     val uploadError: String? = null,
+    /** Monotonic local revision used by the coach command/proposal gate. */
+    @ColumnInfo(defaultValue = "0") val coachRevision: Long = 0,
 )

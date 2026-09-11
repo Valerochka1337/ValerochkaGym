@@ -56,6 +56,13 @@ class Migration1To12Test {
           assertTrue(cursor.moveToFirst())
           assertEquals(1, cursor.getInt(0))
         }
+    db.openHelper.writableDatabase
+        .query("SELECT syncId, coachMutationRevision FROM workout_sets WHERE id = 1")
+        .use { cursor ->
+          assertTrue(cursor.moveToFirst())
+          assertTrue(cursor.getString(0).isNotBlank())
+          assertEquals(0L, cursor.getLong(1))
+        }
     db.close()
   }
 

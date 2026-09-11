@@ -21,6 +21,31 @@ class PortableData(private val db: SupportSQLiteDatabase) {
   private val localFields =
       setOf("id", "syncId", "uploadStatus", "uploadError", "origin", "archived")
 
+  private val workoutFields =
+      setOf("name", "note", "routineId", "startedAt", "finishedAt", "coachRevision")
+  private val sectionFields = setOf("exerciseId", "sectionId", "position")
+  private val loadFields = listOf("WeightKg", "Reps", "DurationSec", "SpeedKmh", "InclinePct")
+  private val setFields =
+      setOf(
+          "note",
+          "syncId",
+          "setIndex",
+          "weightKg",
+          "reps",
+          "durationSec",
+          "speedKmh",
+          "inclinePct",
+          "isCompleted",
+          "completedAt",
+          "setType",
+          "reportedFeelingsJson",
+          "restSnapshotJson",
+          "coachMutationRevision",
+      ) +
+          listOf("original", "target", "actual").flatMap { prefix ->
+            loadFields.map { prefix + it }
+          }
+
   private fun rows(
       table: String,
       where: String = "",
@@ -156,7 +181,7 @@ class PortableData(private val db: SupportSQLiteDatabase) {
       result["routine:${r.s("syncId")}"] = JsonObject(n)
     }
     rows("workouts").forEach { w ->
-      val n = w.portable()
+      val n = w.filterKeys { it in workoutFields }.toMutableMap()
       n["routineId"] =
           w["routineId"]
               ?.takeUnless { it == JsonNull }
@@ -172,20 +197,36 @@ class PortableData(private val db: SupportSQLiteDatabase) {
                   )
                   .map { e ->
                     JsonObject(
-                        e.portable("workoutId").apply {
-                          put("exerciseId", JsonPrimitive(exerciseIds.getValue(e.s("exerciseId"))))
-                          put(
-                              "sets",
-                              array(
-                                  rows(
-                                          "workout_sets",
-                                          "WHERE workoutExerciseId=? ORDER BY setIndex,id",
-                                          arrayOf(e.s("id")),
-                                      )
-                                      .map { JsonObject(it.portable("workoutExerciseId")) }
-                              ),
-                          )
-                        }
+                        e.filterKeys { it in sectionFields }
+                            .toMutableMap()
+                            .apply {
+                              put(
+                                  "exerciseId",
+                                  JsonPrimitive(exerciseIds.getValue(e.s("exerciseId"))),
+                              )
+                              put(
+                                  "sets",
+                                  array(
+                                      rows(
+                                              "workout_sets",
+                                              "WHERE workoutExerciseId=? ORDER BY setIndex,id",
+                                              arrayOf(e.s("id")),
+                                          )
+                                          .map { row ->
+                                            // Sets are the sole exception to the generic local
+                                            // syncId
+                                            // rule: their UUID is an immutable portable identity.
+                                            JsonObject(
+                                                row.filterKeys { it in setFields }
+                                                    .toMutableMap()
+                                                    .apply {
+                                                      put("syncId", row.getValue("syncId"))
+                                                    },
+                                            )
+                                          }
+                                  ),
+                              )
+                            }
                     )
                   }
           )
@@ -520,9 +561,10 @@ class PortableData(private val db: SupportSQLiteDatabase) {
             "workout" -> {
               val id = JsonPrimitive(r.id)
               val body =
-                  (n - "exercises" - "gymIds") +
+                  n.filterKeys { it in workoutFields } +
                       mapOf(
                           "id" to id,
+                          "coachRevision" to (n["coachRevision"] ?: JsonPrimitive(0)),
                           "routineId" to
                               (n["routineId"]
                                   ?.takeUnless { it == JsonNull }
@@ -545,7 +587,7 @@ class PortableData(private val db: SupportSQLiteDatabase) {
                   .forEach { db.delete("workout_exercises", "id=?", arrayOf(it.s("id"))) }
               sections.forEach { e ->
                 val fields =
-                    (e - "sets") +
+                    e.filterKeys { it in sectionFields } +
                         mapOf(
                             "workoutId" to id,
                             "exerciseId" to localId("exercises", e.getValue("exerciseId")),
@@ -561,13 +603,38 @@ class PortableData(private val db: SupportSQLiteDatabase) {
                         }
                 // Never pull into a running local workout; the coordinator enforces this before
                 // apply.
+                val previousSets =
+                    rows("workout_sets", "WHERE workoutExerciseId=?", arrayOf(section))
+                        .associateBy { it.s("setIndex") }
                 replaceLinks(
                     "workout_sets",
                     "workoutExerciseId",
                     JsonPrimitive(section),
                     e.getValue("sets").jsonArray.map { item ->
-                      item.jsonObject +
-                          mapOf("note" to (item.jsonObject["note"] ?: JsonPrimitive("")))
+                      val incoming = item.jsonObject
+                      // Old snapshots contain no goals or sensations. Do not invent them from
+                      // results.
+                      val defaults =
+                          listOf("original", "target", "actual")
+                              .flatMap { prefix -> loadFields.map { prefix + it to JsonNull } }
+                              .toMap() +
+                              mapOf(
+                                  "note" to JsonPrimitive(""),
+                                  "setType" to JsonPrimitive("UNKNOWN"),
+                                  "reportedFeelingsJson" to JsonPrimitive("[]"),
+                                  "restSnapshotJson" to JsonNull,
+                                  "coachMutationRevision" to JsonPrimitive(0),
+                                  "syncId" to
+                                      (previousSets[incoming.s("setIndex")]?.get("syncId")
+                                          ?: JsonPrimitive(
+                                              UUID.nameUUIDFromBytes(
+                                                      "ValerochkaGym.legacy-set:${r.id}:${e.s("sectionId")}:${incoming.s("setIndex")}"
+                                                          .toByteArray()
+                                                  )
+                                                  .toString()
+                                          )),
+                              )
+                      defaults + incoming.filterKeys { it in setFields }
                     },
                 )
               }

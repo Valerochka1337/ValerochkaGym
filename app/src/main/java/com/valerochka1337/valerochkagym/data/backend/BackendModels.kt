@@ -74,6 +74,26 @@ data class BackendSession(
     val current: Boolean,
 )
 
+@Serializable
+data class CoachJournalEntry(
+    val id: String,
+    val workoutId: String,
+    val deviceId: String,
+    val createdAt: Long,
+    val payload: JsonObject,
+)
+
+@Serializable data class CoachJournalPush(val entries: List<CoachJournalEntry>)
+
+@Serializable data class CoachJournalAck(val accepted: Int)
+
+@Serializable
+data class CoachJournalPage(
+    val entries: List<CoachJournalEntry>,
+    val nextCursor: String? = null,
+    val watermark: Long,
+)
+
 class BackendException(val status: Int, val code: String, override val message: String) :
     Exception(message)
 

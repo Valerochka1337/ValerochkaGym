@@ -100,6 +100,7 @@ constructor(
     val PALETTE_MODE = stringPreferencesKey("palette_mode")
     val ACCENT_COLOR = stringPreferencesKey("accent_color")
     val IGNORED_UPDATE_TAG = stringPreferencesKey("ignored_update_tag")
+    const val COACH_MODEL_PREFIX = "coach_model."
   }
 
   val settings: Flow<GymSettings> =
@@ -268,6 +269,22 @@ constructor(
         }
       }
 
+  /** Model selection is scoped to the authenticated backend owner and contains no credential. */
+  fun coachModel(owner: String): Flow<String?> {
+    require(owner.isNotBlank())
+    val key = stringPreferencesKey(Keys.COACH_MODEL_PREFIX + ownerKey(owner))
+    return dataStore.data
+        .catch { error -> if (error is IOException) emit(emptyPreferences()) else throw error }
+        .map { it[key] }
+  }
+
+  suspend fun setCoachModel(owner: String, model: String?) {
+    require(owner.isNotBlank())
+    require(model == null || (model.isNotBlank() && model.length <= 256))
+    val key = stringPreferencesKey(Keys.COACH_MODEL_PREFIX + ownerKey(owner))
+    dataStore.edit { prefs -> if (model == null) prefs.remove(key) else prefs[key] = model }
+  }
+
   suspend fun aiProfilePromptState(scope: String): AiProfilePromptState =
       dataStore.data
           .catch { error -> if (error is IOException) emit(emptyPreferences()) else throw error }
@@ -400,6 +417,9 @@ constructor(
         processMarker = stringPreferencesKey("$prefix.process_marker"),
     )
   }
+
+  private fun ownerKey(owner: String): String =
+      Base64.getUrlEncoder().withoutPadding().encodeToString(owner.toByteArray())
 
   private fun Preferences.toAiProfilePromptState(keys: PromptKeys): AiProfilePromptState =
       AiProfilePromptState(

@@ -101,6 +101,7 @@ internal object MigrationRecoveryFixtures {
     // The fixture starts from Room's current schema, then reconstructs the historical recovery
     // surface. v13's review column intentionally remains because MIGRATION_12_13 must tolerate
     // interrupted vendor restores that already carried it; later-version objects must not.
+    removeV27LiveCoachSchema(db)
     removeV23ProfileSchema(db)
     removeV22WorkoutNotesSchema(db)
     removeV20HealthAiDisclosureSchema(db)
@@ -183,6 +184,44 @@ internal object MigrationRecoveryFixtures {
         "CREATE UNIQUE INDEX `index_workout_exercises_sectionId` ON `workout_exercises` (`sectionId`)"
     )
     db.execSQL("PRAGMA user_version = $version")
+  }
+
+  /** Reconstruct the pre-coach fixture before replaying the real migration chain. */
+  fun removeV27LiveCoachSchema(db: SupportSQLiteDatabase) {
+    for (table in
+        listOf(
+            "coach_messages",
+            "coach_proposals",
+            "coach_command_receipts",
+            "coach_journal",
+            "coach_session_context",
+            "coach_sync_state",
+        )) db.execSQL("DROP TABLE $table")
+    db.execSQL("ALTER TABLE workouts DROP COLUMN coachRevision")
+    db.execSQL("DROP INDEX index_workout_sets_syncId")
+    for (column in
+        listOf(
+            "syncId",
+            "originalWeightKg",
+            "originalReps",
+            "originalDurationSec",
+            "originalSpeedKmh",
+            "originalInclinePct",
+            "targetWeightKg",
+            "targetReps",
+            "targetDurationSec",
+            "targetSpeedKmh",
+            "targetInclinePct",
+            "actualWeightKg",
+            "actualReps",
+            "actualDurationSec",
+            "actualSpeedKmh",
+            "actualInclinePct",
+            "setType",
+            "reportedFeelingsJson",
+            "restSnapshotJson",
+            "coachMutationRevision",
+        )) db.execSQL("ALTER TABLE workout_sets DROP COLUMN $column")
   }
 
   fun removeV14EquipmentSchema(db: SupportSQLiteDatabase) {

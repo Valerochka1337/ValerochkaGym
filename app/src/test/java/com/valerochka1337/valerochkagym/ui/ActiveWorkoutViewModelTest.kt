@@ -2,8 +2,6 @@ package com.valerochka1337.valerochkagym.ui
 
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
-import androidx.datastore.preferences.core.intPreferencesKey
-import androidx.datastore.preferences.core.mutablePreferencesOf
 import androidx.lifecycle.SavedStateHandle
 import com.valerochka1337.valerochkagym.data.db.dao.RoutineDao
 import com.valerochka1337.valerochkagym.data.db.dao.WorkoutDao
@@ -23,14 +21,12 @@ import com.valerochka1337.valerochkagym.data.db.relation.WorkoutExerciseWithSets
 import com.valerochka1337.valerochkagym.data.db.relation.WorkoutFull
 import com.valerochka1337.valerochkagym.data.settings.SettingsRepository
 import com.valerochka1337.valerochkagym.domain.ActiveWorkoutRepository
-import com.valerochka1337.valerochkagym.domain.CompleteSetUseCase
 import com.valerochka1337.valerochkagym.domain.CompletedSetEditResult
 import com.valerochka1337.valerochkagym.domain.ExercisePersonalHint
 import com.valerochka1337.valerochkagym.domain.ExercisePersonalHintRepository
 import com.valerochka1337.valerochkagym.domain.HintEditTarget
 import com.valerochka1337.valerochkagym.domain.NoteSaveResult
 import com.valerochka1337.valerochkagym.domain.PreviousSetsUseCase
-import com.valerochka1337.valerochkagym.domain.RestDurationResolver
 import com.valerochka1337.valerochkagym.domain.RoutineGymConflictException
 import com.valerochka1337.valerochkagym.domain.WorkoutSetMutator
 import com.valerochka1337.valerochkagym.service.RestTimerEngine
@@ -64,11 +60,10 @@ import org.junit.Test
 
 /**
  * Unit tests for [ActiveWorkoutViewModel]. The repository, DAO and scheduler boundaries are
- * hand-written fakes; [WorkoutSetMutator], [CompleteSetUseCase], [RestDurationResolver] and
- * [RestTimerEngine] are real instances over those fakes, so the tests cover the same single-writer
- * path the notification buttons use. The mutator consumes its channel on
- * [TestScope.backgroundScope] (standard dispatcher), so tests call [runCurrent] after a step to let
- * the write land.
+ * hand-written fakes; [WorkoutSetMutator] and [RestTimerEngine] are real instances over those
+ * fakes, so the tests cover the same single-writer path the notification buttons use. The mutator
+ * consumes its channel on [TestScope.backgroundScope] (standard dispatcher), so tests call
+ * [runCurrent] after a step to let the write land.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class ActiveWorkoutViewModelTest {
@@ -699,31 +694,19 @@ class ActiveWorkoutViewModelTest {
     val repository = FakeActiveWorkoutRepository(active)
     val uploadScheduler = FakeUploadScheduler()
     val restTimerEngine = RestTimerEngine(backgroundScope) { testScheduler.currentTime }
-    val settingsRepository =
-        SettingsRepository(
-            FakeDataStore(
-                mutablePreferencesOf(
-                    intPreferencesKey("default_rest_seconds") to DEFAULT_REST_SECONDS,
-                    androidx.datastore.preferences.core.booleanPreferencesKey(
-                        "heart_rate_rest_enabled"
-                    ) to heartRateRestEnabled,
-                ),
-            ),
-        )
     val heartRateMonitor = FakeHeartRateMonitor()
     val viewModel =
         ActiveWorkoutViewModel(
             repository = repository,
             previousSetsUseCase = PreviousSetsUseCase(FakeWorkoutDao(previousSets)),
             setMutator = WorkoutSetMutator(repository, backgroundScope),
-            completeSetUseCase =
-                CompleteSetUseCase(
-                    repository = repository,
-                    restDurationResolver =
-                        RestDurationResolver(FakeRoutineDao(), settingsRepository),
-                    restTimerEngine = restTimerEngine,
-                    settingsRepository = settingsRepository,
-                ),
+            completeSetFromUser = { setId ->
+              if (repository.getSet(setId)?.isCompleted != true) {
+                repository.toggleSetCompleted(setId, true)
+                if (heartRateRestEnabled) restTimerEngine.startUntilHeartRateAtMost(110, 10)
+                else restTimerEngine.start(DEFAULT_REST_SECONDS)
+              }
+            },
             restTimerEngine = restTimerEngine,
             uploadScheduler = uploadScheduler,
             heartRateMonitor = heartRateMonitor,
@@ -977,6 +960,14 @@ class ActiveWorkoutViewModelTest {
    * заглушки.
    */
   private class FakeWorkoutDao(private val previousSets: List<WorkoutSetEntity>) : WorkoutDao {
+    override suspend fun latestComparableCompletedWeight(
+        exerciseId: Long,
+        excludeWorkoutId: String,
+    ): Double? = null
+
+    override suspend fun coachCompletedSetsForExercise(exerciseId: Long) =
+        emptyList<com.valerochka1337.valerochkagym.data.db.relation.CoachCompletedSetRow>()
+
     override fun observeFinishedExerciseHistory() =
         flowOf(
             emptyList<com.valerochka1337.valerochkagym.data.db.relation.ExerciseWorkoutHistoryRow>()

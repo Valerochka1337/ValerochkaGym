@@ -174,16 +174,25 @@ fun SettingsScreen(
               }
 
               SettingsCategory.WORKOUT ->
-                  RestTimerCard(
-                      settings = settings,
-                      onChangeRest = viewModel::changeDefaultRest,
-                      onToggleAutostart = viewModel::toggleRestAutostart,
-                      onToggleHeartRateRest = viewModel::toggleHeartRateRest,
-                      onChangeHeartRateRestThreshold = viewModel::changeHeartRateRestThreshold,
-                      onChangeHeartRateRestHoldSeconds = viewModel::changeHeartRateRestHoldSeconds,
-                      onToggleSound = viewModel::toggleSound,
-                      onToggleVibration = viewModel::toggleVibration,
-                  )
+                  Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    RestTimerCard(
+                        settings = settings,
+                        onChangeRest = viewModel::changeDefaultRest,
+                        onToggleAutostart = viewModel::toggleRestAutostart,
+                        onToggleHeartRateRest = viewModel::toggleHeartRateRest,
+                        onChangeHeartRateRestThreshold = viewModel::changeHeartRateRestThreshold,
+                        onChangeHeartRateRestHoldSeconds =
+                            viewModel::changeHeartRateRestHoldSeconds,
+                        onToggleSound = viewModel::toggleSound,
+                        onToggleVibration = viewModel::toggleVibration,
+                    )
+                    CoachModelCard(
+                        state = state.coachModel,
+                        onSelect = viewModel::selectCoachModel,
+                        onVerify = viewModel::verifyCoachModel,
+                        onRefresh = viewModel::refreshCoachModels,
+                    )
+                  }
 
               SettingsCategory.ACCOUNT -> com.valerochka1337.valerochkagym.ui.account.AccountCard()
 
@@ -244,6 +253,94 @@ private fun ProfileSettingsCard(onOpen: () -> Unit) {
       icon = Icons.Rounded.AccountCircle,
       onClick = onOpen,
   )
+}
+
+@Composable
+internal fun CoachModelCard(
+    state: CoachModelUiState,
+    onSelect: (String?) -> Unit,
+    onVerify: () -> Unit,
+    onRefresh: () -> Unit,
+) {
+  val haptics = gymHaptics()
+  SectionCard(title = "Live Coach", icon = Icons.Rounded.PlayCircle) {
+    when {
+      state.loading -> {
+        Text("Получаем доступные модели…", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.height(8.dp))
+        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+      }
+      state.available != true -> {
+        Text(
+            state.status ?: "Серверный тренер пока не настроен.",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        TextButton(
+            onClick = {
+              haptics.tap()
+              onRefresh()
+            }
+        ) {
+          Text("Повторить")
+        }
+      }
+      else -> {
+        Text(
+            "Модель обрабатывается на сервере. Чат и журнал тренировки синхронизируются между вашими устройствами.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(12.dp))
+        val active = state.selectedModel ?: state.defaultModel
+        Text(
+            "Текущая модель: ${active ?: "сервер выберет автоматически"}",
+            style = MaterialTheme.typography.titleSmall,
+        )
+        TextButton(
+            onClick = {
+              haptics.tap()
+              onSelect(null)
+            },
+            enabled = state.selectedModel != null && !state.checking && !state.savingSelection,
+        ) {
+          Text("Использовать модель сервера")
+        }
+        state.models.forEach { model ->
+          FilterChip(
+              selected = state.selectedModel == model,
+              onClick = {
+                haptics.tap()
+                onSelect(model)
+              },
+              enabled = !state.checking && !state.savingSelection,
+              label = { Text(model, maxLines = 1) },
+              modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+          )
+        }
+        Spacer(Modifier.height(8.dp))
+        OutlinedButton(
+            onClick = {
+              haptics.tap()
+              onVerify()
+            },
+            enabled = !state.checking && !state.savingSelection,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+          Text(
+              when {
+                state.checking -> "Проверяем модель…"
+                state.savingSelection -> "Сохраняем модель…"
+                else -> "Проверить модель тренера"
+              },
+          )
+        }
+        state.status?.let {
+          Spacer(Modifier.height(8.dp))
+          Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+      }
+    }
+  }
 }
 
 @Composable

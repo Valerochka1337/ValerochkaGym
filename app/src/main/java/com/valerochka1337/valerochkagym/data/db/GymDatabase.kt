@@ -11,6 +11,7 @@ import com.valerochka1337.valerochkagym.data.coachrelation.CoachRelationOperatio
 import com.valerochka1337.valerochkagym.data.db.dao.BodyMeasurementDao
 import com.valerochka1337.valerochkagym.data.db.dao.CalendarEventAccountLinkDao
 import com.valerochka1337.valerochkagym.data.db.dao.CalendarPlanDao
+import com.valerochka1337.valerochkagym.data.db.dao.CoachDao
 import com.valerochka1337.valerochkagym.data.db.dao.ConfigurationTombstoneDao
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseDao
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseMuscleDao
@@ -32,6 +33,12 @@ import com.valerochka1337.valerochkagym.data.db.entity.CalendarMigrationMetadata
 import com.valerochka1337.valerochkagym.data.db.entity.CalendarMigrationStateEntity
 import com.valerochka1337.valerochkagym.data.db.entity.CalendarPlanEntity
 import com.valerochka1337.valerochkagym.data.db.entity.CalendarRuleEntity
+import com.valerochka1337.valerochkagym.data.db.entity.CoachCommandReceiptEntity
+import com.valerochka1337.valerochkagym.data.db.entity.CoachJournalEntity
+import com.valerochka1337.valerochkagym.data.db.entity.CoachMessageEntity
+import com.valerochka1337.valerochkagym.data.db.entity.CoachProposalEntity
+import com.valerochka1337.valerochkagym.data.db.entity.CoachSessionContextEntity
+import com.valerochka1337.valerochkagym.data.db.entity.CoachSyncStateEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ConfigurationTombstoneEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEntity
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseEquipmentEntity
@@ -66,6 +73,11 @@ import com.valerochka1337.valerochkagym.data.db.entity.builtInExerciseSyncId
 import com.valerochka1337.valerochkagym.data.db.entity.migratedCustomExerciseSyncId
 import com.valerochka1337.valerochkagym.data.trainingproposal.*
 import java.util.UUID
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 
 @Database(
     entities =
@@ -121,8 +133,14 @@ import java.util.UUID
             WorkoutExerciseEntity::class,
             WorkoutGymEntity::class,
             WorkoutSetEntity::class,
+            CoachMessageEntity::class,
+            CoachProposalEntity::class,
+            CoachCommandReceiptEntity::class,
+            CoachJournalEntity::class,
+            CoachSessionContextEntity::class,
+            CoachSyncStateEntity::class,
         ],
-    version = 27,
+    version = 28,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -164,6 +182,8 @@ abstract class GymDatabase : RoomDatabase() {
   abstract fun routineDao(): RoutineDao
 
   abstract fun workoutDao(): WorkoutDao
+
+  abstract fun coachDao(): CoachDao
 
   abstract fun scheduledWorkoutDao(): ScheduledWorkoutDao
 
@@ -764,6 +784,8 @@ abstract class GymDatabase : RoomDatabase() {
     val MIGRATION_17_18: Migration =
         object : Migration(17, 18) {
           override fun migrate(db: SupportSQLiteDatabase) {
+            if (hasColumn(db, "workouts", "coachRevision"))
+                restoreCalendarEventAccountLinksIfMissing(db)
             db.execSQL("ALTER TABLE backend_state ADD COLUMN phase TEXT NOT NULL DEFAULT 'GUEST'")
             db.execSQL("ALTER TABLE backend_state ADD COLUMN mergeId TEXT")
             db.execSQL(
@@ -962,6 +984,342 @@ abstract class GymDatabase : RoomDatabase() {
           }
         }
 
+    /** v27 → v28: the complete Live Coach schema on top of the released preparation journal. */
+    val MIGRATION_27_28: Migration =
+        object : Migration(27, 28) {
+          override fun migrate(db: SupportSQLiteDatabase) {
+            // A pre-rebase draft was labeled v17 and already carried these fields without Room's
+            // defaults. Repair only those columns; rebuilding workouts/workout_sets would cascade
+            // their children and lose the durable transcript.
+            val archivedCoachShape = hasColumn(db, "workouts", "coachRevision")
+            if (archivedCoachShape) restoreCalendarEventAccountLinksIfMissing(db)
+            repairRequiredDefaultColumn(
+                db,
+                "workouts",
+                "coachRevision",
+                "INTEGER NOT NULL DEFAULT 0",
+                "0",
+            )
+            if (hasColumn(db, "workout_sets", "syncId")) {
+              db.execSQL("DROP INDEX IF EXISTS index_workout_sets_syncId")
+            }
+            repairRequiredDefaultColumn(
+                db,
+                "workout_sets",
+                "syncId",
+                "TEXT NOT NULL DEFAULT ''",
+                "''",
+            )
+            repairRequiredDefaultColumn(
+                db,
+                "workout_sets",
+                "setType",
+                "TEXT NOT NULL DEFAULT 'UNKNOWN'",
+                "'UNKNOWN'",
+            )
+            repairRequiredDefaultColumn(
+                db,
+                "workout_sets",
+                "reportedFeelingsJson",
+                "TEXT NOT NULL DEFAULT '[]'",
+                "'[]'",
+            )
+            repairRequiredDefaultColumn(
+                db,
+                "workout_sets",
+                "coachMutationRevision",
+                "INTEGER NOT NULL DEFAULT 0",
+                "0",
+            )
+            listOf(
+                    "originalWeightKg REAL",
+                    "originalReps INTEGER",
+                    "originalDurationSec INTEGER",
+                    "originalSpeedKmh REAL",
+                    "originalInclinePct REAL",
+                    "targetWeightKg REAL",
+                    "targetReps INTEGER",
+                    "targetDurationSec INTEGER",
+                    "targetSpeedKmh REAL",
+                    "targetInclinePct REAL",
+                    "actualWeightKg REAL",
+                    "actualReps INTEGER",
+                    "actualDurationSec INTEGER",
+                    "actualSpeedKmh REAL",
+                    "actualInclinePct REAL",
+                    "restSnapshotJson TEXT",
+                )
+                .forEach { definition -> addColumnIfMissing(db, "workout_sets", definition) }
+            db.query("SELECT id FROM workout_sets WHERE syncId IS NULL OR trim(syncId) = ''").use {
+                rows ->
+              val id = rows.getColumnIndexOrThrow("id")
+              while (rows.moveToNext()) {
+                db.execSQL(
+                    "UPDATE workout_sets SET syncId=? WHERE id=? AND (syncId IS NULL OR trim(syncId) = '')",
+                    arrayOf<Any>(java.util.UUID.randomUUID().toString(), rows.getLong(id)),
+                )
+              }
+            }
+            db.execSQL(
+                "CREATE UNIQUE INDEX IF NOT EXISTS index_workout_sets_syncId ON workout_sets(syncId)"
+            )
+            LegacyCoachArchiveRegistry.archiveConfirmedDeviceV17(db)
+            val markExistingRepliesRead =
+                tableExists(db, "coach_messages") && !hasColumn(db, "coach_messages", "readAt")
+            createCoachTablesIfMissing(db)
+            addColumnIfMissing(db, "coach_messages", "quickRepliesJson TEXT")
+            addColumnIfMissing(db, "coach_messages", "readAt INTEGER")
+            addColumnIfMissing(db, "coach_proposals", "previewJson TEXT")
+            if (markExistingRepliesRead) {
+              db.execSQL("UPDATE coach_messages SET readAt=createdAt WHERE role='assistant'")
+            }
+            repairCoachSessionContext(db)
+            sanitizeLegacyUndoPackets(db)
+            markRetiredOccupiedEquipmentProposalsStale(db)
+          }
+        }
+
+    private fun sanitizeLegacyUndoPackets(db: SupportSQLiteDatabase) {
+      db.query(
+              "SELECT workoutId,lastUndoPacketJson FROM coach_session_context WHERE lastUndoPacketJson IS NOT NULL"
+          )
+          .use { rows ->
+            val workoutId = rows.getColumnIndexOrThrow("workoutId")
+            val packet = rows.getColumnIndexOrThrow("lastUndoPacketJson")
+            while (rows.moveToNext()) {
+              val sanitized = sanitizeLegacyUndoPacket(rows.getString(packet))
+              if (sanitized == null) {
+                db.execSQL(
+                    "UPDATE coach_session_context SET lastUndoPacketJson=NULL,lastUndoRevision=NULL WHERE workoutId=?",
+                    arrayOf(rows.getString(workoutId)),
+                )
+              } else {
+                db.execSQL(
+                    "UPDATE coach_session_context SET lastUndoPacketJson=? WHERE workoutId=?",
+                    arrayOf(sanitized, rows.getString(workoutId)),
+                )
+              }
+            }
+          }
+    }
+
+    private fun sanitizeLegacyUndoPacket(raw: String): String? {
+      return try {
+        val entry = legacyCoachJson.parseToJsonElement(raw) as? JsonObject ?: return null
+        if (!entry.keys.all { it == "packet" || it == "context" }) return null
+        val packet = entry["packet"] as? JsonObject ?: return null
+        val operations = packet["operations"] as? JsonArray ?: return null
+        if (operations.isEmpty() || operations.any { it !is JsonObject }) return null
+        when (val context = entry["context"]) {
+          null,
+          JsonNull -> raw
+          is JsonObject ->
+              if ("occupiedEquipmentJson" !in context) raw
+              else
+                  legacyCoachJson.encodeToString(
+                      JsonObject.serializer(),
+                      JsonObject(
+                          entry.toMutableMap().apply {
+                            put(
+                                "context",
+                                JsonObject(context.filterKeys { it != "occupiedEquipmentJson" }),
+                            )
+                          }
+                      ),
+                  )
+          else -> null
+        }
+      } catch (_: Exception) {
+        null
+      }
+    }
+
+    private fun markRetiredOccupiedEquipmentProposalsStale(db: SupportSQLiteDatabase) {
+      val staleIds = buildList {
+        db.query("SELECT id,packetJson FROM coach_proposals WHERE state='PENDING'").use { rows ->
+          val id = rows.getColumnIndexOrThrow("id")
+          val packet = rows.getColumnIndexOrThrow("packetJson")
+          while (rows.moveToNext()) {
+            if (containsRetiredOccupiedEquipmentOperation(rows.getString(packet))) {
+              add(rows.getString(id))
+            }
+          }
+        }
+      }
+      staleIds.forEach { id ->
+        db.execSQL(
+            "UPDATE coach_proposals SET state='STALE' WHERE id=? AND state='PENDING'",
+            arrayOf(id),
+        )
+      }
+    }
+
+    private fun containsRetiredOccupiedEquipmentOperation(packetJson: String): Boolean {
+      return try {
+        val packet = legacyCoachJson.parseToJsonElement(packetJson) as? JsonObject ?: return false
+        val operations = packet["operations"] as? JsonArray ?: return false
+        operations.any { operation ->
+          val type = (operation as? JsonObject)?.get("type") as? JsonPrimitive
+          type?.isString == true && type.content == RETIRED_OCCUPIED_EQUIPMENT_OPERATION
+        }
+      } catch (_: Exception) {
+        false
+      }
+    }
+
+    private fun tableExists(db: SupportSQLiteDatabase, table: String): Boolean =
+        db.query("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", arrayOf(table)).use {
+          it.moveToFirst()
+        }
+
+    private fun hasColumn(db: SupportSQLiteDatabase, table: String, column: String): Boolean =
+        db.query("PRAGMA table_info(`$table`)").use { rows ->
+          val name = rows.getColumnIndexOrThrow("name")
+          while (rows.moveToNext()) if (rows.getString(name) == column) return true
+          false
+        }
+
+    private fun addColumnIfMissing(db: SupportSQLiteDatabase, table: String, definition: String) {
+      val name = definition.substringBefore(' ')
+      if (!hasColumn(db, table, name)) db.execSQL("ALTER TABLE `$table` ADD COLUMN $definition")
+    }
+
+    private fun repairRequiredDefaultColumn(
+        db: SupportSQLiteDatabase,
+        table: String,
+        column: String,
+        definition: String,
+        fallback: String,
+    ) {
+      if (!hasColumn(db, table, column)) {
+        db.execSQL("ALTER TABLE `$table` ADD COLUMN `$column` $definition")
+        return
+      }
+      val legacy = "__legacy_$column"
+      db.execSQL("ALTER TABLE `$table` RENAME COLUMN `$column` TO `$legacy`")
+      db.execSQL("ALTER TABLE `$table` ADD COLUMN `$column` $definition")
+      db.execSQL("UPDATE `$table` SET `$column`=COALESCE(`$legacy`, $fallback)")
+      db.execSQL("ALTER TABLE `$table` DROP COLUMN `$legacy`")
+    }
+
+    private fun restoreCalendarEventAccountLinksIfMissing(db: SupportSQLiteDatabase) {
+      db.execSQL(
+          "CREATE TABLE IF NOT EXISTS `calendar_event_account_links` (`scheduledWorkoutId` INTEGER NOT NULL, `ownerEmail` TEXT, `state` TEXT NOT NULL, PRIMARY KEY(`scheduledWorkoutId`), FOREIGN KEY(`scheduledWorkoutId`) REFERENCES `scheduled_workouts`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE)",
+      )
+      db.execSQL(
+          "INSERT INTO calendar_event_account_links(scheduledWorkoutId,ownerEmail,state) SELECT s.id,NULL,'LEGACY_OWNER_UNKNOWN' FROM scheduled_workouts s WHERE NOT EXISTS (SELECT 1 FROM calendar_event_account_links l WHERE l.scheduledWorkoutId=s.id)",
+      )
+      CalendarEventAccountLinkSchema.install(db)
+    }
+
+    private fun createCoachTablesIfMissing(db: SupportSQLiteDatabase) {
+      db.execSQL(
+          "CREATE TABLE IF NOT EXISTS coach_messages (id TEXT NOT NULL, accountId TEXT NOT NULL, workoutId TEXT NOT NULL, role TEXT NOT NULL, text TEXT NOT NULL, createdAt INTEGER NOT NULL, status TEXT NOT NULL, quickRepliesJson TEXT, readAt INTEGER, PRIMARY KEY(id), FOREIGN KEY(workoutId) REFERENCES workouts(id) ON UPDATE NO ACTION ON DELETE CASCADE)"
+      )
+      db.execSQL(
+          "CREATE INDEX IF NOT EXISTS index_coach_messages_workoutId ON coach_messages(workoutId)"
+      )
+      db.execSQL(
+          "CREATE INDEX IF NOT EXISTS index_coach_messages_accountId ON coach_messages(accountId)"
+      )
+      db.execSQL(
+          "CREATE TABLE IF NOT EXISTS coach_proposals (id TEXT NOT NULL, accountId TEXT NOT NULL, workoutId TEXT NOT NULL, baseRevision INTEGER NOT NULL, beforeSummary TEXT NOT NULL, afterSummary TEXT NOT NULL, packetJson TEXT NOT NULL, expiresAt INTEGER NOT NULL, state TEXT NOT NULL, previewJson TEXT, PRIMARY KEY(id), FOREIGN KEY(workoutId) REFERENCES workouts(id) ON UPDATE NO ACTION ON DELETE CASCADE)"
+      )
+      db.execSQL(
+          "CREATE INDEX IF NOT EXISTS index_coach_proposals_workoutId ON coach_proposals(workoutId)"
+      )
+      db.execSQL(
+          "CREATE INDEX IF NOT EXISTS index_coach_proposals_accountId ON coach_proposals(accountId)"
+      )
+      db.execSQL(
+          "CREATE TABLE IF NOT EXISTS coach_command_receipts (operationId TEXT NOT NULL, accountId TEXT NOT NULL, workoutId TEXT NOT NULL, revision INTEGER NOT NULL, result TEXT NOT NULL, createdAt INTEGER NOT NULL, PRIMARY KEY(operationId), FOREIGN KEY(workoutId) REFERENCES workouts(id) ON UPDATE NO ACTION ON DELETE CASCADE)"
+      )
+      db.execSQL(
+          "CREATE INDEX IF NOT EXISTS index_coach_command_receipts_workoutId ON coach_command_receipts(workoutId)"
+      )
+      db.execSQL(
+          "CREATE INDEX IF NOT EXISTS index_coach_command_receipts_accountId ON coach_command_receipts(accountId)"
+      )
+      db.execSQL(
+          "CREATE TABLE IF NOT EXISTS coach_journal (id TEXT NOT NULL, accountId TEXT NOT NULL, workoutId TEXT NOT NULL, createdAt INTEGER NOT NULL, payload TEXT NOT NULL, uploaded INTEGER NOT NULL, deviceId TEXT, PRIMARY KEY(id), FOREIGN KEY(workoutId) REFERENCES workouts(id) ON UPDATE NO ACTION ON DELETE CASCADE)"
+      )
+      db.execSQL(
+          "CREATE INDEX IF NOT EXISTS index_coach_journal_workoutId ON coach_journal(workoutId)"
+      )
+      db.execSQL(
+          "CREATE INDEX IF NOT EXISTS index_coach_journal_accountId ON coach_journal(accountId)"
+      )
+      db.execSQL(
+          "CREATE INDEX IF NOT EXISTS index_coach_journal_uploaded ON coach_journal(uploaded)"
+      )
+      db.execSQL(
+          "CREATE TABLE IF NOT EXISTS coach_sync_state (accountId TEXT NOT NULL, deviceId TEXT NOT NULL, watermark INTEGER NOT NULL, PRIMARY KEY(accountId))"
+      )
+    }
+
+    private fun repairCoachSessionContext(db: SupportSQLiteDatabase) {
+      val canonical =
+          "CREATE TABLE coach_session_context (workoutId TEXT NOT NULL, accountId TEXT NOT NULL, availableTimeMinutes INTEGER, availableTimeEndsAtMillis INTEGER, futureRestSeconds INTEGER, excludedExerciseIdsJson TEXT NOT NULL, lastUndoPacketJson TEXT, lastUndoRevision INTEGER, initiativeEnabled INTEGER NOT NULL, initiativeWelcomed INTEGER NOT NULL, initiativeAutomaticCount INTEGER NOT NULL, initiativeLastAutomaticAtMillis INTEGER, initiativeAskedExerciseIdsJson TEXT NOT NULL, initiativeEndReminderSent INTEGER NOT NULL, initiativePendingInteraction INTEGER NOT NULL, PRIMARY KEY(workoutId), FOREIGN KEY(workoutId) REFERENCES workouts(id) ON UPDATE NO ACTION ON DELETE CASCADE)"
+      if (!tableExists(db, "coach_session_context")) {
+        db.execSQL(canonical)
+      } else {
+        val existing = columnNames(db, "coach_session_context")
+        val newFields =
+            setOf(
+                "availableTimeEndsAtMillis",
+                "initiativeEnabled",
+                "initiativeWelcomed",
+                "initiativeAutomaticCount",
+                "initiativeLastAutomaticAtMillis",
+                "initiativeAskedExerciseIdsJson",
+                "initiativeEndReminderSent",
+                "initiativePendingInteraction",
+            )
+        if (!existing.containsAll(newFields) || "occupiedEquipmentJson" in existing) {
+          db.execSQL("ALTER TABLE coach_session_context RENAME TO __legacy_coach_session_context")
+          db.execSQL(canonical)
+          fun value(column: String, fallback: String, coalesceExisting: Boolean = false): String =
+              when {
+                column !in existing -> fallback
+                coalesceExisting -> "COALESCE(`$column`, $fallback)"
+                else -> "`$column`"
+              }
+          db.execSQL(
+              "INSERT INTO coach_session_context(workoutId,accountId,availableTimeMinutes,availableTimeEndsAtMillis,futureRestSeconds,excludedExerciseIdsJson,lastUndoPacketJson,lastUndoRevision,initiativeEnabled,initiativeWelcomed,initiativeAutomaticCount,initiativeLastAutomaticAtMillis,initiativeAskedExerciseIdsJson,initiativeEndReminderSent,initiativePendingInteraction) SELECT " +
+                  listOf(
+                          value("workoutId", "NULL"),
+                          value("accountId", "NULL"),
+                          value("availableTimeMinutes", "NULL"),
+                          value("availableTimeEndsAtMillis", "NULL"),
+                          value("futureRestSeconds", "NULL"),
+                          value("excludedExerciseIdsJson", "'[]'"),
+                          value("lastUndoPacketJson", "NULL"),
+                          value("lastUndoRevision", "NULL"),
+                          value("initiativeEnabled", "1", coalesceExisting = true),
+                          value("initiativeWelcomed", "0", coalesceExisting = true),
+                          value("initiativeAutomaticCount", "0", coalesceExisting = true),
+                          value("initiativeLastAutomaticAtMillis", "NULL"),
+                          value("initiativeAskedExerciseIdsJson", "'[]'", coalesceExisting = true),
+                          value("initiativeEndReminderSent", "0", coalesceExisting = true),
+                          value("initiativePendingInteraction", "0", coalesceExisting = true),
+                      )
+                      .joinToString(",") +
+                  " FROM __legacy_coach_session_context",
+          )
+          db.execSQL("DROP TABLE __legacy_coach_session_context")
+        }
+      }
+      db.execSQL(
+          "CREATE INDEX IF NOT EXISTS index_coach_session_context_accountId ON coach_session_context(accountId)"
+      )
+    }
+
+    private fun columnNames(db: SupportSQLiteDatabase, table: String): Set<String> =
+        db.query("PRAGMA table_info(`$table`)").use { rows ->
+          val name = rows.getColumnIndexOrThrow("name")
+          buildSet { while (rows.moveToNext()) add(rows.getString(name)) }
+        }
+
     val MIGRATION_24_25: Migration =
         object : Migration(24, 25) {
           override fun migrate(db: SupportSQLiteDatabase) {
@@ -1016,6 +1374,15 @@ abstract class GymDatabase : RoomDatabase() {
             MIGRATION_24_25,
             MIGRATION_25_26,
             MIGRATION_26_27,
+            MIGRATION_27_28,
         )
+
+    private val legacyCoachJson = Json {
+      isLenient = false
+      ignoreUnknownKeys = false
+    }
+
+    private const val RETIRED_OCCUPIED_EQUIPMENT_OPERATION =
+        "com.valerochka1337.valerochkagym.domain.WorkoutChangeSet.Operation.SetOccupiedEquipment"
   }
 }

@@ -12,6 +12,7 @@ import com.valerochka1337.valerochkagym.data.db.GymDatabaseCallback
 import com.valerochka1337.valerochkagym.data.db.dao.BodyMeasurementDao
 import com.valerochka1337.valerochkagym.data.db.dao.CalendarEventAccountLinkDao
 import com.valerochka1337.valerochkagym.data.db.dao.CalendarPlanDao
+import com.valerochka1337.valerochkagym.data.db.dao.CoachDao
 import com.valerochka1337.valerochkagym.data.db.dao.ConfigurationTombstoneDao
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseDao
 import com.valerochka1337.valerochkagym.data.db.dao.ExerciseMuscleDao
@@ -115,6 +116,8 @@ object DataModule {
   @Provides fun provideRoutineDao(database: GymDatabase): RoutineDao = database.routineDao()
 
   @Provides fun provideWorkoutDao(database: GymDatabase): WorkoutDao = database.workoutDao()
+
+  @Provides fun provideCoachDao(database: GymDatabase): CoachDao = database.coachDao()
 
   @Provides
   fun provideMuscleLoadUpgradeNoticeDao(database: GymDatabase) =

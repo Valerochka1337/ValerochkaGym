@@ -117,4 +117,75 @@ class SettingsScreenTest {
     }
     compose.onNodeWithContentDescription("Подключить другой Google-аккаунт").assertIsEnabled()
   }
+
+  @Test
+  fun `coach model controls remain reachable at font scale two`() {
+    compose.setContent {
+      val density = LocalDensity.current
+      CompositionLocalProvider(LocalDensity provides Density(density.density, fontScale = 2f)) {
+        GymTheme {
+          Column(Modifier.verticalScroll(rememberScrollState())) {
+            CoachModelCard(
+                state =
+                    CoachModelUiState(
+                        available = true,
+                        defaultModel = "server-default",
+                        models = listOf("server-default", "tool-model"),
+                        selectedModel = "tool-model",
+                    ),
+                onSelect = {},
+                onVerify = {},
+                onRefresh = {},
+            )
+          }
+        }
+      }
+    }
+
+    compose.onNodeWithText("Текущая модель: tool-model").performScrollTo().assertIsDisplayed()
+    compose.onNodeWithText("Проверить модель тренера").performScrollTo().assertIsEnabled()
+  }
+
+  @Test
+  fun `coach model selection is locked while its synthetic check is running`() {
+    compose.setContent {
+      GymTheme {
+        CoachModelCard(
+            state =
+                CoachModelUiState(
+                    available = true,
+                    defaultModel = "server-default",
+                    models = listOf("server-default", "tool-model"),
+                    selectedModel = "tool-model",
+                    checking = true,
+                ),
+            onSelect = {},
+            onVerify = {},
+            onRefresh = {},
+        )
+      }
+    }
+
+    compose.onNodeWithText("Использовать модель сервера").assertIsNotEnabled()
+    compose.onNodeWithText("tool-model").assertIsNotEnabled()
+    compose.onNodeWithText("Проверяем модель…").assertIsNotEnabled()
+  }
+
+  @Test
+  fun `coach model shows an explanatory unavailable state`() {
+    compose.setContent {
+      GymTheme {
+        CoachModelCard(
+            state =
+                CoachModelUiState(available = false, status = "Войдите в аккаунт Yarumo coach."),
+            onSelect = {},
+            onVerify = {},
+            onRefresh = {},
+        )
+      }
+    }
+
+    compose.onNodeWithText("Войдите в аккаунт Yarumo coach.").assertIsDisplayed()
+    compose.onNodeWithText("Повторить").assertIsEnabled()
+  }
 }

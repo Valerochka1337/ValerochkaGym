@@ -3,11 +3,11 @@ package com.valerochka1337.valerochkagym.ui.active
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.valerochka1337.valerochkagym.data.db.dao.CoachDao
 import com.valerochka1337.valerochkagym.data.db.entity.ExerciseType
 import com.valerochka1337.valerochkagym.data.db.relation.WorkoutFull
 import com.valerochka1337.valerochkagym.domain.ActiveWorkoutRepository
 import com.valerochka1337.valerochkagym.domain.ActiveWorkoutUnavailableException
-import com.valerochka1337.valerochkagym.domain.CompleteSetUseCase
 import com.valerochka1337.valerochkagym.domain.CompletedSetEditResult
 import com.valerochka1337.valerochkagym.domain.CompletedSetNumbers
 import com.valerochka1337.valerochkagym.domain.ExercisePersonalHint
@@ -16,6 +16,7 @@ import com.valerochka1337.valerochkagym.domain.HintEditTarget
 import com.valerochka1337.valerochkagym.domain.NoteSaveResult
 import com.valerochka1337.valerochkagym.domain.PreviousSetsUseCase
 import com.valerochka1337.valerochkagym.domain.RoutineGymConflictException
+import com.valerochka1337.valerochkagym.domain.WorkoutEditor
 import com.valerochka1337.valerochkagym.domain.WorkoutSetMutator
 import com.valerochka1337.valerochkagym.domain.currentFocus
 import com.valerochka1337.valerochkagym.service.RestTimerEngine
@@ -67,6 +68,7 @@ data class ActiveWorkoutUiState(
     val personalHintEdit: ActivePersonalHintEditDraft? = null,
     val hintsByExercise: Map<Long, ExercisePersonalHint> = emptyMap(),
     val isFinishing: Boolean = false,
+    val unreadCoachMessages: Int = 0,
 )
 
 /** A note draft is scoped to stable Room ids so a delayed result cannot affect another target. */
@@ -124,25 +126,52 @@ sealed interface ActiveWorkoutEvent {
  * Шаговые правки значений и завершение/отмена делегируются в репозиторий, состояние перечитывается
  * реактивно.
  *
- * Правки подхода и закрытие подхода уходят в процессные [WorkoutSetMutator] и [CompleteSetUseCase]:
- * ровно те же операции доступны с кнопок уведомления в шторке, и писатель должен быть один на
- * процесс (иначе вернутся lost update'ы на быстрых тапах).
+ * Правки подхода и закрытие подхода идут через [WorkoutSetMutator] и [WorkoutEditor]. ровно те же
+ * операции доступны с кнопок уведомления в шторке, и писатель должен быть один на процесс (иначе
+ * вернутся lost update'ы на быстрых тапах).
  */
 @HiltViewModel
 class ActiveWorkoutViewModel
-@Inject
 constructor(
     private val repository: ActiveWorkoutRepository,
     private val previousSetsUseCase: PreviousSetsUseCase,
     private val setMutator: WorkoutSetMutator,
-    private val completeSetUseCase: CompleteSetUseCase,
+    private val completeSetFromUser: suspend (Long) -> Unit,
     private val restTimerEngine: RestTimerEngine,
     private val uploadScheduler: UploadScheduler,
     private val heartRateMonitor: HeartRateMonitor,
     private val savedStateHandle: SavedStateHandle,
     private val personalHintRepository: ExercisePersonalHintRepository,
     private val permissionRecoveryController: PermissionRecoveryController? = null,
+    private val coachDao: CoachDao? = null,
 ) : ViewModel() {
+
+  @Inject
+  constructor(
+      repository: ActiveWorkoutRepository,
+      previousSetsUseCase: PreviousSetsUseCase,
+      setMutator: WorkoutSetMutator,
+      workoutEditor: WorkoutEditor,
+      restTimerEngine: RestTimerEngine,
+      uploadScheduler: UploadScheduler,
+      heartRateMonitor: HeartRateMonitor,
+      savedStateHandle: SavedStateHandle,
+      personalHintRepository: ExercisePersonalHintRepository,
+      permissionRecoveryController: PermissionRecoveryController? = null,
+      coachDao: CoachDao,
+  ) : this(
+      repository,
+      previousSetsUseCase,
+      setMutator,
+      workoutEditor::completeSetFromUser,
+      restTimerEngine,
+      uploadScheduler,
+      heartRateMonitor,
+      savedStateHandle,
+      personalHintRepository,
+      permissionRecoveryController,
+      coachDao,
+  )
 
   /** Состояние таймера отдыха (null = неактивен) — пилюля на экране подписана прямо на движок. */
   val restTimer: StateFlow<RestTimerState?> = restTimerEngine.state
@@ -198,6 +227,14 @@ constructor(
               emptyMap(),
           )
 
+  private val unreadCoachMessages: StateFlow<Int> =
+      activeWorkout
+          .flatMapLatest { workout ->
+            workout?.workout?.id?.let { id -> coachDao?.observeUnreadAssistantCount(id) }
+                ?: flowOf(0)
+          }
+          .stateIn(viewModelScope, SharingStarted.WhileSubscribed(SUBSCRIPTION_TIMEOUT_MS), 0)
+
   private val tickerFlow: Flow<Long> = flow {
     while (true) {
       emit(System.currentTimeMillis())
@@ -235,11 +272,12 @@ constructor(
           )
 
   val uiState: StateFlow<ActiveWorkoutUiState> =
-      combine(baseUiState, noteEdit, personalHintEdit, hintsByExercise) {
+      combine(baseUiState, noteEdit, personalHintEdit, hintsByExercise, unreadCoachMessages) {
               base,
               note,
               hintEdit,
-              hints ->
+              hints,
+              unread ->
             ActiveWorkoutUiState(
                 loading = !base.loaded,
                 workout = base.workout,
@@ -249,6 +287,7 @@ constructor(
                 personalHintEdit = hintEdit,
                 hintsByExercise = hints,
                 isFinishing = base.isFinishing,
+                unreadCoachMessages = unread,
             )
           }
           .stateIn(
@@ -305,7 +344,7 @@ constructor(
 
   /** Отмечает подход выполненным и запускает отдых (та же операция, что кнопка в уведомлении). */
   fun completeSet(setId: Long) {
-    viewModelScope.launch { completeSetUseCase(setId) }
+    viewModelScope.launch { completeSetFromUser(setId) }
   }
 
   /** Прибавить/убавить время текущего отдыха (кнопки ±15 на пилюле). */

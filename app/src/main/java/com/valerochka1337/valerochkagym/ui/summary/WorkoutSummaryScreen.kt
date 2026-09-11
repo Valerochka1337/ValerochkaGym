@@ -62,6 +62,7 @@ fun WorkoutSummaryScreen(
     onDone: () -> Unit,
     onPrepareNext: () -> Unit = {},
     onExerciseClick: (Long) -> Unit,
+    onOpenCoach: () -> Unit = {},
     modifier: Modifier = Modifier,
     viewModel: WorkoutSummaryViewModel = hiltViewModel(),
 ) {
@@ -100,6 +101,12 @@ fun WorkoutSummaryScreen(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(horizontal = 24.dp),
         )
+        TextButton(
+            onClick = onOpenCoach,
+            modifier = Modifier.padding(start = 16.dp),
+        ) {
+          Text("Открыть историю чата с тренером")
+        }
 
         LazyColumn(
             modifier = Modifier.weight(1f),

@@ -3,9 +3,11 @@ package com.valerochka1337.valerochkagym.ui.history
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -17,15 +19,16 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.Notes
-import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.CalendarMonth
-import androidx.compose.material.icons.rounded.CloudDone
-import androidx.compose.material.icons.rounded.CloudOff
-import androidx.compose.material.icons.rounded.CloudQueue
 import androidx.compose.material.icons.rounded.FitnessCenter
-import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Timer
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -68,6 +71,7 @@ import com.valerochka1337.valerochkagym.ui.haptics.gymHaptics
 fun WorkoutDetailScreen(
     onBack: () -> Unit,
     onExerciseClick: (Long) -> Unit,
+    onOpenCoach: () -> Unit = {},
     modifier: Modifier = Modifier,
     viewModel: WorkoutDetailViewModel = hiltViewModel(),
 ) {
@@ -112,11 +116,41 @@ fun WorkoutDetailScreen(
           item { SummaryCard(duration = state.duration, volume = state.volume) }
 
           item {
-            UploadCard(
-                status = state.uploadStatus,
-                error = state.uploadError,
-                onRetry = viewModel::retryUpload,
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+              UploadCard(
+                  status = state.uploadStatus,
+                  error = state.uploadError,
+                  onRetry = viewModel::retryUpload,
+                  modifier = Modifier.weight(1f),
+              )
+              Button(
+                  onClick = {
+                    haptics.tap()
+                    onOpenCoach()
+                  },
+                  modifier =
+                      Modifier.weight(1f).fillMaxHeight().semantics {
+                        contentDescription = "Открыть историю чата с тренером"
+                      },
+                  colors =
+                      ButtonDefaults.buttonColors(
+                          containerColor = MaterialTheme.colorScheme.primary,
+                          contentColor = MaterialTheme.colorScheme.onPrimary,
+                      ),
+              ) {
+                Icon(
+                    Icons.Rounded.AutoAwesome,
+                    contentDescription = null,
+                    modifier = Modifier.size(ButtonDefaults.IconSize),
+                )
+                Spacer(Modifier.width(ButtonDefaults.IconSpacing))
+                Text("Чат")
+              }
+            }
           }
 
           if (state.exercises.isNotEmpty()) {
@@ -194,6 +228,7 @@ private fun DetailHeader(
     onSaveAsProgram: () -> Unit,
     onDelete: () -> Unit,
 ) {
+  var menuExpanded by remember { mutableStateOf(false) }
   Row(
       modifier =
           Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, top = 12.dp, bottom = 8.dp),
@@ -231,21 +266,31 @@ private fun DetailHeader(
         }
       }
     }
-    if (canSaveAsProgram) {
-      TextButton(
-          onClick = onSaveAsProgram,
-          modifier =
-              Modifier.semantics { contentDescription = "Сохранить тренировку как программу" },
-      ) {
-        Text("Сохранить")
+    Box {
+      IconButton(onClick = { menuExpanded = true }) {
+        Icon(Icons.Rounded.MoreVert, contentDescription = "Действия тренировки")
       }
-    }
-    IconButton(onClick = onDelete) {
-      Icon(
-          Icons.Default.Delete,
-          contentDescription = "Удалить тренировку",
-          tint = MaterialTheme.colorScheme.onSurfaceVariant,
-      )
+      DropdownMenu(
+          expanded = menuExpanded,
+          onDismissRequest = { menuExpanded = false },
+      ) {
+        if (canSaveAsProgram) {
+          DropdownMenuItem(
+              text = { Text("Сохранить как программу") },
+              onClick = {
+                menuExpanded = false
+                onSaveAsProgram()
+              },
+          )
+        }
+        DropdownMenuItem(
+            text = { Text("Удалить тренировку", color = MaterialTheme.colorScheme.error) },
+            onClick = {
+              menuExpanded = false
+              onDelete()
+            },
+        )
+      }
     }
   }
 }
@@ -305,26 +350,13 @@ private fun UploadCard(
     status: UploadStatus,
     error: String?,
     onRetry: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
   GymCard(
-      modifier = Modifier.fillMaxWidth(),
+      modifier = modifier,
       contentPadding = PaddingValues(horizontal = 18.dp, vertical = 14.dp),
   ) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-      val (cloudIcon, cloudTint) =
-          when (status) {
-            UploadStatus.UPLOADED -> Icons.Rounded.CloudDone to MaterialTheme.colorScheme.primary
-            UploadStatus.PENDING ->
-                Icons.Rounded.CloudQueue to MaterialTheme.colorScheme.onSurfaceVariant
-            UploadStatus.FAILED -> Icons.Rounded.CloudOff to MaterialTheme.colorScheme.error
-          }
-      Icon(
-          cloudIcon,
-          contentDescription = null,
-          tint = cloudTint,
-          modifier = Modifier.size(22.dp),
-      )
-      Spacer(Modifier.width(10.dp))
       Text(
           text = "Выгрузка",
           style = MaterialTheme.typography.titleMedium,
@@ -344,15 +376,7 @@ private fun UploadCard(
         )
       }
       Spacer(Modifier.height(4.dp))
-      TextButton(onClick = onRetry) {
-        Icon(
-            Icons.Rounded.Refresh,
-            contentDescription = null,
-            modifier = Modifier.size(18.dp),
-        )
-        Spacer(Modifier.width(6.dp))
-        Text("Повторить выгрузку")
-      }
+      TextButton(onClick = onRetry) { Text("Повторить выгрузку") }
     }
   }
 }

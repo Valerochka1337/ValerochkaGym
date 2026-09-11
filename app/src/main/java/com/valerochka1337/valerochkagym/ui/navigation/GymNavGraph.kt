@@ -26,6 +26,7 @@ import com.valerochka1337.valerochkagym.ui.analysis.AnalysisScreen
 import com.valerochka1337.valerochkagym.ui.calendar.CalendarScreen
 import com.valerochka1337.valerochkagym.ui.calendar.ScheduleEditorScreen
 import com.valerochka1337.valerochkagym.ui.calendarai.CalendarAiScreen
+import com.valerochka1337.valerochkagym.ui.coach.CoachChatScreen
 import com.valerochka1337.valerochkagym.ui.coachrelation.*
 import com.valerochka1337.valerochkagym.ui.exercise.ExerciseDetailScreen
 import com.valerochka1337.valerochkagym.ui.gyms.GymDetailScreen
@@ -70,6 +71,7 @@ object GymRoutes {
   const val GYMS = "gyms"
   const val LIBRARY = "library?$GYM_IDS_ARG={$GYM_IDS_ARG}&$WORKOUT_ID_ARG={$WORKOUT_ID_ARG}"
   const val ACTIVE_WORKOUT = "active_workout"
+  const val COACH_CHAT = "coach_chat/{$WORKOUT_ID_ARG}"
   const val SCHEDULE_EDITOR = "schedule_editor"
 
   const val ROUTINE_ID_ARG = "routineId"
@@ -102,6 +104,8 @@ object GymRoutes {
   fun workoutSummary(workoutId: String) = "workout_summary/$workoutId"
 
   fun workoutDetail(workoutId: String) = "workout_detail/$workoutId"
+
+  fun coachChat(workoutId: String) = "coach_chat/${Uri.encode(workoutId)}"
 
   fun exerciseDetail(exerciseId: Long) = "exercise_detail/$exerciseId"
 
@@ -478,8 +482,20 @@ fun GymNavGraph(
             )
           },
           onExerciseClick = { id -> navController.navigate(GymRoutes.exerciseDetail(id)) },
+          onOpenCoach = {
+            viewModel.uiState.value.workout?.workout?.id?.let {
+              navController.navigate(GymRoutes.coachChat(it))
+            }
+          },
           viewModel = viewModel,
       )
+    }
+
+    composable(
+        route = GymRoutes.COACH_CHAT,
+        arguments = listOf(navArgument(GymRoutes.WORKOUT_ID_ARG) { type = NavType.StringType }),
+    ) {
+      CoachChatScreen(onBack = { navController.popBackStack() })
     }
 
     composable(
@@ -527,6 +543,10 @@ fun GymNavGraph(
           onPrepareNext = { navController.navigate("calendar_ai") },
           onDone = { navController.popBackStack(GymRoutes.WORKOUTS, inclusive = false) },
           onExerciseClick = { id -> navController.navigate(GymRoutes.exerciseDetail(id)) },
+          onOpenCoach = {
+            val workoutId = requireNotNull(it.arguments?.getString(GymRoutes.WORKOUT_ID_ARG))
+            navController.navigate(GymRoutes.coachChat(workoutId))
+          },
       )
     }
 
@@ -537,6 +557,10 @@ fun GymNavGraph(
       WorkoutDetailScreen(
           onBack = { navController.popBackStack() },
           onExerciseClick = { id -> navController.navigate(GymRoutes.exerciseDetail(id)) },
+          onOpenCoach = {
+            val workoutId = requireNotNull(it.arguments?.getString(GymRoutes.WORKOUT_ID_ARG))
+            navController.navigate(GymRoutes.coachChat(workoutId))
+          },
       )
     }
 

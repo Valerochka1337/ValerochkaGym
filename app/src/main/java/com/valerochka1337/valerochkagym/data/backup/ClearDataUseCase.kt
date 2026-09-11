@@ -3,6 +3,7 @@ package com.valerochka1337.valerochkagym.data.backup
 import androidx.room.withTransaction
 import androidx.work.WorkManager
 import com.valerochka1337.valerochkagym.data.db.GymDatabase
+import com.valerochka1337.valerochkagym.data.db.LegacyCoachArchiveRegistry
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.Dispatchers
@@ -64,6 +65,7 @@ constructor(
                           else ""
                   )
                 }
+            LegacyCoachArchiveRegistry.purge(sql)
           }
         }
         scheduler.enqueue()
