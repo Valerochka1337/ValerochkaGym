@@ -247,6 +247,27 @@ class CoachAgentTest {
       }
 
   @Test
+  fun `network timeout after a tool call reports slow response without retrying the turn`() =
+      runTest {
+        for (failure in
+            listOf(
+                java.net.SocketTimeoutException("private"),
+                java.io.InterruptedIOException("private"),
+            )) {
+          val api = FakeCoachApi { index ->
+            if (index == 1) toolResponse(call("state")) else throw failure
+          }
+          val result = agent(api).reply(snapshot(), "проверка", tools()) { CoachToolOutcome("{}") }
+          assertEquals(CoachRunStatus.ERROR, result.status)
+          assertEquals(2, result.requestCount)
+          assertEquals(1, result.toolCount)
+          assertTrue(result.text.contains("не успела ответить"))
+          assertFalse(result.text.contains("Нет подключения"))
+          assertFalse(result.text.contains("private"))
+        }
+      }
+
+  @Test
   fun `network failure is returned as an error without fake success`() = runTest {
     val result =
         agent(FakeCoachApi { throw IOException("raw private endpoint") }).reply(

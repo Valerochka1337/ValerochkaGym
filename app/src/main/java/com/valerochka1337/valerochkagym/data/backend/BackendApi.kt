@@ -247,7 +247,12 @@ class BackendApi @Inject constructor(private val tokens: BackendSessionStore) : 
     headers
         .filterKeys { it != "X-Gym-Capabilities" }
         .forEach { (name, value) -> request.header(name, value) }
-    val call = client.newCall(request.build())
+    // A longer call deadline does not extend OkHttp's separate socket read timeout.
+    val requestClient =
+        if (path == "/ai/coach-turn") {
+          client.newBuilder().readTimeout(60, TimeUnit.SECONDS).build()
+        } else client
+    val call = requestClient.newCall(request.build())
     if (path == "/ai/coach-turn" || path == "/ai/coach-models") {
       call.timeout().timeout(60, TimeUnit.SECONDS)
       return kotlinx.coroutines.suspendCancellableCoroutine { continuation ->

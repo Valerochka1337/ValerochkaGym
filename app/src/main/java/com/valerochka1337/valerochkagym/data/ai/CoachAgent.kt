@@ -3,6 +3,7 @@ package com.valerochka1337.valerochkagym.data.ai
 import com.valerochka1337.valerochkagym.data.backend.BackendException
 import com.valerochka1337.valerochkagym.domain.WorkoutSnapshot
 import java.io.IOException
+import java.io.InterruptedIOException
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
@@ -197,6 +198,11 @@ constructor(
       )
     } catch (e: HttpException) {
       result(providerFailure(e.code()))
+    } catch (_: InterruptedIOException) {
+      currentCoroutineContext().ensureActive()
+      result(
+          "Модель не успела ответить. Повторите запрос; уже сохранённые действия остаются в истории."
+      )
     } catch (_: IOException) {
       result("Нет подключения к модели. Проверьте сеть и повторите запрос.")
     } catch (_: Exception) {

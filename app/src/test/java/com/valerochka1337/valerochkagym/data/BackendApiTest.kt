@@ -21,6 +21,41 @@ import org.junit.Test
 
 class BackendApiTest {
   @Test
+  fun `coach turn extends socket read timeout without changing other backend requests`() = runTest {
+    val timeouts = mutableListOf<Int>()
+    val client =
+        OkHttpClient.Builder()
+            .readTimeout(2, java.util.concurrent.TimeUnit.SECONDS)
+            .addInterceptor { chain ->
+              timeouts += chain.readTimeoutMillis()
+              Response.Builder()
+                  .request(chain.request())
+                  .protocol(Protocol.HTTP_1_1)
+                  .code(200)
+                  .message("OK")
+                  .body("{}".toResponseBody())
+                  .build()
+            }
+            .build()
+    try {
+      val api = BackendApi(Store(), client, "https://test.invalid/")
+      for (path in listOf("/ai/coach-turn", "/ai/coach-models", "/sync")) {
+        api.authorizedRawResponse(
+            "POST",
+            path,
+            "{}".encodeToByteArray(),
+            expectedOwner = "owner-a",
+            expectedSessionEpoch = 0,
+            retryOnUnauthorized = false,
+        )
+      }
+      assertEquals(listOf(60_000, 2_000, 2_000), timeouts)
+    } finally {
+      client.dispatcher.executorService.shutdown()
+    }
+  }
+
+  @Test
   fun `coach cancellation cancels the network call without waiting for provider response`() =
       kotlinx.coroutines.runBlocking {
         val entered = kotlinx.coroutines.CompletableDeferred<okhttp3.Call>()
