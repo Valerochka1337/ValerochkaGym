@@ -12,7 +12,7 @@ sealed interface SyncReady {
 
   data object Blocked : SyncReady
 
-  data class Failure(val message: String) : SyncReady
+  data class Failure(val message: String, val cause: Exception? = null) : SyncReady
 }
 
 interface SyncReadySource {
