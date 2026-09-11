@@ -73,6 +73,11 @@ import com.valerochka1337.valerochkagym.data.db.entity.builtInExerciseSyncId
 import com.valerochka1337.valerochkagym.data.db.entity.migratedCustomExerciseSyncId
 import com.valerochka1337.valerochkagym.data.trainingproposal.*
 import java.util.UUID
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 
 @Database(
     entities =
@@ -135,7 +140,7 @@ import java.util.UUID
             CoachSessionContextEntity::class,
             CoachSyncStateEntity::class,
         ],
-    version = 27,
+    version = 28,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -1064,6 +1069,113 @@ abstract class GymDatabase : RoomDatabase() {
           }
         }
 
+    /** v27 → v28: remove transient occupied equipment from durable Coach context. */
+    val MIGRATION_27_28: Migration =
+        object : Migration(27, 28) {
+          override fun migrate(db: SupportSQLiteDatabase) {
+            sanitizeLegacyUndoPackets(db)
+            markRetiredOccupiedEquipmentProposalsStale(db)
+            db.execSQL(
+                "CREATE TABLE __coach_session_context_28 (workoutId TEXT NOT NULL, accountId TEXT NOT NULL, availableTimeMinutes INTEGER, availableTimeEndsAtMillis INTEGER, futureRestSeconds INTEGER, excludedExerciseIdsJson TEXT NOT NULL, lastUndoPacketJson TEXT, lastUndoRevision INTEGER, initiativeEnabled INTEGER NOT NULL, initiativeWelcomed INTEGER NOT NULL, initiativeAutomaticCount INTEGER NOT NULL, initiativeLastAutomaticAtMillis INTEGER, initiativeAskedExerciseIdsJson TEXT NOT NULL, initiativeEndReminderSent INTEGER NOT NULL, initiativePendingInteraction INTEGER NOT NULL, PRIMARY KEY(workoutId), FOREIGN KEY(workoutId) REFERENCES workouts(id) ON UPDATE NO ACTION ON DELETE CASCADE)"
+            )
+            db.execSQL(
+                "INSERT INTO __coach_session_context_28(workoutId,accountId,availableTimeMinutes,availableTimeEndsAtMillis,futureRestSeconds,excludedExerciseIdsJson,lastUndoPacketJson,lastUndoRevision,initiativeEnabled,initiativeWelcomed,initiativeAutomaticCount,initiativeLastAutomaticAtMillis,initiativeAskedExerciseIdsJson,initiativeEndReminderSent,initiativePendingInteraction) SELECT workoutId,accountId,availableTimeMinutes,availableTimeEndsAtMillis,futureRestSeconds,excludedExerciseIdsJson,lastUndoPacketJson,lastUndoRevision,initiativeEnabled,initiativeWelcomed,initiativeAutomaticCount,initiativeLastAutomaticAtMillis,initiativeAskedExerciseIdsJson,initiativeEndReminderSent,initiativePendingInteraction FROM coach_session_context"
+            )
+            db.execSQL("DROP TABLE coach_session_context")
+            db.execSQL("ALTER TABLE __coach_session_context_28 RENAME TO coach_session_context")
+            db.execSQL(
+                "CREATE INDEX index_coach_session_context_accountId ON coach_session_context(accountId)"
+            )
+          }
+        }
+
+    private fun sanitizeLegacyUndoPackets(db: SupportSQLiteDatabase) {
+      db.query(
+              "SELECT workoutId,lastUndoPacketJson FROM coach_session_context WHERE lastUndoPacketJson IS NOT NULL"
+          )
+          .use { rows ->
+            val workoutId = rows.getColumnIndexOrThrow("workoutId")
+            val packet = rows.getColumnIndexOrThrow("lastUndoPacketJson")
+            while (rows.moveToNext()) {
+              val sanitized = sanitizeLegacyUndoPacket(rows.getString(packet))
+              if (sanitized == null) {
+                db.execSQL(
+                    "UPDATE coach_session_context SET lastUndoPacketJson=NULL,lastUndoRevision=NULL WHERE workoutId=?",
+                    arrayOf(rows.getString(workoutId)),
+                )
+              } else {
+                db.execSQL(
+                    "UPDATE coach_session_context SET lastUndoPacketJson=? WHERE workoutId=?",
+                    arrayOf(sanitized, rows.getString(workoutId)),
+                )
+              }
+            }
+          }
+    }
+
+    private fun sanitizeLegacyUndoPacket(raw: String): String? {
+      return try {
+        val entry = legacyCoachJson.parseToJsonElement(raw) as? JsonObject ?: return null
+        if (!entry.keys.all { it == "packet" || it == "context" }) return null
+        val packet = entry["packet"] as? JsonObject ?: return null
+        val operations = packet["operations"] as? JsonArray ?: return null
+        if (operations.isEmpty() || operations.any { it !is JsonObject }) return null
+        when (val context = entry["context"]) {
+          null,
+          JsonNull -> raw
+          is JsonObject ->
+              if ("occupiedEquipmentJson" !in context) raw
+              else
+                  legacyCoachJson.encodeToString(
+                      JsonObject.serializer(),
+                      JsonObject(entry.toMutableMap().apply {
+                        put(
+                            "context",
+                            JsonObject(context.filterKeys { it != "occupiedEquipmentJson" }),
+                        )
+                      }),
+                  )
+          else -> null
+        }
+      } catch (_: Exception) {
+        null
+      }
+    }
+
+    private fun markRetiredOccupiedEquipmentProposalsStale(db: SupportSQLiteDatabase) {
+      val staleIds =
+          buildList {
+            db.query("SELECT id,packetJson FROM coach_proposals WHERE state='PENDING'").use { rows ->
+              val id = rows.getColumnIndexOrThrow("id")
+              val packet = rows.getColumnIndexOrThrow("packetJson")
+              while (rows.moveToNext()) {
+                if (containsRetiredOccupiedEquipmentOperation(rows.getString(packet))) {
+                  add(rows.getString(id))
+                }
+              }
+            }
+          }
+      staleIds.forEach { id ->
+        db.execSQL(
+            "UPDATE coach_proposals SET state='STALE' WHERE id=? AND state='PENDING'",
+            arrayOf(id),
+        )
+      }
+    }
+
+    private fun containsRetiredOccupiedEquipmentOperation(packetJson: String): Boolean {
+      return try {
+        val packet = legacyCoachJson.parseToJsonElement(packetJson) as? JsonObject ?: return false
+        val operations = packet["operations"] as? JsonArray ?: return false
+        operations.any { operation ->
+          val type = (operation as? JsonObject)?.get("type") as? JsonPrimitive
+          type?.isString == true && type.content == RETIRED_OCCUPIED_EQUIPMENT_OPERATION
+        }
+      } catch (_: Exception) {
+        false
+      }
+    }
+
     private fun tableExists(db: SupportSQLiteDatabase, table: String): Boolean =
         db.query("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", arrayOf(table)).use {
           it.moveToFirst()
@@ -1272,6 +1384,15 @@ abstract class GymDatabase : RoomDatabase() {
             MIGRATION_24_25,
             MIGRATION_25_26,
             MIGRATION_26_27,
+            MIGRATION_27_28,
         )
+
+    private val legacyCoachJson = Json {
+      isLenient = false
+      ignoreUnknownKeys = false
+    }
+
+    private const val RETIRED_OCCUPIED_EQUIPMENT_OPERATION =
+        "com.valerochka1337.valerochkagym.domain.WorkoutChangeSet.Operation.SetOccupiedEquipment"
   }
 }

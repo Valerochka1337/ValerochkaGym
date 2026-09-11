@@ -198,9 +198,10 @@ class WorkoutEditorTest : RoomDaoTest() {
     )
     val undoFixture =
         """{"packet":{"operations":[{"type":"com.valerochka1337.valerochkagym.domain.WorkoutChangeSet.Operation.RestoreWorkout","sections":[{"sectionId":"section-fixture","exerciseId":1,"position":0,"sets":[{"syncId":"set-fixture","setIndex":0,"weightKg":50.0,"reps":8,"durationSec":null,"speedKmh":null,"inclinePct":null,"isCompleted":false,"completedAt":null,"originalWeightKg":null,"originalReps":null,"originalDurationSec":null,"originalSpeedKmh":null,"originalInclinePct":null,"targetWeightKg":null,"targetReps":null,"targetDurationSec":null,"targetSpeedKmh":null,"targetInclinePct":null,"actualWeightKg":null,"actualReps":null,"actualDurationSec":null,"actualSpeedKmh":null,"actualInclinePct":null,"setType":"UNKNOWN","reportedFeelingsJson":"[]","restSnapshotJson":null,"coachMutationRevision":0,"note":""}]}]}]},"context":{"availableTimeMinutes":null,"availableTimeEndsAtMillis":null,"futureRestSeconds":null,"occupiedEquipmentJson":"[]","excludedExerciseIdsJson":"[]"}}"""
-    assertEquals(undoFixture, db.coachDao().context(workoutId)!!.lastUndoPacketJson)
+    val currentUndoFixture = undoFixture.replace(",\"occupiedEquipmentJson\":\"[]\"", "")
+    assertEquals(currentUndoFixture, db.coachDao().context(workoutId)!!.lastUndoPacketJson)
 
-    val legacyFixture = undoFixture.replace(",\"note\":\"\"", "")
+    val legacyFixture = currentUndoFixture.replace(",\"note\":\"\"", "")
     db.coachDao()
         .saveContext(
             db.coachDao()
@@ -283,11 +284,15 @@ class WorkoutEditorTest : RoomDaoTest() {
   fun `oversized proposal journal rolls back its durable proposal without changing the workout`() =
       runTest {
         val workoutId = insertWorkout("workout")
+        val sectionId = insertWorkoutExercise(workoutId, exercise())
+        val setId = insertSet(sectionId, 0, reps = 8)
+        val oversizedSetId = "x".repeat(70_000)
+        db.workoutDao().updateSet(db.workoutDao().getSet(setId)!!.copy(syncId = oversizedSetId))
         val coordinator =
             coordinator(RestTimerEngine(backgroundScope, WallClock { testScheduler.currentTime }))
         val packet =
             WorkoutChangeSet.Packet(
-                listOf(WorkoutChangeSet.Operation.SetOccupiedEquipment(setOf("x".repeat(70_000))))
+                listOf(WorkoutChangeSet.Operation.EditSet(oversizedSetId, reps = 6))
             )
 
         try {
@@ -457,20 +462,20 @@ class WorkoutEditorTest : RoomDaoTest() {
         coordinator(RestTimerEngine(backgroundScope, WallClock { testScheduler.currentTime }))
     val change =
         WorkoutChangeSet.Packet(
-            listOf(WorkoutChangeSet.Operation.SetOccupiedEquipment(setOf("rack"))),
+            listOf(WorkoutChangeSet.Operation.SetAvailableTime(20)),
         )
     assertEquals(
         CommandResult.APPLIED,
-        coordinator.submit("user", workoutId, "occupy", 0, change, authority(change)).result,
+        coordinator.submit("user", workoutId, "time", 0, change, authority(change)).result,
     )
-    assertEquals("[\"rack\"]", db.coachDao().context(workoutId)!!.occupiedEquipmentJson)
+    assertEquals(20, db.coachDao().context(workoutId)!!.availableTimeMinutes)
 
     val undo = WorkoutChangeSet.Packet(listOf(WorkoutChangeSet.Operation.UndoLast))
     assertEquals(
         CommandResult.APPLIED,
         coordinator.submit("user", workoutId, "undo-context", 1, undo, authority(undo)).result,
     )
-    assertEquals("[]", db.coachDao().context(workoutId)!!.occupiedEquipmentJson)
+    assertNull(db.coachDao().context(workoutId)!!.availableTimeMinutes)
   }
 
   @Test
@@ -608,7 +613,6 @@ class WorkoutEditorTest : RoomDaoTest() {
                 "user",
                 availableTimeMinutes = 35,
                 futureRestSeconds = 90,
-                occupiedEquipmentJson = "[\"rack\"]",
             )
         )
     val timer = RestTimerEngine(backgroundScope, WallClock { 0L })
@@ -621,7 +625,6 @@ class WorkoutEditorTest : RoomDaoTest() {
     val snapshot = service.snapshot("user", workout)!!
 
     assertEquals(35, snapshot.availableTimeMinutes)
-    assertEquals(setOf("rack"), snapshot.occupiedEquipment)
     assertEquals(setOf("FATIGUE"), snapshot.feelings)
     assertEquals(original.syncId, snapshot.exercises.single().sets.single().syncId)
     assertEquals(45.0, snapshot.exercises.single().sets.single().originalWeightKg!!, 0.0)
@@ -949,7 +952,7 @@ class WorkoutEditorTest : RoomDaoTest() {
           "user",
           workout,
           WorkoutChangeSet.Packet(
-              listOf(WorkoutChangeSet.Operation.SetOccupiedEquipment(setOf("rack")))
+              listOf(WorkoutChangeSet.Operation.SetAvailableTime(20))
           ),
           0,
           Long.MAX_VALUE,

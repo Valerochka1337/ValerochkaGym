@@ -11,13 +11,12 @@ class CoachToolCodecTest {
         originalReps = 10, targetReps = 8, actualReps = 6)
     val snapshot = com.valerochka1337.valerochkagym.domain.WorkoutSnapshot("owner", "workout", 3,
         listOf(com.valerochka1337.valerochkagym.domain.SnapshotExercise("section", 1, "exercise", "Жим", sets = listOf(set))),
-        occupiedEquipment = setOf("z", "a"),
         rest = com.valerochka1337.valerochkagym.domain.SnapshotRest("rest", 90, 30, 0),
         pulse = com.valerochka1337.valerochkagym.domain.SnapshotPulse(120, 123L))
     val output = Json.parseToJsonElement(CoachToolCodec.snapshotJson(snapshot)).jsonObject
     assertEquals(JsonPrimitive("workout"), output["workout_id"])
     assertEquals(JsonPrimitive(3), output["revision"])
-    assertEquals(Json.parseToJsonElement("[\"a\",\"z\"]"), output["occupied_equipment"])
+    assertFalse("occupied_equipment" in output)
     assertEquals(Json.parseToJsonElement("{\"bpm\":120,\"measured_at_millis\":123}"), output["pulse"])
     assertEquals(Json.parseToJsonElement("{\"start_id\":\"rest\",\"planned_seconds\":90,\"remaining_seconds\":30}"), output["rest"])
     val row = output.getValue("exercises").jsonArray.single().jsonObject.getValue("sets").jsonArray.single().jsonObject
@@ -186,7 +185,6 @@ class CoachToolCodecTest {
             """{"action":"skip_rest","rest_start_id":"timer-a"}""",
             """{"action":"future_rest_duration","seconds":120}""",
             """{"action":"available_time","minutes":20}""",
-            """{"action":"occupied_equipment","equipment_ids":["barbell"]}""",
             """{"action":"excluded_exercises","exercise_ids":["$EXERCISE"]}""",
             """{"action":"undo_last"}""",
         )
@@ -202,6 +200,11 @@ class CoachToolCodecTest {
         "submit_workout_changes",
         """{"base_revision":-1,"operations":[{"action":"undo_last"}]}""",
     )
+  }
+
+  @Test
+  fun `retired occupied equipment action is rejected`() {
+    rejectedSubmit("""{"action":"occupied_equipment","equipment_ids":["barbell"]}""")
   }
 
   @Test

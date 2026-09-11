@@ -138,7 +138,6 @@ constructor(
                   .div(60_000L)
                   .toInt()
             } ?: context?.availableTimeMinutes,
-        occupiedEquipment = context?.occupiedEquipmentJson?.decodeStrings().orEmpty(),
         excludedExerciseIds = context?.excludedExerciseIdsJson?.decodeLongs().orEmpty(),
         feelings = allSets.flatMap { it.reportedFeelings }.toSet(),
         pulse =

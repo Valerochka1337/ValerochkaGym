@@ -33,8 +33,6 @@ object WorkoutChangeSummary {
         "${exercise.name}, подход ${set.setIndex + 1}: ${load(set)}; ${if (set.completed) "выполнен" else "не выполнен"}"
     fun order(state: WorkoutSnapshot, ids: List<String>) =
         ids.mapIndexed { index, id -> "${index +1}. ${section(state, id).name}" }.joinToString("\n")
-    fun equipment(ids: Set<String>) =
-        ids.sorted().joinToString { equipmentNames[it] ?: it }.ifEmpty { "нет" }
     val parts =
         steps.mapIndexed { step, calculatedStep ->
           val operation = calculatedStep.operation
@@ -142,11 +140,6 @@ object WorkoutChangeSummary {
                             ?: "Доступное время не задано",
                         after.availableTimeMinutes?.let { "Оставшееся доступное время: $it мин" }
                             ?: "Убрать ограничение времени",
-                    )
-                is WorkoutChangeSet.Operation.SetOccupiedEquipment ->
-                    Summary(
-                        "Занятое оборудование: ${equipment(state.occupiedEquipment)}",
-                        "Занятое оборудование: ${equipment(operation.equipmentIds)}",
                     )
                 is WorkoutChangeSet.Operation.SetExcludedExercises ->
                     Summary(

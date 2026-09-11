@@ -480,7 +480,6 @@ constructor(
                 },
             rest = rest,
             availableTimeMinutes = context.availableTimeMinutes,
-            occupiedEquipment = Json.decodeFromString(context.occupiedEquipmentJson),
             excludedExerciseIds = Json.decodeFromString(context.excludedExerciseIdsJson),
         )
   }
@@ -552,11 +551,6 @@ constructor(
                       op.minutes?.let { System.currentTimeMillis() + it * 60_000L },
               )
         }
-        is WorkoutChangeSet.Operation.SetOccupiedEquipment ->
-            state.context =
-                state.context.copy(
-                    occupiedEquipmentJson = json.encodeToString(op.equipmentIds.sorted())
-                )
         is WorkoutChangeSet.Operation.SetExcludedExercises ->
             state.context =
                 state.context.copy(
@@ -578,7 +572,6 @@ constructor(
                     availableTimeMinutes = saved.availableTimeMinutes,
                     availableTimeEndsAtMillis = saved.availableTimeEndsAtMillis,
                     futureRestSeconds = saved.futureRestSeconds,
-                    occupiedEquipmentJson = saved.occupiedEquipmentJson,
                     excludedExerciseIdsJson = saved.excludedExerciseIdsJson,
                 )
           }
@@ -1020,7 +1013,6 @@ constructor(
           availableTimeMinutes,
           availableTimeEndsAtMillis,
           futureRestSeconds,
-          occupiedEquipmentJson,
           excludedExerciseIdsJson,
       )
 
@@ -1188,7 +1180,6 @@ constructor(
       val availableTimeMinutes: Int?,
       val availableTimeEndsAtMillis: Long?,
       val futureRestSeconds: Int?,
-      val occupiedEquipmentJson: String,
       val excludedExerciseIdsJson: String,
   )
 
@@ -1268,8 +1259,6 @@ constructor(
                         )
                     is CoachChangeIntent.AvailableTime ->
                         WorkoutChangeSet.Operation.SetAvailableTime(intent.minutes)
-                    is CoachChangeIntent.OccupiedEquipment ->
-                        WorkoutChangeSet.Operation.SetOccupiedEquipment(intent.ids)
                     is CoachChangeIntent.ExcludedExercises ->
                         WorkoutChangeSet.Operation.SetExcludedExercises(
                             intent.ids.map { byExerciseSync.getValue(it).id }.toSet()

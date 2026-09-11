@@ -17,7 +17,6 @@ data class WorkoutSnapshot(
     val rest: SnapshotRest? = null,
     val elapsedSeconds: Long = 0,
     val availableTimeMinutes: Int? = null,
-    val occupiedEquipment: Set<String> = emptySet(),
     val excludedExerciseIds: Set<Long> = emptySet(),
     val feelings: Set<String> = emptySet(),
     val pulse: SnapshotPulse? = null,
@@ -144,8 +143,6 @@ sealed interface WorkoutChangeSet {
     ) : Operation
 
     @Serializable data class SetAvailableTime(val minutes: Int?) : Operation
-
-    @Serializable data class SetOccupiedEquipment(val equipmentIds: Set<String>) : Operation
 
     @Serializable data class SetExcludedExercises(val exerciseIds: Set<Long>) : Operation
 

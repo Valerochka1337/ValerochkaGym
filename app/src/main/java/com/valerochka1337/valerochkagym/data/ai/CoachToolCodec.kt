@@ -56,8 +56,6 @@ sealed interface CoachChangeIntent {
 
   data class AvailableTime(val minutes: Int) : CoachChangeIntent
 
-  data class OccupiedEquipment(val ids: Set<String>) : CoachChangeIntent
-
   data class ExcludedExercises(val ids: Set<String>) : CoachChangeIntent
 
   data class Feelings(val setId: String, val feelings: Set<String>) : CoachChangeIntent
@@ -93,7 +91,6 @@ object CoachToolCodec {
             put("revision", snapshot.revision)
             put("elapsed_seconds", snapshot.elapsedSeconds)
             snapshot.availableTimeMinutes?.let { put("available_time_minutes", it) }
-            put("occupied_equipment", stringArray(snapshot.occupiedEquipment))
             put(
                 "excluded_exercise_ids",
                 buildJsonArray {
@@ -410,10 +407,6 @@ object CoachToolCodec {
         keys("minutes")
         CoachChangeIntent.AvailableTime(obj.integer("minutes", 1440).toInt())
       }
-      "occupied_equipment" -> {
-        keys("equipment_ids")
-        CoachChangeIntent.OccupiedEquipment(obj.strings("equipment_ids"))
-      }
       "excluded_exercises" -> {
         keys("exercise_ids")
         CoachChangeIntent.ExcludedExercises(obj.uuids("exercise_ids", true).toSet())
@@ -607,7 +600,6 @@ object CoachToolCodec {
         op("skip_rest", mapOf("rest_start_id" to stringSchema())),
         op("future_rest_duration", mapOf("seconds" to numberSchema(true))),
         op("available_time", mapOf("minutes" to numberSchema(true))),
-        op("occupied_equipment", mapOf("equipment_ids" to arraySchema(stringSchema()))),
         op("excluded_exercises", mapOf("exercise_ids" to arraySchema(id))),
         op(
             "report_feelings",

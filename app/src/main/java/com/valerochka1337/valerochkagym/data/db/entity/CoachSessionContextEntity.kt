@@ -26,7 +26,6 @@ data class CoachSessionContextEntity(
     /** Wall-clock deadline keeps a user-stated remaining time stable across process recreation. */
     val availableTimeEndsAtMillis: Long? = null,
     val futureRestSeconds: Int? = null,
-    val occupiedEquipmentJson: String = "[]",
     val excludedExerciseIdsJson: String = "[]",
     val lastUndoPacketJson: String? = null,
     val lastUndoRevision: Long? = null,

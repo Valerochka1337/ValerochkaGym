@@ -63,7 +63,7 @@ class CoachChatViewModelTest : RoomDaoTest() {
         val workoutId = insertWorkout("proposal")
         val packet =
             WorkoutChangeSet.Packet(
-                listOf(WorkoutChangeSet.Operation.SetOccupiedEquipment(setOf("rack")))
+                listOf(WorkoutChangeSet.Operation.SetAvailableTime(20))
             )
         db.coachDao()
             .saveContext(CoachSessionContextEntity(workoutId, "user", lastUndoRevision = 4L))
@@ -96,7 +96,7 @@ class CoachChatViewModelTest : RoomDaoTest() {
         )
         val packet =
             WorkoutChangeSet.Packet(
-                listOf(WorkoutChangeSet.Operation.SetOccupiedEquipment(setOf("rack")))
+                listOf(WorkoutChangeSet.Operation.SetAvailableTime(20))
             )
         db.coachDao()
             .saveProposal(
