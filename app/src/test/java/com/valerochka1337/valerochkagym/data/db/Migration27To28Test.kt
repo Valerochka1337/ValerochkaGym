@@ -213,6 +213,7 @@ class Migration27To28Test {
                 GymDatabase.MIGRATION_28_29,
                 GymDatabase.MIGRATION_29_30,
                 GymDatabase.MIGRATION_30_31,
+                GymDatabase.MIGRATION_31_32,
             )
             .allowMainThreadQueries()
             .build()
@@ -271,6 +272,7 @@ class Migration27To28Test {
                 GymDatabase.MIGRATION_28_29,
                 GymDatabase.MIGRATION_29_30,
                 GymDatabase.MIGRATION_30_31,
+                GymDatabase.MIGRATION_31_32,
             )
             .allowMainThreadQueries()
             .build()

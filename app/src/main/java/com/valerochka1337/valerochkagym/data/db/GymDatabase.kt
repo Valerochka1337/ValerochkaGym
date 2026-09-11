@@ -140,7 +140,7 @@ import kotlinx.serialization.json.JsonPrimitive
             CoachSessionContextEntity::class,
             CoachSyncStateEntity::class,
         ],
-    version = 31,
+    version = 32,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -966,12 +966,27 @@ abstract class GymDatabase : RoomDatabase() {
           }
         }
 
-    val PREPARATION_MIGRATION_26_27: Migration =
-        object : Migration(26, 27) {
+    val MIGRATION_31_32: Migration =
+        object : Migration(31, 32) {
           override fun migrate(db: SupportSQLiteDatabase) {
             db.execSQL(
                 "CREATE TABLE IF NOT EXISTS workout_preparations (owner TEXT NOT NULL, requestId TEXT NOT NULL, intentJson TEXT NOT NULL, replacesJson TEXT NOT NULL, requestJson TEXT, revision INTEGER, catalogRevision INTEGER, generation INTEGER, state TEXT NOT NULL, errorCode TEXT, proposalJson TEXT, PRIMARY KEY(owner))"
             )
+          }
+        }
+
+    /** Both released preparation v27 and early Coach v27 upgrade without losing either journal. */
+    val MIGRATION_27_32: Migration =
+        object : Migration(27, 32) {
+          override fun migrate(db: SupportSQLiteDatabase) {
+            if (!tableExists(db, "coach_session_context")) {
+              MIGRATION_26_27.migrate(db)
+            }
+            MIGRATION_27_28.migrate(db)
+            MIGRATION_28_29.migrate(db)
+            MIGRATION_29_30.migrate(db)
+            MIGRATION_30_31.migrate(db)
+            MIGRATION_31_32.migrate(db)
           }
         }
 
@@ -1414,6 +1429,8 @@ abstract class GymDatabase : RoomDatabase() {
             MIGRATION_28_29,
             MIGRATION_29_30,
             MIGRATION_30_31,
+            MIGRATION_31_32,
+            MIGRATION_27_32,
         )
 
     private val legacyCoachJson = Json {
