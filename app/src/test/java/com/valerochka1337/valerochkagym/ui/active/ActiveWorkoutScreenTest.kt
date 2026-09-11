@@ -89,7 +89,10 @@ class ActiveWorkoutScreenTest {
     }
 
     composeRule.onNodeWithText("Не спешить").assertIsDisplayed()
-    composeRule.onAllNodesWithText("Заметка к подходу").assertCountEquals(3)
+    composeRule
+        .onNodeWithContentDescription("Заметка к подходу 1")
+        .assertIsDisplayed()
+        .assertHeightIsAtLeast(48.dp)
   }
 
   @Test
@@ -135,11 +138,14 @@ class ActiveWorkoutScreenTest {
     }
 
     composeRule.onNodeWithText("Не спешить").assertIsDisplayed()
-    composeRule.onAllNodesWithText("Заметка к подходу").assertCountEquals(3)
+    composeRule
+        .onNodeWithContentDescription("Заметка к подходу 1")
+        .assertIsDisplayed()
+        .assertHeightIsAtLeast(48.dp)
   }
 
   @Test
-  fun `active hint exposes edit and unpin actions before the first set`() {
+  fun `active screen hides personal hints and their actions`() {
     val edited = mutableListOf<Long>()
     val unpinned = mutableListOf<Long>()
     val workout = workoutWithIncompleteExercises()
@@ -177,10 +183,40 @@ class ActiveWorkoutScreenTest {
       }
     }
 
-    composeRule.onNodeWithText("Изменить подсказку").performClick()
-    composeRule.onNodeWithText("Убрать подсказку").performClick()
-    assertEquals(listOf(111L), edited)
-    assertEquals(listOf(111L), unpinned)
+    composeRule.onNodeWithText("Лопатки вместе").assertDoesNotExist()
+    composeRule.onNodeWithText("Добавить подсказку").assertDoesNotExist()
+    composeRule.onNodeWithText("Изменить подсказку").assertDoesNotExist()
+    composeRule.onNodeWithText("Убрать подсказку").assertDoesNotExist()
+    assertTrue(edited.isEmpty())
+    assertTrue(unpinned.isEmpty())
+  }
+
+  @Test
+  fun `exercise sets collapse and expand without losing their values`() {
+    renderActiveWorkout(mutableStateOf(workoutWithIncompleteExercises()))
+    composeRule.onNodeWithText("ПОДХОД 1").assertIsDisplayed()
+    composeRule.onNodeWithContentDescription("Подходы: Жим лёжа").performClick()
+    composeRule.onNodeWithText("ПОДХОД 1").assertDoesNotExist()
+    composeRule.onNodeWithContentDescription("Заметка к подходу 1").assertDoesNotExist()
+    composeRule.onNodeWithContentDescription("Подходы: Жим лёжа").performClick()
+    composeRule.onNodeWithText("ПОДХОД 1").assertIsDisplayed()
+    composeRule.onNodeWithText("60").assertIsDisplayed()
+    composeRule.onNodeWithText("8").assertIsDisplayed()
+  }
+
+  @Test
+  fun `only the active set exposes a note action`() {
+    val edited = mutableListOf<Long>()
+    val workout = mutableStateOf(workoutWithIncompleteExercises())
+    renderActiveWorkout(workout, setActions = noOpSetActions(editNote = { edited += it }))
+    composeRule.onNodeWithContentDescription("Заметка к подходу 1").performClick()
+    assertEquals(listOf(FIRST_SET_ID), edited)
+    composeRule.runOnIdle { workout.value = workout.value.markSetCompleted(FIRST_SET_ID) }
+    composeRule.onNodeWithContentDescription("Заметка к подходу 1").performClick()
+    assertEquals(listOf(FIRST_SET_ID, SECOND_SET_ID), edited)
+    composeRule.onNodeWithContentDescription("Подходы: Тяга блока").performClick()
+    composeRule.onNodeWithContentDescription("Подходы: Присед").performClick()
+    composeRule.onNodeWithContentDescription("Заметка к подходу 1").assertDoesNotExist()
   }
 
   @Test
@@ -530,6 +566,7 @@ class ActiveWorkoutScreenTest {
   private fun renderActiveWorkout(
       workout: androidx.compose.runtime.State<WorkoutFull>,
       isFinishing: Boolean = false,
+      setActions: SetActions = noOpSetActions(),
   ) {
     composeRule.setContent {
       GymTheme {
@@ -545,7 +582,7 @@ class ActiveWorkoutScreenTest {
             heartRateState =
                 MutableStateFlow<HeartRateConnectionState>(HeartRateConnectionState.Idle),
             heartRateReading = MutableStateFlow<HeartRateReading?>(null),
-            setActions = noOpSetActions(),
+            setActions = setActions,
             onDeleteExercise = {},
             onReorderExercises = {},
             onAddExercise = {},
@@ -563,6 +600,7 @@ class ActiveWorkoutScreenTest {
   }
 
   private fun noOpSetActions(
+      editNote: (Long) -> Unit = {},
       editPersonalHint: (Long) -> Unit = {},
       unpinPersonalHint: (Long) -> Unit = {},
   ) =
@@ -581,6 +619,7 @@ class ActiveWorkoutScreenTest {
           uncomplete = { _ -> },
           addSet = { _ -> },
           deleteSet = { _ -> },
+          editNote = editNote,
           editPersonalHint = editPersonalHint,
           unpinPersonalHint = unpinPersonalHint,
       )

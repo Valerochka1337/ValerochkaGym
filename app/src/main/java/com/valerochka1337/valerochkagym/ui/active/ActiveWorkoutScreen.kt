@@ -48,8 +48,11 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Notes
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
@@ -88,6 +91,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -495,7 +499,6 @@ internal fun ActiveWorkoutContent(
                       .semantics { customActions = moveActions },
               exercise = exercise,
               previous = state.previousByExercise[exercise.exercise.id].orEmpty(),
-              hint = state.hintsByExercise[exercise.exercise.id]?.text,
               actions = setActions,
               activeSetId = activeSetId,
               showAddSet =
@@ -943,8 +946,8 @@ private fun ActiveWorkoutHeader(
     isFinishing: Boolean,
     onFinish: () -> Unit,
     onDiscard: () -> Unit,
-    onEditNote: () -> Unit,
     onOpenCoach: () -> Unit,
+    onEditNote: () -> Unit,
 ) {
   // Собираем таймер только здесь, чтобы посекундный тик не рекомпозил список подходов.
   val elapsed by elapsedSeconds.collectAsStateWithLifecycle()
@@ -1045,7 +1048,6 @@ private fun ActiveWorkoutHeader(
 private fun ExerciseSection(
     exercise: WorkoutExerciseWithSets,
     previous: String,
-    hint: String?,
     actions: SetActions,
     activeSetId: Long?,
     showAddSet: Boolean,
@@ -1057,6 +1059,15 @@ private fun ExerciseSection(
 ) {
   val type = exercise.exercise.type
   val haptics = gymHaptics()
+
+  val hasActiveSet = exercise.sets.any { it.id == activeSetId }
+  var expanded by rememberSaveable(exercise.workoutExercise.id) { mutableStateOf(hasActiveSet) }
+  var previouslyActive by
+      rememberSaveable(exercise.workoutExercise.id) { mutableStateOf(hasActiveSet) }
+  LaunchedEffect(hasActiveSet) {
+    if (hasActiveSet && !previouslyActive) expanded = true
+    previouslyActive = hasActiveSet
+  }
 
   // Когда текущий подход схлопывается в пилюлю, высота секции меняется плавно (expressive-спек).
   Column(
@@ -1087,13 +1098,6 @@ private fun ExerciseSection(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
           }
-          if (!hint.isNullOrBlank()) {
-            Text(
-                text = hint,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-          }
         }
       }
       dragHandle()
@@ -1108,58 +1112,93 @@ private fun ExerciseSection(
 
     Spacer(Modifier.height(8.dp))
 
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-      TextButton(onClick = { actions.editPersonalHint(exercise.exercise.id) }) {
-        Text(if (hint.isNullOrBlank()) "Добавить подсказку" else "Изменить подсказку")
-      }
-      if (!hint.isNullOrBlank()) {
-        TextButton(onClick = { actions.unpinPersonalHint(exercise.exercise.id) }) {
-          Text("Убрать подсказку")
-        }
-      }
+    Row(
+        modifier =
+            Modifier.fillMaxWidth()
+                .heightIn(min = 48.dp)
+                .semantics { stateDescription = if (expanded) "Развёрнуто" else "Свёрнуто" }
+                .clickable(
+                    role = Role.Button,
+                    onClickLabel = "Подходы: ${exercise.exercise.name}",
+                ) {
+                  haptics.tap()
+                  expanded = !expanded
+                },
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+      Text(
+          text = "Подходы: ${exercise.sets.count { it.isCompleted }}/${exercise.sets.size}",
+          modifier = Modifier.weight(1f),
+          style = MaterialTheme.typography.labelLarge,
+      )
+      Icon(
+          if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+          contentDescription = "Подходы: ${exercise.exercise.name}",
+      )
     }
 
-    exercise.sets.forEach { set ->
-      when {
-        set.id == activeSetId ->
-            CurrentSetCard(
+    if (expanded) {
+      exercise.sets.forEach { set ->
+        when {
+          set.id == activeSetId ->
+              CurrentSetCard(
+                  set = set,
+                  type = type,
+                  actions = actions,
+              )
+
+          set.isCompleted -> {
+            val haptics = gymHaptics()
+            CompletedSetPill(
                 set = set,
                 type = type,
-                actions = actions,
+                onClick = {
+                  haptics.step()
+                  actions.editCompleted(set.id, type)
+                },
             )
+          }
 
-        set.isCompleted -> {
-          val haptics = gymHaptics()
-          CompletedSetPill(
-              set = set,
-              type = type,
-              onClick = {
-                haptics.step()
-                actions.editCompleted(set.id, type)
-              },
+          else -> FutureSetPill(set = set, type = type)
+        }
+        if (set.note.isNotBlank()) {
+          Text(
+              text = set.note,
+              style = MaterialTheme.typography.bodySmall,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
           )
         }
-
-        else -> FutureSetPill(set = set, type = type)
+        Spacer(Modifier.height(8.dp))
       }
-      if (set.note.isNotBlank()) {
-        Text(
-            text = set.note,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-      }
-      TextButton(onClick = { actions.editNote(set.id) }) { Text("Заметка к подходу") }
-      Spacer(Modifier.height(8.dp))
-    }
 
-    if (showAddSet) {
-      TextButton(onClick = onAddSet) {
-        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-        Spacer(Modifier.width(6.dp))
-        Text("Подход")
+      if (showAddSet) {
+        TextButton(onClick = onAddSet) {
+          Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+          Spacer(Modifier.width(6.dp))
+          Text("Подход")
+        }
       }
     }
+  }
+}
+
+@Composable
+private fun SetNoteButton(set: WorkoutSetEntity, onClick: () -> Unit) {
+  val haptics = gymHaptics()
+  IconButton(
+      modifier = Modifier.size(48.dp),
+      onClick = {
+        haptics.tap()
+        onClick()
+      },
+  ) {
+    Icon(
+        Icons.Default.Notes,
+        contentDescription = "Заметка к подходу ${set.setIndex + 1}",
+        tint =
+            if (set.note.isNotBlank()) MaterialTheme.colorScheme.primary
+            else MaterialTheme.colorScheme.onSurfaceVariant,
+    )
   }
 }
 
@@ -1181,6 +1220,7 @@ private fun CurrentSetCard(
           color = MaterialTheme.colorScheme.primary,
           modifier = Modifier.weight(1f),
       )
+      SetNoteButton(set, onClick = { actions.editNote(set.id) })
       IconButton(onClick = { actions.deleteSet(set.id) }) {
         Icon(
             Icons.Default.Delete,
@@ -1375,7 +1415,7 @@ private fun CompletedSetPill(
   val checkScale = remember { Animatable(0.6f) }
   LaunchedEffect(Unit) { checkScale.animateTo(1f, punchSpec) }
   SetPill(
-      number = set.setIndex + 1,
+      set = set,
       values = formatSetValues(set, type),
       containerColor = MaterialTheme.colorScheme.primaryContainer,
       contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
@@ -1543,7 +1583,7 @@ private fun FutureSetPill(
     type: ExerciseType,
 ) {
   SetPill(
-      number = set.setIndex + 1,
+      set = set,
       values = formatSetValues(set, type),
       containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
       contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -1554,7 +1594,7 @@ private fun FutureSetPill(
 
 @Composable
 private fun SetPill(
-    number: Int,
+    set: WorkoutSetEntity,
     values: String,
     containerColor: Color,
     contentColor: Color,
@@ -1568,14 +1608,15 @@ private fun SetPill(
               .clip(RoundedCornerShape(16.dp))
               .background(containerColor)
               .then(clickable)
-              .padding(horizontal = 16.dp, vertical = 12.dp),
+              .heightIn(min = if (onClick != null) 48.dp else 36.dp)
+              .padding(horizontal = 12.dp, vertical = 4.dp),
       verticalAlignment = Alignment.CenterVertically,
   ) {
     Text(
-        text = "Подход $number",
+        text = "Подход ${set.setIndex + 1}",
         style = MaterialTheme.typography.bodyMedium,
         color = contentColor,
-        modifier = Modifier.width(96.dp),
+        modifier = Modifier.weight(1f),
     )
     Text(
         text = values.ifEmpty { "—" },

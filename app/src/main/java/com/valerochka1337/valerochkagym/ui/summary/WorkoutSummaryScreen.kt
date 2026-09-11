@@ -36,8 +36,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -60,9 +58,7 @@ import java.math.BigDecimal
 @Composable
 fun WorkoutSummaryScreen(
     onDone: () -> Unit,
-    onPrepareNext: () -> Unit = {},
     onExerciseClick: (Long) -> Unit,
-    onOpenCoach: () -> Unit = {},
     modifier: Modifier = Modifier,
     viewModel: WorkoutSummaryViewModel = hiltViewModel(),
 ) {
@@ -101,12 +97,6 @@ fun WorkoutSummaryScreen(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(horizontal = 24.dp),
         )
-        TextButton(
-            onClick = onOpenCoach,
-            modifier = Modifier.padding(start = 16.dp),
-        ) {
-          Text("Открыть историю чата с тренером")
-        }
 
         LazyColumn(
             modifier = Modifier.weight(1f),
@@ -181,17 +171,7 @@ fun WorkoutSummaryScreen(
           }
         }
 
-        androidx.compose.material3.TextButton(onClick = onPrepareNext) {
-          Text("Подготовить следующую")
-        }
-        WorkoutSummaryActions(
-            canSaveAsProgram = state.canSaveAsProgram,
-            onSaveAsProgram = {
-              haptics.tap()
-              viewModel.openSaveAsProgram()
-            },
-            onDone = viewModel::onDone,
-        )
+        WorkoutSummaryActions(onDone = viewModel::onDone)
       }
       SnackbarHost(
           hostState = snackbarHostState,
@@ -257,22 +237,7 @@ fun WorkoutSummaryScreen(
 }
 
 @Composable
-internal fun WorkoutSummaryActions(
-    canSaveAsProgram: Boolean,
-    onSaveAsProgram: () -> Unit,
-    onDone: () -> Unit,
-) {
-  if (canSaveAsProgram) {
-    TextButton(
-        onClick = onSaveAsProgram,
-        modifier =
-            Modifier.padding(start = 24.dp, end = 24.dp, top = 8.dp)
-                .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
-                .semantics { contentDescription = "Сохранить тренировку как программу" },
-    ) {
-      Text("Сохранить")
-    }
-  }
+internal fun WorkoutSummaryActions(onDone: () -> Unit) {
   PillButton(
       text = "Готово",
       onClick = onDone,

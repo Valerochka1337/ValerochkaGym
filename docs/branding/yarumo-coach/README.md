@@ -1,21 +1,23 @@
 # Yarumo coach — исходники бренда
 
-Оригиналы, предоставленные владельцем приложения 8 сентября 2026 года для
-[полного ребрендинга, issue #48](https://github.com/Valerochka1337/ValerochkaGym/issues/48).
-Файлы сохранены без изменений.
+Текущая иконка — предоставленный владельцем 12 сентября 2026 года
+[SVG монограммы YM](yarumo-gym-v2-mark.svg), сохранённый без изменений.
+Цвета: голубой `#80A9F9` и лавандовый `#B98AE7`, фон `#121212`.
+Название приложения и компоненты launcher aliases сохраняются.
 
-- [Логотип с надписью](logo-with-wordmark.png) — полная композиция `YARUMO COACH` для представления бренда.
-- [Исходник иконки приложения](app-icon-source.png) — круглый знак без надписи в квадратном изображении.
+- Adaptive icon: отдельные background и vector foreground на холсте 108×108dp.
+- Монограмма масштабирована ×0.064 и сдвинута (13.872, 16.88); вся геометрия внутри
+  безопасной окружности диаметром 66dp. Маску и эффекты накладывает лаунчер.
+- Monochrome: те же контуры, непрозрачная белая маска без фона для системной тонировки.
+- Notification: та же монохромная монограмма с увеличенным заполнением 24dp-ресурса.
+- Legacy launcher PNG: 48, 72, 96, 144, 192px, обычная и круглая версии.
+- [PNG 512×512](app-icon-source.png): непрозрачный квадратный экспорт без внешнего скругления.
+- [Прежний логотип с надписью](logo-with-wordmark.png) сохранён как исторический материал.
 
-Отображаемое название приложения: **Yarumo coach**. Регистр надписи в логотипе — часть оригинала.
+PNG воспроизводятся командой `python scripts/generate_launcher_icons.py` из корня проекта;
+в отдельной Python-среде требуется `resvg-py==0.5.0`. В приложение зависимость не добавляется.
+Контуры Android vector напрямую перенесены из SVG, включая отражение правой части.
 
-`app-icon-source.png` скопирован byte-for-byte в Android resource
-`app/src/main/res/drawable-nodpi/yarumo_app_icon_mark.png` (SHA-256
-`0eabd16bbfc8ba3f1edaa14ad25702f5beb0131eb71cb63e3085b2ee230b2431`). Все default, round и
-accent adaptive foreground используют этот ресурс через native XML `bitmap` c `gravity="fill"`
-и равными inset 15% со всех сторон. Wordmark не используется как мелкий текст в launcher.
-
-`ic_launcher_monochrome` и `ic_notification_gym` — отдельные system-tinted vector-маски с
-контуром, гантелью, сердцем и пульсом того же знака. Старые density PNG сохранены без изменений
-для совместимости; при minSdk 36 launcher выбирает adaptive resources. Полный объём работ и
-критерии приёмки описаны в issue.
+[Правила adaptive icons Android](https://developer.android.com/develop/ui/compose/system/icon_design_adaptive).
+Тесты проверяют геометрию безопасной области, непрозрачный фон, соответствие цветной и
+монохромной маски и сохранение launcher aliases, без сохранения скриншотов.

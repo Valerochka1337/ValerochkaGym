@@ -93,6 +93,8 @@ class WorkoutSessionService : LifecycleService() {
 
   @Inject lateinit var coachConversation: CoachConversationService
 
+  @Inject lateinit var coachAlertNotifier: CoachAlertNotifier
+
   private val notificationManager: NotificationManager by lazy {
     getSystemService(NotificationManager::class.java)
   }
@@ -205,12 +207,7 @@ class WorkoutSessionService : LifecycleService() {
   /** The content stays private: an alert only tells the athlete that the chat has an update. */
   private fun observeCoachAlerts() {
     lifecycleScope.launch {
-      coachConversation.alerts.collect { workoutId ->
-        notificationManager.notify(
-            CoachAlertNotificationFactory.NOTIFICATION_ID,
-            CoachAlertNotificationFactory.build(this@WorkoutSessionService, workoutId),
-        )
-      }
+      coachConversation.alerts.collect { workoutId -> coachAlertNotifier.show(workoutId) }
     }
   }
 

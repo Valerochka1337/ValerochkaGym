@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="900" viewBox="177 130 900 900" role="img" aria-labelledby="title desc">
+  <title id="title">Yarumo Gym — YM</title>
+  <desc id="desc">Refined YM monogram. Blue #80A9F9, lavender #B98AE7. Vector outlines; no fonts or raster images.</desc>
+  
+  <g id="monogram">
+    <g fill="#B98AE7">
+      <path d="M300 918V351A32 32 0 0 1 356.538 330.46L565 579.501V679.209L364 439.083V918A32 32 0 0 1 300 918Z"/>
+      <path transform="translate(1254 0) scale(-1 1)" d="M300 918V351A32 32 0 0 1 356.538 330.46L565 579.501V679.209L364 439.083V918A32 32 0 0 1 300 918Z"/>
+    </g>
+    <path fill="#80A9F9" d="M337.395 267.107L591 570.079V914A36 36 0 0 0 663 914V570.079L916.605 267.107A36 36 0 0 0 861.395 220.893L627 500.914L392.605 220.893A36 36 0 0 0 337.395 267.107Z"/>
+  </g>
+</svg>
