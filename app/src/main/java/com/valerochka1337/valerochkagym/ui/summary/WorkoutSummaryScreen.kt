@@ -60,6 +60,7 @@ import java.math.BigDecimal
 @Composable
 fun WorkoutSummaryScreen(
     onDone: () -> Unit,
+    onPrepareNext: () -> Unit = {},
     onExerciseClick: (Long) -> Unit,
     modifier: Modifier = Modifier,
     viewModel: WorkoutSummaryViewModel = hiltViewModel(),
@@ -173,6 +174,9 @@ fun WorkoutSummaryScreen(
           }
         }
 
+        androidx.compose.material3.TextButton(onClick = onPrepareNext) {
+          Text("Подготовить следующую")
+        }
         WorkoutSummaryActions(
             canSaveAsProgram = state.canSaveAsProgram,
             onSaveAsProgram = {

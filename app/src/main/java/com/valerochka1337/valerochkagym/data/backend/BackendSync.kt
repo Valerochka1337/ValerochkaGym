@@ -350,6 +350,7 @@ constructor(
         }
     profileScope?.let { db.execSQL("DELETE FROM profiles WHERE scope=?", arrayOf(it)) }
     profileScope?.let { owner ->
+      db.execSQL("DELETE FROM workout_preparations WHERE owner=?", arrayOf(owner))
       db.execSQL("DELETE FROM training_proposal_projections WHERE owner=?", arrayOf(owner))
       db.execSQL("DELETE FROM health_logical_records WHERE scope=?", arrayOf(owner))
       db.execSQL("DELETE FROM health_metric_identities WHERE scope=?", arrayOf(owner))
@@ -460,6 +461,7 @@ constructor(
           database.withTransaction {
             clearAccountData()
             db.execSQL("DELETE FROM coach_relation_operations WHERE owner=?", arrayOf(user))
+            db.execSQL("DELETE FROM workout_preparations WHERE owner=?", arrayOf(user))
             db.execSQL("DELETE FROM training_proposal_drafts WHERE owner=?", arrayOf(user))
             db.execSQL("DELETE FROM training_proposal_operations WHERE owner=?", arrayOf(user))
             db.execSQL("DELETE FROM training_proposal_projections WHERE owner=?", arrayOf(user))

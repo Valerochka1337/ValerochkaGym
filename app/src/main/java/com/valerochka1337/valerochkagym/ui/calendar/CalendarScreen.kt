@@ -21,7 +21,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
@@ -78,6 +80,7 @@ fun CalendarScreen(
     onOpenSettings: () -> Unit,
     onOpenProposals: () -> Unit = {},
     onOpenAi: () -> Unit = {},
+    onOpenProposal: (String) -> Unit = {},
     modifier: Modifier = Modifier,
     viewModel: CalendarViewModel = hiltViewModel(),
 ) {
@@ -102,7 +105,7 @@ fun CalendarScreen(
 
   GlowBackground(modifier = modifier) {
     Box(modifier = Modifier.fillMaxSize()) {
-      Column(modifier = Modifier.fillMaxSize()) {
+      Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         GymTopBar(
             title = "Календарь",
             onOpenSettings = onOpenSettings,
@@ -124,14 +127,10 @@ fun CalendarScreen(
         ) {
           Text("Предложения тренировок")
         }
-        TextButton(
-            onClick = {
-              haptics.tap()
-              onOpenAi()
-            }
-        ) {
-          Text("Подготовить тренировку с AI")
-        }
+        com.valerochka1337.valerochkagym.ui.calendarai.WorkoutPreparationCard(
+            onOpenAi,
+            onOpenProposal,
+        )
         CalendarStatusBanner(status = calendarStatus, onRetry = viewModel::retryMigration)
         month.planMessage?.let { message ->
           androidx.compose.material3.TextButton(onClick = viewModel::retryMigration) {

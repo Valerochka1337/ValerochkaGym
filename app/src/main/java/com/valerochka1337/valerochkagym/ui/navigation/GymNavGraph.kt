@@ -277,6 +277,7 @@ fun GymNavGraph(
           onStartWorkout = { navController.navigate(GymRoutes.ACTIVE_WORKOUT) },
           onOpenSchedule = { navController.navigate(GymRoutes.SCHEDULE_EDITOR) },
           onOpenProposals = { navController.navigate("training_proposals") },
+          onOpenProposal = { navController.navigate("training_proposal/${Uri.encode(it)}") },
           onOpenAi = { navController.navigate("calendar_ai") },
           onOpenSettings = { navController.navigate(GymRoutes.SETTINGS) },
       )
@@ -523,6 +524,7 @@ fun GymNavGraph(
         popExitTransition = { slideOutOfContainer(SlideDirection.Down, NavSlideSpec) },
     ) {
       WorkoutSummaryScreen(
+          onPrepareNext = { navController.navigate("calendar_ai") },
           onDone = { navController.popBackStack(GymRoutes.WORKOUTS, inclusive = false) },
           onExerciseClick = { id -> navController.navigate(GymRoutes.exerciseDetail(id)) },
       )

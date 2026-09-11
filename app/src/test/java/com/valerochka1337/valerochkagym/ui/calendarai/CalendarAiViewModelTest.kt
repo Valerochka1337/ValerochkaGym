@@ -23,13 +23,27 @@ import org.junit.Test
 class CalendarAiViewModelTest : RoomDaoTest() {
   @get:Rule val mainDispatcherRule = MainDispatcherRule()
 
-  private fun vm(source: SyncReadySource, sessions: Sessions = Sessions()): CalendarAiViewModel {
+  private suspend fun vm(sessions: Sessions = Sessions()): CalendarAiViewModel {
     val api = Server()
     val clock = WallClock { 100L }
+    val source =
+        object : SyncReadySource {
+          override suspend fun await(): SyncReady = error("No network during enqueue")
+        }
+    val sync = BackendSync(db, api, sessions)
+    sync.claim("owner")
     return CalendarAiViewModel(
-        CalendarAiRepository(api, source, db, clock),
+        com.valerochka1337.valerochkagym.data.ai.WorkoutPreparationRepository(
+            db,
+            sessions,
+            sync,
+            CalendarAiRepository(api, source, db, clock),
+            source,
+            api,
+            clock,
+        ),
         sessions,
-        BackendSync(db, api, sessions),
+        sync,
         AiProfilePromptGate(SettingsRepository(Store()), Profile(), clock),
         clock,
         TestExercises(db.exerciseDao()),
@@ -38,99 +52,58 @@ class CalendarAiViewModelTest : RoomDaoTest() {
   }
 
   @Test
-  fun `generation failure keeps edited form and exposes safe reason`() =
+  fun `saving offline closes form only after durable enqueue and preserves conditions`() =
       runTest(mainDispatcherRule.testDispatcher.scheduler) {
-        for ((failure, expected) in
-            listOf(
-                BackendException(504, "ai_timeout", "SECRET") to "ai_timeout",
-                java.io.IOException("SECRET") to "network_error",
-                IllegalStateException("SECRET") to "ai_sync_failed",
-            )) {
-          val viewModel =
-              vm(
-                  object : SyncReadySource {
-                    override suspend fun await() = SyncReady.Failure("SECRET", failure)
-                  }
-              )
-          val collector =
-              backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
-                viewModel.uiState.collect {}
-              }
-          advanceUntilIdle()
-          viewModel.setPreferences("Мои пожелания")
-          viewModel.setDuration("75")
-          advanceUntilIdle()
-          val form = viewModel.uiState.value.form
-          viewModel.generate()
-          advanceUntilIdle()
-          assertEquals(form, viewModel.uiState.value.form)
-          assertFalse(viewModel.uiState.value.generating)
-          assertTrue(viewModel.uiState.value.error!!.contains(expected))
-          assertFalse(viewModel.uiState.value.error!!.contains("SECRET"))
-          collector.cancel()
-          viewModel.viewModelScope.cancel()
-        }
-      }
-
-  @Test
-  fun `cancelled generation clears progress without an error or navigation`() =
-      runTest(mainDispatcherRule.testDispatcher.scheduler) {
-        val viewModel =
-            vm(
-                object : SyncReadySource {
-                  override suspend fun await(): SyncReady = throw CancellationException("SECRET")
-                }
-            )
-        val proposals = mutableListOf<String>()
+        val viewModel = vm()
         backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
           viewModel.uiState.collect {}
         }
+        val saved = CompletableDeferred<Long>()
         backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
-          viewModel.openProposal.collect { proposals += it }
+          viewModel.saved.collect { saved.complete(it) }
         }
         advanceUntilIdle()
+        viewModel.setDuration("75")
         viewModel.generate()
         advanceUntilIdle()
+        saved.await()
+        assertTrue(saved.isCompleted)
+        assertNotNull(db.preparationDao().get("owner"))
+        assertEquals("WAITING", db.preparationDao().get("owner")!!.state)
         assertFalse(viewModel.uiState.value.generating)
         assertNull(viewModel.uiState.value.error)
-        assertTrue(proposals.isEmpty())
         viewModel.viewModelScope.cancel()
       }
 
   @Test
-  fun `late failure after account change cannot overwrite invalidated form`() =
+  fun `invalid date keeps form open without saving a request`() =
       runTest(mainDispatcherRule.testDispatcher.scheduler) {
-        val release = CompletableDeferred<Unit>()
-        val started = CompletableDeferred<Unit>()
+        val viewModel = vm()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+          viewModel.uiState.collect {}
+        }
+        advanceUntilIdle()
+        viewModel.setDate("invalid")
+        viewModel.generate()
+        advanceUntilIdle()
+        assertNull(db.preparationDao().get("owner"))
+        assertNotNull(viewModel.uiState.value.error)
+        viewModel.viewModelScope.cancel()
+      }
+
+  @Test
+  fun `account change clears private form fields`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
         val sessions = Sessions()
-        val viewModel =
-            vm(
-                object : SyncReadySource {
-                  override suspend fun await(): SyncReady =
-                      withContext(NonCancellable) {
-                        started.complete(Unit)
-                        release.await()
-                        throw BackendException(504, "ai_timeout", "SECRET")
-                      }
-                },
-                sessions,
-            )
+        val viewModel = vm(sessions)
         backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
           viewModel.uiState.collect {}
         }
         advanceUntilIdle()
         viewModel.setPreferences("Первый аккаунт")
-        viewModel.generate()
-        runCurrent()
-        assertTrue(started.isCompleted)
         sessions.save(BackendTokens("other", "", "", ""))
-        runCurrent()
-        val invalidated = viewModel.uiState.value
-        release.complete(Unit)
         advanceUntilIdle()
-        assertEquals(invalidated, viewModel.uiState.value)
         assertEquals("", viewModel.uiState.value.form.preferences)
-        assertFalse(viewModel.uiState.value.generating)
         viewModel.viewModelScope.cancel()
       }
 }

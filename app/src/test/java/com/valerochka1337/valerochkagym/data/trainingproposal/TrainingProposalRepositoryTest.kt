@@ -204,6 +204,40 @@ class TrainingProposalRepositoryTest : RoomDaoTest() {
   }
 
   @Test
+  fun `unsynced local edits block prepared proposal approval before an operation is created`() =
+      runTest {
+        val f = fixture()
+        val editor = f.repository.open(PROPOSAL)
+        val generation = db.preparationDao().generation(OWNER)!!
+        db.preparationDao()
+            .save(
+                com.valerochka1337.valerochkagym.data.ai.PreparationEntity(
+                    OWNER,
+                    "00000000-0000-4000-8000-000000000077",
+                    "{}",
+                    "[]",
+                    generation = generation,
+                    state = "READY",
+                    proposalJson =
+                        ProposalWire.json.encodeToJsonElement(editor.proposal).toString(),
+                )
+            )
+        db.openHelper.writableDatabase.execSQL(
+            "UPDATE backend_state SET generation=generation+1 WHERE id=1"
+        )
+        try {
+          f.repository.approve(editor)
+          fail("Stale preparation accepted")
+        } catch (error: BackendException) {
+          assertEquals("proposal_stale", error.code)
+        }
+        assertTrue(f.server.posts.isEmpty())
+        assertNull(
+            db.trainingProposalDao().operation(OWNER, PROPOSAL, editor.proposal.currentVersion)
+        )
+      }
+
+  @Test
   fun `edited draft survives recreation and approval imports one linked projection preserving existing outbox`() =
       runTest {
         val f = fixture()

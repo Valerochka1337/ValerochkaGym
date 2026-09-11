@@ -29,6 +29,10 @@ class GymApplication : Application(), Configuration.Provider {
   lateinit var backendSyncScheduler:
       javax.inject.Provider<com.valerochka1337.valerochkagym.data.backend.BackendSyncScheduler>
 
+  @Inject
+  lateinit var preparationScheduler:
+      Provider<com.valerochka1337.valerochkagym.worker.WorkoutPreparationScheduler>
+
   @Inject lateinit var workerFactory: HiltWorkerFactory
 
   @Inject lateinit var appIconManager: AppIconManager
@@ -56,6 +60,7 @@ class GymApplication : Application(), Configuration.Provider {
       if (calendarLegacyMigration.ensureReady()) {
         backendSyncScheduler.get().start()
         weeklyScheduleRecoveryScheduler.get().enqueue()
+        launch { preparationScheduler.get().start() }
       }
     }
     applicationScope.launch { postUpdateRelaunchCoordinator.reconcilePending() }

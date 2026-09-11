@@ -78,6 +78,7 @@ import java.util.UUID
             com.valerochka1337.valerochkagym.data.backend.CatalogStateEntity::class,
             com.valerochka1337.valerochkagym.data.backend.CatalogRecordEntity::class,
             com.valerochka1337.valerochkagym.data.backend.CatalogEquipmentEntity::class,
+            com.valerochka1337.valerochkagym.data.ai.PreparationEntity::class,
             BodyMeasurementEntity::class,
             CalendarEventAccountLinkEntity::class,
             CalendarPlanEntity::class,
@@ -121,11 +122,13 @@ import java.util.UUID
             WorkoutGymEntity::class,
             WorkoutSetEntity::class,
         ],
-    version = 26,
+    version = 27,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
 abstract class GymDatabase : RoomDatabase() {
+  abstract fun preparationDao(): com.valerochka1337.valerochkagym.data.ai.PreparationDao
+
   abstract fun bodyMeasurementDao(): BodyMeasurementDao
 
   abstract fun calendarEventAccountLinkDao(): CalendarEventAccountLinkDao
@@ -941,6 +944,15 @@ abstract class GymDatabase : RoomDatabase() {
           }
         }
 
+    val MIGRATION_26_27: Migration =
+        object : Migration(26, 27) {
+          override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS workout_preparations (owner TEXT NOT NULL, requestId TEXT NOT NULL, intentJson TEXT NOT NULL, replacesJson TEXT NOT NULL, requestJson TEXT, revision INTEGER, catalogRevision INTEGER, generation INTEGER, state TEXT NOT NULL, errorCode TEXT, proposalJson TEXT, PRIMARY KEY(owner))"
+            )
+          }
+        }
+
     val MIGRATION_25_26: Migration =
         object : Migration(25, 26) {
           override fun migrate(db: SupportSQLiteDatabase) {
@@ -1003,6 +1015,7 @@ abstract class GymDatabase : RoomDatabase() {
             MIGRATION_23_24,
             MIGRATION_24_25,
             MIGRATION_25_26,
+            MIGRATION_26_27,
         )
   }
 }
