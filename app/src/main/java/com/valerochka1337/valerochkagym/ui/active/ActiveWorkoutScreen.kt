@@ -52,7 +52,7 @@ import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Notes
+import androidx.compose.material.icons.rounded.EditNote
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
@@ -1193,7 +1193,7 @@ private fun SetNoteButton(set: WorkoutSetEntity, onClick: () -> Unit) {
       },
   ) {
     Icon(
-        Icons.Default.Notes,
+        Icons.Rounded.EditNote,
         contentDescription = "Заметка к подходу ${set.setIndex + 1}",
         tint =
             if (set.note.isNotBlank()) MaterialTheme.colorScheme.primary
