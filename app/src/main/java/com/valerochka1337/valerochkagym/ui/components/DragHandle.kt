@@ -13,7 +13,7 @@ import androidx.compose.ui.unit.dp
 import sh.calvin.reorderable.ReorderableCollectionItemScope
 
 /**
- * Единственная сенсорная зона начала reorder: 48dp grip с немедленным началом drag. Действия
+ * Единственная сенсорная зона начала reorder: 48dp grip с началом drag после удержания. Действия
  * «Переместить выше/ниже» живут на карточке, поэтому сам grip не получает фокус TalkBack.
  */
 @Composable
@@ -29,7 +29,7 @@ fun DragHandle(
           with(reorderableItemScope) {
             modifier
                 .size(48.dp)
-                .draggableHandle(
+                .longPressDraggableHandle(
                     onDragStarted = { onDragStarted() },
                     onDragStopped = onDragStopped,
                 )
