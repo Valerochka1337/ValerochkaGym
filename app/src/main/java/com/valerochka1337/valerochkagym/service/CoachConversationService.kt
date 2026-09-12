@@ -244,6 +244,7 @@ constructor(
                 original.accountId != accountId || original.status in setOf("PENDING", "PROCESSING")
             )
                 return@withTransaction null
+            database.coachDao().deleteAssistantMessage(failure.id, accountId, workoutId)
             database.coachDao().setMessageStatus(original.id, "PENDING")
             PendingRequest(
                 original.id,

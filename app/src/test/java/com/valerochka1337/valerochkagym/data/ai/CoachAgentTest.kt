@@ -332,6 +332,10 @@ class CoachAgentTest {
                 BackendException(503, "coach_unconfigured", "private server body") to
                     "не настроен на сервере",
                 BackendException(401, "unauthorized", "private server body") to "Войдите в аккаунт",
+                BackendException(403, "forbidden", "private server body") to
+                    "Проверьте права аккаунта",
+                BackendException(401, "owner_changed", "private server body") to
+                    "Сессия изменилась",
                 BackendException(404, "not_found", "private server body") to
                     "не поддерживает тренера",
             )) {

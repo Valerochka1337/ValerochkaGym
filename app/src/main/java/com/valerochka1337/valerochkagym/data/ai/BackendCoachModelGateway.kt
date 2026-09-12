@@ -141,7 +141,7 @@ constructor(
             rawBody = ByteArray(0),
             expectedOwner = expectedOwner,
             expectedSessionEpoch = expectedSessionEpoch,
-            retryOnUnauthorized = false,
+            retryOnUnauthorized = true,
             maxResponseBytes = MAX_RESPONSE_BYTES,
         )
     require(

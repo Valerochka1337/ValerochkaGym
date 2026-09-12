@@ -133,7 +133,9 @@ class CoachConversationServiceTest : RoomDaoTest() {
     gateway.answerText = "Проверил тренировку."
     assertTrue(service.retry(workout, failure.id))
     assertFalse(service.retry(workout, failure.id))
-    val messages = db.coachDao().observeMessages(workout).first { it.size == 3 }
+    assertFalse(db.coachDao().messages(workout).any { it.id == failure.id })
+    val messages =
+        db.coachDao().observeMessages(workout).first { it.size == 2 && it.last().id != failure.id }
     assertEquals(listOf(original.id), messages.filter { it.role == "user" }.map { it.id })
     assertEquals("Проверил тренировку.", messages.last().text)
     assertEquals(2, gateway.calls)
@@ -141,6 +143,28 @@ class CoachConversationServiceTest : RoomDaoTest() {
     assertEquals(1, db.coachDao().pendingJournal("user", 100).count { it.id == original.id })
     runCurrent()
     assertFalse(service.retry(workout, failure.id))
+  }
+
+  @Test
+  fun `repeated failures replace the retried error and keep the original journal`() = runTest {
+    val workout = activeWorkout()
+    val service = conversation(RecordingGateway("""{"text":"broken"""))
+    service.attach(backgroundScope)
+    assertTrue(service.send(workout, "Перенеси Хаммер"))
+    var failure = db.coachDao().observeMessages(workout).first { it.size == 2 }.last()
+    val originalId = db.coachDao().messages(workout).first().id
+    repeat(3) {
+      runCurrent()
+      val oldId = failure.id
+      assertTrue(service.retry(workout, oldId))
+      val messages =
+          db.coachDao().observeMessages(workout).first { it.size == 2 && it.last().id != oldId }
+      assertEquals(originalId, messages.first().id)
+      assertEquals("ERROR", messages.last().status)
+      assertFalse(messages.any { it.id == oldId })
+      assertTrue(db.coachDao().pendingJournal("user", 100).any { it.id == oldId })
+      failure = messages.last()
+    }
   }
 
   @Test
@@ -600,6 +624,40 @@ class CoachConversationServiceTest : RoomDaoTest() {
   }
 
   @Test
+  fun `credential refresh keeps the active conversation able to answer and accept messages`() =
+      runTest {
+        val workout = activeWorkout()
+        val started = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val gateway =
+            object : RecordingGateway() {
+              override suspend fun complete(
+                  expectedOwner: String,
+                  expectedSessionEpoch: Long?,
+                  messages: List<AiApiMessage>,
+                  tools: List<AiApiTool>,
+              ): AiApiChatResponse {
+                started.complete(Unit)
+                release.await()
+                return super.complete(expectedOwner, expectedSessionEpoch, messages, tools)
+              }
+            }
+        val service = conversation(gateway)
+        service.attach(backgroundScope)
+        assertTrue(service.send(workout, "Подскажи"))
+        started.await()
+        session.refreshCredentials()
+        runCurrent()
+        release.complete(Unit)
+        val messages = db.coachDao().observeMessages(workout).first { it.size == 2 }
+        assertEquals("DELIVERED", messages.last().status)
+        runCurrent()
+        assertTrue(service.send(workout, "Продолжим"))
+        db.coachDao().observeMessages(workout).first { it.size == 4 }
+        assertEquals(2, gateway.calls)
+      }
+
+  @Test
   fun `session replacement interrupts the old request without appending assistant or journal`() =
       runTest {
         val workout = activeWorkout()
@@ -821,6 +879,10 @@ class CoachConversationServiceTest : RoomDaoTest() {
     private var epoch = 0L
     override val sessionEpoch: Long
       get() = epoch
+
+    fun refreshCredentials() {
+      state.value = state.value!!.copy(accessToken = "new-access", refreshToken = "new-refresh")
+    }
 
     override fun save(tokens: BackendTokens?) {
       epoch++

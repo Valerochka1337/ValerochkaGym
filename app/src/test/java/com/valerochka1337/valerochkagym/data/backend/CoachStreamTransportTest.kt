@@ -128,6 +128,42 @@ class CoachStreamTransportTest {
     }
   }
 
+  @Test
+  fun `credential refresh during stream preserves the response without replay`() = runBlocking {
+    val store = Store()
+    val entered = CompletableDeferred<Unit>()
+    val release = java.util.concurrent.CountDownLatch(1)
+    var calls = 0
+    val events = mutableListOf<BackendStreamEvent>()
+    val client =
+        OkHttpClient.Builder()
+            .addInterceptor { chain ->
+              calls++
+              entered.complete(Unit)
+              release.await(5, TimeUnit.SECONDS)
+              response(chain.request(), 200, "event:completed\ndata:{}\n\n")
+            }
+            .build()
+    val job = launch {
+      BackendApi(store, client, "https://test.invalid/")
+          .authorizedEventStream("/ai/coach-turn/stream", byteArrayOf(), "owner", 0)
+          .collect { events += it }
+    }
+    try {
+      withTimeout(3000) { entered.await() }
+      store.session.value =
+          store.session.value!!.copy(accessToken = "new", refreshToken = "new-refresh")
+      release.countDown()
+      withTimeout(3000) { job.join() }
+      assertEquals(listOf("completed"), events.map { it.event })
+      assertEquals(1, calls)
+    } finally {
+      release.countDown()
+      job.cancelAndJoin()
+      client.dispatcher.executorService.shutdown()
+    }
+  }
+
   private fun response(request: okhttp3.Request, status: Int, body: String) =
       Response.Builder()
           .request(request)
