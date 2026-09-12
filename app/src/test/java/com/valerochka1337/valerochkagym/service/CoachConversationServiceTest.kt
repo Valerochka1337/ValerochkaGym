@@ -34,6 +34,93 @@ import org.junit.Test
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class CoachConversationServiceTest : RoomDaoTest() {
   @Test
+  fun `streaming draft promotes to one stored message with the same id`() = runTest {
+    val workout = activeWorkout()
+    val gateway = StreamingGateway()
+    val service = conversation(gateway)
+    service.attach(backgroundScope)
+    assertTrue(service.send(workout, "Подскажи технику"))
+    val draft = service.responseDrafts.first { it[workout]?.text == "Продолжай" }.getValue(workout)
+    assertTrue(workout in service.runningWorkouts.value)
+    assertTrue(draft.streaming)
+    gateway.release.complete(Unit)
+    val messages = db.coachDao().observeMessages(workout).first { it.size == 2 }
+    assertEquals(draft.id, messages.last().id)
+    assertEquals("Продолжай", messages.last().text)
+    assertEquals(1, db.coachDao().pendingJournal("user", 100).count { it.id == draft.id })
+    runCurrent()
+    assertFalse(service.responseDrafts.value.getValue(workout).streaming)
+    service.stopWorkout(workout)
+    assertTrue(service.responseDrafts.value.isEmpty())
+  }
+
+  @Test
+  fun `failed stream removes draft and preserves retryable error`() = runTest {
+    val workout = activeWorkout()
+    val gateway = StreamingGateway(fail = true)
+    val service = conversation(gateway)
+    service.attach(backgroundScope)
+    assertTrue(service.send(workout, "Подскажи технику"))
+    service.responseDrafts.first { it[workout]?.text == "Продолжай" }
+    gateway.release.complete(Unit)
+    val messages = db.coachDao().observeMessages(workout).first { it.size == 2 }
+    runCurrent()
+    assertTrue(service.responseDrafts.value.isEmpty())
+    assertEquals("ERROR", messages.last().status)
+    org.junit.Assert.assertNotNull(messages.last().readAt)
+    assertFalse(messages.last().text.contains("Продолжай"))
+  }
+
+  @Test
+  fun `stopping workout clears an in flight draft`() = runTest {
+    val workout = activeWorkout()
+    val gateway = StreamingGateway()
+    val service = conversation(gateway)
+    service.attach(backgroundScope)
+    assertTrue(service.send(workout, "Подскажи технику"))
+    service.responseDrafts.first { it[workout]?.streaming == true }
+    service.stopWorkout(workout)
+    assertTrue(service.responseDrafts.value.isEmpty())
+    gateway.release.complete(Unit)
+    runCurrent()
+    assertEquals(1, db.coachDao().messages(workout).size)
+  }
+
+  private class StreamingGateway(private val fail: Boolean = false) : CoachModelGateway {
+    val release = CompletableDeferred<Unit>()
+
+    override fun stream(
+        expectedOwner: String,
+        expectedSessionEpoch: Long?,
+        messages: List<AiApiMessage>,
+        tools: List<AiApiTool>,
+    ) =
+        kotlinx.coroutines.flow.flow {
+          emit(
+              com.valerochka1337.valerochkagym.data.ai.CoachModelEvent.TextDelta(
+                  "{\"text\":\"Продолжай"
+              )
+          )
+          release.await()
+          if (fail) throw java.io.EOFException("stream interrupted")
+          emit(
+              com.valerochka1337.valerochkagym.data.ai.CoachModelEvent.Completed(
+                  AiApiChatResponse(
+                      choices =
+                          listOf(
+                              AiApiChoice(
+                                  AiApiResponseMessage(
+                                      content = JsonPrimitive("{\"text\":\"Продолжай\"}")
+                                  )
+                              )
+                          )
+                  )
+              )
+          )
+        }
+  }
+
+  @Test
   fun `retry calls AI again without duplicating user message or its journal entry`() = runTest {
     val workout = activeWorkout()
     val gateway = RecordingGateway("""{"text":"broken""")
@@ -742,7 +829,7 @@ class CoachConversationServiceTest : RoomDaoTest() {
   }
 
   private open class RecordingGateway(var answerText: String = "Готов помочь.") :
-      CoachModelGateway {
+      CoachConversationServiceTestGateway {
     var calls = 0
     val requests = mutableListOf<List<AiApiMessage>>()
     val owners = mutableListOf<String>()
@@ -781,4 +868,29 @@ class CoachConversationServiceTest : RoomDaoTest() {
       return never.await()
     }
   }
+}
+
+/** Completed-only fixture; streaming behavior uses explicit event fakes below. */
+private interface CoachConversationServiceTestGateway :
+    com.valerochka1337.valerochkagym.data.ai.CoachModelGateway {
+  suspend fun complete(
+      expectedOwner: String,
+      expectedSessionEpoch: Long?,
+      messages: List<com.valerochka1337.valerochkagym.data.ai.AiApiMessage>,
+      tools: List<com.valerochka1337.valerochkagym.data.ai.AiApiTool>,
+  ): com.valerochka1337.valerochkagym.data.ai.AiApiChatResponse
+
+  override fun stream(
+      expectedOwner: String,
+      expectedSessionEpoch: Long?,
+      messages: List<com.valerochka1337.valerochkagym.data.ai.AiApiMessage>,
+      tools: List<com.valerochka1337.valerochkagym.data.ai.AiApiTool>,
+  ) =
+      kotlinx.coroutines.flow.flow {
+        emit(
+            com.valerochka1337.valerochkagym.data.ai.CoachModelEvent.Completed(
+                complete(expectedOwner, expectedSessionEpoch, messages, tools)
+            )
+        )
+      }
 }

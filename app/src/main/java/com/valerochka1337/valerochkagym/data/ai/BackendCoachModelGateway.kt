@@ -10,6 +10,8 @@ import javax.inject.Singleton
 import kotlinx.coroutines.flow.first
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 
 data class CoachModelCatalog(
     val available: Boolean,
@@ -36,72 +38,96 @@ constructor(
     ignoreUnknownKeys = false
   }
 
-  override suspend fun complete(
+  override fun stream(
       expectedOwner: String,
       expectedSessionEpoch: Long?,
       messages: List<AiApiMessage>,
       tools: List<AiApiTool>,
-  ): AiApiChatResponse {
-    val requestId = UUID.randomUUID().toString()
-    return completeTurn(requestId, expectedOwner, expectedSessionEpoch, messages, tools)
-  }
-
-  private suspend fun completeTurn(
-      requestId: String,
-      expectedOwner: String,
-      expectedSessionEpoch: Long?,
-      messages: List<AiApiMessage>,
-      tools: List<AiApiTool>,
-  ): AiApiChatResponse {
-    require(messages.size <= MAX_MESSAGES) { "Too many coach messages" }
-    require(tools.size <= MAX_TOOLS) { "Too many coach tools" }
-    pin(expectedOwner, expectedSessionEpoch)
-    val catalog = catalog(expectedOwner, expectedSessionEpoch)
-    if (!catalog.available)
-        throw BackendException(503, "coach_unconfigured", "Тренер не настроен на сервере")
-    // DataStore is local, but the selected value still belongs to the session that started this
-    // turn. Check on both sides of the suspension before putting it on the wire.
-    pin(expectedOwner, expectedSessionEpoch)
-    val selected = settings.coachModel(expectedOwner).first()
-    pin(expectedOwner, expectedSessionEpoch)
-    require(selected == null || selected in catalog.models) { "Saved coach model is not allowed" }
-    val model =
-        selected ?: requireNotNull(catalog.defaultModel) { "Available coach has no default model" }
-    val request =
-        CoachTurnRequest(
-            requestId = requestId,
-            model = model,
-            messages = messages,
-            tools = tools,
-        )
-    val body = wireJson.encodeToString(CoachTurnRequest.serializer(), request).encodeToByteArray()
-    require(body.size <= MAX_REQUEST_BYTES) { "Coach request is too large" }
-    pin(expectedOwner, expectedSessionEpoch)
-    val response =
-        backend.authorizedRawResponse(
-            method = "POST",
-            path = "/ai/coach-turn",
-            rawBody = body,
-            expectedOwner = expectedOwner,
-            expectedSessionEpoch = expectedSessionEpoch,
-            retryOnUnauthorized = false,
-            maxResponseBytes = MAX_RESPONSE_BYTES,
-        )
-    require(
-        response.owner == expectedOwner &&
-            response.sessionEpoch == (expectedSessionEpoch ?: response.sessionEpoch)
-    ) {
-      "Coach response owner changed"
-    }
-    pin(expectedOwner, expectedSessionEpoch)
-    val responseBody = response.rawBody.decodeToString()
-    CoachResponseLogger.log(requestId, model, responseBody)
-    val decoded = wireJson.decodeFromString(CoachTurnResponse.serializer(), responseBody)
-    require(decoded.requestId == request.requestId) { "Coach response correlation changed" }
-    require(decoded.model == request.model) { "Coach response model changed" }
-    pin(expectedOwner, expectedSessionEpoch)
-    return decoded.completion
-  }
+  ): kotlinx.coroutines.flow.Flow<CoachModelEvent> =
+      kotlinx.coroutines.flow.flow {
+        val requestId = UUID.randomUUID().toString()
+        val epoch = expectedSessionEpoch ?: sessions.snapshot()?.epoch
+        require(messages.size <= MAX_MESSAGES) { "Too many coach messages" }
+        require(tools.size <= MAX_TOOLS) { "Too many coach tools" }
+        pin(expectedOwner, expectedSessionEpoch)
+        val catalog = catalog(expectedOwner, expectedSessionEpoch)
+        if (!catalog.available)
+            throw BackendException(503, "coach_unconfigured", "Тренер не настроен на сервере")
+        // DataStore is local, but the selected value still belongs to the session that started this
+        // turn. Check on both sides of the suspension before putting it on the wire.
+        pin(expectedOwner, expectedSessionEpoch)
+        val selected = settings.coachModel(expectedOwner).first()
+        pin(expectedOwner, expectedSessionEpoch)
+        require(selected == null || selected in catalog.models) {
+          "Saved coach model is not allowed"
+        }
+        val model =
+            selected
+                ?: requireNotNull(catalog.defaultModel) { "Available coach has no default model" }
+        val request =
+            CoachTurnRequest(
+                requestId = requestId,
+                model = model,
+                messages = messages,
+                tools = tools,
+            )
+        val body =
+            wireJson.encodeToString(CoachTurnRequest.serializer(), request).encodeToByteArray()
+        require(body.size <= MAX_REQUEST_BYTES) { "Coach request is too large" }
+        pin(expectedOwner, expectedSessionEpoch)
+        var completed = false
+        var deltaChars = 0
+        backend
+            .authorizedEventStream("/ai/coach-turn/stream", body, expectedOwner, epoch)
+            .collect { response ->
+              require(!completed) { "Event after completion" }
+              require(response.owner == expectedOwner && response.sessionEpoch == epoch) {
+                "Coach response owner changed"
+              }
+              pin(expectedOwner, epoch)
+              require(response.data.encodeToByteArray().size <= MAX_RESPONSE_BYTES) {
+                "Coach event too large"
+              }
+              val value = wireJson.parseToJsonElement(response.data).jsonObject
+              require(value["requestId"]?.jsonPrimitive?.content == requestId) {
+                "Coach response correlation changed"
+              }
+              if (response.event != "error") {
+                require(value["model"]?.jsonPrimitive?.content == model) {
+                  "Coach response model changed"
+                }
+              }
+              when (response.event) {
+                "text_delta" -> {
+                  val delta =
+                      value["delta"]?.jsonPrimitive?.takeIf { it.isString }?.content
+                          ?: error("Invalid text delta")
+                  deltaChars += delta.length
+                  require(deltaChars <= MAX_RESPONSE_BYTES) { "Coach text too large" }
+                  pin(expectedOwner, epoch)
+                  emit(CoachModelEvent.TextDelta(delta))
+                }
+                "completed" -> {
+                  val decoded =
+                      wireJson.decodeFromString(CoachTurnResponse.serializer(), response.data)
+                  pin(expectedOwner, epoch)
+                  completed = true
+                  emit(CoachModelEvent.Completed(decoded.completion))
+                }
+                "error" -> {
+                  val code = value["code"]?.jsonPrimitive?.content ?: "ai_unavailable"
+                  if (code == "ai_timeout") throw java.io.InterruptedIOException("Coach timeout")
+                  throw BackendException(
+                      if (code == "unauthorized") 401 else 503,
+                      code,
+                      value["message"]?.jsonPrimitive?.content ?: "Сервер модели недоступен",
+                  )
+                }
+                else -> error("Unexpected coach event")
+              }
+            }
+        check(completed) { "Coach stream ended without completion" }
+      }
 
   override suspend fun catalog(
       expectedOwner: String,

@@ -10,7 +10,10 @@ import com.valerochka1337.valerochkagym.data.backend.BackendTransport
 import com.valerochka1337.valerochkagym.data.settings.SettingsRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.single
+import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
@@ -25,6 +28,63 @@ import org.junit.Test
 
 class BackendCoachModelGatewayTest {
   @Test
+  fun `gateway emits text before completion and rejects stale session before any delta`() =
+      runTest {
+        val sessions = FakeSessions()
+        val events =
+            BackendCoachModelGateway(FakeBackend(), sessions, SettingsRepository(FakeStore()))
+                .stream("owner", 7, listOf(AiApiMessage.text("user", "Привет")), emptyList())
+                .toList()
+        assertEquals(
+            listOf(CoachModelEvent.TextDelta::class, CoachModelEvent.Completed::class),
+            events.map { it::class },
+        )
+        val stale =
+            BackendCoachModelGateway(
+                FakeBackend(beforeDelta = { sessions.save(null) }),
+                sessions,
+                SettingsRepository(FakeStore()),
+            )
+        val received = mutableListOf<CoachModelEvent>()
+        try {
+          stale
+              .stream("owner", 7, listOf(AiApiMessage.text("user", "Hi")), emptyList())
+              .toList(received)
+          fail("Expected stale session")
+        } catch (_: com.valerochka1337.valerochkagym.data.backend.BackendException) {
+          assertEquals(emptyList<CoachModelEvent>(), received)
+        }
+      }
+
+  @Test
+  fun `gateway maps terminal errors and rejects missing completion`() = runTest {
+    for (code in listOf("unauthorized", "ai_timeout", "ai_unavailable", null)) {
+      val gateway =
+          BackendCoachModelGateway(
+              FakeBackend(terminalError = code, eof = code == null),
+              FakeSessions(),
+              SettingsRepository(FakeStore()),
+          )
+      val failure =
+          runCatching {
+                gateway
+                    .stream("owner", 7, listOf(AiApiMessage.text("user", "Hi")), emptyList())
+                    .toList()
+              }
+              .exceptionOrNull()
+      org.junit.Assert.assertNotNull(failure)
+      when (code) {
+        "unauthorized" ->
+            assertEquals(
+                401,
+                (failure as com.valerochka1337.valerochkagym.data.backend.BackendException).status,
+            )
+        "ai_timeout" -> org.junit.Assert.assertTrue(failure is java.io.InterruptedIOException)
+      }
+    }
+  }
+
+  @Test
   fun `gateway uses account scoped selected allowed model with pinned owner and epoch`() = runTest {
     val settings = SettingsRepository(FakeStore())
     settings.setCoachModel("owner", "model-b")
@@ -38,7 +98,7 @@ class BackendCoachModelGatewayTest {
         "Ответ",
         result.choices.single().message?.content?.let { (it as JsonPrimitive).content },
     )
-    assertEquals(listOf("/ai/coach-models", "/ai/coach-turn"), backend.paths)
+    assertEquals(listOf("/ai/coach-models", "/ai/coach-turn/stream"), backend.paths)
     assertEquals("model-b", backend.turn.model)
     assertEquals("owner", backend.owners.last())
     assertEquals(7L, backend.epochs.last())
@@ -167,6 +227,9 @@ class BackendCoachModelGatewayTest {
   private class FakeBackend(
       private val returnedModel: String? = null,
       private val responseRequestId: String? = null,
+      private val terminalError: String? = null,
+      private val eof: Boolean = false,
+      private val beforeDelta: () -> Unit = {},
   ) : BackendTransport {
     override val json = Json { explicitNulls = false }
     val paths = mutableListOf<String>()
@@ -180,6 +243,65 @@ class BackendCoachModelGatewayTest {
 
     override suspend fun authorized(method: String, path: String, body: JsonElement?): JsonElement =
         error("unused")
+
+    override fun authorizedEventStream(
+        path: String,
+        rawBody: ByteArray,
+        expectedOwner: String,
+        expectedSessionEpoch: Long?,
+    ) =
+        kotlinx.coroutines.flow.flow {
+          val response =
+              authorizedRawResponse(
+                  "POST",
+                  path,
+                  rawBody,
+                  emptyMap(),
+                  expectedOwner,
+                  expectedSessionEpoch,
+                  false,
+                  256 * 1024,
+              )
+          beforeDelta()
+          emit(
+              com.valerochka1337.valerochkagym.data.backend.BackendStreamEvent(
+                  "text_delta",
+                  buildJsonObject {
+                        put("requestId", JsonPrimitive(responseRequestId ?: turn.requestId))
+                        put("model", JsonPrimitive(returnedModel ?: turn.model))
+                        put("delta", JsonPrimitive("{\"text\":\"Ответ"))
+                      }
+                      .toString(),
+                  "owner",
+                  7,
+              )
+          )
+          if (eof) return@flow
+          if (terminalError != null) {
+            emit(
+                com.valerochka1337.valerochkagym.data.backend.BackendStreamEvent(
+                    "error",
+                    buildJsonObject {
+                          put("requestId", JsonPrimitive(turn.requestId))
+                          put("code", JsonPrimitive(terminalError))
+                          put("message", JsonPrimitive("Unavailable"))
+                        }
+                        .toString(),
+                    "owner",
+                    7,
+                )
+            )
+            return@flow
+          }
+          emit(
+              com.valerochka1337.valerochkagym.data.backend.BackendStreamEvent(
+                  "completed",
+                  response.rawBody.decodeToString(),
+                  "owner",
+                  7,
+              )
+          )
+        }
 
     override suspend fun authorizedRawResponse(
         method: String,
@@ -247,3 +369,13 @@ class BackendCoachModelGatewayTest {
         transform(state.value).also { state.value = it }
   }
 }
+
+private suspend fun CoachModelGateway.complete(
+    owner: String,
+    epoch: Long?,
+    messages: List<AiApiMessage>,
+    tools: List<AiApiTool>,
+): AiApiChatResponse =
+    (stream(owner, epoch, messages, tools).filterIsInstance<CoachModelEvent.Completed>().single()
+            as CoachModelEvent.Completed)
+        .completion

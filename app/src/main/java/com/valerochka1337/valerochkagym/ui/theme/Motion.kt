@@ -25,6 +25,9 @@ import androidx.compose.ui.unit.IntOffset
  * (цвет, прозрачность): им дотяжка-овершут не положена.
  */
 object GymMotion {
+  const val CoachFrameMillis = 32L
+  const val CoachCatchUpMillis = 192L
+  const val CoachWordLookAhead = 12
 
   /** Быстрая пружина движения/размера — мелкие элементы: чипы, бейджи, переключатели. */
   @OptIn(ExperimentalMaterial3ExpressiveApi::class)

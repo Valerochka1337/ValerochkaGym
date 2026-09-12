@@ -9,7 +9,7 @@ class CoachModelProbeTest {
   @Test
   fun `probe uses captured account session while workout stays synthetic`() = runTest {
     val gateway =
-        object : CoachModelGateway {
+        object : CoachModelProbeTestGateway {
           override suspend fun complete(
               expectedOwner: String,
               expectedSessionEpoch: Long?,
@@ -82,7 +82,7 @@ class CoachModelProbeTest {
   private fun probe(vararg responses: AiApiResponseMessage): CoachModelProbe {
     val queue = ArrayDeque(responses.toList())
     val api =
-        object : CoachModelGateway {
+        object : CoachModelProbeTestGateway {
           override suspend fun complete(
               expectedOwner: String,
               expectedSessionEpoch: Long?,
@@ -103,4 +103,29 @@ class CoachModelProbeTest {
         }
     return CoachModelProbe(CoachAgent(api))
   }
+}
+
+/** Completed-only fixture; streaming behavior uses explicit event fakes below. */
+private interface CoachModelProbeTestGateway :
+    com.valerochka1337.valerochkagym.data.ai.CoachModelGateway {
+  suspend fun complete(
+      expectedOwner: String,
+      expectedSessionEpoch: Long?,
+      messages: List<com.valerochka1337.valerochkagym.data.ai.AiApiMessage>,
+      tools: List<com.valerochka1337.valerochkagym.data.ai.AiApiTool>,
+  ): com.valerochka1337.valerochkagym.data.ai.AiApiChatResponse
+
+  override fun stream(
+      expectedOwner: String,
+      expectedSessionEpoch: Long?,
+      messages: List<com.valerochka1337.valerochkagym.data.ai.AiApiMessage>,
+      tools: List<com.valerochka1337.valerochkagym.data.ai.AiApiTool>,
+  ) =
+      kotlinx.coroutines.flow.flow {
+        emit(
+            com.valerochka1337.valerochkagym.data.ai.CoachModelEvent.Completed(
+                complete(expectedOwner, expectedSessionEpoch, messages, tools)
+            )
+        )
+      }
 }

@@ -20,7 +20,6 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -171,7 +170,7 @@ class CoachSettingsViewModelTest {
         answer(expectedOwner, expectedSessionEpoch)
   }
 
-  private class ProbeGateway : CoachModelGateway {
+  private class ProbeGateway : CoachSettingsViewModelTestGateway {
     val calls = mutableListOf<Pair<String, Long?>>()
 
     override suspend fun complete(
@@ -248,4 +247,29 @@ class CoachSettingsViewModelTest {
   private object NoOpClear : ClearDataUseCase {
     override suspend fun invoke() = Unit
   }
+}
+
+/** Completed-only fixture; streaming behavior uses explicit event fakes below. */
+private interface CoachSettingsViewModelTestGateway :
+    com.valerochka1337.valerochkagym.data.ai.CoachModelGateway {
+  suspend fun complete(
+      expectedOwner: String,
+      expectedSessionEpoch: Long?,
+      messages: List<com.valerochka1337.valerochkagym.data.ai.AiApiMessage>,
+      tools: List<com.valerochka1337.valerochkagym.data.ai.AiApiTool>,
+  ): com.valerochka1337.valerochkagym.data.ai.AiApiChatResponse
+
+  override fun stream(
+      expectedOwner: String,
+      expectedSessionEpoch: Long?,
+      messages: List<com.valerochka1337.valerochkagym.data.ai.AiApiMessage>,
+      tools: List<com.valerochka1337.valerochkagym.data.ai.AiApiTool>,
+  ) =
+      kotlinx.coroutines.flow.flow {
+        emit(
+            com.valerochka1337.valerochkagym.data.ai.CoachModelEvent.Completed(
+                complete(expectedOwner, expectedSessionEpoch, messages, tools)
+            )
+        )
+      }
 }

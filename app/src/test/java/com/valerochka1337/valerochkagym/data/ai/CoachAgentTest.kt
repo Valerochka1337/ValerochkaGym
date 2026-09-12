@@ -18,6 +18,70 @@ import org.junit.Test
 @OptIn(ExperimentalCoroutinesApi::class)
 class CoachAgentTest {
   @Test
+  fun `draft arrives before completion and tools wait for the terminal response`() = runTest {
+    val release = kotlinx.coroutines.CompletableDeferred<Unit>()
+    val previews = mutableListOf<String>()
+    var dispatched = 0
+    var exchange = 0
+    val gateway =
+        object : CoachModelGateway {
+          override fun stream(
+              expectedOwner: String,
+              expectedSessionEpoch: Long?,
+              messages: List<AiApiMessage>,
+              tools: List<AiApiTool>,
+          ) =
+              kotlinx.coroutines.flow.flow {
+                exchange++
+                if (exchange == 1) {
+                  emit(CoachModelEvent.TextDelta("{\"text\":\"Предварительно"))
+                  release.await()
+                  emit(CoachModelEvent.Completed(toolResponse(call("state"))))
+                } else {
+                  emit(CoachModelEvent.TextDelta("{\"text\":\"Итог"))
+                  emit(CoachModelEvent.Completed(answer("{\"text\":\"Итог\"}")))
+                }
+              }
+        }
+    val pending = async {
+      CoachAgent(gateway).reply(snapshot(), "Вопрос", tools(), onDraft = { previews += it }) {
+        assertEquals("", previews.last())
+        dispatched++
+        CoachToolOutcome("{}")
+      }
+    }
+    runCurrent()
+    assertEquals("Предварительно", previews.last())
+    assertEquals(0, dispatched)
+    assertFalse(pending.isCompleted)
+    release.complete(Unit)
+    assertEquals("Итог", pending.await().text)
+    assertEquals(1, dispatched)
+    assertFalse(previews.any { it.contains("ПредварительноИтог") })
+  }
+
+  @Test
+  fun `eof after a delta produces an error without executing tools`() = runTest {
+    val gateway =
+        object : CoachModelGateway {
+          override fun stream(
+              expectedOwner: String,
+              expectedSessionEpoch: Long?,
+              messages: List<AiApiMessage>,
+              tools: List<AiApiTool>,
+          ) =
+              kotlinx.coroutines.flow.flow<CoachModelEvent> {
+                emit(CoachModelEvent.TextDelta("{\"text\":\"Черновик"))
+              }
+        }
+    val result =
+        CoachAgent(gateway).reply(snapshot(), "Вопрос", tools()) {
+          error("No tool before completion")
+        }
+    assertEquals(CoachRunStatus.ERROR, result.status)
+  }
+
+  @Test
   fun `structured answer returns only readable text and up to four valid contextual replies`() =
       runTest {
         val api = FakeCoachApi {
@@ -378,7 +442,8 @@ class CoachAgentTest {
               listOf(AiApiChoice(message = AiApiResponseMessage(content = JsonPrimitive(text))))
       )
 
-  private class FakeCoachApi(val respond: suspend (Int) -> AiApiChatResponse) : CoachModelGateway {
+  private class FakeCoachApi(val respond: suspend (Int) -> AiApiChatResponse) :
+      CoachAgentTestGateway {
     data class Request(val messages: List<AiApiMessage>, val tools: List<AiApiTool>)
 
     val requests = mutableListOf<Request>()
@@ -398,4 +463,29 @@ class CoachAgentTest {
     private const val READ = "get_workout_state"
     private const val MUTATION = "submit_workout_changes"
   }
+}
+
+/** Completed-only fixture; streaming behavior uses explicit event fakes below. */
+private interface CoachAgentTestGateway :
+    com.valerochka1337.valerochkagym.data.ai.CoachModelGateway {
+  suspend fun complete(
+      expectedOwner: String,
+      expectedSessionEpoch: Long?,
+      messages: List<com.valerochka1337.valerochkagym.data.ai.AiApiMessage>,
+      tools: List<com.valerochka1337.valerochkagym.data.ai.AiApiTool>,
+  ): com.valerochka1337.valerochkagym.data.ai.AiApiChatResponse
+
+  override fun stream(
+      expectedOwner: String,
+      expectedSessionEpoch: Long?,
+      messages: List<com.valerochka1337.valerochkagym.data.ai.AiApiMessage>,
+      tools: List<com.valerochka1337.valerochkagym.data.ai.AiApiTool>,
+  ) =
+      kotlinx.coroutines.flow.flow {
+        emit(
+            com.valerochka1337.valerochkagym.data.ai.CoachModelEvent.Completed(
+                complete(expectedOwner, expectedSessionEpoch, messages, tools)
+            )
+        )
+      }
 }

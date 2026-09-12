@@ -27,7 +27,7 @@ abstract class CoachChatSemanticsBase {
       sent: (String) -> Unit = {},
       retried: (String) -> Unit = {},
       canceled: (String) -> Unit = {},
-  ) {
+  ): androidx.compose.runtime.MutableState<CoachChatUiState> {
     val state = mutableStateOf(initial)
     compose.setContent {
       val density = LocalDensity.current
@@ -50,6 +50,78 @@ abstract class CoachChatSemanticsBase {
         }
       }
     }
+    return state
+  }
+
+  @Test
+  fun `streaming hides repeated talkback text and promotes one stable message at large font`() {
+    val chat =
+        content(
+            CoachChatUiState(
+                messages =
+                    listOf(
+                        CoachChatMessage(
+                            "answer",
+                            "assistant",
+                            "Накопленный ответ",
+                            streaming = true,
+                        )
+                    ),
+                busy = true,
+                status = "Формируем ответ…",
+            )
+        )
+    compose.onNodeWithTag("coach-status").assertDoesNotExist()
+    compose.onNodeWithContentDescription("Тренер отвечает", useUnmergedTree = true).assertExists()
+    compose.runOnIdle {
+      chat.value =
+          chat.value.copy(
+              messages =
+                  listOf(CoachChatMessage("answer", "assistant", "Накопленный ответ полностью")),
+              busy = false,
+              status = null,
+          )
+    }
+    compose.onAllNodesWithTag("coach-message:answer").assertCountEquals(1)
+    compose.onNodeWithText("Накопленный ответ полностью").assertIsDisplayed()
+  }
+
+  @Test
+  fun `reading history disables following incoming text`() {
+    val history = (1..40).map { CoachChatMessage("m$it", "user", "Сообщение $it") }
+    val chat =
+        content(
+            CoachChatUiState(
+                messages =
+                    history + CoachChatMessage("answer", "assistant", "Начало", streaming = true),
+                busy = true,
+            )
+        )
+    compose.onNodeWithTag("coach-conversation").performScrollToIndex(0)
+    compose.onNodeWithText("Сообщение 1").assertIsDisplayed()
+    compose.runOnIdle {
+      chat.value =
+          chat.value.copy(
+              messages =
+                  history +
+                      CoachChatMessage(
+                          "answer",
+                          "assistant",
+                          "Начало и продолжение",
+                          streaming = true,
+                      )
+          )
+    }
+    compose.waitForIdle()
+    compose.onNodeWithText("Сообщение 1").assertIsDisplayed()
+    compose.runOnIdle {
+      chat.value =
+          chat.value.copy(
+              messages = history + CoachChatMessage("answer", "assistant", "Начало и продолжение"),
+              busy = false,
+          )
+    }
+    compose.onNodeWithText("Сообщение 1").assertIsDisplayed()
   }
 
   @Test

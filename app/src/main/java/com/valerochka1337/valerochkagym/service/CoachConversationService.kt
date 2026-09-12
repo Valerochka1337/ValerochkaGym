@@ -46,6 +46,17 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
+data class CoachDraft(
+    val id: String,
+    val requestId: String,
+    val workoutId: String,
+    val accountId: String,
+    val sessionEpoch: Long,
+    val text: String,
+    val streaming: Boolean = true,
+    val quickReplies: List<String>? = null,
+)
+
 /**
  * The foreground workout service attaches a scope here. UI only persists/enqueues a user message;
  * model work, cancellation and all subsequent transcript writes belong to that service scope.
@@ -66,6 +77,8 @@ constructor(
   private val requests = Channel<PendingRequest>(capacity = 1)
   private val running = MutableStateFlow<Set<String>>(emptySet())
   val runningWorkouts: StateFlow<Set<String>> = running
+  private val drafts = MutableStateFlow<Map<String, CoachDraft>>(emptyMap())
+  val responseDrafts: StateFlow<Map<String, CoachDraft>> = drafts
   private val stages = MutableStateFlow<Map<String, String>>(emptyMap())
   /** Ephemeral detail of the currently running request; Room remains the transcript source. */
   val runningStages: StateFlow<Map<String, String>> = stages
@@ -81,6 +94,7 @@ constructor(
   private var ownerScope: CoroutineScope? = null
 
   fun attach(scope: CoroutineScope) {
+    drafts.value = emptyMap()
     val interrupted =
         synchronized(lifecycle) {
           generation++
@@ -104,13 +118,14 @@ constructor(
         }
     sessionGuard =
         scope.launch {
-          sessions.session.collect {
+          sessions.sessionEpochs.collect {
             if (attachedEpoch != null && sessions.snapshot()?.epoch != attachedEpoch) detach()
           }
         }
   }
 
   fun detach() {
+    drafts.value = emptyMap()
     val interrupted =
         synchronized(lifecycle) {
           generation++
@@ -128,6 +143,7 @@ constructor(
 
   /** Finishing a workout makes an in-flight answer ineligible to write its transcript. */
   fun stopWorkout(workoutId: String) {
+    drafts.value = drafts.value - workoutId
     val interrupted =
         synchronized(lifecycle) {
           stoppedWorkouts.add(workoutId)
@@ -368,6 +384,9 @@ constructor(
     running.value = running.value + request.workoutId
     setStage(request.workoutId, "Проверяем тренировку…")
     var interrupted = false
+    val answerId = UUID.randomUUID().toString()
+    var keepFinalDraft = false
+    drafts.value = drafts.value - request.workoutId
     try {
       if (!isCurrent(request)) {
         interrupted = true
@@ -424,6 +443,23 @@ constructor(
               tools = CoachToolCodec.tools,
               history = history,
               expectedSessionEpoch = request.sessionEpoch,
+              onDraft = { text ->
+                if (isCurrent(request)) {
+                  drafts.value =
+                      if (text.isEmpty()) drafts.value - request.workoutId
+                      else
+                          drafts.value +
+                              (request.workoutId to
+                                  CoachDraft(
+                                      answerId,
+                                      request.messageId,
+                                      request.workoutId,
+                                      request.accountId,
+                                      request.sessionEpoch,
+                                      text,
+                                  ))
+                }
+              },
           ) { call ->
             dispatch(request, snapshot, call)
           }
@@ -436,23 +472,43 @@ constructor(
               result.status == CoachRunStatus.ERROR ||
               result.status == CoachRunStatus.LIMIT
       ) {
-        appendMessage(
-            UUID.randomUUID().toString(),
-            request.accountId,
-            request.workoutId,
-            "assistant",
-            result.text,
-            quickRepliesJson = CoachReply.encodeQuickReplies(result.quickReplies),
-            status = if (result.status == CoachRunStatus.ERROR) "ERROR" else "DELIVERED",
-            expectedSessionEpoch = request.sessionEpoch,
-            isCurrent = { isCurrent(request) },
-        )
-        coachAlerts.emit(request.workoutId)
+        if (result.status != CoachRunStatus.ANSWER) drafts.value = drafts.value - request.workoutId
+        val saved =
+            appendMessage(
+                answerId,
+                request.accountId,
+                request.workoutId,
+                "assistant",
+                result.text,
+                quickRepliesJson = CoachReply.encodeQuickReplies(result.quickReplies),
+                status = if (result.status == CoachRunStatus.ERROR) "ERROR" else "DELIVERED",
+                expectedSessionEpoch = request.sessionEpoch,
+                isCurrent = { isCurrent(request) },
+            )
+        if (saved && result.status == CoachRunStatus.ANSWER && isCurrent(request)) {
+          // Retain the committed value until DAO collectors catch up; the UI deduplicates by ID.
+          drafts.value =
+              drafts.value +
+                  (request.workoutId to
+                      CoachDraft(
+                          answerId,
+                          request.messageId,
+                          request.workoutId,
+                          request.accountId,
+                          request.sessionEpoch,
+                          result.text,
+                          false,
+                          result.quickReplies,
+                      ))
+          keepFinalDraft = true
+        }
+        if (saved && result.status != CoachRunStatus.ERROR) coachAlerts.emit(request.workoutId)
       }
     } catch (cancellation: CancellationException) {
       interrupted = true
       throw cancellation
     } finally {
+      if (!keepFinalDraft || !isCurrent(request)) drafts.value = drafts.value - request.workoutId
       try {
         withContext(NonCancellable) {
           database
@@ -690,7 +746,7 @@ constructor(
                     createdAt,
                     status,
                     quickRepliesJson,
-                    readAt = if (role == "assistant") null else null,
+                    readAt = if (role == "assistant" && status == "ERROR") createdAt else null,
                 )
             )
         database
