@@ -18,6 +18,27 @@ import org.junit.Test
 @OptIn(ExperimentalCoroutinesApi::class)
 class CoachAgentTest {
   @Test
+  fun `prompt failure returns an error without sending model requests`() = runTest {
+    val gateway =
+        object : CoachModelGateway {
+          override suspend fun systemPrompt(
+              expectedOwner: String,
+              expectedSessionEpoch: Long?,
+          ): String = throw IOException("Prompt unavailable")
+
+          override fun stream(
+              expectedOwner: String,
+              expectedSessionEpoch: Long?,
+              messages: List<AiApiMessage>,
+              tools: List<AiApiTool>,
+          ): kotlinx.coroutines.flow.Flow<CoachModelEvent> = error("Model request must not start")
+        }
+    val result = CoachAgent(gateway).reply(snapshot(), "Вопрос", tools()) { error("No tool calls") }
+    assertEquals(CoachRunStatus.ERROR, result.status)
+    assertEquals(0, result.requestCount)
+  }
+
+  @Test
   fun `draft arrives before completion and tools wait for the terminal response`() = runTest {
     val release = kotlinx.coroutines.CompletableDeferred<Unit>()
     val previews = mutableListOf<String>()
@@ -25,6 +46,9 @@ class CoachAgentTest {
     var exchange = 0
     val gateway =
         object : CoachModelGateway {
+          override suspend fun systemPrompt(expectedOwner: String, expectedSessionEpoch: Long?) =
+              "Server coach prompt"
+
           override fun stream(
               expectedOwner: String,
               expectedSessionEpoch: Long?,
@@ -64,6 +88,9 @@ class CoachAgentTest {
   fun `eof after a delta produces an error without executing tools`() = runTest {
     val gateway =
         object : CoachModelGateway {
+          override suspend fun systemPrompt(expectedOwner: String, expectedSessionEpoch: Long?) =
+              "Server coach prompt"
+
           override fun stream(
               expectedOwner: String,
               expectedSessionEpoch: Long?,
@@ -128,6 +155,11 @@ class CoachAgentTest {
     assertEquals("Продолжай", result.text)
     assertEquals(2, result.requestCount)
     assertEquals(1, result.toolCount)
+    assertEquals(
+        AiApiMessage.text("system", "Server coach prompt"),
+        api.requests[0].messages.first(),
+    )
+    assertEquals(api.requests[0].messages.first(), api.requests[1].messages.first())
     assertEquals("tool", api.requests[1].messages.last().role)
     assertEquals("state", api.requests[1].messages.last().toolCallId)
   }
@@ -472,6 +504,9 @@ class CoachAgentTest {
 /** Completed-only fixture; streaming behavior uses explicit event fakes below. */
 private interface CoachAgentTestGateway :
     com.valerochka1337.valerochkagym.data.ai.CoachModelGateway {
+  override suspend fun systemPrompt(expectedOwner: String, expectedSessionEpoch: Long?) =
+      "Server coach prompt"
+
   suspend fun complete(
       expectedOwner: String,
       expectedSessionEpoch: Long?,

@@ -87,7 +87,13 @@ constructor(
       withTimeout(TOTAL_MILLIS.milliseconds) {
         val names = tools.map { it.function.name }.toSet()
         require(names.size == tools.size && tools.all { it.type == "function" })
-        val messages = mutableListOf(AiApiMessage.text("system", coachSystemPrompt))
+        val messages =
+            mutableListOf(
+                AiApiMessage.text(
+                    "system",
+                    gateway.systemPrompt(snapshot.accountId, expectedSessionEpoch),
+                )
+            )
         messages +=
             AiApiMessage.text(
                 "system",
