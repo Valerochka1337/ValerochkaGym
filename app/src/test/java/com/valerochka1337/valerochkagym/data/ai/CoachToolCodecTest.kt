@@ -6,6 +6,32 @@ import org.junit.Test
 
 class CoachToolCodecTest {
   @Test
+  fun `find validates broad muscle groups and bounded result count`() {
+    val request =
+        decode("find_exercises", """{"muscle_groups":["CHEST"],"limit":2}""")
+            as CoachToolRequest.Find
+    assertEquals(setOf("CHEST"), request.muscleGroups)
+    assertEquals(2, request.limit)
+    rejected("find_exercises", """{"muscle_groups":["invented"]}""")
+    rejected("find_exercises", """{"limit":0}""")
+    rejected("find_exercises", """{"limit":21}""")
+    rejected("find_exercises", """{"limit":"2"}""")
+  }
+
+  @Test
+  fun `addition accepts an insertion position but rejects injected historical results`() {
+    val intent =
+        submit("""{"action":"add_exercise","exercise_id":"$EXERCISE","position":0}""")
+            .operations
+            .single() as CoachChangeIntent.AddExercise
+    assertEquals(0, intent.position)
+    rejected(
+        "submit_workout_changes",
+        """{"base_revision":0,"operations":[{"action":"add_exercise","exercise_id":"$EXERCISE","prefilledSets":[]}]}""",
+    )
+  }
+
+  @Test
   fun `tool output retains portable fields metadata and null omission`() {
     val set =
         com.valerochka1337.valerochkagym.domain.SnapshotSet(
@@ -77,21 +103,28 @@ class CoachToolCodecTest {
             )
         )
     assertEquals(
-        """{"exercises":[{"exercise_id":"e","name":"Жим","muscles":["a","b"],"equipment":[]}]}""",
+        """{"exercises":[{"exercise_id":"e","name":"Жим","muscles":["a","b"],"equipment":[],"muscle_group":"","type":"","last_used_at":null,"completed_workout_count":0,"current_section_ids":[],"last_workout_sets":[]}]}""",
         found,
     )
     val history =
         CoachToolCodec.historyJson(
             listOf(
-                com.valerochka1337.valerochkagym.data.db.entity.WorkoutSetEntity(
-                    workoutExerciseId = 1,
-                    setIndex = 2,
-                    completedAt = 123L,
-                    reps = 6,
+                com.valerochka1337.valerochkagym.data.db.dao.CoachHistorySet(
+                    com.valerochka1337.valerochkagym.data.db.entity.WorkoutSetEntity(
+                        workoutExerciseId = 1,
+                        setIndex = 2,
+                        completedAt = 123L,
+                        reps = 6,
+                    ),
+                    "past",
+                    200L,
                 )
             )
         )
-    assertEquals("""{"history":[{"completed_at":123,"set_index":2,"reps":6}]}""", history)
+    assertEquals(
+        """{"history":[{"workout_id":"past","workout_finished_at":200,"section_history_id":1,"set_index":2,"completed_at":123,"set_type":"UNKNOWN","weight_kg":null,"reps":6,"duration_sec":null,"speed_kmh":null,"incline_pct":null}]}""",
+        history,
+    )
   }
 
   @Test

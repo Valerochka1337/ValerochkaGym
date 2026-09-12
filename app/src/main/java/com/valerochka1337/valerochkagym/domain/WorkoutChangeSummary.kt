@@ -63,11 +63,17 @@ object WorkoutChangeSummary {
                       "${exercise.name}, подход ${target.setIndex + 1}: удалить незавершённый подход",
                   )
                 }
-                is WorkoutChangeSet.Operation.AddExercise ->
-                    Summary(
-                        "${exerciseName(state, operation.exerciseId)}: новой секции нет",
-                        "Добавить «${exerciseName(state, operation.exerciseId)}» в конец тренировки с одним незавершённым подходом без заданной нагрузки",
-                    )
+                is WorkoutChangeSet.Operation.AddExercise -> {
+                  val added =
+                      after.exercises.single { candidate ->
+                        state.exercises.none { it.sectionId == candidate.sectionId }
+                      }
+                  Summary(
+                      "${exerciseName(state, operation.exerciseId)}: новой секции нет",
+                      "Добавить «${exerciseName(state, operation.exerciseId)}» на позицию ${added.position + 1}; незавершённые подходы:\n" +
+                          added.sets.joinToString("\n") { "${it.setIndex + 1}. ${load(it)}" },
+                  )
+                }
                 is WorkoutChangeSet.Operation.DeleteExercise -> {
                   val exercise = section(state, operation.sectionId)
                   require(exercise.sets.none { it.completed }) {

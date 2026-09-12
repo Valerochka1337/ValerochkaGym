@@ -2,7 +2,7 @@ package com.valerochka1337.valerochkagym.domain
 
 import com.valerochka1337.valerochkagym.data.backend.BackendSessionStore
 import com.valerochka1337.valerochkagym.data.db.GymDatabase
-import com.valerochka1337.valerochkagym.data.db.entity.WorkoutSetEntity
+import com.valerochka1337.valerochkagym.data.db.dao.CoachHistorySet
 import com.valerochka1337.valerochkagym.service.RestTimerEngine
 import com.valerochka1337.valerochkagym.service.RestTimerState
 import com.valerochka1337.valerochkagym.service.heartrate.HeartRateMonitor
@@ -152,9 +152,12 @@ constructor(
       query: String?,
       equipment: Set<String>?,
       muscles: Set<String>?,
+      muscleGroups: Set<String>? = null,
+      limit: Int = 10,
   ): List<FoundCoachExercise> {
     val normalized = query?.trim()?.lowercase().orEmpty()
-    val exercises = mutableListOf<FoundCoachExercise>()
+    val usage = database.coachDao().exerciseUsage().associateBy { it.exerciseId }
+    val exercises = mutableListOf<Pair<Long, FoundCoachExercise>>()
     for (exercise in database.exerciseDao().getAllOnce()) {
       if (exercise.archived || exercise.id in snapshot.excludedExerciseIds) continue
       val muscleNames =
@@ -163,20 +166,48 @@ constructor(
       if (
           (normalized.isBlank() || exercise.name.lowercase().contains(normalized)) &&
               (muscles.isNullOrEmpty() || muscleNames.containsAll(muscles)) &&
+              (muscleGroups.isNullOrEmpty() || exercise.muscleGroup.name in muscleGroups) &&
               (equipment.isNullOrEmpty() || requirements.containsAll(equipment))
       ) {
-        exercises += FoundCoachExercise(exercise.syncId, exercise.name, muscleNames, requirements)
-        if (exercises.size == 50) break
+        val used = usage[exercise.id]
+        exercises +=
+            exercise.id to
+                FoundCoachExercise(
+                    exercise.syncId,
+                    exercise.name,
+                    muscleNames,
+                    requirements,
+                    exercise.muscleGroup.name,
+                    exercise.type.name,
+                    used?.lastUsedAt,
+                    used?.workoutCount ?: 0,
+                    currentSectionIds =
+                        snapshot.exercises
+                            .filter { it.exerciseId == exercise.id }
+                            .map { it.sectionId },
+                )
       }
     }
     return exercises
+        .sortedWith(
+            compareByDescending<Pair<Long, FoundCoachExercise>> {
+                  it.second.lastUsedAt ?: Long.MIN_VALUE
+                }
+                .thenByDescending { it.second.workoutCount }
+                .thenBy { it.second.name }
+                .thenBy { it.second.id }
+        )
+        .take(limit.coerceIn(1, 20))
+        .map { (id, found) ->
+          found.copy(lastWorkoutSets = database.coachDao().exerciseHistory(id, 1))
+        }
   }
 
-  suspend fun history(exerciseId: String): List<WorkoutSetEntity> {
+  suspend fun history(exerciseId: String): List<CoachHistorySet> {
     val exercise =
         database.exerciseDao().getAllOnce().singleOrNull { it.syncId == exerciseId }
             ?: return emptyList()
-    val history = database.workoutDao().lastCompletedSetsForExercise(exercise.id).take(30)
+    val history = database.coachDao().exerciseHistory(exercise.id, 3)
     return history
   }
 
@@ -224,4 +255,10 @@ data class FoundCoachExercise(
     val name: String,
     val muscles: Set<String>,
     val equipment: Set<String>,
+    val muscleGroup: String = "",
+    val type: String = "",
+    val lastUsedAt: Long? = null,
+    val workoutCount: Int = 0,
+    val lastWorkoutSets: List<CoachHistorySet> = emptyList(),
+    val currentSectionIds: List<String> = emptyList(),
 )

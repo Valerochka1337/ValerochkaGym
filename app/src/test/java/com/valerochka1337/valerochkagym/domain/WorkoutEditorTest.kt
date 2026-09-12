@@ -46,6 +46,143 @@ import org.junit.Test
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class WorkoutEditorTest : RoomDaoTest() {
   @Test
+  fun `model addition without history creates one empty set and rejects invalid insertion positions`() =
+      runTest {
+        val workout = insertWorkout("active")
+        val id = exercise("New")
+        val syncId = db.exerciseDao().getById(id)!!.syncId
+        val editor = coordinator(RestTimerEngine(backgroundScope) { 0L })
+        assertEquals(
+            ModelProposalSaveResult.Invalid,
+            editor.saveModelProposalResult(
+                "user",
+                workout,
+                0,
+                listOf(CoachChangeIntent.AddExercise(syncId, 1)),
+                Long.MAX_VALUE,
+            ),
+        )
+        assertNull(db.coachDao().pendingProposal(workout))
+        val proposal =
+            assertIsSaved(
+                editor.saveModelProposalResult(
+                    "user",
+                    workout,
+                    0,
+                    listOf(CoachChangeIntent.AddExercise(syncId)),
+                    Long.MAX_VALUE,
+                )
+            )
+        assertEquals(
+            CommandResult.APPLIED,
+            editor.confirmProposal("user", proposal.id, "add-empty").result,
+        )
+        val set = workoutFull(workout).exercises.single().sets.single()
+        assertFalse(set.isCompleted)
+        assertNull(set.weightKg)
+        assertNull(set.reps)
+      }
+
+  @Test
+  fun `model addition prefills cardio values including flat incline without copying actual results`() =
+      runTest {
+        val id = exercise("Treadmill", ExerciseType.CARDIO)
+        val past = insertWorkoutExercise(insertWorkout("past", finishedAt = 2000), id)
+        insertSet(past, 0, durationSec = 300, speedKmh = 8.0, inclinePct = 0.0, isCompleted = true)
+        val workout = insertWorkout("active")
+        val editor = coordinator(RestTimerEngine(backgroundScope) { 0L })
+        val proposal =
+            assertIsSaved(
+                editor.saveModelProposalResult(
+                    "user",
+                    workout,
+                    0,
+                    listOf(CoachChangeIntent.AddExercise(db.exerciseDao().getById(id)!!.syncId)),
+                    Long.MAX_VALUE,
+                )
+            )
+        assertEquals(
+            CommandResult.APPLIED,
+            editor.confirmProposal("user", proposal.id, "add-cardio").result,
+        )
+        val set = workoutFull(workout).exercises.single().sets.single()
+        assertEquals(300, set.targetDurationSec)
+        assertEquals(8.0, set.targetSpeedKmh!!, 0.0)
+        assertEquals(0.0, set.targetInclinePct!!, 0.0)
+        assertNull(set.actualDurationSec)
+        assertFalse(set.isCompleted)
+      }
+
+  @Test
+  fun `model addition freezes full history and inserts unfinished sets at the requested position`() =
+      runTest {
+        val exerciseId = exercise("Historical press")
+        val historical = insertWorkoutExercise(insertWorkout("past", finishedAt = 2000), exerciseId)
+        val oldIds =
+            (0..31).map { index ->
+              insertSet(
+                  historical,
+                  index,
+                  weightKg = 20.0 + index,
+                  reps = 12 - index % 4,
+                  isCompleted = true,
+              )
+            }
+        insertSet(historical, 32, weightKg = 999.0, reps = 1)
+        val warmup = db.workoutDao().getSet(oldIds.first())!!
+        db.workoutDao()
+            .updateSet(
+                warmup.copy(setType = "WARMUP", actualWeightKg = 15.0, note = "Private note")
+            )
+        val workout = insertWorkout("active")
+        insertSet(insertWorkoutExercise(workout, exercise("Existing")), 0, reps = 10)
+        val editor =
+            coordinator(RestTimerEngine(backgroundScope, WallClock { testScheduler.currentTime }))
+        val proposal =
+            assertIsSaved(
+                editor.saveModelProposalResult(
+                    "user",
+                    workout,
+                    0,
+                    listOf(
+                        CoachChangeIntent.AddExercise(
+                            db.exerciseDao().getById(exerciseId)!!.syncId,
+                            0,
+                        )
+                    ),
+                    Long.MAX_VALUE,
+                )
+            )
+        assertEquals(1, workoutFull(workout).exercises.size)
+        assertTrue(proposal.afterSummary.contains("15"))
+        assertTrue(proposal.afterSummary.contains("51"))
+        // A later historical edit must not change the package the user reviewed.
+        db.workoutDao().updateSet(warmup.copy(weightKg = 777.0))
+        assertEquals(
+            CommandResult.APPLIED,
+            editor.confirmProposal("user", proposal.id, "add-history").result,
+        )
+        val added = workoutFull(workout).exercises.sortedBy { it.workoutExercise.position }.first()
+        assertEquals(exerciseId, added.workoutExercise.exerciseId)
+        val sets = added.sets.sortedBy { it.setIndex }
+        assertEquals(32, sets.size)
+        assertEquals(15.0, sets.first().weightKg!!, 0.0)
+        assertEquals(51.0, sets.last().targetWeightKg!!, 0.0)
+        assertEquals("WARMUP", sets.first().setType)
+        assertTrue(
+            sets.all {
+              !it.isCompleted &&
+                  it.completedAt == null &&
+                  it.actualWeightKg == null &&
+                  it.note.isEmpty()
+            }
+        )
+        assertTrue(
+            sets.none { it.syncId in oldIds.map { id -> db.workoutDao().getSet(id)!!.syncId } }
+        )
+      }
+
+  @Test
   fun `completing a set marks it done and starts rest from settings`() = runTest {
     val setId = seedActiveSet()
     val engine = RestTimerEngine(backgroundScope) { 0L }

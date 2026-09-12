@@ -411,7 +411,7 @@ class CoachConversationServiceTest : RoomDaoTest() {
                                                 com.valerochka1337.valerochkagym.data.ai
                                                     .AiApiToolCallFunction(
                                                         "submit_workout_changes",
-                                                        """{"base_revision":0,"operations":[{"action":"edit_set","set_id":"${set.syncId}","values":{"reps":6}}]}""",
+                                                        """{"base_revision":0,"reason":"Учитываю сообщение об усталости","operations":[{"action":"edit_set","set_id":"${set.syncId}","values":{"reps":6}}]}""",
                                                     ),
                                         )
                                     )
@@ -433,6 +433,9 @@ class CoachConversationServiceTest : RoomDaoTest() {
     val proposal = requireNotNull(db.coachDao().pendingProposal(workout)) { messages.toString() }
     assertEquals(before, db.workoutDao().getWorkoutFull(workout))
     assertTrue(proposal.afterSummary.contains("→ 6"))
+    assertTrue(
+        messages.last().text.contains("Обоснование тренера: Учитываю сообщение об усталости")
+    )
     assertTrue(conversation.confirm(workout, proposal.id))
     assertEquals(6, db.workoutDao().getSet(set.id)!!.reps)
     assertEquals(1, gateway.calls)

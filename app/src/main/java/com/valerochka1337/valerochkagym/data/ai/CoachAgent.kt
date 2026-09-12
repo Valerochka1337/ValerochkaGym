@@ -111,7 +111,7 @@ constructor(
           onDraft("")
           val decoder = com.valerochka1337.valerochkagym.domain.CoachTextDecoder()
           val response =
-              withTimeout(PER_REQUEST_MILLIS) {
+              withTimeout(PER_REQUEST_MILLIS.milliseconds) {
                 var final: AiApiChatResponse? = null
                 gateway
                     .stream(snapshot.accountId, expectedSessionEpoch, messages.toList(), tools)

@@ -462,7 +462,7 @@ constructor(
                 }
               },
           ) { call ->
-            dispatch(request, snapshot, call)
+            dispatch(request, call)
           }
       if (!isCurrent(request)) {
         interrupted = true
@@ -555,7 +555,6 @@ constructor(
 
   private suspend fun dispatch(
       request: PendingRequest,
-      snapshot: WorkoutSnapshot,
       call: com.valerochka1337.valerochkagym.data.ai.AiApiToolCall,
   ): CoachToolOutcome =
       try {
@@ -567,7 +566,7 @@ constructor(
             )
         when (val decoded = CoachToolCodec.decode(call)) {
           CoachToolRequest.State -> {
-            setStage(request.workoutId, "Проверяем текущий подход…")
+            setStage(request.workoutId, "Проверяю текущий подход…")
             val fresh = freshSnapshot(request)
             if (fresh == null)
                 CoachToolOutcome(
@@ -577,24 +576,32 @@ constructor(
             else CoachToolOutcome(CoachToolCodec.snapshotJson(fresh))
           }
           is CoachToolRequest.Find ->
-              setStage(request.workoutId, "Подбираем упражнение…").let {
+              setStage(request.workoutId, "Подбираю упражнение…").let {
+                val current =
+                    freshSnapshot(request)
+                        ?: return CoachToolOutcome(
+                            "Тренировка больше недоступна для изменений.",
+                            CoachRunStatus.ERROR,
+                        )
                 CoachToolOutcome(
                     CoachToolCodec.foundJson(
                         reader.find(
-                            snapshot,
+                            current,
                             decoded.query,
                             decoded.equipmentIds,
                             decoded.muscleIds,
+                            decoded.muscleGroups,
+                            decoded.limit,
                         )
                     )
                 )
               }
           is CoachToolRequest.History ->
-              setStage(request.workoutId, "Сверяем историю…").let {
+              setStage(request.workoutId, "Сверяю историю…").let {
                 CoachToolOutcome(CoachToolCodec.historyJson(reader.history(decoded.exerciseId)))
               }
           is CoachToolRequest.Submit -> {
-            setStage(request.workoutId, "Готовим изменения…")
+            setStage(request.workoutId, "Готовлю изменения…")
             when (
                 val result =
                     editor.saveModelProposalResult(
@@ -608,6 +615,19 @@ constructor(
                     )
             ) {
               is ModelProposalSaveResult.Saved -> {
+                decoded.reason
+                    ?.takeIf { it.isNotBlank() }
+                    ?.let { reason ->
+                      appendMessage(
+                          UUID.randomUUID().toString(),
+                          request.accountId,
+                          request.workoutId,
+                          "assistant",
+                          "Обоснование тренера: $reason",
+                          expectedSessionEpoch = request.sessionEpoch,
+                          isCurrent = { isCurrent(request) },
+                      )
+                    }
                 coachAlerts.emit(request.workoutId)
                 CoachToolOutcome(
                     "Предложение сохранено для подтверждения: ${result.proposal.afterSummary}",

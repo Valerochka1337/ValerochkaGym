@@ -1,6 +1,6 @@
 package com.valerochka1337.valerochkagym.data.ai
 
-import com.valerochka1337.valerochkagym.data.db.entity.WorkoutSetEntity
+import com.valerochka1337.valerochkagym.data.db.dao.CoachHistorySet
 import com.valerochka1337.valerochkagym.domain.FoundCoachExercise
 import com.valerochka1337.valerochkagym.domain.WorkoutSnapshot
 import java.util.UUID
@@ -12,8 +12,13 @@ import kotlinx.serialization.json.*
 sealed interface CoachToolRequest {
   data object State : CoachToolRequest
 
-  data class Find(val query: String?, val equipmentIds: Set<String>?, val muscleIds: Set<String>?) :
-      CoachToolRequest
+  data class Find(
+      val query: String?,
+      val equipmentIds: Set<String>?,
+      val muscleIds: Set<String>?,
+      val muscleGroups: Set<String>? = null,
+      val limit: Int = 10,
+  ) : CoachToolRequest
 
   data class History(val exerciseId: String) : CoachToolRequest
 
@@ -25,7 +30,7 @@ sealed interface CoachToolRequest {
 }
 
 sealed interface CoachChangeIntent {
-  data class AddExercise(val exerciseId: String) : CoachChangeIntent
+  data class AddExercise(val exerciseId: String, val position: Int? = null) : CoachChangeIntent
 
   data class RemoveRemaining(val sectionId: String) : CoachChangeIntent
 
@@ -221,6 +226,15 @@ object CoachToolCodec {
                         put("name", exercise.name)
                         put("muscles", stringArray(exercise.muscles))
                         put("equipment", stringArray(exercise.equipment))
+                        put("muscle_group", exercise.muscleGroup)
+                        put("type", exercise.type)
+                        put("last_used_at", exercise.lastUsedAt?.let(::JsonPrimitive) ?: JsonNull)
+                        put("completed_workout_count", exercise.workoutCount)
+                        put(
+                            "current_section_ids",
+                            JsonArray(exercise.currentSectionIds.map(::JsonPrimitive)),
+                        )
+                        put("last_workout_sets", historyRows(exercise.lastWorkoutSets))
                       }
                   )
                 }
@@ -230,32 +244,35 @@ object CoachToolCodec {
     )
   }
 
-  fun historyJson(history: List<WorkoutSetEntity>): String {
-    return json.encodeToString(
-        buildJsonObject {
-          put(
-              "history",
-              buildJsonArray {
-                history.forEach { set ->
-                  set.completedAt?.let { at ->
-                    add(
-                        buildJsonObject {
-                          put("completed_at", at)
-                          put("set_index", set.setIndex)
-                          set.weightKg?.let { put("weight_kg", it) }
-                          set.reps?.let { put("reps", it) }
-                          set.durationSec?.let { put("duration_sec", it) }
-                          set.speedKmh?.let { put("speed_kmh", it) }
-                          set.inclinePct?.let { put("incline_pct", it) }
-                        }
-                    )
-                  }
-                }
-              },
-          )
-        }
-    )
+  private fun historyRows(history: List<CoachHistorySet>) = buildJsonArray {
+    history.forEach { historical ->
+      val set = historical.set
+      add(
+          buildJsonObject {
+            put("workout_id", historical.historyWorkoutId)
+            put("workout_finished_at", historical.historyWorkoutFinishedAt)
+            put("section_history_id", set.workoutExerciseId)
+            put("set_index", set.setIndex)
+            put("completed_at", set.completedAt?.let(::JsonPrimitive) ?: JsonNull)
+            put("set_type", set.setType)
+            put("weight_kg", (set.actualWeightKg ?: set.weightKg)?.let(::JsonPrimitive) ?: JsonNull)
+            put("reps", (set.actualReps ?: set.reps)?.let(::JsonPrimitive) ?: JsonNull)
+            put(
+                "duration_sec",
+                (set.actualDurationSec ?: set.durationSec)?.let(::JsonPrimitive) ?: JsonNull,
+            )
+            put("speed_kmh", (set.actualSpeedKmh ?: set.speedKmh)?.let(::JsonPrimitive) ?: JsonNull)
+            put(
+                "incline_pct",
+                (set.actualInclinePct ?: set.inclinePct)?.let(::JsonPrimitive) ?: JsonNull,
+            )
+          }
+      )
+    }
   }
+
+  fun historyJson(history: List<CoachHistorySet>): String =
+      json.encodeToString(buildJsonObject { put("history", historyRows(history)) })
 
   private val json = Json {
     isLenient = false
@@ -281,11 +298,23 @@ object CoachToolCodec {
         CoachToolRequest.State
       }
       "find_exercises" -> {
-        obj.keys(setOf("query", "equipment_ids", "muscle_ids"))
+        obj.keys(setOf("query", "equipment_ids", "muscle_ids", "muscle_groups", "limit"))
         CoachToolRequest.Find(
             obj.optionalText("query", 200),
             obj.optionalStrings("equipment_ids"),
             obj.optionalStrings("muscle_ids"),
+            obj.optionalStrings("muscle_groups")?.also { groups ->
+              if (
+                  groups.any { group ->
+                    com.valerochka1337.valerochkagym.data.db.entity.MuscleGroup.entries.none {
+                      it.name == group
+                    }
+                  }
+              )
+                  invalid()
+            },
+            if ("limit" in obj) obj.integer("limit", 20).toInt().also { if (it < 1) invalid() }
+            else 10,
         )
       }
       "get_exercise_history" -> {
@@ -315,8 +344,11 @@ object CoachToolCodec {
     fun keys(vararg names: String) = obj.keys(names.toSet() + setOf("action", "reason"))
     return when (action) {
       "add_exercise" -> {
-        keys("exercise_id")
-        CoachChangeIntent.AddExercise(obj.uuid("exercise_id"))
+        keys("exercise_id", "position")
+        CoachChangeIntent.AddExercise(
+            obj.uuid("exercise_id"),
+            if ("position" in obj) obj.integer("position", 1000).toInt() else null,
+        )
       }
       "remove_remaining" -> {
         keys("section_id")
@@ -495,23 +527,43 @@ object CoachToolCodec {
         ),
         tool(
             "find_exercises",
-            "Найти доступные упражнения по оборудованию, мышцам и названию; использовать только возвращённые UUID.",
+            "Search catalogue by optional name, muscle_groups (any), muscle_ids (all), equipment_ids (all requirements). Sorted by most recent finished workout, then usage count. Returns full completed sets from the latest finished workout, excluding active workouts. Default 10, max 20 results. Empty history means no recorded experience. Equipment requirements do not prove current availability. Use returned UUIDs only; current_section_ids identifies duplicates.",
             schema(
                 mapOf(
                     "query" to stringSchema(),
                     "equipment_ids" to arraySchema(stringSchema()),
                     "muscle_ids" to arraySchema(stringSchema()),
+                    "muscle_groups" to
+                        arraySchema(
+                            buildJsonObject {
+                              put("type", "string")
+                              put(
+                                  "enum",
+                                  JsonArray(
+                                      com.valerochka1337.valerochkagym.data.db.entity.MuscleGroup
+                                          .entries
+                                          .map { JsonPrimitive(it.name) }
+                                  ),
+                              )
+                            }
+                        ),
+                    "limit" to
+                        buildJsonObject {
+                          put("type", "integer")
+                          put("minimum", 1)
+                          put("maximum", 20)
+                        },
                 )
             ),
         ),
         tool(
             "get_exercise_history",
-            "Последние три завершённые тренировки с упражнением. Неизвестные данные не заменяются нулями.",
+            "Informational history: all completed sets from the last three finished workouts containing this exercise. Use for progress questions or deeper comparison only; find_exercises already includes the latest workout for selection and prefilling. Unknown values remain null.",
             schema(mapOf("exercise_id" to uuidSchema()), "exercise_id"),
         ),
         tool(
             "submit_workout_changes",
-            "Передать один пакет изменений. Приложение проверяет полномочия и сохраняет предложение или результат. Ожидание подтверждения завершает обращение. Для reorder_exercises передавай полный список всех section_id, каждый ровно один раз, включая выполненные упражнения и разминку.",
+            "Передать один пакет изменений. add_exercise принимает необязательную position (индекс вставки, по умолчанию в конец) и автоматически предзаполняет полный список выполненных подходов последней завершённой тренировки как незавершённые; без истории создаёт один пустой подход. Приложение проверяет полномочия и сохраняет предложение или результат. Ожидание подтверждения завершает обращение. Для reorder_exercises передавай полный список всех section_id, каждый ровно один раз, включая выполненные упражнения и разминку.",
             schema(
                 mapOf(
                     "base_revision" to numberSchema(true),
@@ -572,7 +624,11 @@ object CoachToolCodec {
             }
         )
     return listOf(
-        op("add_exercise", mapOf("exercise_id" to id)),
+        op(
+            "add_exercise",
+            mapOf("exercise_id" to id, "position" to numberSchema(true)),
+            setOf("position"),
+        ),
         op("remove_remaining", mapOf("section_id" to id)),
         op("move_exercise", mapOf("section_id" to id, "position" to numberSchema(true))),
         op("swap_exercises", mapOf("first_section_id" to id, "second_section_id" to id)),

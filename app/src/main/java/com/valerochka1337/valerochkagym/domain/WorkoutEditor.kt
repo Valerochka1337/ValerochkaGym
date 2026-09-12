@@ -588,7 +588,8 @@ constructor(
         is WorkoutChangeSet.Operation.MoveExercise ->
             moveExercise(state, op.sectionId, op.targetPosition)
         is WorkoutChangeSet.Operation.ReorderExercises -> reorder(state, op.sectionIds)
-        is WorkoutChangeSet.Operation.AddExercise -> addExercise(state, op.exerciseId)
+        is WorkoutChangeSet.Operation.AddExercise ->
+            addExercise(state, op.exerciseId, op.prefilledSets, op.position)
         is WorkoutChangeSet.Operation.DeleteExercise -> deleteExercise(state, op.sectionId)
         is WorkoutChangeSet.Operation.RemoveRemaining -> removeRemaining(state, op.sectionId)
         is WorkoutChangeSet.Operation.ReplaceRemaining -> replaceRemaining(state, op)
@@ -808,16 +809,26 @@ constructor(
         sectionIds.mapIndexed { position, id -> by.getValue(id).copy(position = position) }
   }
 
-  private fun addExercise(state: EditState, exerciseId: Long) {
+  private fun addExercise(
+      state: EditState,
+      exerciseId: Long,
+      prefilledSets: List<RestoreSet>,
+      position: Int?,
+  ) {
+    require(position == null || position in 0..state.sections.size)
+    require(prefilledSets.none { it.isCompleted || it.completedAt != null })
     require(exerciseId in state.catalogue)
     val section =
         RestoreSection(
             UUID.randomUUID().toString(),
             exerciseId,
             (state.sections.maxOfOrNull { it.position } ?: -1) + 1,
-            listOf(restoreSet(WorkoutSetEntity(workoutExerciseId = 0, setIndex = 0))),
+            prefilledSets.ifEmpty {
+              listOf(restoreSet(WorkoutSetEntity(workoutExerciseId = 0, setIndex = 0)))
+            },
         )
     state.sections = state.sections + section
+    if (position != null) moveExercise(state, section.sectionId, position)
   }
 
   private fun deleteExercise(state: EditState, sectionId: String) {
@@ -1282,7 +1293,41 @@ constructor(
                   when (intent) {
                     is CoachChangeIntent.AddExercise ->
                         WorkoutChangeSet.Operation.AddExercise(
-                            byExerciseSync.getValue(intent.exerciseId).id
+                            byExerciseSync.getValue(intent.exerciseId).id,
+                            database
+                                .coachDao()
+                                .exerciseHistory(byExerciseSync.getValue(intent.exerciseId).id, 1)
+                                .mapIndexed { index, historical ->
+                                  val previous = historical.set
+                                  val weight = previous.actualWeightKg ?: previous.weightKg
+                                  val reps = previous.actualReps ?: previous.reps
+                                  val duration = previous.actualDurationSec ?: previous.durationSec
+                                  val speed = previous.actualSpeedKmh ?: previous.speedKmh
+                                  val incline = previous.actualInclinePct ?: previous.inclinePct
+                                  restoreSet(
+                                      WorkoutSetEntity(
+                                          workoutExerciseId = 0,
+                                          setIndex = index,
+                                          weightKg = weight,
+                                          reps = reps,
+                                          durationSec = duration,
+                                          speedKmh = speed,
+                                          inclinePct = incline,
+                                          originalWeightKg = weight,
+                                          originalReps = reps,
+                                          originalDurationSec = duration,
+                                          originalSpeedKmh = speed,
+                                          originalInclinePct = incline,
+                                          targetWeightKg = weight,
+                                          targetReps = reps,
+                                          targetDurationSec = duration,
+                                          targetSpeedKmh = speed,
+                                          targetInclinePct = incline,
+                                          setType = previous.setType,
+                                      )
+                                  )
+                                },
+                            intent.position,
                         )
                     is CoachChangeIntent.RemoveRemaining ->
                         WorkoutChangeSet.Operation.RemoveRemaining(intent.sectionId)
