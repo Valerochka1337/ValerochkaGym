@@ -112,13 +112,17 @@ interface BackendSessionStore {
   val sessionEpochs: kotlinx.coroutines.flow.Flow<Long>
     get() = session.map { sessionEpoch }
 
-  /** Monotonically changes on every save, including A → B → A with equal token values. */
+  /** Changes on explicit save/login/logout, but not on a verified refresh of this session. */
   val sessionEpoch: Long
     get() = 0L
 
   /** The production implementation returns tokens and epoch under one lock. */
   fun snapshot(): BackendSessionSnapshot? =
       session.value?.let { BackendSessionSnapshot(it, sessionEpoch) }
+
+  /** Atomically rotates credentials in the same login; null invalidates only this snapshot. */
+  fun refreshIfCurrent(expected: BackendSessionSnapshot, replacement: BackendTokens?): Boolean =
+      false
 
   fun replaceIfCurrent(expectedRefreshToken: String, replacement: BackendTokens?): Boolean {
     if (session.value?.refreshToken != expectedRefreshToken) return false
@@ -184,7 +188,28 @@ class BackendTokenStore @Inject constructor(@ApplicationContext context: Context
   }
 
   @Synchronized
+  override fun refreshIfCurrent(
+      expected: BackendSessionSnapshot,
+      replacement: BackendTokens?,
+  ): Boolean {
+    if (snapshot() != expected) return false
+    if (replacement != null && replacement.userId != expected.tokens.userId) return false
+    persist(replacement)
+    if (replacement == null) epoch++
+    state.value = replacement
+    epochs.value = epoch
+    return true
+  }
+
+  @Synchronized
   override fun save(tokens: BackendTokens?) {
+    persist(tokens)
+    epoch++
+    state.value = tokens
+    epochs.value = epoch
+  }
+
+  private fun persist(tokens: BackendTokens?) {
     if (tokens == null) file.delete()
     else {
       val cipher = Cipher.getInstance("AES/GCM/NoPadding")
@@ -199,9 +224,6 @@ class BackendTokenStore @Inject constructor(@ApplicationContext context: Context
         throw e
       }
     }
-    epoch++
-    state.value = tokens
-    epochs.value = epoch
   }
 }
 
@@ -408,8 +430,9 @@ class BackendApi @Inject constructor(private val tokens: BackendSessionStore) : 
         } catch (e: BackendException) {
           if (e.status != 401 || !retryOnUnauthorized) throw e
           refreshMutex.withLock {
-            val current = tokens.snapshot()?.tokens ?: throw e
-            if (current.userId != session.userId) throw e
+            val currentSnapshot = tokens.snapshot() ?: throw e
+            val current = currentSnapshot.tokens
+            if (current.userId != session.userId || currentSnapshot.epoch != epoch) throw e
             if (current.accessToken == session.accessToken) {
               try {
                 val updated =
@@ -426,9 +449,15 @@ class BackendApi @Inject constructor(private val tokens: BackendSessionStore) : 
                     )
                 // Never restore a session which the user logged out of while the request was in
                 // flight.
-                if (!tokens.replaceIfCurrent(current.refreshToken, updated)) throw e
+                if (updated.userId != current.userId)
+                    throw BackendException(
+                        502,
+                        "invalid_refresh",
+                        "Некорректный ответ обновления сессии",
+                    )
+                if (!tokens.refreshIfCurrent(currentSnapshot, updated)) throw e
               } catch (failure: BackendException) {
-                if (failure.status == 401) tokens.replaceIfCurrent(current.refreshToken, null)
+                if (failure.status == 401) tokens.refreshIfCurrent(currentSnapshot, null)
                 throw failure
               }
             }
@@ -470,7 +499,9 @@ class BackendApi @Inject constructor(private val tokens: BackendSessionStore) : 
               if (
                   dispatch.tokens.userId != expectedOwner ||
                       (expectedSessionEpoch != null && dispatch.epoch != expectedSessionEpoch) ||
-                      tokens.snapshot() != dispatch
+                      tokens.snapshot()?.let {
+                        it.epoch != dispatch.epoch || it.tokens.userId != dispatch.tokens.userId
+                      } != false
               ) {
                 throw BackendException(401, "owner_changed", "Аккаунт изменился")
               }

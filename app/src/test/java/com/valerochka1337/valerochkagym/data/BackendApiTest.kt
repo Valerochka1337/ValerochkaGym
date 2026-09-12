@@ -2,6 +2,7 @@ package com.valerochka1337.valerochkagym.data
 
 import com.valerochka1337.valerochkagym.data.backend.BackendApi
 import com.valerochka1337.valerochkagym.data.backend.BackendException
+import com.valerochka1337.valerochkagym.data.backend.BackendSessionSnapshot
 import com.valerochka1337.valerochkagym.data.backend.BackendSessionStore
 import com.valerochka1337.valerochkagym.data.backend.BackendTokens
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -101,6 +102,101 @@ class BackendApiTest {
         }
       }
 
+  @Test
+  fun `catalog refreshes expired credentials within the pinned login`() = runTest {
+    val store = Store()
+    val paths = mutableListOf<String>()
+    val auth = mutableListOf<String?>()
+    val client =
+        OkHttpClient.Builder()
+            .addInterceptor { chain ->
+              val request = chain.request()
+              paths += request.url.encodedPath
+              auth += request.header("Authorization")
+              val refresh = request.url.encodedPath.endsWith("/auth/refresh")
+              val expired = !refresh && request.header("Authorization") == "Bearer access"
+              Response.Builder()
+                  .request(request)
+                  .protocol(Protocol.HTTP_1_1)
+                  .code(if (expired) 401 else 200)
+                  .message("test")
+                  .body(
+                      (if (refresh)
+                              """{"userId":"owner-a","email":"owner@example.com","accessToken":"new-access","refreshToken":"new-refresh"}"""
+                          else "{}")
+                          .toResponseBody()
+                  )
+                  .build()
+            }
+            .build()
+    try {
+      val result =
+          BackendApi(store, client, "https://test.invalid/")
+              .authorizedRawResponse(
+                  "GET",
+                  "/ai/coach-models",
+                  byteArrayOf(),
+                  expectedOwner = "owner-a",
+                  expectedSessionEpoch = 0,
+                  retryOnUnauthorized = true,
+              )
+      assertEquals(listOf("/v1/ai/coach-models", "/v1/auth/refresh", "/v1/ai/coach-models"), paths)
+      assertEquals(listOf("Bearer access", null, "Bearer new-access"), auth)
+      assertEquals(0L, result.sessionEpoch)
+      assertEquals(0L, store.sessionEpoch)
+    } finally {
+      client.dispatcher.executorService.shutdown()
+    }
+  }
+
+  @Test
+  fun `refresh cannot restore a login replaced while the response is in flight`() = runTest {
+    for (replacement in
+        listOf(null, BackendTokens("owner-a", "owner@example.com", "access", "refresh"))) {
+      val store = Store()
+      val paths = mutableListOf<String>()
+      val client =
+          OkHttpClient.Builder()
+              .addInterceptor { chain ->
+                val request = chain.request()
+                paths += request.url.encodedPath
+                val refresh = request.url.encodedPath.endsWith("/auth/refresh")
+                if (refresh) store.save(replacement)
+                Response.Builder()
+                    .request(request)
+                    .protocol(Protocol.HTTP_1_1)
+                    .code(if (refresh) 200 else 401)
+                    .message("test")
+                    .body(
+                        (if (refresh)
+                                """{"userId":"owner-a","email":"owner@example.com","accessToken":"new-access","refreshToken":"new-refresh"}"""
+                            else "{}")
+                            .toResponseBody()
+                    )
+                    .build()
+              }
+              .build()
+      try {
+        val result = runCatching {
+          BackendApi(store, client, "https://test.invalid/")
+              .authorizedRawResponse(
+                  "GET",
+                  "/ai/coach-models",
+                  byteArrayOf(),
+                  expectedOwner = "owner-a",
+                  expectedSessionEpoch = 0,
+                  retryOnUnauthorized = true,
+              )
+        }
+        assertTrue(result.exceptionOrNull() is BackendException)
+        assertEquals(replacement, store.session.value)
+        assertEquals(2, paths.size)
+      } finally {
+        client.dispatcher.executorService.shutdown()
+      }
+    }
+  }
+
   private class Store : BackendSessionStore {
     override val session =
         MutableStateFlow<BackendTokens?>(
@@ -109,6 +205,19 @@ class BackendApiTest {
     private var epoch = 0L
     override val sessionEpoch: Long
       get() = epoch
+
+    override fun refreshIfCurrent(
+        expected: BackendSessionSnapshot,
+        replacement: BackendTokens?,
+    ): Boolean {
+      if (
+          snapshot() != expected ||
+              (replacement != null && replacement.userId != expected.tokens.userId)
+      )
+          return false
+      if (replacement == null) save(null) else session.value = replacement
+      return true
+    }
 
     override fun save(tokens: BackendTokens?) {
       epoch++

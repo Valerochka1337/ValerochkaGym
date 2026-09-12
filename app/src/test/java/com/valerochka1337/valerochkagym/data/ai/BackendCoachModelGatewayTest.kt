@@ -23,6 +23,7 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
 
@@ -313,6 +314,7 @@ class BackendCoachModelGatewayTest {
         retryOnUnauthorized: Boolean,
         maxResponseBytes: Int?,
     ): BackendResponse {
+      if (path == "/ai/coach-models") assertTrue(retryOnUnauthorized)
       paths += path
       owners += expectedOwner
       epochs += expectedSessionEpoch

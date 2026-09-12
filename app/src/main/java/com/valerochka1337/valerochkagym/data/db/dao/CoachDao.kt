@@ -31,6 +31,11 @@ interface CoachDao {
   @Insert(onConflict = OnConflictStrategy.REPLACE)
   suspend fun saveMessage(message: CoachMessageEntity)
 
+  @Query(
+      "DELETE FROM coach_messages WHERE id=:id AND accountId=:accountId AND workoutId=:workoutId AND role='assistant'"
+  )
+  suspend fun deleteAssistantMessage(id: String, accountId: String, workoutId: String)
+
   @Query("UPDATE coach_messages SET status=:status WHERE id=:id")
   suspend fun setMessageStatus(id: String, status: String)
 
