@@ -9,6 +9,33 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface CoachDao {
+  @Query(
+      """
+    SELECT we.exerciseId, MAX(w.finishedAt) AS lastUsedAt, COUNT(DISTINCT w.id) AS workoutCount
+    FROM workout_exercises we JOIN workouts w ON w.id=we.workoutId
+    WHERE w.finishedAt IS NOT NULL AND EXISTS
+      (SELECT 1 FROM workout_sets s WHERE s.workoutExerciseId=we.id AND s.isCompleted=1)
+    GROUP BY we.exerciseId
+  """
+  )
+  suspend fun exerciseUsage(): List<CoachExerciseUsage>
+
+  @Query(
+      """
+    SELECT s.*, w.id AS historyWorkoutId, w.finishedAt AS historyWorkoutFinishedAt FROM workout_sets s
+    JOIN workout_exercises we ON we.id=s.workoutExerciseId
+    JOIN workouts w ON w.id=we.workoutId
+    WHERE we.exerciseId=:exerciseId AND s.isCompleted=1 AND w.id IN (
+      SELECT w2.id FROM workouts w2
+      WHERE w2.finishedAt IS NOT NULL AND EXISTS (
+        SELECT 1 FROM workout_exercises we2 JOIN workout_sets s2 ON s2.workoutExerciseId=we2.id
+        WHERE we2.workoutId=w2.id AND we2.exerciseId=:exerciseId AND s2.isCompleted=1
+      ) ORDER BY w2.finishedAt DESC, w2.id DESC LIMIT :workoutLimit
+    ) ORDER BY w.finishedAt DESC, w.id DESC, we.position, we.id, s.setIndex, s.id
+  """
+  )
+  suspend fun exerciseHistory(exerciseId: Long, workoutLimit: Int): List<CoachHistorySet>
+
   @Query("SELECT * FROM coach_messages WHERE workoutId=:workoutId ORDER BY createdAt, id")
   fun observeMessages(workoutId: String): Flow<List<CoachMessageEntity>>
 
@@ -128,3 +155,11 @@ interface CoachDao {
     clearContext(accountId)
   }
 }
+
+data class CoachExerciseUsage(val exerciseId: Long, val lastUsedAt: Long, val workoutCount: Int)
+
+data class CoachHistorySet(
+    @androidx.room.Embedded val set: WorkoutSetEntity,
+    val historyWorkoutId: String,
+    val historyWorkoutFinishedAt: Long,
+)

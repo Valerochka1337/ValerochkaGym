@@ -120,7 +120,12 @@ sealed interface WorkoutChangeSet {
 
     @Serializable data class ReorderExercises(val sectionIds: List<String>) : Operation
 
-    @Serializable data class AddExercise(val exerciseId: Long) : Operation
+    @Serializable
+    data class AddExercise(
+        val exerciseId: Long,
+        val prefilledSets: List<RestoreSet> = emptyList(),
+        val position: Int? = null,
+    ) : Operation
 
     @Serializable data class DeleteExercise(val sectionId: String) : Operation
 
