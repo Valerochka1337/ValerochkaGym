@@ -540,13 +540,8 @@ fun GymNavGraph(
         popExitTransition = { slideOutOfContainer(SlideDirection.Down, NavSlideSpec) },
     ) {
       WorkoutSummaryScreen(
-          onPrepareNext = { navController.navigate("calendar_ai") },
           onDone = { navController.popBackStack(GymRoutes.WORKOUTS, inclusive = false) },
           onExerciseClick = { id -> navController.navigate(GymRoutes.exerciseDetail(id)) },
-          onOpenCoach = {
-            val workoutId = requireNotNull(it.arguments?.getString(GymRoutes.WORKOUT_ID_ARG))
-            navController.navigate(GymRoutes.coachChat(workoutId))
-          },
       )
     }
 

@@ -1,26 +1,13 @@
-<!-- Monochrome small rendition of the Yarumo mark. Android supplies the notification tint. -->
+<?xml version="1.0" encoding="utf-8"?>
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="24dp"
-    android:height="24dp"
-    android:viewportWidth="24"
-    android:viewportHeight="24">
-    <path
-        android:pathData="M12,2.3 A9.7,9.7 0,1 0,12,21.7 A9.7,9.7 0,1 0,12,2.3"
-        android:strokeWidth="1.25"
-        android:strokeColor="@android:color/white"
-        android:fillColor="@android:color/transparent" />
-    <path
-        android:pathData="M7.1,6.1h0.7v3.1h-0.7z M8.4,5.3h1.1V10h-1.1z M14.5,5.3h1.1V10h-1.1z M16.2,6.1h0.7v3.1h-0.7z M9.5,7.2h5v0.9h-5z"
-        android:strokeWidth="0"
-        android:strokeColor="@android:color/white"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:fillColor="@android:color/white" />
-    <path
-        android:fillColor="@android:color/transparent"
-        android:pathData="M12,19 C10.6,18 8.5,16.5 8.5,14.4 C8.5,12.9 10.5,12.4 12,14 C13.5,12.4 15.5,12.9 15.5,14.4 C15.5,16.5 13.4,18 12,19 M8.6,15.3h1.8l0.7,-1.1l0.8,2.1l0.6,-1h1.8"
-        android:strokeColor="@android:color/white"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:strokeWidth="0.9" />
+    android:width="24dp" android:height="24dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <group android:translateX="-27.51" android:translateY="-21.4"
+        android:scaleX="0.13" android:scaleY="0.13">
+        <path android:fillColor="#FFFFFFFF" android:pathData="M300 918V351A32 32 0 0 1 356.538 330.46L565 579.501V679.209L364 439.083V918A32 32 0 0 1 300 918Z" />
+        <group android:translateX="1254" android:scaleX="-1">
+            <path android:fillColor="#FFFFFFFF" android:pathData="M300 918V351A32 32 0 0 1 356.538 330.46L565 579.501V679.209L364 439.083V918A32 32 0 0 1 300 918Z" />
+        </group>
+        <path android:fillColor="#FFFFFFFF" android:pathData="M337.395 267.107L591 570.079V914A36 36 0 0 0 663 914V570.079L916.605 267.107A36 36 0 0 0 861.395 220.893L627 500.914L392.605 220.893A36 36 0 0 0 337.395 267.107Z" />
+    </group>
 </vector>

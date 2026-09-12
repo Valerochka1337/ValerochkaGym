@@ -74,6 +74,20 @@ class WorkoutSummaryViewModelTest {
       }
 
   @Test
+  fun `summary excludes empty exercises and exercises with only unfinished sets`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val full = fullWorkout()
+        val uncompleted =
+            full.exercises
+                .first()
+                .copy(sets = full.exercises.first().sets.map { it.copy(isCompleted = false) })
+        val empty = full.exercises.first().copy(sets = emptyList())
+        val model =
+            viewModel(full.copy(exercises = listOf(uncompleted, empty, full.exercises.last())))
+        assertEquals(listOf("Жим лёжа"), model.uiState.value.exercises.map { it.name })
+      }
+
+  @Test
   fun `a missing workout only clears the loading flag`() =
       runTest(mainDispatcherRule.testDispatcher.scheduler) {
         val viewModel = viewModel(full = null)

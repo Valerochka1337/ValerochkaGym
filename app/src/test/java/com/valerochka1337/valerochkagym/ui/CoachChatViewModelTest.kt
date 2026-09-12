@@ -159,6 +159,9 @@ class CoachChatViewModelTest : RoomDaoTest() {
           db.coachDao(),
           db.workoutDao(),
           conversation(),
+          com.valerochka1337.valerochkagym.service.CoachAlertNotifier(
+              androidx.test.core.app.ApplicationProvider.getApplicationContext()
+          ),
       )
 
   private fun TestScope.conversation(): CoachConversationService {

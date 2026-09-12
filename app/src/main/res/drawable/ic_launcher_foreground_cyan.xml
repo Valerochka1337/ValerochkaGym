@@ -1,7 +1,3 @@
 <?xml version="1.0" encoding="utf-8"?>
 <inset xmlns:android="http://schemas.android.com/apk/res/android"
-    android:inset="15%">
-    <bitmap
-        android:gravity="fill"
-        android:src="@drawable/yarumo_app_icon_mark" />
-</inset>
+    android:inset="0dp" android:drawable="@drawable/ic_launcher_foreground" />

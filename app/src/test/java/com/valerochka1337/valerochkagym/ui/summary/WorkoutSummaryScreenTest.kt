@@ -25,7 +25,7 @@ class WorkoutSummaryScreenTest {
   @get:Rule val composeRule = createComposeRule()
 
   @Test
-  fun `summary keeps done as the full width primary action and save as secondary`() {
+  fun `summary exposes only the done action`() {
     var minimumTargetPx = 0f
     composeRule.setContent {
       val density = LocalDensity.current
@@ -34,8 +34,6 @@ class WorkoutSummaryScreenTest {
         GymTheme {
           Column {
             WorkoutSummaryActions(
-                canSaveAsProgram = true,
-                onSaveAsProgram = {},
                 onDone = {},
             )
           }
@@ -43,17 +41,15 @@ class WorkoutSummaryScreenTest {
       }
     }
 
-    val save =
-        composeRule
-            .onNodeWithContentDescription("Сохранить тренировку как программу")
-            .assertIsDisplayed()
-            .fetchSemanticsNode()
-            .boundsInRoot
+    composeRule
+        .onNodeWithContentDescription("Сохранить тренировку как программу")
+        .assertDoesNotExist()
+    composeRule.onNodeWithText("Сохранить").assertDoesNotExist()
+
     val done =
         composeRule.onNodeWithText("Готово").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
 
-    assertTrue(save.width >= minimumTargetPx && save.height >= minimumTargetPx)
-    assertTrue(done.width > save.width)
+    assertTrue(done.width >= minimumTargetPx && done.height >= minimumTargetPx)
   }
 
   @Test

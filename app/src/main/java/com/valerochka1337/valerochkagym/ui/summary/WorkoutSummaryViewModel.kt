@@ -136,18 +136,20 @@ constructor(
       val duration =
           ((full.workout.finishedAt ?: full.workout.startedAt) - full.workout.startedAt) / 1000
       val exercises =
-          full.exercises.map { exercise ->
-            ExerciseSummaryUi(
-                id = exercise.workoutExercise.id,
-                exerciseId = exercise.exercise.id,
-                name = exercise.exercise.name,
-                setsSummary =
-                    previousSetsUseCase.formatSummary(
-                        exercise.sets.filter { it.isCompleted },
-                        exercise.exercise.type,
-                    ),
-            )
-          }
+          full.exercises
+              .filter { section -> section.sets.any { it.isCompleted } }
+              .map { exercise ->
+                ExerciseSummaryUi(
+                    id = exercise.workoutExercise.id,
+                    exerciseId = exercise.exercise.id,
+                    name = exercise.exercise.name,
+                    setsSummary =
+                        previousSetsUseCase.formatSummary(
+                            exercise.sets.filter { it.isCompleted },
+                            exercise.exercise.type,
+                        ),
+                )
+              }
       _uiState.value =
           WorkoutSummaryUiState(
               loading = false,

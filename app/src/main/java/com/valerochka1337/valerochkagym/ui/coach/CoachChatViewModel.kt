@@ -25,6 +25,7 @@ constructor(
     private val coachDao: CoachDao,
     private val workoutDao: WorkoutDao,
     private val conversation: CoachConversationService,
+    private val coachAlertNotifier: com.valerochka1337.valerochkagym.service.CoachAlertNotifier,
 ) : ViewModel() {
   private val workoutId = requireNotNull(savedStateHandle.get<String>(GymRoutes.WORKOUT_ID_ARG))
   private val draft = MutableStateFlow(savedStateHandle.get<String>(DRAFT) ?: "")
@@ -140,6 +141,7 @@ constructor(
 
   /** Called by the visible chat host, including when a reply arrives while it is open. */
   fun markAssistantMessagesRead() {
+    coachAlertNotifier.chatViewed(workoutId)
     viewModelScope.launch { coachDao.markAssistantMessagesRead(workoutId) }
   }
 

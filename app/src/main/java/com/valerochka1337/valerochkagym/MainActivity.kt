@@ -21,6 +21,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
 
+  @Inject
+  lateinit var coachAlertNotifier: com.valerochka1337.valerochkagym.service.CoachAlertNotifier
+
   @Inject lateinit var settingsRepository: SettingsRepository
 
   /**
@@ -61,6 +64,16 @@ class MainActivity : ComponentActivity() {
         }
       }
     }
+  }
+
+  override fun onStart() {
+    super.onStart()
+    coachAlertNotifier.activityStarted(this)
+  }
+
+  override fun onStop() {
+    coachAlertNotifier.activityStopped(this)
+    super.onStop()
   }
 
   override fun onNewIntent(intent: Intent) {

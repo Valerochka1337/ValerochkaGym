@@ -1,46 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="108dp"
-    android:height="108dp"
-    android:viewportWidth="1024"
-    android:viewportHeight="1024">
-    <!-- System-tinted mask of the Yarumo mark: ring, dumbbell, heart, and pulse. -->
-    <group
-        android:pivotX="512"
-        android:pivotY="512"
-        android:scaleX="0.7"
-        android:scaleY="0.7">
-        <path
-            android:fillColor="@android:color/transparent"
-            android:pathData="M512,104 a408,408 0,1 0,0.1,0"
-            android:strokeColor="@android:color/white"
-            android:strokeWidth="28" />
-        <path
-            android:fillColor="@android:color/transparent"
-            android:pathData="M512,184 a272,272 0,1 0,0.1,0"
-            android:strokeColor="@android:color/white"
-            android:strokeWidth="24" />
-        <path
-            android:fillColor="@android:color/transparent"
-            android:pathData="M512,376 a272,272 0,1 0,0.1,0"
-            android:strokeColor="@android:color/white"
-            android:strokeWidth="24" />
-        <path
-            android:fillColor="@android:color/white"
-            android:pathData="M380,302h28v116h-28z M430,270h42v180h-42z M552,270h42v180h-42z M616,302h28v116h-28z M472,342h80v36h-80z" />
-        <path
-            android:fillColor="@android:color/transparent"
-            android:pathData="M512,830 C468,800 402,752 402,674 C402,618 468,590 512,642 C556,590 622,618 622,674 C622,752 556,800 512,830"
-            android:strokeColor="@android:color/white"
-            android:strokeLineCap="round"
-            android:strokeLineJoin="round"
-            android:strokeWidth="30" />
-        <path
-            android:fillColor="@android:color/transparent"
-            android:pathData="M404,714h64l38,-58l42,112l34,-54h42"
-            android:strokeColor="@android:color/white"
-            android:strokeLineCap="round"
-            android:strokeLineJoin="round"
-            android:strokeWidth="28" />
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <group android:translateX="13.872" android:translateY="16.88"
+        android:scaleX="0.064" android:scaleY="0.064">
+        <path android:fillColor="#FFFFFFFF" android:pathData="M300 918V351A32 32 0 0 1 356.538 330.46L565 579.501V679.209L364 439.083V918A32 32 0 0 1 300 918Z" />
+        <group android:translateX="1254" android:scaleX="-1">
+            <path android:fillColor="#FFFFFFFF" android:pathData="M300 918V351A32 32 0 0 1 356.538 330.46L565 579.501V679.209L364 439.083V918A32 32 0 0 1 300 918Z" />
+        </group>
+        <path android:fillColor="#FFFFFFFF" android:pathData="M337.395 267.107L591 570.079V914A36 36 0 0 0 663 914V570.079L916.605 267.107A36 36 0 0 0 861.395 220.893L627 500.914L392.605 220.893A36 36 0 0 0 337.395 267.107Z" />
     </group>
 </vector>
