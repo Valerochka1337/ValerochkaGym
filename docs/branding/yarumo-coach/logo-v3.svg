@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="900" viewBox="0 0 900 900" role="img" aria-labelledby="title desc">
+  <title id="title">Yarumo Gym — YM</title>
+  <desc id="desc">YM monogram without wordmark. Stroke widths M 80 and Y 90, round terminals, 26-unit clear gaps.</desc>
+  
+  <g id="monogram" transform="translate(-177 -124.5)">
+    <g fill="#B98AE7">
+      <path d="M292 910V377.509A40 40 0 0 1 362.673 351.834L556 582.794V707.43L372 487.613V910A40 40 0 0 1 292 910Z"/>
+      <path transform="translate(1254 0) scale(-1 1)" d="M292 910V377.509A40 40 0 0 1 362.673 351.834L556 582.794V707.43L372 487.613V910A40 40 0 0 1 292 910Z"/>
+    </g>
+    <path fill="#80A9F9" d="M330.493 272.884L582 573.348V905A45 45 0 0 0 672 905V573.348L923.507 272.884A45 45 0 0 0 854.493 215.116L627 486.892L399.507 215.116A45 45 0 0 0 330.493 272.884Z"/>
+  </g>
+</svg>

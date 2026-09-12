@@ -49,7 +49,7 @@ accessibility-контракт). Это
 | Бренд лаунчера | `docs/branding/yarumo-coach/`, adaptive resources `mipmap-anydpi/` |
 
 Пользовательское имя продукта — **Yarumo coach**. Лаунчер использует монограмму YM из
-`docs/branding/yarumo-coach/yarumo-gym-v2-mark.svg`. Adaptive foreground — вектор на холсте
+`docs/branding/yarumo-coach/logo-v3.svg`. Adaptive foreground — вектор на холсте
 108dp, внутри центральной безопасной окружности диаметром 66dp. Фон непрозрачный;
 форму обрезки задаёт лаунчер. Цвета монограммы сохранены из SVG. Все четыре activity-alias
 сохраняют имена, порядок и состояние, используют одинаковый знак. Monochrome — та же геометрия
