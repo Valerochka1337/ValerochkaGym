@@ -29,6 +29,32 @@ import org.junit.Test
 
 class BackendCoachModelGatewayTest {
   @Test
+  fun `invalid or foreign prompt is rejected`() = runTest {
+    for (backend in
+        listOf(
+            FakeBackend(promptBody = """{"prompt":" "}"""),
+            FakeBackend(promptOwner = "other"),
+        )) {
+      val gateway =
+          BackendCoachModelGateway(backend, FakeSessions(), SettingsRepository(FakeStore()))
+      try {
+        gateway.systemPrompt("owner", 7)
+        fail("Invalid prompt is accepted")
+      } catch (_: IllegalArgumentException) {}
+    }
+  }
+
+  @Test
+  fun `system prompt is fetched through owner bound endpoint`() = runTest {
+    val backend = FakeBackend()
+    val gateway = BackendCoachModelGateway(backend, FakeSessions(), SettingsRepository(FakeStore()))
+    assertEquals("Remote prompt", gateway.systemPrompt("owner", 7))
+    assertEquals(listOf("/ai/coach-prompt"), backend.paths)
+    assertEquals(listOf("owner"), backend.owners)
+    assertEquals(listOf(7L), backend.epochs)
+  }
+
+  @Test
   fun `gateway emits text before completion and rejects stale session before any delta`() =
       runTest {
         val sessions = FakeSessions()
@@ -226,6 +252,8 @@ class BackendCoachModelGatewayTest {
   }
 
   private class FakeBackend(
+      private val promptBody: String = """{"prompt":"Remote prompt"}""",
+      private val promptOwner: String = "owner",
       private val returnedModel: String? = null,
       private val responseRequestId: String? = null,
       private val terminalError: String? = null,
@@ -314,12 +342,14 @@ class BackendCoachModelGatewayTest {
         retryOnUnauthorized: Boolean,
         maxResponseBytes: Int?,
     ): BackendResponse {
-      if (path == "/ai/coach-models") assertTrue(retryOnUnauthorized)
+      if (path == "/ai/coach-models" || path == "/ai/coach-prompt") assertTrue(retryOnUnauthorized)
       paths += path
       owners += expectedOwner
       epochs += expectedSessionEpoch
       val response =
-          if (path == "/ai/coach-models") {
+          if (path == "/ai/coach-prompt") {
+            promptBody
+          } else if (path == "/ai/coach-models") {
             """{"availability":"AVAILABLE","defaultModel":"model-a","models":["model-a","model-b"]}"""
           } else {
             turnRaw = json.parseToJsonElement(rawBody.decodeToString())
@@ -342,7 +372,7 @@ class BackendCoachModelGatewayTest {
           body = json.parseToJsonElement(response),
           rawBody = response.encodeToByteArray(),
           acceptedCapabilities = emptySet(),
-          owner = "owner",
+          owner = if (path == "/ai/coach-prompt") promptOwner else "owner",
           sessionEpoch = 7,
       )
     }

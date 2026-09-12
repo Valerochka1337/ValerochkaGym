@@ -50,6 +50,11 @@ class CoachChatViewModelTest : RoomDaoTest() {
         val release = kotlinx.coroutines.CompletableDeferred<Unit>()
         val gateway =
             object : CoachModelGateway {
+              override suspend fun systemPrompt(
+                  expectedOwner: String,
+                  expectedSessionEpoch: Long?,
+              ) = "Server coach prompt"
+
               override fun stream(
                   expectedOwner: String,
                   expectedSessionEpoch: Long?,
@@ -290,6 +295,9 @@ class CoachChatViewModelTest : RoomDaoTest() {
 /** Completed-only fixture; streaming behavior uses explicit event fakes below. */
 private interface CoachChatViewModelTestGateway :
     com.valerochka1337.valerochkagym.data.ai.CoachModelGateway {
+  override suspend fun systemPrompt(expectedOwner: String, expectedSessionEpoch: Long?) =
+      "Server coach prompt"
+
   suspend fun complete(
       expectedOwner: String,
       expectedSessionEpoch: Long?,

@@ -38,6 +38,31 @@ constructor(
     ignoreUnknownKeys = false
   }
 
+  override suspend fun systemPrompt(expectedOwner: String, expectedSessionEpoch: Long?): String {
+    val epoch = expectedSessionEpoch ?: sessions.snapshot()?.epoch
+    pin(expectedOwner, epoch)
+    val response =
+        backend.authorizedRawResponse(
+            method = "GET",
+            path = "/ai/coach-prompt",
+            rawBody = ByteArray(0),
+            expectedOwner = expectedOwner,
+            expectedSessionEpoch = epoch,
+            retryOnUnauthorized = true,
+            maxResponseBytes = MAX_RESPONSE_BYTES,
+        )
+    require(response.owner == expectedOwner && response.sessionEpoch == epoch) {
+      "Coach prompt owner changed"
+    }
+    pin(expectedOwner, epoch)
+    val prompt =
+        wireJson
+            .decodeFromString(CoachPromptResponse.serializer(), response.rawBody.decodeToString())
+            .prompt
+    require(prompt.isNotBlank() && prompt.length <= 16000) { "Invalid coach prompt" }
+    return prompt
+  }
+
   override fun stream(
       expectedOwner: String,
       expectedSessionEpoch: Long?,
@@ -222,3 +247,5 @@ private data class CoachTurnResponse(
     val model: String? = null,
     val completion: AiApiChatResponse,
 )
+
+@Serializable private data class CoachPromptResponse(val prompt: String)

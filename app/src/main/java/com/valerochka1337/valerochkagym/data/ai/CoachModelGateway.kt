@@ -6,6 +6,8 @@ package com.valerochka1337.valerochkagym.data.ai
  * interface never performs workout operations or retries a provider POST on its own.
  */
 interface CoachModelGateway {
+  suspend fun systemPrompt(expectedOwner: String, expectedSessionEpoch: Long?): String
+
   fun stream(
       expectedOwner: String,
       expectedSessionEpoch: Long?,

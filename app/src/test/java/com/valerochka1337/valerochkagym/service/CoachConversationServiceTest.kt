@@ -87,6 +87,9 @@ class CoachConversationServiceTest : RoomDaoTest() {
   }
 
   private class StreamingGateway(private val fail: Boolean = false) : CoachModelGateway {
+    override suspend fun systemPrompt(expectedOwner: String, expectedSessionEpoch: Long?) =
+        "Server coach prompt"
+
     val release = CompletableDeferred<Unit>()
 
     override fun stream(
@@ -935,6 +938,9 @@ class CoachConversationServiceTest : RoomDaoTest() {
 /** Completed-only fixture; streaming behavior uses explicit event fakes below. */
 private interface CoachConversationServiceTestGateway :
     com.valerochka1337.valerochkagym.data.ai.CoachModelGateway {
+  override suspend fun systemPrompt(expectedOwner: String, expectedSessionEpoch: Long?) =
+      "Server coach prompt"
+
   suspend fun complete(
       expectedOwner: String,
       expectedSessionEpoch: Long?,

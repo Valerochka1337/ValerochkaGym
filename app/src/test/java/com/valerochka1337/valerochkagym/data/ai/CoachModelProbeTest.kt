@@ -108,6 +108,9 @@ class CoachModelProbeTest {
 /** Completed-only fixture; streaming behavior uses explicit event fakes below. */
 private interface CoachModelProbeTestGateway :
     com.valerochka1337.valerochkagym.data.ai.CoachModelGateway {
+  override suspend fun systemPrompt(expectedOwner: String, expectedSessionEpoch: Long?) =
+      "Server coach prompt"
+
   suspend fun complete(
       expectedOwner: String,
       expectedSessionEpoch: Long?,
