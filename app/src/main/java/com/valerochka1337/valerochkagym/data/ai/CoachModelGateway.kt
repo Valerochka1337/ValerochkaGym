@@ -6,10 +6,16 @@ package com.valerochka1337.valerochkagym.data.ai
  * interface never performs workout operations or retries a provider POST on its own.
  */
 interface CoachModelGateway {
-  suspend fun complete(
+  fun stream(
       expectedOwner: String,
       expectedSessionEpoch: Long?,
       messages: List<AiApiMessage>,
       tools: List<AiApiTool>,
-  ): AiApiChatResponse
+  ): kotlinx.coroutines.flow.Flow<CoachModelEvent>
+}
+
+sealed interface CoachModelEvent {
+  data class TextDelta(val delta: String) : CoachModelEvent
+
+  data class Completed(val completion: AiApiChatResponse) : CoachModelEvent
 }

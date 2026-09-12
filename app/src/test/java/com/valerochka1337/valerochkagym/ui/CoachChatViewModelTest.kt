@@ -23,7 +23,9 @@ import com.valerochka1337.valerochkagym.ui.navigation.GymRoutes
 import com.valerochka1337.valerochkagym.util.MainDispatcherRule
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
@@ -37,6 +39,83 @@ import org.junit.Test
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class CoachChatViewModelTest : RoomDaoTest() {
   @get:Rule val mainDispatcherRule = MainDispatcherRule(StandardTestDispatcher())
+
+  @Test
+  fun `reopened view model receives draft and deduplicates the committed answer`() =
+      runTest(mainDispatcherRule.testDispatcher.scheduler) {
+        val workout = insertWorkout("stream")
+        db.openHelper.writableDatabase.execSQL(
+            "INSERT OR REPLACE INTO backend_state (id, owner, generation, phase, initialMergeAcknowledged) VALUES (1, 'user', 0, 'OWNED', 1)"
+        )
+        val release = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val gateway =
+            object : CoachModelGateway {
+              override fun stream(
+                  expectedOwner: String,
+                  expectedSessionEpoch: Long?,
+                  messages: List<AiApiMessage>,
+                  tools: List<AiApiTool>,
+              ) =
+                  kotlinx.coroutines.flow.flow {
+                    emit(
+                        com.valerochka1337.valerochkagym.data.ai.CoachModelEvent.TextDelta(
+                            "{\"text\":\"Продолжай"
+                        )
+                    )
+                    release.await()
+                    emit(
+                        com.valerochka1337.valerochkagym.data.ai.CoachModelEvent.Completed(
+                            AiApiChatResponse(
+                                choices =
+                                    listOf(
+                                        com.valerochka1337.valerochkagym.data.ai.AiApiChoice(
+                                            com.valerochka1337.valerochkagym.data.ai
+                                                .AiApiResponseMessage(
+                                                    content =
+                                                        kotlinx.serialization.json.JsonPrimitive(
+                                                            "{\"text\":\"Продолжай\"}"
+                                                        )
+                                                )
+                                        )
+                                    )
+                            )
+                        )
+                    )
+                  }
+            }
+        val service = conversation(gateway)
+        // Room uses a real executor. Its query latency must not advance the service's
+        // network deadline through 60 seconds while the UI test clock skips idle time.
+        service.attach(
+            kotlinx.coroutines.CoroutineScope(
+                backgroundScope.coroutineContext + kotlinx.coroutines.Dispatchers.Default
+            )
+        )
+        val first = viewModel(workout, service)
+        val collector =
+            backgroundScope.launch(
+                kotlinx.coroutines.test.UnconfinedTestDispatcher(testScheduler)
+            ) {
+              first.uiState.collect()
+            }
+        first.uiState.first { !it.readOnly }
+        assertTrue(service.send(workout, "Подскажи технику"))
+        val streamed =
+            first.uiState.first { it.messages.lastOrNull()?.streaming == true }.messages.last()
+        collector.cancel()
+        val reopened = viewModel(workout, service)
+        backgroundScope.launch(kotlinx.coroutines.test.UnconfinedTestDispatcher(testScheduler)) {
+          reopened.uiState.collect()
+        }
+        val restored = reopened.uiState.first { it.messages.lastOrNull()?.streaming == true }
+        assertEquals(streamed.id, restored.messages.last().id)
+        assertEquals("Продолжай", restored.messages.last().text)
+        release.complete(Unit)
+        val completed =
+            reopened.uiState.first { !it.busy && it.messages.lastOrNull()?.streaming == false }
+        assertEquals(1, completed.messages.count { it.id == streamed.id })
+        assertEquals("Продолжай", completed.messages.last().text)
+      }
 
   @Test
   fun `finished workout changes an open chat to read only`() =
@@ -153,18 +232,23 @@ class CoachChatViewModelTest : RoomDaoTest() {
         assertTrue(model.uiState.first { it.messages.size == 2 }.quickReplies.isEmpty())
       }
 
-  private fun TestScope.viewModel(workoutId: String): CoachChatViewModel =
+  private fun TestScope.viewModel(
+      workoutId: String,
+      service: CoachConversationService = conversation(),
+  ): CoachChatViewModel =
       CoachChatViewModel(
           SavedStateHandle(mapOf(GymRoutes.WORKOUT_ID_ARG to workoutId)),
           db.coachDao(),
           db.workoutDao(),
-          conversation(),
+          service,
           com.valerochka1337.valerochkagym.service.CoachAlertNotifier(
               androidx.test.core.app.ApplicationProvider.getApplicationContext()
           ),
       )
 
-  private fun TestScope.conversation(): CoachConversationService {
+  private fun TestScope.conversation(
+      gateway: CoachModelGateway = NoopGateway
+  ): CoachConversationService {
     val timer = RestTimerEngine(backgroundScope, WallClock { testScheduler.currentTime })
     val coordinator =
         WorkoutEditor(
@@ -176,7 +260,7 @@ class CoachChatViewModelTest : RoomDaoTest() {
             WorkoutWriteQueue(),
         )
     val control = CoachWorkoutReader(db, timer, session)
-    return CoachConversationService(CoachAgent(NoopGateway), control, coordinator, db, session)
+    return CoachConversationService(CoachAgent(gateway), control, coordinator, db, session)
   }
 
   private val session = FakeSession()
@@ -193,7 +277,7 @@ class CoachChatViewModelTest : RoomDaoTest() {
     }
   }
 
-  private object NoopGateway : CoachModelGateway {
+  private object NoopGateway : CoachChatViewModelTestGateway {
     override suspend fun complete(
         expectedOwner: String,
         expectedSessionEpoch: Long?,
@@ -201,4 +285,29 @@ class CoachChatViewModelTest : RoomDaoTest() {
         tools: List<AiApiTool>,
     ) = AiApiChatResponse()
   }
+}
+
+/** Completed-only fixture; streaming behavior uses explicit event fakes below. */
+private interface CoachChatViewModelTestGateway :
+    com.valerochka1337.valerochkagym.data.ai.CoachModelGateway {
+  suspend fun complete(
+      expectedOwner: String,
+      expectedSessionEpoch: Long?,
+      messages: List<com.valerochka1337.valerochkagym.data.ai.AiApiMessage>,
+      tools: List<com.valerochka1337.valerochkagym.data.ai.AiApiTool>,
+  ): com.valerochka1337.valerochkagym.data.ai.AiApiChatResponse
+
+  override fun stream(
+      expectedOwner: String,
+      expectedSessionEpoch: Long?,
+      messages: List<com.valerochka1337.valerochkagym.data.ai.AiApiMessage>,
+      tools: List<com.valerochka1337.valerochkagym.data.ai.AiApiTool>,
+  ) =
+      kotlinx.coroutines.flow.flow {
+        emit(
+            com.valerochka1337.valerochkagym.data.ai.CoachModelEvent.Completed(
+                complete(expectedOwner, expectedSessionEpoch, messages, tools)
+            )
+        )
+      }
 }

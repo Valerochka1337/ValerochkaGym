@@ -15,8 +15,13 @@ import javax.crypto.spec.GCMParameterSpec
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.channels.trySendBlocking
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.buffer
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -66,6 +71,14 @@ interface BackendTransport {
     )
   }
 
+  fun authorizedEventStream(
+      path: String,
+      rawBody: ByteArray,
+      expectedOwner: String,
+      expectedSessionEpoch: Long?,
+  ): kotlinx.coroutines.flow.Flow<BackendStreamEvent> =
+      throw UnsupportedOperationException("Streaming backend transport is required")
+
   /** Sends previously journaled bytes verbatim; unsupported transports fail closed. */
   suspend fun authorizedRawResponse(
       method: String,
@@ -95,6 +108,10 @@ interface BackendSessionStore {
 
   fun save(tokens: BackendTokens?)
 
+  /** Production emits even when credentials are saved with equal values. */
+  val sessionEpochs: kotlinx.coroutines.flow.Flow<Long>
+    get() = session.map { sessionEpoch }
+
   /** Monotonically changes on every save, including A → B → A with equal token values. */
   val sessionEpoch: Long
     get() = 0L
@@ -117,6 +134,8 @@ class BackendTokenStore @Inject constructor(@ApplicationContext context: Context
   private val json = Json { ignoreUnknownKeys = true }
   private val state = MutableStateFlow(load())
   private var epoch = 0L
+  private val epochs = MutableStateFlow(0L)
+  override val sessionEpochs = epochs.asStateFlow()
   override val session = state.asStateFlow()
   override val sessionEpoch: Long
     @Synchronized get() = epoch
@@ -182,6 +201,7 @@ class BackendTokenStore @Inject constructor(@ApplicationContext context: Context
     }
     epoch++
     state.value = tokens
+    epochs.value = epoch
   }
 }
 
@@ -434,6 +454,120 @@ class BackendApi @Inject constructor(private val tokens: BackendSessionStore) : 
           )
         }
       }
+
+  override fun authorizedEventStream(
+      path: String,
+      rawBody: ByteArray,
+      expectedOwner: String,
+      expectedSessionEpoch: Long?,
+  ): kotlinx.coroutines.flow.Flow<BackendStreamEvent> =
+      kotlinx.coroutines.flow
+          .callbackFlow {
+            val dispatch =
+                tokens.snapshot()
+                    ?: throw BackendException(401, "unauthorized", "Войдите в аккаунт")
+            fun pin() {
+              if (
+                  dispatch.tokens.userId != expectedOwner ||
+                      (expectedSessionEpoch != null && dispatch.epoch != expectedSessionEpoch) ||
+                      tokens.snapshot() != dispatch
+              ) {
+                throw BackendException(401, "owner_changed", "Аккаунт изменился")
+              }
+            }
+            pin()
+            // A coach POST is never replayable, including HTTP follow-ups inside OkHttp.
+            val streamBody =
+                object : okhttp3.RequestBody() {
+                  override fun contentType() = "application/json".toMediaType()
+
+                  override fun contentLength() = rawBody.size.toLong()
+
+                  override fun isOneShot() = true
+
+                  override fun writeTo(sink: okio.BufferedSink) {
+                    sink.write(rawBody)
+                  }
+                }
+            val request =
+                Request.Builder()
+                    .url("${baseUrl}v1$path")
+                    .header("Authorization", "Bearer ${dispatch.tokens.accessToken}")
+                    .header("Accept", "text/event-stream")
+                    .header("X-Gym-Sync-Version", "3")
+                    .post(streamBody)
+                    .build()
+            val openResponse = java.util.concurrent.atomic.AtomicReference<okhttp3.Response?>()
+            val call =
+                client
+                    .newBuilder()
+                    .retryOnConnectionFailure(false)
+                    .followRedirects(false)
+                    .followSslRedirects(false)
+                    .authenticator(okhttp3.Authenticator.NONE)
+                    .proxyAuthenticator(okhttp3.Authenticator.NONE)
+                    .readTimeout(60, TimeUnit.SECONDS)
+                    .callTimeout(60, TimeUnit.SECONDS)
+                    .build()
+                    .newCall(request)
+            val guard = launch {
+              tokens.sessionEpochs.collect {
+                try {
+                  pin()
+                } catch (failure: BackendException) {
+                  close(failure)
+                  call.cancel()
+                }
+              }
+            }
+            call.enqueue(
+                object : okhttp3.Callback {
+                  override fun onFailure(call: okhttp3.Call, e: java.io.IOException) {
+                    close(e)
+                  }
+
+                  override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) {
+                    try {
+                      openResponse.set(response)
+                      if (call.isCanceled()) throw java.io.IOException("Cancelled")
+                      response.use {
+                        pin()
+                        if (!it.isSuccessful)
+                            parseResponse(it, expectedOwner, dispatch.epoch, 256 * 1024)
+                        require(
+                            it.body.contentType()?.let { type ->
+                              type.type == "text" && type.subtype == "event-stream"
+                            } == true
+                        ) {
+                          "Expected event stream"
+                        }
+                        CoachSseReader(it.body.source()).read { event, data ->
+                          pin()
+                          val sent =
+                              trySendBlocking(
+                                  BackendStreamEvent(event, data, expectedOwner, dispatch.epoch)
+                              )
+                          sent.getOrThrow()
+                          event !in setOf("completed", "error")
+                        }
+                      }
+                      close()
+                    } catch (failure: Exception) {
+                      response.close()
+                      close(failure)
+                    } finally {
+                      openResponse.set(null)
+                    }
+                  }
+                }
+            )
+            awaitClose {
+              guard.cancel()
+              call.cancel()
+              openResponse.getAndSet(null)?.close()
+            }
+          }
+          .buffer(1)
 
   private companion object {
     const val DEFAULT_BASE_URL = "https://api.valerochkagym.tech/"

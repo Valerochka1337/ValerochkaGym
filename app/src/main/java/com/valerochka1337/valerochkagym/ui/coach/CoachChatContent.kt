@@ -18,16 +18,21 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.MotionDurationScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
@@ -35,7 +40,10 @@ import androidx.compose.ui.unit.dp
 import com.valerochka1337.valerochkagym.domain.WorkoutApprovalPreview
 import com.valerochka1337.valerochkagym.ui.components.GymCard
 import com.valerochka1337.valerochkagym.ui.haptics.gymHaptics
+import com.valerochka1337.valerochkagym.ui.theme.GymMotion
 import com.valerochka1337.valerochkagym.ui.theme.LocalCoachActionColors
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.flow.collectLatest
 
 data class CoachChatMessage(
     val id: String,
@@ -44,6 +52,7 @@ data class CoachChatMessage(
     val status: String? = null,
     val quickReplies: List<String>? = null,
     val failed: Boolean = false,
+    val streaming: Boolean = false,
 )
 
 data class CoachChatProposal(
@@ -98,39 +107,110 @@ fun CoachChatContent(
     onRetry: (String) -> Unit = {},
     imeInsets: WindowInsets = WindowInsets.ime,
 ) {
+  val last = state.messages.lastOrNull()
+  val latestLast by rememberUpdatedState(last)
+  var shownText by remember { mutableStateOf(last?.text.orEmpty()) }
+  var shownId by remember { mutableStateOf(last?.id) }
+  var smoother = remember { CoachTextSmoother(last?.text.orEmpty()) }
+  LaunchedEffect(Unit) {
+    snapshotFlow { latestLast }
+        .collectLatest { message ->
+          if (message == null) return@collectLatest
+          if (shownId != message.id) {
+            smoother =
+                CoachTextSmoother(if (shownId != null && message.streaming) "" else message.text)
+            shownText = smoother.visible
+            shownId = message.id
+          }
+          val immediate =
+              message.failed || currentCoroutineContext()[MotionDurationScale]?.scaleFactor == 0f
+          var previousFrame = Long.MIN_VALUE
+          do {
+            val now = withFrameNanos { it / 1_000_000 }
+            if (
+                previousFrame == Long.MIN_VALUE || now - previousFrame >= GymMotion.CoachFrameMillis
+            ) {
+              shownText = smoother.update(message.text, now, immediate)
+              previousFrame = now
+            }
+          } while (shownText != message.text)
+        }
+  }
+  val accessibility = androidx.compose.ui.platform.LocalView.current
+  var wasStreaming by remember { mutableStateOf(false) }
+  LaunchedEffect(last?.streaming, last?.id, state.busy) {
+    if (last?.streaming == true && !wasStreaming) {
+      accessibility.announceForAccessibility("Тренер отвечает")
+      wasStreaming = true
+    }
+    if (wasStreaming && !state.busy) {
+      if (last?.role == "assistant" && last.failed != true && !state.readOnly) {
+        accessibility.announceForAccessibility("Ответ тренера готов")
+      }
+      wasStreaming = false
+    }
+  }
+  val waitingStatus = state.status?.takeIf { last?.streaming != true }
   val haptics = gymHaptics()
   val actionColors = LocalCoachActionColors.current
   val listState = rememberLazyListState()
   var conversationHeight by remember { mutableStateOf(0) }
   val imeBottom = imeInsets.getBottom(LocalDensity.current)
+  var automaticScroll by remember { mutableStateOf(false) }
   var openedHistory by remember { mutableStateOf(false) }
+  var followAnswer by remember { mutableStateOf(true) }
+  LaunchedEffect(listState) {
+    var previousIndex = listState.firstVisibleItemIndex
+    var previousOffset = listState.firstVisibleItemScrollOffset
+    snapshotFlow {
+          Triple(
+              listState.firstVisibleItemIndex,
+              listState.firstVisibleItemScrollOffset,
+              listState.canScrollForward,
+          )
+        }
+        .collect { (index, offset, canScroll) ->
+          val movedUp = index < previousIndex || (index == previousIndex && offset < previousOffset)
+          if (!automaticScroll && movedUp) followAnswer = false
+          if (!canScroll) followAnswer = true
+          previousIndex = index
+          previousOffset = offset
+        }
+  }
   val itemCount =
       state.messages.size.coerceAtLeast(1) +
-          (if (state.status != null) 1 else 0) +
+          (if (waitingStatus != null) 1 else 0) +
           (if (state.error != null) 1 else 0) +
           (if (state.readOnly || state.proposal != null) 1 else 0)
   LaunchedEffect(
       state.messages.lastOrNull()?.id,
+      shownText,
       state.proposal?.id,
-      state.status,
+      waitingStatus,
       state.readOnly,
   ) {
-    val layout = listState.layoutInfo
-    val nearBottom =
-        layout.visibleItemsInfo.lastOrNull()?.index?.let { it >= layout.totalItemsCount - 3 } !=
-            false
-    if (!openedHistory || nearBottom) {
+    if (!openedHistory || followAnswer) {
       withFrameNanos {}
-      listState.scrollToItem(itemCount - 1, Int.MAX_VALUE)
+      automaticScroll = true
+      try {
+        listState.scrollToItem(itemCount - 1, Int.MAX_VALUE)
+      } finally {
+        automaticScroll = false
+      }
       if (state.messages.isNotEmpty()) openedHistory = true
     }
   }
   // The composer reduces the viewport as the IME animates. Reveal the end after
   // each layout change, without moving the app bar or changing the window origin.
   LaunchedEffect(imeBottom, conversationHeight) {
-    if (imeBottom > 0 && !state.readOnly) {
+    if (imeBottom > 0 && !state.readOnly && followAnswer) {
       withFrameNanos {}
-      listState.scrollToItem(itemCount - 1, Int.MAX_VALUE)
+      automaticScroll = true
+      try {
+        listState.scrollToItem(itemCount - 1, Int.MAX_VALUE)
+      } finally {
+        automaticScroll = false
+      }
     }
   }
   Scaffold(
@@ -218,8 +298,16 @@ fun CoachChatContent(
                 Spacer(Modifier.height(8.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                   Text(
-                      message.text,
-                      modifier = Modifier.weight(1f),
+                      if (message.id == shownId && !message.failed) shownText else message.text,
+                      modifier =
+                          Modifier.weight(1f)
+                              .then(
+                                  if (message.streaming)
+                                      Modifier.clearAndSetSemantics {
+                                        contentDescription = "Тренер отвечает"
+                                      }
+                                  else Modifier
+                              ),
                       style = MaterialTheme.typography.bodyLarge,
                   )
                   state.retryText(message)?.let {
@@ -249,7 +337,7 @@ fun CoachChatContent(
             }
           }
         }
-        state.status?.let { status ->
+        waitingStatus?.let { status ->
           item(key = "status") {
             GymCard(
                 Modifier.fillMaxWidth().testTag("coach-status").semantics {

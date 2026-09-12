@@ -71,8 +71,12 @@ constructor(
         )
       }
   private val transient =
-      combine(status, error, busyAction) { statusValue, errorValue, actionBusy ->
-        TransientChat(statusValue, errorValue, actionBusy)
+      combine(status, error, busyAction, conversation.responseDrafts) {
+          statusValue,
+          errorValue,
+          actionBusy,
+          responses ->
+        TransientChat(statusValue, errorValue, actionBusy, responses[workoutId])
       }
 
   val uiState: StateFlow<CoachChatUiState> =
@@ -85,7 +89,26 @@ constructor(
           ) { persistedValue, transientValue, running, stages, workout ->
             CoachChatUiState(
                 workoutName = workout?.name ?: "Тренировка",
-                messages = persistedValue.messages,
+                messages =
+                    persistedValue.messages.let { messages ->
+                      val response = transientValue.response
+                      if (
+                          response == null ||
+                              workout == null ||
+                              workout.finishedAt != null ||
+                              messages.any { it.id == response.id }
+                      )
+                          messages
+                      else
+                          messages +
+                              CoachChatMessage(
+                                  response.id,
+                                  "assistant",
+                                  response.text,
+                                  quickReplies = response.quickReplies,
+                                  streaming = response.streaming,
+                              )
+                    },
                 proposal = persistedValue.proposal,
                 draft = persistedValue.draft,
                 busy = transientValue.actionBusy || workoutId in running,
@@ -167,7 +190,12 @@ constructor(
       val draft: String,
   )
 
-  private data class TransientChat(val status: String?, val error: String?, val actionBusy: Boolean)
+  private data class TransientChat(
+      val status: String?,
+      val error: String?,
+      val actionBusy: Boolean,
+      val response: com.valerochka1337.valerochkagym.service.CoachDraft?,
+  )
 
   private fun String.toUiStatus(): String? =
       when (this) {

@@ -73,6 +73,7 @@ constructor(
       tools: List<AiApiTool>,
       history: List<CoachHistoryMessage> = emptyList(),
       expectedSessionEpoch: Long? = null,
+      onDraft: suspend (String) -> Unit = {},
       dispatch: suspend (AiApiToolCall) -> CoachToolOutcome,
   ): CoachRunResult {
     var requests = 0
@@ -101,9 +102,21 @@ constructor(
         for (request in 1..MAX_REQUESTS) {
           currentCoroutineContext().ensureActive()
           requests = request
+          onDraft("")
+          val decoder = com.valerochka1337.valerochkagym.domain.CoachTextDecoder()
           val response =
               withTimeout(PER_REQUEST_MILLIS) {
-                gateway.complete(snapshot.accountId, expectedSessionEpoch, messages.toList(), tools)
+                var final: AiApiChatResponse? = null
+                gateway
+                    .stream(snapshot.accountId, expectedSessionEpoch, messages.toList(), tools)
+                    .collect { event ->
+                      check(final == null) { "Event after completion" }
+                      when (event) {
+                        is CoachModelEvent.TextDelta -> onDraft(decoder.append(event.delta))
+                        is CoachModelEvent.Completed -> final = event.completion
+                      }
+                    }
+                requireNotNull(final) { "Missing completed event" }
               }
           currentCoroutineContext().ensureActive()
           val choice = response.choices.firstOrNull()
@@ -132,6 +145,7 @@ constructor(
                 reply.quickReplies,
             )
           }
+          onDraft("")
           // Preflight the entire response before dispatching anything, including a mutation.
           val incoming = message.toolCalls
           if (incoming.size > MAX_TOOLS - calls) {
